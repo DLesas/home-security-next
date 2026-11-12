@@ -1,0 +1,467 @@
+{
+  "schemaVersion": 1,
+  "protocolVersion": 1,
+  "take": [
+    {
+      "step": 64,
+      "next": 1,
+      "resumePoint": 64,
+      "counter": 1,
+      "saveResumePoint": null,
+      "nextAfter": 2,
+      "resumePointAfter": 64
+    },
+    {
+      "step": 64,
+      "next": 63,
+      "resumePoint": 64,
+      "counter": 63,
+      "saveResumePoint": null,
+      "nextAfter": 64,
+      "resumePointAfter": 64
+    },
+    {
+      "step": 64,
+      "next": 64,
+      "resumePoint": 64,
+      "counter": 64,
+      "saveResumePoint": 128,
+      "nextAfter": 65,
+      "resumePointAfter": 128
+    },
+    {
+      "step": 64,
+      "next": 65,
+      "resumePoint": 128,
+      "counter": 65,
+      "saveResumePoint": null,
+      "nextAfter": 66,
+      "resumePointAfter": 128
+    },
+    {
+      "step": 1024,
+      "next": 1,
+      "resumePoint": 1024,
+      "counter": 1,
+      "saveResumePoint": null,
+      "nextAfter": 2,
+      "resumePointAfter": 1024
+    },
+    {
+      "step": 1024,
+      "next": 1024,
+      "resumePoint": 1024,
+      "counter": 1024,
+      "saveResumePoint": 2048,
+      "nextAfter": 1025,
+      "resumePointAfter": 2048
+    },
+    {
+      "step": 64,
+      "next": 4294967231,
+      "resumePoint": 4294967232,
+      "counter": 4294967231,
+      "saveResumePoint": null,
+      "nextAfter": 4294967232,
+      "resumePointAfter": 4294967232
+    },
+    {
+      "step": 64,
+      "next": 4294967232,
+      "resumePoint": 4294967232,
+      "error": "counterExhausted"
+    },
+    {
+      "step": 1024,
+      "next": 4294966271,
+      "resumePoint": 4294966272,
+      "counter": 4294966271,
+      "saveResumePoint": null,
+      "nextAfter": 4294966272,
+      "resumePointAfter": 4294966272
+    },
+    {
+      "step": 1024,
+      "next": 4294966272,
+      "resumePoint": 4294966272,
+      "error": "counterExhausted"
+    }
+  ],
+  "powerLoss": [
+    {
+      "step": 64,
+      "initialResumePoint": 64,
+      "events": [
+        {
+          "event": "send",
+          "count": 30,
+          "firstCounter": 1,
+          "lastCounter": 30,
+          "savedResumePoints": []
+        },
+        {
+          "event": "powerLoss",
+          "resumeFrom": 64
+        },
+        {
+          "event": "send",
+          "count": 100,
+          "firstCounter": 64,
+          "lastCounter": 163,
+          "savedResumePoints": [
+            128,
+            192
+          ]
+        },
+        {
+          "event": "powerLoss",
+          "resumeFrom": 192
+        },
+        {
+          "event": "send",
+          "count": 1,
+          "firstCounter": 192,
+          "lastCounter": 192,
+          "savedResumePoints": [
+            256
+          ]
+        }
+      ]
+    },
+    {
+      "step": 1024,
+      "initialResumePoint": 1024,
+      "events": [
+        {
+          "event": "send",
+          "count": 1023,
+          "firstCounter": 1,
+          "lastCounter": 1023,
+          "savedResumePoints": []
+        },
+        {
+          "event": "send",
+          "count": 1,
+          "firstCounter": 1024,
+          "lastCounter": 1024,
+          "savedResumePoints": [
+            2048
+          ]
+        },
+        {
+          "event": "powerLoss",
+          "resumeFrom": 2048
+        },
+        {
+          "event": "powerLoss",
+          "resumeFrom": 2048
+        },
+        {
+          "event": "send",
+          "count": 2,
+          "firstCounter": 2048,
+          "lastCounter": 2049,
+          "savedResumePoints": [
+            3072
+          ]
+        }
+      ]
+    }
+  ],
+  "restore": [
+    {
+      "step": 1024,
+      "backedUpResumePoint": 1024,
+      "next": 16778240
+    },
+    {
+      "step": 1024,
+      "backedUpResumePoint": 4261412864,
+      "next": 4278190080
+    },
+    {
+      "step": 1024,
+      "backedUpResumePoint": 4278190080,
+      "error": "counterExhausted"
+    }
+  ],
+  "replayWindow": [
+    {
+      "name": "in order, then a repeat",
+      "steps": [
+        {
+          "counter": 1,
+          "accepted": true,
+          "highest": 1,
+          "state": "010000000000000000000000"
+        },
+        {
+          "counter": 2,
+          "accepted": true,
+          "highest": 2,
+          "state": "020000000100000000000000"
+        },
+        {
+          "counter": 3,
+          "accepted": true,
+          "highest": 3,
+          "state": "030000000300000000000000"
+        },
+        {
+          "counter": 3,
+          "accepted": false,
+          "rejection": "duplicate"
+        }
+      ]
+    },
+    {
+      "name": "window edges after a jump",
+      "steps": [
+        {
+          "counter": 100,
+          "accepted": true,
+          "highest": 100,
+          "state": "640000000000000000000000"
+        },
+        {
+          "counter": 36,
+          "accepted": true,
+          "highest": 100,
+          "state": "640000000000000000000080"
+        },
+        {
+          "counter": 35,
+          "accepted": false,
+          "rejection": "tooOld"
+        },
+        {
+          "counter": 36,
+          "accepted": false,
+          "rejection": "duplicate"
+        },
+        {
+          "counter": 99,
+          "accepted": true,
+          "highest": 100,
+          "state": "640000000100000000000080"
+        },
+        {
+          "counter": 101,
+          "accepted": true,
+          "highest": 101,
+          "state": "650000000300000000000000"
+        },
+        {
+          "counter": 37,
+          "accepted": true,
+          "highest": 101,
+          "state": "650000000300000000000080"
+        },
+        {
+          "counter": 36,
+          "accepted": false,
+          "rejection": "tooOld"
+        }
+      ]
+    },
+    {
+      "name": "jump of exactly 64 keeps the old highest; 65 drops it",
+      "steps": [
+        {
+          "counter": 1000,
+          "accepted": true,
+          "highest": 1000,
+          "state": "e80300000000000000000000"
+        },
+        {
+          "counter": 1064,
+          "accepted": true,
+          "highest": 1064,
+          "state": "280400000000000000000080"
+        },
+        {
+          "counter": 1000,
+          "accepted": false,
+          "rejection": "duplicate"
+        },
+        {
+          "counter": 1001,
+          "accepted": true,
+          "highest": 1064,
+          "state": "2804000000000000000000c0"
+        },
+        {
+          "counter": 1129,
+          "accepted": true,
+          "highest": 1129,
+          "state": "690400000000000000000000"
+        },
+        {
+          "counter": 1064,
+          "accepted": false,
+          "rejection": "tooOld"
+        },
+        {
+          "counter": 1065,
+          "accepted": true,
+          "highest": 1129,
+          "state": "690400000000000000000080"
+        }
+      ]
+    },
+    {
+      "name": "highest possible counter",
+      "steps": [
+        {
+          "counter": 4294967231,
+          "accepted": true,
+          "highest": 4294967231,
+          "state": "bfffffff0000000000000000"
+        },
+        {
+          "counter": 4294967295,
+          "accepted": true,
+          "highest": 4294967295,
+          "state": "ffffffff0000000000000080"
+        },
+        {
+          "counter": 4294967231,
+          "accepted": false,
+          "rejection": "duplicate"
+        },
+        {
+          "counter": 4294967232,
+          "accepted": true,
+          "highest": 4294967295,
+          "state": "ffffffff00000000000000c0"
+        },
+        {
+          "counter": 4294967230,
+          "accepted": false,
+          "rejection": "tooOld"
+        }
+      ]
+    }
+  ],
+  "strictlyHigher": [
+    {
+      "name": "siren commands",
+      "steps": [
+        {
+          "lastAccepted": 0,
+          "counter": 1,
+          "accepted": true
+        },
+        {
+          "lastAccepted": 1,
+          "counter": 1,
+          "accepted": false,
+          "rejection": "duplicate"
+        },
+        {
+          "lastAccepted": 1,
+          "counter": 5,
+          "accepted": true
+        },
+        {
+          "lastAccepted": 5,
+          "counter": 3,
+          "accepted": false,
+          "rejection": "tooOld"
+        },
+        {
+          "lastAccepted": 5,
+          "counter": 4294967295,
+          "accepted": true
+        },
+        {
+          "lastAccepted": 4294967295,
+          "counter": 5,
+          "accepted": false,
+          "rejection": "tooOld"
+        },
+        {
+          "lastAccepted": 4294967295,
+          "counter": 4294967295,
+          "accepted": false,
+          "rejection": "duplicate"
+        }
+      ]
+    },
+    {
+      "name": "gateway connection, hub receiving",
+      "steps": [
+        {
+          "lastAccepted": 0,
+          "counter": 2049,
+          "accepted": true
+        },
+        {
+          "lastAccepted": 2049,
+          "counter": 2050,
+          "accepted": true
+        },
+        {
+          "lastAccepted": 2050,
+          "counter": 2050,
+          "accepted": false,
+          "rejection": "duplicate"
+        },
+        {
+          "lastAccepted": 2050,
+          "counter": 2049,
+          "accepted": false,
+          "rejection": "tooOld"
+        },
+        {
+          "lastAccepted": 2050,
+          "counter": 2052,
+          "accepted": true
+        },
+        {
+          "lastAccepted": 2052,
+          "counter": 2051,
+          "accepted": false,
+          "rejection": "tooOld"
+        }
+      ]
+    },
+    {
+      "name": "gateway connection, gateway receiving",
+      "steps": [
+        {
+          "lastAccepted": 0,
+          "counter": 17,
+          "accepted": true
+        },
+        {
+          "lastAccepted": 17,
+          "counter": 18,
+          "accepted": true
+        },
+        {
+          "lastAccepted": 18,
+          "counter": 20,
+          "accepted": true
+        },
+        {
+          "lastAccepted": 20,
+          "counter": 19,
+          "accepted": false,
+          "rejection": "tooOld"
+        },
+        {
+          "lastAccepted": 20,
+          "counter": 20,
+          "accepted": false,
+          "rejection": "duplicate"
+        },
+        {
+          "lastAccepted": 20,
+          "counter": 21,
+          "accepted": true
+        }
+      ]
+    }
+  ]
+}

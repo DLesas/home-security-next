@@ -1,0 +1,81 @@
+{
+  "schemaVersion": 1,
+  "protocolVersion": 1,
+  "messageType": 32,
+  "name": "Hello",
+  "direction": 0,
+  "cases": [
+    {
+      "name": "gateway hello",
+      "canonical": true,
+      "key": "202122232425262728292a2b2c2d2e2f",
+      "direction": 0,
+      "address": 2460202181,
+      "counter": 1,
+      "binding": "",
+      "maxLength": 1024,
+      "messageType": 32,
+      "fields": {
+        "gatewayRandom": "a0a1a2a3a4a5a6a7",
+        "firmwareVersion": {
+          "major": 1,
+          "minor": 0,
+          "patch": 0
+        },
+        "settingsVersion": 1
+      },
+      "plaintext": "20a0a1a2a3a4a5a6a701000001",
+      "nonce": "c5b4a392000100000000000000",
+      "associatedData": "10c5b4a39201000000",
+      "packet": "10c5b4a3920100000085738e8a4290c42713096ae4d1e908d6ce7c761f7c"
+    },
+    {
+      "name": "gateway hello on a later connection",
+      "canonical": true,
+      "key": "202122232425262728292a2b2c2d2e2f",
+      "direction": 0,
+      "address": 2460202181,
+      "counter": 30,
+      "binding": "",
+      "maxLength": 1024,
+      "messageType": 32,
+      "fields": {
+        "gatewayRandom": "c0c1c2c3c4c5c6c7",
+        "firmwareVersion": {
+          "major": 2,
+          "minor": 5,
+          "patch": 13
+        },
+        "settingsVersion": 0
+      },
+      "plaintext": "20c0c1c2c3c4c5c6c702050d00",
+      "nonce": "c5b4a392001e00000000000000",
+      "associatedData": "10c5b4a3921e000000",
+      "packet": "10c5b4a3921e000000394a2c76fb3f29c8ad3038363454e593adeb299571"
+    },
+    {
+      "name": "gateway hello with every version at its limit",
+      "canonical": true,
+      "key": "202122232425262728292a2b2c2d2e2f",
+      "direction": 0,
+      "address": 2460202181,
+      "counter": 4294967294,
+      "binding": "",
+      "maxLength": 1024,
+      "messageType": 32,
+      "fields": {
+        "gatewayRandom": "d0d1d2d3d4d5d6d7",
+        "firmwareVersion": {
+          "major": 255,
+          "minor": 255,
+          "patch": 255
+        },
+        "settingsVersion": 255
+      },
+      "plaintext": "20d0d1d2d3d4d5d6d7ffffffff",
+      "nonce": "c5b4a39200feffffff00000000",
+      "associatedData": "10c5b4a392feffffff",
+      "packet": "10c5b4a392feffffff500c4ff8b5c68532ba32b64c826944b67642bbae7c"
+    }
+  ]
+}

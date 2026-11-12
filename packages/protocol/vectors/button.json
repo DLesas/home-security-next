@@ -1,0 +1,137 @@
+{
+  "schemaVersion": 1,
+  "protocolVersion": 1,
+  "messageType": 4,
+  "name": "Button",
+  "direction": 0,
+  "cases": [
+    {
+      "name": "button, action 1",
+      "canonical": true,
+      "key": "000102030405060708090a0b0c0d0e0f",
+      "direction": 0,
+      "address": 439041101,
+      "counter": 200,
+      "binding": "",
+      "maxLength": 255,
+      "messageType": 4,
+      "fields": {
+        "settingsVersion": 3,
+        "flags": {
+          "doorOpen": false,
+          "coverOpen": false,
+          "usbPower": false,
+          "charging": false,
+          "replyWanted": true,
+          "localAlarmSounded": false,
+          "buzzing": false
+        },
+        "batteryCode": 120,
+        "temperatureCelsius": 21,
+        "doorChangeCount": 0,
+        "eventAgeSeconds": 1,
+        "buttonAction": 1
+      },
+      "plaintext": "040310781500010001",
+      "nonce": "4d3c2b1a00c800000000000000",
+      "associatedData": "104d3c2b1ac8000000",
+      "packet": "104d3c2b1ac8000000c907caa80f888290fb8cac27ddb07b30ed"
+    },
+    {
+      "name": "button, action 2",
+      "canonical": true,
+      "key": "000102030405060708090a0b0c0d0e0f",
+      "direction": 0,
+      "address": 439041101,
+      "counter": 201,
+      "binding": "",
+      "maxLength": 255,
+      "messageType": 4,
+      "fields": {
+        "settingsVersion": 3,
+        "flags": {
+          "doorOpen": false,
+          "coverOpen": false,
+          "usbPower": false,
+          "charging": false,
+          "replyWanted": true,
+          "localAlarmSounded": false,
+          "buzzing": false
+        },
+        "batteryCode": 120,
+        "temperatureCelsius": 21,
+        "doorChangeCount": 0,
+        "eventAgeSeconds": 1,
+        "buttonAction": 2
+      },
+      "plaintext": "040310781500010002",
+      "nonce": "4d3c2b1a00c900000000000000",
+      "associatedData": "104d3c2b1ac9000000",
+      "packet": "104d3c2b1ac90000003d8284080acbfeafe62387aa3424f85a29"
+    },
+    {
+      "name": "button, action 3",
+      "canonical": true,
+      "key": "000102030405060708090a0b0c0d0e0f",
+      "direction": 0,
+      "address": 439041101,
+      "counter": 202,
+      "binding": "",
+      "maxLength": 255,
+      "messageType": 4,
+      "fields": {
+        "settingsVersion": 3,
+        "flags": {
+          "doorOpen": false,
+          "coverOpen": false,
+          "usbPower": false,
+          "charging": false,
+          "replyWanted": true,
+          "localAlarmSounded": false,
+          "buzzing": false
+        },
+        "batteryCode": 120,
+        "temperatureCelsius": 21,
+        "doorChangeCount": 0,
+        "eventAgeSeconds": 1,
+        "buttonAction": 3
+      },
+      "plaintext": "040310781500010003",
+      "nonce": "4d3c2b1a00ca00000000000000",
+      "associatedData": "104d3c2b1aca000000",
+      "packet": "104d3c2b1aca000000dda499f8d2db561493819997bd5ada01f0"
+    },
+    {
+      "name": "button with unlisted action 9, which passes through",
+      "canonical": true,
+      "key": "000102030405060708090a0b0c0d0e0f",
+      "direction": 0,
+      "address": 439041101,
+      "counter": 203,
+      "binding": "",
+      "maxLength": 255,
+      "messageType": 4,
+      "fields": {
+        "settingsVersion": 3,
+        "flags": {
+          "doorOpen": false,
+          "coverOpen": false,
+          "usbPower": false,
+          "charging": false,
+          "replyWanted": false,
+          "localAlarmSounded": false,
+          "buzzing": false
+        },
+        "batteryCode": 120,
+        "temperatureCelsius": 21,
+        "doorChangeCount": 0,
+        "eventAgeSeconds": 0,
+        "buttonAction": 9
+      },
+      "plaintext": "040300781500000009",
+      "nonce": "4d3c2b1a00cb00000000000000",
+      "associatedData": "104d3c2b1acb000000",
+      "packet": "104d3c2b1acb0000005b9e5ca7d5837cd9f9d0a52a4a50a24316"
+    }
+  ]
+}

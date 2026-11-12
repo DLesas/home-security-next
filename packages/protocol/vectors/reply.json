@@ -1,0 +1,133 @@
+{
+  "schemaVersion": 1,
+  "protocolVersion": 1,
+  "messageType": 129,
+  "name": "Reply",
+  "direction": 1,
+  "cases": [
+    {
+      "name": "reply to a door report: armed, countdown started",
+      "canonical": true,
+      "key": "000102030405060708090a0b0c0d0e0f",
+      "direction": 1,
+      "address": 439041101,
+      "counter": 9,
+      "binding": "29000000",
+      "maxLength": 255,
+      "messageType": 129,
+      "fields": {
+        "settingsVersion": 3,
+        "flags": {
+          "armed": true,
+          "countdownStarted": true,
+          "updateAvailable": false
+        },
+        "countdownSeconds": 30,
+        "countdownRemainingSeconds": 28,
+        "heartbeatIntervalUnits": 12,
+        "linkCheckEvery": 5,
+        "sendDataRate": 2,
+        "replyDataRate": 5,
+        "nextHeartbeatTenths": 0,
+        "clockCorrectionPpm": 0
+      },
+      "plaintext": "8103031e1c0c05020500000000",
+      "nonce": "4d3c2b1a010900000000000000",
+      "associatedData": "184d3c2b1a0900000029000000",
+      "packet": "184d3c2b1a090000003030e8f23c575152ba80f0a22a7f8d62ca4448454b"
+    },
+    {
+      "name": "reply to a link check, with the next heartbeat moment and a clock correction",
+      "canonical": true,
+      "key": "000102030405060708090a0b0c0d0e0f",
+      "direction": 1,
+      "address": 439041101,
+      "counter": 10,
+      "binding": "00000001",
+      "maxLength": 255,
+      "messageType": 129,
+      "fields": {
+        "settingsVersion": 4,
+        "flags": {
+          "armed": false,
+          "countdownStarted": false,
+          "updateAvailable": true
+        },
+        "countdownSeconds": 45,
+        "countdownRemainingSeconds": 0,
+        "heartbeatIntervalUnits": 20,
+        "linkCheckEvery": 5,
+        "sendDataRate": 0,
+        "replyDataRate": 3,
+        "nextHeartbeatTenths": 1795,
+        "clockCorrectionPpm": -32768
+      },
+      "plaintext": "8104042d001405000303070080",
+      "nonce": "4d3c2b1a010a00000000000000",
+      "associatedData": "184d3c2b1a0a00000000000001",
+      "packet": "184d3c2b1a0a00000088dff456a39cd423647ca131a431eae3f57d7918dc"
+    },
+    {
+      "name": "reply with unlisted data rates 6 and 7, which pass through",
+      "canonical": true,
+      "key": "000102030405060708090a0b0c0d0e0f",
+      "direction": 1,
+      "address": 439041101,
+      "counter": 12,
+      "binding": "01000001",
+      "maxLength": 255,
+      "messageType": 129,
+      "fields": {
+        "settingsVersion": 4,
+        "flags": {
+          "armed": false,
+          "countdownStarted": false,
+          "updateAvailable": false
+        },
+        "countdownSeconds": 30,
+        "countdownRemainingSeconds": 0,
+        "heartbeatIntervalUnits": 12,
+        "linkCheckEvery": 5,
+        "sendDataRate": 6,
+        "replyDataRate": 7,
+        "nextHeartbeatTenths": 1800,
+        "clockCorrectionPpm": 12
+      },
+      "plaintext": "8104001e000c05060708070c00",
+      "nonce": "4d3c2b1a010c00000000000000",
+      "associatedData": "184d3c2b1a0c00000001000001",
+      "packet": "184d3c2b1a0c0000009fb480fdabc18c47114541449ee00ea2b0525ff634"
+    },
+    {
+      "name": "reply with the unused flag bits 3 to 7 set, which receivers ignore",
+      "canonical": false,
+      "key": "000102030405060708090a0b0c0d0e0f",
+      "direction": 1,
+      "address": 439041101,
+      "counter": 13,
+      "binding": "02000001",
+      "maxLength": 255,
+      "messageType": 129,
+      "fields": {
+        "settingsVersion": 4,
+        "flags": {
+          "armed": false,
+          "countdownStarted": false,
+          "updateAvailable": false
+        },
+        "countdownSeconds": 30,
+        "countdownRemainingSeconds": 0,
+        "heartbeatIntervalUnits": 12,
+        "linkCheckEvery": 5,
+        "sendDataRate": 2,
+        "replyDataRate": 5,
+        "nextHeartbeatTenths": 1800,
+        "clockCorrectionPpm": 12
+      },
+      "plaintext": "8104f81e000c05020508070c00",
+      "nonce": "4d3c2b1a010d00000000000000",
+      "associatedData": "184d3c2b1a0d00000002000001",
+      "packet": "184d3c2b1a0d000000e1e9b06ff8ea6262d829b0b467016905d40937753e"
+    }
+  ]
+}

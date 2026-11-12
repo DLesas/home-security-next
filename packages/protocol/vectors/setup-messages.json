@@ -1,0 +1,205 @@
+{
+  "schemaVersion": 1,
+  "protocolVersion": 1,
+  "valid": [
+    {
+      "name": "identify",
+      "canonical": true,
+      "setupType": 1,
+      "fields": {},
+      "bytes": "f101",
+      "frame": "03f10100"
+    },
+    {
+      "name": "identity of an unpaired development gateway",
+      "canonical": true,
+      "setupType": 2,
+      "fields": {
+        "role": 3,
+        "chipId": "a1b2c3d4e5f6",
+        "firmwareVersion": {
+          "major": 0,
+          "minor": 1,
+          "patch": 0
+        },
+        "paired": false,
+        "hubIdentity": "0000000000000000",
+        "developmentBuild": true
+      },
+      "bytes": "f10203a1b2c3d4e5f600010000000000000000000001",
+      "frame": "0af10203a1b2c3d4e5f60201010101010101010101020100"
+    },
+    {
+      "name": "identity of a paired release sensor",
+      "canonical": true,
+      "setupType": 2,
+      "fields": {
+        "role": 1,
+        "chipId": "010203040506",
+        "firmwareVersion": {
+          "major": 1,
+          "minor": 2,
+          "patch": 3
+        },
+        "paired": true,
+        "hubIdentity": "d6c23e2744a840cb",
+        "developmentBuild": false
+      },
+      "bytes": "f1020101020304050601020301d6c23e2744a840cb00",
+      "frame": "16f1020101020304050601020301d6c23e2744a840cb0100"
+    },
+    {
+      "name": "provision",
+      "canonical": true,
+      "setupType": 3,
+      "fields": {
+        "pairing": {
+          "address": 439041101,
+          "key": "000102030405060708090a0b0c0d0e0f",
+          "hubIdentity": "d6c23e2744a840cb",
+          "firmwareSigningKey": "60fed4ba255a9d31c961eb74c6356d68c049b8923b61fa6ce669622e60f29fb67903fe1008b8bc99a41ae9e95628bc64f2f1b20c2d7e9f5177a3c294d4462299",
+          "siteChannel": 1,
+          "allowedDataRateMask": 36,
+          "wifiName": "686f6d65",
+          "wifiPassword": "636f727265637420686f7273652062617474657279"
+        }
+      },
+      "bytes": "f103014d3c2b1a000102030405060708090a0b0c0d0e0fd6c23e2744a840cb60fed4ba255a9d31c961eb74c6356d68c049b8923b61fa6ce669622e60f29fb67903fe1008b8bc99a41ae9e95628bc64f2f1b20c2d7e9f5177a3c294d4462299012404686f6d6515636f727265637420686f7273652062617474657279",
+      "frame": "08f103014d3c2b1a750102030405060708090a0b0c0d0e0fd6c23e2744a840cb60fed4ba255a9d31c961eb74c6356d68c049b8923b61fa6ce669622e60f29fb67903fe1008b8bc99a41ae9e95628bc64f2f1b20c2d7e9f5177a3c294d4462299012404686f6d6515636f727265637420686f727365206261747465727900"
+    },
+    {
+      "name": "provision accepted",
+      "canonical": true,
+      "setupType": 4,
+      "fields": {
+        "result": 0
+      },
+      "bytes": "f10400",
+      "frame": "03f1040100"
+    },
+    {
+      "name": "provision refused",
+      "canonical": true,
+      "setupType": 4,
+      "fields": {
+        "result": 1
+      },
+      "bytes": "f10401",
+      "frame": "04f1040100"
+    },
+    {
+      "name": "provision not valid",
+      "canonical": true,
+      "setupType": 4,
+      "fields": {
+        "result": 2
+      },
+      "bytes": "f10402",
+      "frame": "04f1040200"
+    },
+    {
+      "name": "provision result with unlisted value 3, which passes through",
+      "canonical": true,
+      "setupType": 4,
+      "fields": {
+        "result": 3
+      },
+      "bytes": "f10403",
+      "frame": "04f1040300"
+    },
+    {
+      "name": "identity with unlisted role 9, which passes through",
+      "canonical": true,
+      "setupType": 2,
+      "fields": {
+        "role": 9,
+        "chipId": "0a0b0c0d0e0f",
+        "firmwareVersion": {
+          "major": 4,
+          "minor": 0,
+          "patch": 2
+        },
+        "paired": false,
+        "hubIdentity": "0000000000000000",
+        "developmentBuild": false
+      },
+      "bytes": "f102090a0b0c0d0e0f04000200000000000000000000",
+      "frame": "0bf102090a0b0c0d0e0f0402020101010101010101010100"
+    },
+    {
+      "name": "erase",
+      "canonical": true,
+      "setupType": 5,
+      "fields": {},
+      "bytes": "f105",
+      "frame": "03f10500"
+    },
+    {
+      "name": "identity with two bytes after its fields, which decoding ignores",
+      "canonical": false,
+      "setupType": 2,
+      "fields": {
+        "role": 3,
+        "chipId": "a1b2c3d4e5f6",
+        "firmwareVersion": {
+          "major": 0,
+          "minor": 1,
+          "patch": 0
+        },
+        "paired": false,
+        "hubIdentity": "0000000000000000",
+        "developmentBuild": true
+      },
+      "bytes": "f10203a1b2c3d4e5f6000100000000000000000000010203",
+      "frame": "0af10203a1b2c3d4e5f602010101010101010101010401020300"
+    },
+    {
+      "name": "provision result with one byte after its field, which decoding ignores",
+      "canonical": false,
+      "setupType": 4,
+      "fields": {
+        "result": 0
+      },
+      "bytes": "f10400ff",
+      "frame": "03f10402ff00"
+    }
+  ],
+  "invalid": [
+    {
+      "name": "empty",
+      "bytes": "",
+      "error": "truncated"
+    },
+    {
+      "name": "marker only",
+      "bytes": "f1",
+      "error": "truncated"
+    },
+    {
+      "name": "no marker",
+      "bytes": "1001",
+      "error": "badValue"
+    },
+    {
+      "name": "unknown setup type",
+      "bytes": "f109",
+      "error": "unknownType",
+      "messageType": 9
+    },
+    {
+      "name": "identity cut short",
+      "bytes": "f10203a1b2c3d4e5f6000100",
+      "error": "truncated"
+    },
+    {
+      "name": "identity with paired = 2",
+      "bytes": "f10203a1b2c3d4e5f600010002000000000000000000",
+      "error": "badValue"
+    },
+    {
+      "name": "provision result missing its byte",
+      "bytes": "f104",
+      "error": "truncated"
+    }
+  ]
+}

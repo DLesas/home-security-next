@@ -1,0 +1,10 @@
+# Written before this tooling existed, and kept as they are.
+docs/
+spikes/
+README.md
+LICENSE.md
+
+# Generated; a test checks them against the generator.
+packages/protocol/vectors/*.json
+
+bun.lock

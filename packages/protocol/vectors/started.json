@@ -1,0 +1,113 @@
+{
+  "schemaVersion": 1,
+  "protocolVersion": 1,
+  "messageType": 5,
+  "name": "Started",
+  "direction": 0,
+  "cases": [
+    {
+      "name": "sensor started",
+      "canonical": true,
+      "key": "000102030405060708090a0b0c0d0e0f",
+      "direction": 0,
+      "address": 439041101,
+      "counter": 64,
+      "binding": "",
+      "maxLength": 255,
+      "messageType": 5,
+      "fields": {
+        "role": 1,
+        "firmwareVersion": {
+          "major": 1,
+          "minor": 2,
+          "patch": 3
+        },
+        "resetCause": 1,
+        "lastFatalError": 0,
+        "settingsVersion": 3
+      },
+      "plaintext": "050101020301000003",
+      "nonce": "4d3c2b1a004000000000000000",
+      "associatedData": "104d3c2b1a40000000",
+      "packet": "104d3c2b1a400000003e368043da41202231df63b6e9eebf37d0"
+    },
+    {
+      "name": "started with unlisted role 9, which passes through",
+      "canonical": true,
+      "key": "303132333435363738393a3b3c3d3e3f",
+      "direction": 0,
+      "address": 195948557,
+      "counter": 1,
+      "binding": "",
+      "maxLength": 255,
+      "messageType": 5,
+      "fields": {
+        "role": 9,
+        "firmwareVersion": {
+          "major": 3,
+          "minor": 0,
+          "patch": 1
+        },
+        "resetCause": 0,
+        "lastFatalError": 1,
+        "settingsVersion": 7
+      },
+      "plaintext": "050903000100010007",
+      "nonce": "0df0ad0b000100000000000000",
+      "associatedData": "100df0ad0b01000000",
+      "packet": "100df0ad0b01000000ca308d32b0eeb2c7e7df494b4cad50a37a"
+    },
+    {
+      "name": "siren started after a fatal error",
+      "canonical": true,
+      "key": "101112131415161718191a1b1c1d1e1f",
+      "direction": 0,
+      "address": 1584361601,
+      "counter": 1024,
+      "binding": "",
+      "maxLength": 1024,
+      "messageType": 5,
+      "fields": {
+        "role": 2,
+        "firmwareVersion": {
+          "major": 0,
+          "minor": 9,
+          "patch": 255
+        },
+        "resetCause": 4,
+        "lastFatalError": 48879,
+        "settingsVersion": 0
+      },
+      "plaintext": "05020009ff04efbe00",
+      "nonce": "81706f5e000004000000000000",
+      "associatedData": "1081706f5e00040000",
+      "packet": "1081706f5e00040000215eb2855b3c22ba6be6bdcb239995267c"
+    },
+    {
+      "name": "gateway started, on its connection",
+      "canonical": true,
+      "key": "202122232425262728292a2b2c2d2e2f",
+      "direction": 0,
+      "address": 2460202181,
+      "counter": 2,
+      "binding": "a0a1a2a3a4a5a6a7b0b1b2b3b4b5b6b7",
+      "maxLength": 1024,
+      "messageType": 5,
+      "fields": {
+        "role": 3,
+        "firmwareVersion": {
+          "major": 1,
+          "minor": 0,
+          "patch": 0
+        },
+        "resetCause": 3,
+        "lastFatalError": 0,
+        "settingsVersion": 1
+      },
+      "plaintext": "050301000003000001",
+      "nonce": "c5b4a392000200000000000000",
+      "associatedData": "10c5b4a39202000000a0a1a2a3a4a5a6a7b0b1b2b3b4b5b6b7",
+      "packet": "10c5b4a39202000000386ea5a030af2e9c6db3e12f255c56f9e5"
+    }
+  ]
+}

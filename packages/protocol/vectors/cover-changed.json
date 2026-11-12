@@ -1,0 +1,102 @@
+{
+  "schemaVersion": 1,
+  "protocolVersion": 1,
+  "messageType": 3,
+  "name": "CoverChanged",
+  "direction": 0,
+  "cases": [
+    {
+      "name": "cover opened while buzzing",
+      "canonical": true,
+      "key": "000102030405060708090a0b0c0d0e0f",
+      "direction": 0,
+      "address": 439041101,
+      "counter": 100,
+      "binding": "",
+      "maxLength": 255,
+      "messageType": 3,
+      "fields": {
+        "settingsVersion": 3,
+        "flags": {
+          "doorOpen": false,
+          "coverOpen": true,
+          "usbPower": false,
+          "charging": false,
+          "replyWanted": true,
+          "localAlarmSounded": false,
+          "buzzing": true
+        },
+        "batteryCode": 115,
+        "temperatureCelsius": 19,
+        "doorChangeCount": 17,
+        "eventAgeSeconds": 0
+      },
+      "plaintext": "0303527313110000",
+      "nonce": "4d3c2b1a006400000000000000",
+      "associatedData": "104d3c2b1a64000000",
+      "packet": "104d3c2b1a64000000f3c5a61c5d731f46fceb6274024e43a0"
+    },
+    {
+      "name": "cover closed, on USB power and charging, cold and old",
+      "canonical": true,
+      "key": "000102030405060708090a0b0c0d0e0f",
+      "direction": 0,
+      "address": 439041101,
+      "counter": 101,
+      "binding": "",
+      "maxLength": 255,
+      "messageType": 3,
+      "fields": {
+        "settingsVersion": 0,
+        "flags": {
+          "doorOpen": true,
+          "coverOpen": false,
+          "usbPower": true,
+          "charging": true,
+          "replyWanted": false,
+          "localAlarmSounded": false,
+          "buzzing": false
+        },
+        "batteryCode": 0,
+        "temperatureCelsius": -40,
+        "doorChangeCount": 255,
+        "eventAgeSeconds": 65535
+      },
+      "plaintext": "03000d00d8ffffff",
+      "nonce": "4d3c2b1a006500000000000000",
+      "associatedData": "104d3c2b1a65000000",
+      "packet": "104d3c2b1a6500000095981ff90acb383a3dab01ae7a590929"
+    },
+    {
+      "name": "cover opened after a local alarm, hot, full battery",
+      "canonical": true,
+      "key": "303132333435363738393a3b3c3d3e3f",
+      "direction": 0,
+      "address": 195948557,
+      "counter": 2,
+      "binding": "",
+      "maxLength": 255,
+      "messageType": 3,
+      "fields": {
+        "settingsVersion": 200,
+        "flags": {
+          "doorOpen": false,
+          "coverOpen": true,
+          "usbPower": false,
+          "charging": false,
+          "replyWanted": false,
+          "localAlarmSounded": true,
+          "buzzing": false
+        },
+        "batteryCode": 255,
+        "temperatureCelsius": 85,
+        "doorChangeCount": 1,
+        "eventAgeSeconds": 30
+      },
+      "plaintext": "03c822ff55011e00",
+      "nonce": "0df0ad0b000200000000000000",
+      "associatedData": "100df0ad0b02000000",
+      "packet": "100df0ad0b02000000139ccd09ed33442d186b387767e7e635"
+    }
+  ]
+}

@@ -1,0 +1,63 @@
+{
+  "schemaVersion": 1,
+  "protocolVersion": 1,
+  "messageType": 160,
+  "name": "Welcome",
+  "direction": 1,
+  "cases": [
+    {
+      "name": "welcome, bound to the gateway's random value",
+      "canonical": true,
+      "key": "202122232425262728292a2b2c2d2e2f",
+      "direction": 1,
+      "address": 2460202181,
+      "counter": 1,
+      "binding": "a0a1a2a3a4a5a6a7",
+      "maxLength": 1024,
+      "messageType": 160,
+      "fields": {
+        "hubRandom": "b0b1b2b3b4b5b6b7"
+      },
+      "plaintext": "a0b0b1b2b3b4b5b6b7",
+      "nonce": "c5b4a392010100000000000000",
+      "associatedData": "18c5b4a39201000000a0a1a2a3a4a5a6a7",
+      "packet": "18c5b4a392010000001a1899cc02c221e40e8bb538fbd596375e"
+    },
+    {
+      "name": "welcome answering the hello on later connection 1",
+      "canonical": true,
+      "key": "202122232425262728292a2b2c2d2e2f",
+      "direction": 1,
+      "address": 2460202181,
+      "counter": 30,
+      "binding": "c0c1c2c3c4c5c6c7",
+      "maxLength": 1024,
+      "messageType": 160,
+      "fields": {
+        "hubRandom": "e0e1e2e3e4e5e6e7"
+      },
+      "plaintext": "a0e0e1e2e3e4e5e6e7",
+      "nonce": "c5b4a392011e00000000000000",
+      "associatedData": "18c5b4a3921e000000c0c1c2c3c4c5c6c7",
+      "packet": "18c5b4a3921e000000d61354273065b19c525c934872ae357fc6"
+    },
+    {
+      "name": "welcome answering the hello on later connection 2",
+      "canonical": true,
+      "key": "202122232425262728292a2b2c2d2e2f",
+      "direction": 1,
+      "address": 2460202181,
+      "counter": 31,
+      "binding": "d0d1d2d3d4d5d6d7",
+      "maxLength": 1024,
+      "messageType": 160,
+      "fields": {
+        "hubRandom": "f0f1f2f3f4f5f6f7"
+      },
+      "plaintext": "a0f0f1f2f3f4f5f6f7",
+      "nonce": "c5b4a392011f00000000000000",
+      "associatedData": "18c5b4a3921f000000d0d1d2d3d4d5d6d7",
+      "packet": "18c5b4a3921f000000f6f08f17500d2c2b80fa4037221c4a9093"
+    }
+  ]
+}

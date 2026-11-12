@@ -1,0 +1,252 @@
+{
+  "schemaVersion": 1,
+  "protocolVersion": 1,
+  "batteryEncode": [
+    {
+      "millivolts": 2000,
+      "byte": 0
+    },
+    {
+      "millivolts": 2494,
+      "byte": 0
+    },
+    {
+      "millivolts": 2495,
+      "byte": 0
+    },
+    {
+      "millivolts": 2500,
+      "byte": 0
+    },
+    {
+      "millivolts": 2504,
+      "byte": 0
+    },
+    {
+      "millivolts": 2505,
+      "byte": 1
+    },
+    {
+      "millivolts": 2506,
+      "byte": 1
+    },
+    {
+      "millivolts": 3695,
+      "byte": 120
+    },
+    {
+      "millivolts": 3700,
+      "byte": 120
+    },
+    {
+      "millivolts": 3704,
+      "byte": 120
+    },
+    {
+      "millivolts": 3705,
+      "byte": 121
+    },
+    {
+      "millivolts": 5045,
+      "byte": 255
+    },
+    {
+      "millivolts": 5050,
+      "byte": 255
+    },
+    {
+      "millivolts": 5054,
+      "byte": 255
+    },
+    {
+      "millivolts": 5055,
+      "byte": 255
+    },
+    {
+      "millivolts": 9999,
+      "byte": 255
+    }
+  ],
+  "batteryDecode": [
+    {
+      "byte": 0,
+      "millivolts": 2500
+    },
+    {
+      "byte": 1,
+      "millivolts": 2510
+    },
+    {
+      "byte": 120,
+      "millivolts": 3700
+    },
+    {
+      "byte": 254,
+      "millivolts": 5040
+    },
+    {
+      "byte": 255,
+      "millivolts": 5050
+    }
+  ],
+  "fifteenSecondDecode": [
+    {
+      "units": 0,
+      "seconds": 0
+    },
+    {
+      "units": 1,
+      "seconds": 15
+    },
+    {
+      "units": 12,
+      "seconds": 180
+    },
+    {
+      "units": 20,
+      "seconds": 300
+    },
+    {
+      "units": 255,
+      "seconds": 3825
+    }
+  ],
+  "fifteenSecondEncode": [
+    {
+      "seconds": 0,
+      "units": 0
+    },
+    {
+      "seconds": 15,
+      "units": 1
+    },
+    {
+      "seconds": 180,
+      "units": 12
+    },
+    {
+      "seconds": 300,
+      "units": 20
+    },
+    {
+      "seconds": 3825,
+      "units": 255
+    },
+    {
+      "seconds": 20,
+      "units": null
+    },
+    {
+      "seconds": 3840,
+      "units": null
+    }
+  ],
+  "tenthsDecode": [
+    {
+      "tenths": 0,
+      "milliseconds": 0
+    },
+    {
+      "tenths": 1,
+      "milliseconds": 100
+    },
+    {
+      "tenths": 1795,
+      "milliseconds": 179500
+    },
+    {
+      "tenths": 65535,
+      "milliseconds": 6553500
+    }
+  ],
+  "tenthsEncode": [
+    {
+      "milliseconds": 0,
+      "tenths": 0
+    },
+    {
+      "milliseconds": 49,
+      "tenths": 0
+    },
+    {
+      "milliseconds": 50,
+      "tenths": 1
+    },
+    {
+      "milliseconds": 149,
+      "tenths": 1
+    },
+    {
+      "milliseconds": 150,
+      "tenths": 2
+    },
+    {
+      "milliseconds": 179549,
+      "tenths": 1795
+    },
+    {
+      "milliseconds": 179550,
+      "tenths": 1796
+    },
+    {
+      "milliseconds": 6553500,
+      "tenths": 65535
+    },
+    {
+      "milliseconds": 6553549,
+      "tenths": 65535
+    },
+    {
+      "milliseconds": 6553550,
+      "tenths": null
+    }
+  ],
+  "snrDecode": [
+    {
+      "quarterDecibels": -128,
+      "decibels": -32
+    },
+    {
+      "quarterDecibels": -30,
+      "decibels": -7.5
+    },
+    {
+      "quarterDecibels": -1,
+      "decibels": -0.25
+    },
+    {
+      "quarterDecibels": 0,
+      "decibels": 0
+    },
+    {
+      "quarterDecibels": 1,
+      "decibels": 0.25
+    },
+    {
+      "quarterDecibels": 127,
+      "decibels": 31.75
+    }
+  ],
+  "airtimeDecode": [
+    {
+      "hundredthsOfPercent": 0,
+      "percent": 0
+    },
+    {
+      "hundredthsOfPercent": 1,
+      "percent": 0.01
+    },
+    {
+      "hundredthsOfPercent": 125,
+      "percent": 1.25
+    },
+    {
+      "hundredthsOfPercent": 10000,
+      "percent": 100
+    },
+    {
+      "hundredthsOfPercent": 65535,
+      "percent": 655.35
+    }
+  ]
+}

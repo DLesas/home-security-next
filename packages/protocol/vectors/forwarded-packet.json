@@ -1,0 +1,101 @@
+{
+  "schemaVersion": 1,
+  "protocolVersion": 1,
+  "messageType": 33,
+  "name": "ForwardedPacket",
+  "direction": 0,
+  "cases": [
+    {
+      "name": "forwarded heartbeat (the first heartbeat case's packet), weak signal",
+      "canonical": true,
+      "key": "202122232425262728292a2b2c2d2e2f",
+      "direction": 0,
+      "address": 2460202181,
+      "counter": 3,
+      "binding": "a0a1a2a3a4a5a6a7b0b1b2b3b4b5b6b7",
+      "maxLength": 1024,
+      "messageType": 33,
+      "fields": {
+        "receivedAtMicros": 3735928559,
+        "rssiDbm": -120,
+        "snrQuarterDb": -30,
+        "dataRate": 2,
+        "siteChannel": 1,
+        "packet": "104d3c2b1a0100000000b6239b28a699a6407806a9567368cf"
+      },
+      "plaintext": "21efbeadde88ffe20201104d3c2b1a0100000000b6239b28a699a6407806a9567368cf",
+      "nonce": "c5b4a392000300000000000000",
+      "associatedData": "10c5b4a39203000000a0a1a2a3a4a5a6a7b0b1b2b3b4b5b6b7",
+      "packet": "10c5b4a39203000000998ab65f9ad448959c85e5920e4eaf82fd86727e4f5f01b9b39dd344210e9e875d96fa5160f0ea1cae2bc9"
+    },
+    {
+      "name": "forwarded 255-byte radio packet, which needs the larger link limit",
+      "canonical": true,
+      "key": "202122232425262728292a2b2c2d2e2f",
+      "direction": 0,
+      "address": 2460202181,
+      "counter": 4,
+      "binding": "a0a1a2a3a4a5a6a7b0b1b2b3b4b5b6b7",
+      "maxLength": 1024,
+      "messageType": 33,
+      "fields": {
+        "receivedAtMicros": 0,
+        "rssiDbm": 32767,
+        "snrQuarterDb": 127,
+        "dataRate": 5,
+        "siteChannel": 2,
+        "packet": "104d3c2b1a2c010000d596b92096218bfca0751136ddc633027f24b1c925847f61f5585bf4cdd7cc272f97fffeb88dfdd0fc122410c7961f3488909c1793cbbde9abda6aecc5713d9086cc602802b950b31d407c75ad8e34fa02cc6f8fb274aa6b16ae1dc3486aaf4ff8f4d22b418c713bb016fa5d89e1700e28c6ef73b1aebe924f7d3ffb2dfd3781df8e285d7be7c76287de0ac67b6f2118bc6aa745a2980f49571ee732879a49f001b6656ed0ea6f922f6c7ab4d8ff7ca082cc2fe75acdf649a273647aa1346ce1570431036113a9f9b87abded2138c9c43acea329360828a3061fd89289d5322b3058c58a4cf582b9b20c7ca6ae288cb0c29668f3faf1"
+      },
+      "plaintext": "2100000000ff7f7f0502104d3c2b1a2c010000d596b92096218bfca0751136ddc633027f24b1c925847f61f5585bf4cdd7cc272f97fffeb88dfdd0fc122410c7961f3488909c1793cbbde9abda6aecc5713d9086cc602802b950b31d407c75ad8e34fa02cc6f8fb274aa6b16ae1dc3486aaf4ff8f4d22b418c713bb016fa5d89e1700e28c6ef73b1aebe924f7d3ffb2dfd3781df8e285d7be7c76287de0ac67b6f2118bc6aa745a2980f49571ee732879a49f001b6656ed0ea6f922f6c7ab4d8ff7ca082cc2fe75acdf649a273647aa1346ce1570431036113a9f9b87abded2138c9c43acea329360828a3061fd89289d5322b3058c58a4cf582b9b20c7ca6ae288cb0c29668f3faf1",
+      "nonce": "c5b4a392000400000000000000",
+      "associatedData": "10c5b4a39204000000a0a1a2a3a4a5a6a7b0b1b2b3b4b5b6b7",
+      "packet": "10c5b4a392040000000e7d2f4f0e96d8403bac6108e8377fa3eab0c347652fd8dbb94d96667bca9141a108a14b4e8f614c2ffaa93a9557bacec6b376ec367108a78d0ae8e84748405575f42bb364ea3126f13e47a341cf6c039c7d2db24fa812d6dcdca97a1d86102e83110d65214bb3d2955111103e6059ed62925362689c7bf0bc81ed9f786d8c13c939671facdd24f04b354f946595de3eb5875273bde7f48c6c3e2141d43785633d5e286c944dd432c263f3b0a45662b1a63868601e67f3db813a08303ed39beb0d9ecfc593dd7f401e37af157855cc85d37ead7be19af480fe471a3ee7c116c7102b1d0400085bc56dc0c14a45feeecde776e4821ee7d4760ada965623c678a00b8b31b41b557e3315b9f21884a037c9a9"
+    },
+    {
+      "name": "forwarded siren report (the LoRa siren report case's packet), strong signal",
+      "canonical": true,
+      "key": "202122232425262728292a2b2c2d2e2f",
+      "direction": 0,
+      "address": 2460202181,
+      "counter": 14,
+      "binding": "a0a1a2a3a4a5a6a7b0b1b2b3b4b5b6b7",
+      "maxLength": 1024,
+      "messageType": 33,
+      "fields": {
+        "receivedAtMicros": 1,
+        "rssiDbm": -32768,
+        "snrQuarterDb": -128,
+        "dataRate": 0,
+        "siteChannel": 0,
+        "packet": "1081706f5e89130000a4ccf867164e90ed213aa1ab917784047b1be7"
+      },
+      "plaintext": "210100000000808000001081706f5e89130000a4ccf867164e90ed213aa1ab917784047b1be7",
+      "nonce": "c5b4a392000e00000000000000",
+      "associatedData": "10c5b4a3920e000000a0a1a2a3a4a5a6a7b0b1b2b3b4b5b6b7",
+      "packet": "10c5b4a3920e0000007984e08cbf241280971637d4ba61cf930c51993e1746a92e59ba7486c5e341f512f940cfbbc079f1c4c08c540398"
+    },
+    {
+      "name": "forwarded heartbeat with unlisted data rate 6 and site channel 3, which pass through",
+      "canonical": true,
+      "key": "202122232425262728292a2b2c2d2e2f",
+      "direction": 0,
+      "address": 2460202181,
+      "counter": 15,
+      "binding": "a0a1a2a3a4a5a6a7b0b1b2b3b4b5b6b7",
+      "maxLength": 1024,
+      "messageType": 33,
+      "fields": {
+        "receivedAtMicros": 77,
+        "rssiDbm": -90,
+        "snrQuarterDb": 10,
+        "dataRate": 6,
+        "siteChannel": 3,
+        "packet": "104d3c2b1a0100000000b6239b28a699a6407806a9567368cf"
+      },
+      "plaintext": "214d000000a6ff0a0603104d3c2b1a0100000000b6239b28a699a6407806a9567368cf",
+      "nonce": "c5b4a392000f00000000000000",
+      "associatedData": "10c5b4a3920f000000a0a1a2a3a4a5a6a7b0b1b2b3b4b5b6b7",
+      "packet": "10c5b4a3920f0000003520ced59e54933a691f6850500f00ceee0daacd6b66346fe8eed4460e82ece2c88c194c1b526bf533bcbc"
+    }
+  ]
+}

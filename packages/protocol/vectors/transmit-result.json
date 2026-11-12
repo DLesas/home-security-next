@@ -1,0 +1,69 @@
+{
+  "schemaVersion": 1,
+  "protocolVersion": 1,
+  "messageType": 35,
+  "name": "TransmitResult",
+  "direction": 0,
+  "cases": [
+    {
+      "name": "transmit result, sent",
+      "canonical": true,
+      "key": "202122232425262728292a2b2c2d2e2f",
+      "direction": 0,
+      "address": 2460202181,
+      "counter": 7,
+      "binding": "a0a1a2a3a4a5a6a7b0b1b2b3b4b5b6b7",
+      "maxLength": 1024,
+      "messageType": 35,
+      "fields": {
+        "requestCounter": 20,
+        "result": 0,
+        "sentAtMicros": 123456789
+      },
+      "plaintext": "23140000000015cd5b07",
+      "nonce": "c5b4a392000700000000000000",
+      "associatedData": "10c5b4a39207000000a0a1a2a3a4a5a6a7b0b1b2b3b4b5b6b7",
+      "packet": "10c5b4a39207000000c94fa811683c1081c206843f5f32b18084c9"
+    },
+    {
+      "name": "transmit result, too late",
+      "canonical": true,
+      "key": "202122232425262728292a2b2c2d2e2f",
+      "direction": 0,
+      "address": 2460202181,
+      "counter": 8,
+      "binding": "a0a1a2a3a4a5a6a7b0b1b2b3b4b5b6b7",
+      "maxLength": 1024,
+      "messageType": 35,
+      "fields": {
+        "requestCounter": 4294967294,
+        "result": 1,
+        "sentAtMicros": 0
+      },
+      "plaintext": "23feffffff0100000000",
+      "nonce": "c5b4a392000800000000000000",
+      "associatedData": "10c5b4a39208000000a0a1a2a3a4a5a6a7b0b1b2b3b4b5b6b7",
+      "packet": "10c5b4a39208000000828d31ef45ebdc75449983ea7df1f5f77310"
+    },
+    {
+      "name": "transmit result with unlisted result 5, which passes through",
+      "canonical": true,
+      "key": "202122232425262728292a2b2c2d2e2f",
+      "direction": 0,
+      "address": 2460202181,
+      "counter": 16,
+      "binding": "a0a1a2a3a4a5a6a7b0b1b2b3b4b5b6b7",
+      "maxLength": 1024,
+      "messageType": 35,
+      "fields": {
+        "requestCounter": 23,
+        "result": 5,
+        "sentAtMicros": 9
+      },
+      "plaintext": "23170000000509000000",
+      "nonce": "c5b4a392001000000000000000",
+      "associatedData": "10c5b4a39210000000a0a1a2a3a4a5a6a7b0b1b2b3b4b5b6b7",
+      "packet": "10c5b4a3921000000079c6f14fc763832701779979b06498765aae"
+    }
+  ]
+}

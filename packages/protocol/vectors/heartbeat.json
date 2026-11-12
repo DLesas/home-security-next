@@ -1,0 +1,195 @@
+{
+  "schemaVersion": 1,
+  "protocolVersion": 1,
+  "messageType": 1,
+  "name": "Heartbeat",
+  "direction": 0,
+  "cases": [
+    {
+      "name": "heartbeat, door closed, 3.70 V, 21 °C",
+      "canonical": true,
+      "key": "000102030405060708090a0b0c0d0e0f",
+      "direction": 0,
+      "address": 439041101,
+      "counter": 1,
+      "binding": "",
+      "maxLength": 255,
+      "messageType": 1,
+      "fields": {
+        "settingsVersion": 3,
+        "flags": {
+          "doorOpen": false,
+          "coverOpen": false,
+          "usbPower": false,
+          "charging": false,
+          "replyWanted": false,
+          "localAlarmSounded": false,
+          "buzzing": false
+        },
+        "batteryCode": 120,
+        "temperatureCelsius": 21,
+        "doorChangeCount": 0,
+        "eventAgeSeconds": 0
+      },
+      "plaintext": "0103007815000000",
+      "nonce": "4d3c2b1a000100000000000000",
+      "associatedData": "104d3c2b1a01000000",
+      "packet": "104d3c2b1a0100000000b6239b28a699a6407806a9567368cf"
+    },
+    {
+      "name": "heartbeat, every flag set and every field at its limit",
+      "canonical": true,
+      "key": "000102030405060708090a0b0c0d0e0f",
+      "direction": 0,
+      "address": 439041101,
+      "counter": 4294967295,
+      "binding": "",
+      "maxLength": 255,
+      "messageType": 1,
+      "fields": {
+        "settingsVersion": 255,
+        "flags": {
+          "doorOpen": true,
+          "coverOpen": true,
+          "usbPower": true,
+          "charging": true,
+          "replyWanted": true,
+          "localAlarmSounded": true,
+          "buzzing": true
+        },
+        "batteryCode": 255,
+        "temperatureCelsius": -128,
+        "doorChangeCount": 255,
+        "eventAgeSeconds": 65535
+      },
+      "plaintext": "01ff7fff80ffffff",
+      "nonce": "4d3c2b1a00ffffffff00000000",
+      "associatedData": "104d3c2b1affffffff",
+      "packet": "104d3c2b1affffffffc5f97d71b1515ce2b4ecdb800b4669b7"
+    },
+    {
+      "name": "heartbeat asking for a link check, on USB power and charging",
+      "canonical": true,
+      "key": "000102030405060708090a0b0c0d0e0f",
+      "direction": 0,
+      "address": 439041101,
+      "counter": 16777216,
+      "binding": "",
+      "maxLength": 255,
+      "messageType": 1,
+      "fields": {
+        "settingsVersion": 3,
+        "flags": {
+          "doorOpen": false,
+          "coverOpen": false,
+          "usbPower": true,
+          "charging": true,
+          "replyWanted": true,
+          "localAlarmSounded": false,
+          "buzzing": false
+        },
+        "batteryCode": 170,
+        "temperatureCelsius": 127,
+        "doorChangeCount": 200,
+        "eventAgeSeconds": 0
+      },
+      "plaintext": "01031caa7fc80000",
+      "nonce": "4d3c2b1a000000000100000000",
+      "associatedData": "104d3c2b1a00000001",
+      "packet": "104d3c2b1a00000001db804927e61a25013d914838b6559206"
+    },
+    {
+      "name": "heartbeat with the header's low three bits set, which receivers ignore",
+      "canonical": false,
+      "key": "000102030405060708090a0b0c0d0e0f",
+      "direction": 0,
+      "address": 439041101,
+      "counter": 2,
+      "binding": "",
+      "maxLength": 255,
+      "messageType": 1,
+      "fields": {
+        "settingsVersion": 3,
+        "flags": {
+          "doorOpen": false,
+          "coverOpen": false,
+          "usbPower": false,
+          "charging": false,
+          "replyWanted": false,
+          "localAlarmSounded": false,
+          "buzzing": false
+        },
+        "batteryCode": 120,
+        "temperatureCelsius": 21,
+        "doorChangeCount": 0,
+        "eventAgeSeconds": 0
+      },
+      "plaintext": "0103007815000000",
+      "nonce": "4d3c2b1a000200000000000000",
+      "associatedData": "174d3c2b1a02000000",
+      "packet": "174d3c2b1a02000000ec1495eab0e45b5a4ac21e8872a902dc"
+    },
+    {
+      "name": "heartbeat with the unused flag bit 7 set, which receivers ignore",
+      "canonical": false,
+      "key": "000102030405060708090a0b0c0d0e0f",
+      "direction": 0,
+      "address": 439041101,
+      "counter": 4,
+      "binding": "",
+      "maxLength": 255,
+      "messageType": 1,
+      "fields": {
+        "settingsVersion": 3,
+        "flags": {
+          "doorOpen": false,
+          "coverOpen": false,
+          "usbPower": false,
+          "charging": false,
+          "replyWanted": false,
+          "localAlarmSounded": false,
+          "buzzing": false
+        },
+        "batteryCode": 120,
+        "temperatureCelsius": 21,
+        "doorChangeCount": 0,
+        "eventAgeSeconds": 0
+      },
+      "plaintext": "0103807815000000",
+      "nonce": "4d3c2b1a000400000000000000",
+      "associatedData": "104d3c2b1a04000000",
+      "packet": "104d3c2b1a040000005e4b8fecb71a94e73ea324db5dd6d5d3"
+    },
+    {
+      "name": "heartbeat with two bytes after the known fields, which receivers ignore",
+      "canonical": false,
+      "key": "000102030405060708090a0b0c0d0e0f",
+      "direction": 0,
+      "address": 439041101,
+      "counter": 3,
+      "binding": "",
+      "maxLength": 255,
+      "messageType": 1,
+      "fields": {
+        "settingsVersion": 3,
+        "flags": {
+          "doorOpen": false,
+          "coverOpen": false,
+          "usbPower": false,
+          "charging": false,
+          "replyWanted": false,
+          "localAlarmSounded": false,
+          "buzzing": false
+        },
+        "batteryCode": 120,
+        "temperatureCelsius": 21,
+        "doorChangeCount": 0,
+        "eventAgeSeconds": 0
+      },
+      "plaintext": "0103007815000000eeff",
+      "nonce": "4d3c2b1a000300000000000000",
+      "associatedData": "104d3c2b1a03000000",
+      "packet": "104d3c2b1a030000005e58786a85fb8f78494cbca4220e630f17a8"
+    }
+  ]
+}

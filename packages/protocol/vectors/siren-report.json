@@ -1,0 +1,133 @@
+{
+  "schemaVersion": 1,
+  "protocolVersion": 1,
+  "messageType": 16,
+  "name": "SirenReport",
+  "direction": 0,
+  "cases": [
+    {
+      "name": "siren regular report over Wi-Fi",
+      "canonical": true,
+      "key": "101112131415161718191a1b1c1d1e1f",
+      "direction": 0,
+      "address": 1584361601,
+      "counter": 5000,
+      "binding": "",
+      "maxLength": 1024,
+      "messageType": 16,
+      "fields": {
+        "settingsVersion": 2,
+        "state": 0,
+        "soundingSecondsLeft": 0,
+        "lastCommandCounterLow": 4660,
+        "flags": {
+          "onMains": true,
+          "cellFitted": true,
+          "charging": false,
+          "coverOpen": false,
+          "wifiConnected": true
+        },
+        "cellBatteryCode": 160,
+        "temperatureCelsius": 24,
+        "reason": 0
+      },
+      "plaintext": "1002000000341213a01800",
+      "nonce": "81706f5e008813000000000000",
+      "associatedData": "1081706f5e88130000",
+      "packet": "1081706f5e88130000eb87bd6ce2bb55ad7a2c6f9a25747d279831a1"
+    },
+    {
+      "name": "siren answering a command over LoRa, sounding, cold",
+      "canonical": true,
+      "key": "101112131415161718191a1b1c1d1e1f",
+      "direction": 0,
+      "address": 1584361601,
+      "counter": 5001,
+      "binding": "",
+      "maxLength": 255,
+      "messageType": 16,
+      "fields": {
+        "settingsVersion": 2,
+        "state": 1,
+        "soundingSecondsLeft": 179,
+        "lastCommandCounterLow": 65535,
+        "flags": {
+          "onMains": false,
+          "cellFitted": true,
+          "charging": false,
+          "coverOpen": true,
+          "wifiConnected": false
+        },
+        "cellBatteryCode": 80,
+        "temperatureCelsius": -20,
+        "reason": 1
+      },
+      "plaintext": "100201b300ffff0a50ec01",
+      "nonce": "81706f5e008913000000000000",
+      "associatedData": "1081706f5e89130000",
+      "packet": "1081706f5e89130000a4ccf867164e90ed213aa1ab917784047b1be7"
+    },
+    {
+      "name": "siren report with unlisted state 9 and reason 9, which pass through",
+      "canonical": true,
+      "key": "101112131415161718191a1b1c1d1e1f",
+      "direction": 0,
+      "address": 1584361601,
+      "counter": 5003,
+      "binding": "",
+      "maxLength": 255,
+      "messageType": 16,
+      "fields": {
+        "settingsVersion": 2,
+        "state": 9,
+        "soundingSecondsLeft": 0,
+        "lastCommandCounterLow": 4660,
+        "flags": {
+          "onMains": true,
+          "cellFitted": true,
+          "charging": false,
+          "coverOpen": false,
+          "wifiConnected": true
+        },
+        "cellBatteryCode": 160,
+        "temperatureCelsius": 24,
+        "reason": 9
+      },
+      "plaintext": "1002090000341213a01809",
+      "nonce": "81706f5e008b13000000000000",
+      "associatedData": "1081706f5e8b130000",
+      "packet": "1081706f5e8b1300009505aa9c22ccfe2fd8365a7d9e75980ed99f12"
+    },
+    {
+      "name": "siren report with the unused flag bits 5 to 7 set, which receivers ignore",
+      "canonical": false,
+      "key": "101112131415161718191a1b1c1d1e1f",
+      "direction": 0,
+      "address": 1584361601,
+      "counter": 5004,
+      "binding": "",
+      "maxLength": 255,
+      "messageType": 16,
+      "fields": {
+        "settingsVersion": 2,
+        "state": 0,
+        "soundingSecondsLeft": 0,
+        "lastCommandCounterLow": 4660,
+        "flags": {
+          "onMains": true,
+          "cellFitted": true,
+          "charging": false,
+          "coverOpen": false,
+          "wifiConnected": true
+        },
+        "cellBatteryCode": 160,
+        "temperatureCelsius": 24,
+        "reason": 0
+      },
+      "plaintext": "10020000003412f3a01800",
+      "nonce": "81706f5e008c13000000000000",
+      "associatedData": "1081706f5e8c130000",
+      "packet": "1081706f5e8c13000023730339390333fca9049216765efc434bc824"
+    }
+  ]
+}

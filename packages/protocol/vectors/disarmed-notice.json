@@ -1,0 +1,57 @@
+{
+  "schemaVersion": 1,
+  "protocolVersion": 1,
+  "messageType": 130,
+  "name": "DisarmedNotice",
+  "direction": 1,
+  "cases": [
+    {
+      "name": "disarmed notice, bound to the door report that started the countdown",
+      "canonical": true,
+      "key": "000102030405060708090a0b0c0d0e0f",
+      "direction": 1,
+      "address": 439041101,
+      "counter": 11,
+      "binding": "29000000",
+      "maxLength": 255,
+      "messageType": 130,
+      "fields": {},
+      "plaintext": "82",
+      "nonce": "4d3c2b1a010b00000000000000",
+      "associatedData": "184d3c2b1a0b00000029000000",
+      "packet": "184d3c2b1a0b000000aa979305ee515da200"
+    },
+    {
+      "name": "disarmed notice from another sensor's pairing, bound to its door report",
+      "canonical": true,
+      "key": "303132333435363738393a3b3c3d3e3f",
+      "direction": 1,
+      "address": 195948557,
+      "counter": 1,
+      "binding": "07000000",
+      "maxLength": 255,
+      "messageType": 130,
+      "fields": {},
+      "plaintext": "82",
+      "nonce": "0df0ad0b010100000000000000",
+      "associatedData": "180df0ad0b0100000007000000",
+      "packet": "180df0ad0b01000000525533156816d1401d"
+    },
+    {
+      "name": "disarmed notice near the top of the counter range",
+      "canonical": true,
+      "key": "000102030405060708090a0b0c0d0e0f",
+      "direction": 1,
+      "address": 439041101,
+      "counter": 4294967280,
+      "binding": "feffffff",
+      "maxLength": 255,
+      "messageType": 130,
+      "fields": {},
+      "plaintext": "82",
+      "nonce": "4d3c2b1a01f0ffffff00000000",
+      "associatedData": "184d3c2b1af0fffffffeffffff",
+      "packet": "184d3c2b1af0ffffff7a55ac022b6fc18229"
+    }
+  ]
+}

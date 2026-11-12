@@ -1,0 +1,84 @@
+{
+  "schemaVersion": 1,
+  "protocolVersion": 1,
+  "messageType": 162,
+  "name": "GatewaySettings",
+  "direction": 1,
+  "cases": [
+    {
+      "name": "gateway settings",
+      "canonical": true,
+      "key": "202122232425262728292a2b2c2d2e2f",
+      "direction": 1,
+      "address": 2460202181,
+      "counter": 2,
+      "binding": "a0a1a2a3a4a5a6a7b0b1b2b3b4b5b6b7",
+      "maxLength": 1024,
+      "messageType": 162,
+      "fields": {
+        "settingsVersion": 1,
+        "siteChannel": 0,
+        "listenDataRateMask": 36,
+        "statusIntervalSeconds": 30,
+        "interferenceThresholdDb": 10,
+        "interferenceSeconds": 30,
+        "defaultTxPowerDbm": 14,
+        "sirenTxPowerDbm": 22
+      },
+      "plaintext": "a20100241e0a1e0e16",
+      "nonce": "c5b4a392010200000000000000",
+      "associatedData": "18c5b4a39202000000a0a1a2a3a4a5a6a7b0b1b2b3b4b5b6b7",
+      "packet": "18c5b4a39202000000c9de98f2adc6d6a014d676a804e9d8c85e"
+    },
+    {
+      "name": "gateway settings with negative and extreme transmit powers",
+      "canonical": true,
+      "key": "202122232425262728292a2b2c2d2e2f",
+      "direction": 1,
+      "address": 2460202181,
+      "counter": 3,
+      "binding": "a0a1a2a3a4a5a6a7b0b1b2b3b4b5b6b7",
+      "maxLength": 1024,
+      "messageType": 162,
+      "fields": {
+        "settingsVersion": 2,
+        "siteChannel": 2,
+        "listenDataRateMask": 1,
+        "statusIntervalSeconds": 255,
+        "interferenceThresholdDb": 0,
+        "interferenceSeconds": 255,
+        "defaultTxPowerDbm": -9,
+        "sirenTxPowerDbm": -128
+      },
+      "plaintext": "a2020201ff00fff780",
+      "nonce": "c5b4a392010300000000000000",
+      "associatedData": "18c5b4a39203000000a0a1a2a3a4a5a6a7b0b1b2b3b4b5b6b7",
+      "packet": "18c5b4a39203000000e5d44c0002beb70a2008011f698e0423b5"
+    },
+    {
+      "name": "gateway settings with unlisted site channel 3 and data rate bits 6 and 7, which pass through",
+      "canonical": true,
+      "key": "202122232425262728292a2b2c2d2e2f",
+      "direction": 1,
+      "address": 2460202181,
+      "counter": 4,
+      "binding": "a0a1a2a3a4a5a6a7b0b1b2b3b4b5b6b7",
+      "maxLength": 1024,
+      "messageType": 162,
+      "fields": {
+        "settingsVersion": 3,
+        "siteChannel": 3,
+        "listenDataRateMask": 192,
+        "statusIntervalSeconds": 30,
+        "interferenceThresholdDb": 10,
+        "interferenceSeconds": 30,
+        "defaultTxPowerDbm": 14,
+        "sirenTxPowerDbm": 22
+      },
+      "plaintext": "a20303c01e0a1e0e16",
+      "nonce": "c5b4a392010400000000000000",
+      "associatedData": "18c5b4a39204000000a0a1a2a3a4a5a6a7b0b1b2b3b4b5b6b7",
+      "packet": "18c5b4a3920400000050f6e5cef1279c48d0f4c7abae0584c2b5"
+    }
+  ]
+}

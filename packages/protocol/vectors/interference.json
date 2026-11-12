@@ -1,0 +1,69 @@
+{
+  "schemaVersion": 1,
+  "protocolVersion": 1,
+  "messageType": 36,
+  "name": "Interference",
+  "direction": 0,
+  "cases": [
+    {
+      "name": "interference started",
+      "canonical": true,
+      "key": "202122232425262728292a2b2c2d2e2f",
+      "direction": 0,
+      "address": 2460202181,
+      "counter": 9,
+      "binding": "a0a1a2a3a4a5a6a7b0b1b2b3b4b5b6b7",
+      "maxLength": 1024,
+      "messageType": 36,
+      "fields": {
+        "event": 1,
+        "noiseDbm": -80,
+        "durationSeconds": 30
+      },
+      "plaintext": "2401b01e00",
+      "nonce": "c5b4a392000900000000000000",
+      "associatedData": "10c5b4a39209000000a0a1a2a3a4a5a6a7b0b1b2b3b4b5b6b7",
+      "packet": "10c5b4a392090000002a04dbd9d5c1fdeb856cbc0418"
+    },
+    {
+      "name": "interference ended",
+      "canonical": true,
+      "key": "202122232425262728292a2b2c2d2e2f",
+      "direction": 0,
+      "address": 2460202181,
+      "counter": 10,
+      "binding": "a0a1a2a3a4a5a6a7b0b1b2b3b4b5b6b7",
+      "maxLength": 1024,
+      "messageType": 36,
+      "fields": {
+        "event": 0,
+        "noiseDbm": -79,
+        "durationSeconds": 65535
+      },
+      "plaintext": "2400b1ffff",
+      "nonce": "c5b4a392000a00000000000000",
+      "associatedData": "10c5b4a3920a000000a0a1a2a3a4a5a6a7b0b1b2b3b4b5b6b7",
+      "packet": "10c5b4a3920a000000d96acb63e78a53c1916e9d46c9"
+    },
+    {
+      "name": "interference with unlisted event 2, which passes through",
+      "canonical": true,
+      "key": "202122232425262728292a2b2c2d2e2f",
+      "direction": 0,
+      "address": 2460202181,
+      "counter": 17,
+      "binding": "a0a1a2a3a4a5a6a7b0b1b2b3b4b5b6b7",
+      "maxLength": 1024,
+      "messageType": 36,
+      "fields": {
+        "event": 2,
+        "noiseDbm": 0,
+        "durationSeconds": 0
+      },
+      "plaintext": "2402000000",
+      "nonce": "c5b4a392001100000000000000",
+      "associatedData": "10c5b4a39211000000a0a1a2a3a4a5a6a7b0b1b2b3b4b5b6b7",
+      "packet": "10c5b4a392110000000cc0c0173f7115c294f61d2743"
+    }
+  ]
+}

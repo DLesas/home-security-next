@@ -1,0 +1,104 @@
+{
+  "schemaVersion": 1,
+  "protocolVersion": 1,
+  "messageType": 144,
+  "name": "SirenCommand",
+  "direction": 1,
+  "cases": [
+    {
+      "name": "siren command, action 1",
+      "canonical": true,
+      "key": "101112131415161718191a1b1c1d1e1f",
+      "direction": 1,
+      "address": 1584361601,
+      "counter": 7000,
+      "binding": "",
+      "maxLength": 255,
+      "messageType": 144,
+      "fields": {
+        "action": 1,
+        "soundSeconds": 180
+      },
+      "plaintext": "9001b400",
+      "nonce": "81706f5e01581b000000000000",
+      "associatedData": "1881706f5e581b0000",
+      "packet": "1881706f5e581b00009a423faa0ed02492dae1fc4e"
+    },
+    {
+      "name": "siren command, action 2",
+      "canonical": true,
+      "key": "101112131415161718191a1b1c1d1e1f",
+      "direction": 1,
+      "address": 1584361601,
+      "counter": 7001,
+      "binding": "",
+      "maxLength": 255,
+      "messageType": 144,
+      "fields": {
+        "action": 2,
+        "soundSeconds": 5
+      },
+      "plaintext": "90020500",
+      "nonce": "81706f5e01591b000000000000",
+      "associatedData": "1881706f5e591b0000",
+      "packet": "1881706f5e591b000072ce72ba9d2f37b8dbb1ccb1"
+    },
+    {
+      "name": "siren command, action 0",
+      "canonical": true,
+      "key": "101112131415161718191a1b1c1d1e1f",
+      "direction": 1,
+      "address": 1584361601,
+      "counter": 7002,
+      "binding": "",
+      "maxLength": 255,
+      "messageType": 144,
+      "fields": {
+        "action": 0,
+        "soundSeconds": 0
+      },
+      "plaintext": "90000000",
+      "nonce": "81706f5e015a1b000000000000",
+      "associatedData": "1881706f5e5a1b0000",
+      "packet": "1881706f5e5a1b0000ce123ce224bf28f98784f792"
+    },
+    {
+      "name": "siren command, action 3",
+      "canonical": true,
+      "key": "101112131415161718191a1b1c1d1e1f",
+      "direction": 1,
+      "address": 1584361601,
+      "counter": 7003,
+      "binding": "",
+      "maxLength": 255,
+      "messageType": 144,
+      "fields": {
+        "action": 3,
+        "soundSeconds": 0
+      },
+      "plaintext": "90030000",
+      "nonce": "81706f5e015b1b000000000000",
+      "associatedData": "1881706f5e5b1b0000",
+      "packet": "1881706f5e5b1b0000cae1402ce6e0be9006109030"
+    },
+    {
+      "name": "siren command with unlisted action 7, which passes through",
+      "canonical": true,
+      "key": "101112131415161718191a1b1c1d1e1f",
+      "direction": 1,
+      "address": 1584361601,
+      "counter": 7004,
+      "binding": "",
+      "maxLength": 255,
+      "messageType": 144,
+      "fields": {
+        "action": 7,
+        "soundSeconds": 65535
+      },
+      "plaintext": "9007ffff",
+      "nonce": "81706f5e015c1b000000000000",
+      "associatedData": "1881706f5e5c1b0000",
+      "packet": "1881706f5e5c1b00001e6f7f7c54988d5f88bc2776"
+    }
+  ]
+}

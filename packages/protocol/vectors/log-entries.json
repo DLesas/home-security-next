@@ -1,0 +1,193 @@
+{
+  "schemaVersion": 1,
+  "protocolVersion": 1,
+  "messageType": 48,
+  "name": "LogEntries",
+  "direction": 0,
+  "cases": [
+    {
+      "name": "one log entry from a siren",
+      "canonical": true,
+      "key": "101112131415161718191a1b1c1d1e1f",
+      "direction": 0,
+      "address": 1584361601,
+      "counter": 5002,
+      "binding": "",
+      "maxLength": 1024,
+      "messageType": 48,
+      "fields": {
+        "entries": [
+          {
+            "millisecondsSinceStart": 1500,
+            "level": 2,
+            "code": 257,
+            "text": "wifi connected"
+          }
+        ]
+      },
+      "plaintext": "30dc0500000201010e7769666920636f6e6e6563746564",
+      "nonce": "81706f5e008a13000000000000",
+      "associatedData": "1081706f5e8a130000",
+      "packet": "1081706f5e8a130000bfeafe0c30b02ecf1b30d034b1639db4b2b3468fd0057ec0634b00811d16c1"
+    },
+    {
+      "name": "log entries with empty, multi-byte and 64-byte texts",
+      "canonical": true,
+      "key": "202122232425262728292a2b2c2d2e2f",
+      "direction": 0,
+      "address": 2460202181,
+      "counter": 11,
+      "binding": "a0a1a2a3a4a5a6a7b0b1b2b3b4b5b6b7",
+      "maxLength": 1024,
+      "messageType": 48,
+      "fields": {
+        "entries": [
+          {
+            "millisecondsSinceStart": 0,
+            "level": 0,
+            "code": 0,
+            "text": ""
+          },
+          {
+            "millisecondsSinceStart": 4294967295,
+            "level": 255,
+            "code": 65535,
+            "text": "Tür offen – 5 °C"
+          },
+          {
+            "millisecondsSinceStart": 60000,
+            "level": 3,
+            "code": 7,
+            "text": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+          }
+        ]
+      },
+      "plaintext": "300000000000000000ffffffffffffff1454c3bc72206f6666656e20e28093203520c2b04360ea00000307004078787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878",
+      "nonce": "c5b4a392000b00000000000000",
+      "associatedData": "10c5b4a3920b000000a0a1a2a3a4a5a6a7b0b1b2b3b4b5b6b7",
+      "packet": "10c5b4a3920b000000e8b4e3e1f236778084ed65a036461a691c1134a1cac3f0ed2bba38d2dae26d6c7d74f6d38c76c80bc1a7622347090cfd9fc05e78bb541ebc5f5abcc2f5a85be0a1178f17faf67956c96526f9cf5483b7440ca891876ec832af652e9af41fb98cb758d916513858be59fd15b03ce7194f592cfac71e"
+    },
+    {
+      "name": "thirteen log entries, the most whole 64-byte entries one link packet holds",
+      "canonical": true,
+      "key": "202122232425262728292a2b2c2d2e2f",
+      "direction": 0,
+      "address": 2460202181,
+      "counter": 12,
+      "binding": "a0a1a2a3a4a5a6a7b0b1b2b3b4b5b6b7",
+      "maxLength": 1024,
+      "messageType": 48,
+      "fields": {
+        "entries": [
+          {
+            "millisecondsSinceStart": 0,
+            "level": 0,
+            "code": 0,
+            "text": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          {
+            "millisecondsSinceStart": 1000,
+            "level": 1,
+            "code": 1,
+            "text": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          },
+          {
+            "millisecondsSinceStart": 2000,
+            "level": 2,
+            "code": 2,
+            "text": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+          },
+          {
+            "millisecondsSinceStart": 3000,
+            "level": 3,
+            "code": 3,
+            "text": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+          },
+          {
+            "millisecondsSinceStart": 4000,
+            "level": 0,
+            "code": 4,
+            "text": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+          },
+          {
+            "millisecondsSinceStart": 5000,
+            "level": 1,
+            "code": 5,
+            "text": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+          },
+          {
+            "millisecondsSinceStart": 6000,
+            "level": 2,
+            "code": 6,
+            "text": "gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg"
+          },
+          {
+            "millisecondsSinceStart": 7000,
+            "level": 3,
+            "code": 7,
+            "text": "hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh"
+          },
+          {
+            "millisecondsSinceStart": 8000,
+            "level": 0,
+            "code": 8,
+            "text": "iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii"
+          },
+          {
+            "millisecondsSinceStart": 9000,
+            "level": 1,
+            "code": 9,
+            "text": "jjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjj"
+          },
+          {
+            "millisecondsSinceStart": 10000,
+            "level": 2,
+            "code": 10,
+            "text": "kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk"
+          },
+          {
+            "millisecondsSinceStart": 11000,
+            "level": 3,
+            "code": 11,
+            "text": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "millisecondsSinceStart": 12000,
+            "level": 0,
+            "code": 12,
+            "text": "mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm"
+          }
+        ]
+      },
+      "plaintext": "30000000000000004061616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161e80300000101004062626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262d00700000202004063636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363b80b00000303004064646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464a00f00000004004065656565656565656565656565656565656565656565656565656565656565656565656565656565656565656565656565656565656565656565656565656565881300000105004066666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666701700000206004067676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767581b00000307004068686868686868686868686868686868686868686868686868686868686868686868686868686868686868686868686868686868686868686868686868686868401f0000000800406969696969696969696969696969696969696969696969696969696969696969696969696969696969696969696969696969696969696969696969696969696928230000010900406a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a10270000020a00406b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6bf82a0000030b00406c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6ce02e0000000c00406d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d",
+      "nonce": "c5b4a392000c00000000000000",
+      "associatedData": "10c5b4a3920c000000a0a1a2a3a4a5a6a7b0b1b2b3b4b5b6b7",
+      "packet": "10c5b4a3920c000000abdaa00b1bbb912a03ada7e97d4b5a80e660a0512917f206044cd13227efb5434ae2ca7737c2525fdeeca7165b689edfd56a2f6f728a71dc6a79c34c1a57d14b6ecac068e63cf7b908a79bb0bc1ab5fe25a3b724e40110efaeb2517886fc6f42a8e02402d2bc78928e1fc602ef92dacdefedc7a543be29296e773c07cacc2671b19c33654dde44cbaf9b7d11460d39f2e28726c663c86f77d70a108cd4049733a1dfb4820c036de8767079ee7d81315ab8c2c96ab272bcf3e15b35b4a385f71031cfcc8614bb913fcbe986fd4b0b4af34f9f30b8039541b6166edb5ffdda8a166c610859d624b0a260c39d8fb0088a5960732d7c83aca429109a44cd9677d25efea2a719123422ee0366306453f96e565a607da22810972b956c9761a761e9550b9a2ef93896004a546ef14b72d51404e55ee70adc3a5e3ea431cdac6bc3df26f6e8d017d5cc7dda86d3a7019e098840cd882cb0b6d4e65c8dd50b6471b2c353c1338c8515484d0701ead964b27c9875368a744fa077dfc3623cbe3477d860cd157fe530089d25ead5b33d6a9d55364b92fac0bccb50d1e63d4f4017ecb4a29ec0274488db39ef43efaffe12011b0cb6933a096b35b0b8319262ee2896cb49e1b94f67e8eb692c6429088191d02d13a38be6307838518c6a305cdc7cf6447145c6567936ad02ec8de721eba210f34d406460abd6649d8f26a4ceab4863338daba215fbd5b1a5b802221cced6a4299beae11ad1618172ac7fe45277c9454e45cbf60fe5005b00240960af4a7d1bfd9c7903fbf2259c4f6a5b62824545c327792ac466446ef74b6460eab61b5aecb357713fb81ade75d2d6adc545fecdeba1878901afaea8975addffcd331168388472ee017b4c479a707cb037e9d3379612ba3a5aa6bffde723142aba22c571de7242ee36f9816842802716ffc0f519cddadbca1e7e99c304bc983275db36acf84adc2b0d4968694c753e13f0d4d87be8daa1e45e8bcd3eb0e422fc7270bdc72427aeb76c2e729d858a46d1864caa5f7e95969bde6d8ad69f1790b61f9874e788c86438438dbd1500952829e347d54fb15d8ef17a8b9f4008ab735e3f01f5b2fc058316d8a25f28cb871cacb36d8f855186e99393013e56726298eba576c63b3be223447082981259eb16808b53ea07f2247304e5f2df27773f5332eb3217b381614c117476f34f95f2b5cefce50b198fa67d01d219323230cfe649db99106dbf5a67b85c7ead5cb769ec83b63e52d03fcacd5f8293c8165b6a81c2a60b11b26e93609c546631dab8a430f24531530b5e679371add4f2864546999f6b5692ea7970d3065b"
+    },
+    {
+      "name": "log entry text that is not UTF-8, shown with replacement characters",
+      "canonical": false,
+      "key": "202122232425262728292a2b2c2d2e2f",
+      "direction": 0,
+      "address": 2460202181,
+      "counter": 13,
+      "binding": "a0a1a2a3a4a5a6a7b0b1b2b3b4b5b6b7",
+      "maxLength": 1024,
+      "messageType": 48,
+      "fields": {
+        "entries": [
+          {
+            "millisecondsSinceStart": 1,
+            "level": 1,
+            "code": 1,
+            "text": "��(A"
+          }
+        ]
+      },
+      "plaintext": "300100000001010004ffc32841",
+      "nonce": "c5b4a392000d00000000000000",
+      "associatedData": "10c5b4a3920d000000a0a1a2a3a4a5a6a7b0b1b2b3b4b5b6b7",
+      "packet": "10c5b4a3920d00000062f285156526962cdb3e3f1df204298adc0d3ddb51"
+    }
+  ]
+}

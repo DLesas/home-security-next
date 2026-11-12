@@ -1,0 +1,361 @@
+{
+  "schemaVersion": 1,
+  "protocolVersion": 1,
+  "packets": [
+    {
+      "name": "tag altered",
+      "key": "000102030405060708090a0b0c0d0e0f",
+      "expectedDirection": 0,
+      "binding": "",
+      "maxLength": 255,
+      "packet": "104d3c2b1a0100000000b6239b28a699a6407806a9567368ce",
+      "error": "badTag"
+    },
+    {
+      "name": "encrypted type byte altered",
+      "key": "000102030405060708090a0b0c0d0e0f",
+      "expectedDirection": 0,
+      "binding": "",
+      "maxLength": 255,
+      "packet": "104d3c2b1a0100000080b6239b28a699a6407806a9567368cf",
+      "error": "badTag"
+    },
+    {
+      "name": "encrypted body byte altered",
+      "key": "000102030405060708090a0b0c0d0e0f",
+      "expectedDirection": 0,
+      "binding": "",
+      "maxLength": 255,
+      "packet": "104d3c2b1a0100000000b6238b28a699a6407806a9567368cf",
+      "error": "badTag"
+    },
+    {
+      "name": "address altered",
+      "key": "000102030405060708090a0b0c0d0e0f",
+      "expectedDirection": 0,
+      "binding": "",
+      "maxLength": 255,
+      "packet": "104c3c2b1a0100000000b6239b28a699a6407806a9567368cf",
+      "error": "badTag"
+    },
+    {
+      "name": "counter altered",
+      "key": "000102030405060708090a0b0c0d0e0f",
+      "expectedDirection": 0,
+      "binding": "",
+      "maxLength": 255,
+      "packet": "104d3c2b1a0300000000b6239b28a699a6407806a9567368cf",
+      "error": "badTag"
+    },
+    {
+      "name": "header's low bits altered after sealing",
+      "key": "000102030405060708090a0b0c0d0e0f",
+      "expectedDirection": 0,
+      "binding": "",
+      "maxLength": 255,
+      "packet": "114d3c2b1a0100000000b6239b28a699a6407806a9567368cf",
+      "error": "badTag"
+    },
+    {
+      "name": "opened with another device's key",
+      "key": "101112131415161718191a1b1c1d1e1f",
+      "expectedDirection": 0,
+      "binding": "",
+      "maxLength": 255,
+      "packet": "104d3c2b1a0100000000b6239b28a699a6407806a9567368cf",
+      "error": "badTag"
+    },
+    {
+      "name": "reply opened with the binding of a different sensor packet",
+      "key": "000102030405060708090a0b0c0d0e0f",
+      "expectedDirection": 1,
+      "binding": "2a000000",
+      "maxLength": 255,
+      "packet": "184d3c2b1a090000003030e8f23c575152ba80f0a22a7f8d62ca4448454b",
+      "error": "badTag"
+    },
+    {
+      "name": "reply opened without its binding",
+      "key": "000102030405060708090a0b0c0d0e0f",
+      "expectedDirection": 1,
+      "binding": "",
+      "maxLength": 255,
+      "packet": "184d3c2b1a090000003030e8f23c575152ba80f0a22a7f8d62ca4448454b",
+      "error": "badTag"
+    },
+    {
+      "name": "gateway packet from an earlier connection",
+      "key": "202122232425262728292a2b2c2d2e2f",
+      "expectedDirection": 0,
+      "binding": "a0a1a2a3a4a5a6a7b0b1b2b3b4b5b6b7",
+      "maxLength": 1024,
+      "packet": "10c5b4a39205000000a5531da0f79e483538f153418f",
+      "error": "badTag"
+    },
+    {
+      "name": "hub receives a packet from the hub",
+      "key": "000102030405060708090a0b0c0d0e0f",
+      "expectedDirection": 0,
+      "binding": "29000000",
+      "maxLength": 255,
+      "packet": "184d3c2b1a090000003030e8f23c575152ba80f0a22a7f8d62ca4448454b",
+      "error": "wrongDirection"
+    },
+    {
+      "name": "device receives a packet to the hub",
+      "key": "000102030405060708090a0b0c0d0e0f",
+      "expectedDirection": 1,
+      "binding": "",
+      "maxLength": 255,
+      "packet": "104d3c2b1a0100000000b6239b28a699a6407806a9567368cf",
+      "error": "wrongDirection"
+    },
+    {
+      "name": "empty",
+      "key": "000102030405060708090a0b0c0d0e0f",
+      "expectedDirection": 0,
+      "binding": "",
+      "maxLength": 255,
+      "packet": "",
+      "error": "truncated"
+    },
+    {
+      "name": "17 bytes, one short of the smallest packet",
+      "key": "000102030405060708090a0b0c0d0e0f",
+      "expectedDirection": 0,
+      "binding": "",
+      "maxLength": 255,
+      "packet": "104d3c2b1a0100000000b6239b28a699a6",
+      "error": "truncated"
+    },
+    {
+      "name": "tag cut short",
+      "key": "000102030405060708090a0b0c0d0e0f",
+      "expectedDirection": 0,
+      "binding": "",
+      "maxLength": 255,
+      "packet": "104d3c2b1a0100000000b6239b28a699a6407806a9567368",
+      "error": "badTag"
+    },
+    {
+      "name": "256 bytes, one over the radio limit",
+      "key": "000102030405060708090a0b0c0d0e0f",
+      "expectedDirection": 0,
+      "binding": "",
+      "maxLength": 255,
+      "packet": "104d3c2b1a4d00000011dba88628e00d25cc1e45ecd456343b26c77b301c02814be9dca32d4980e8aafd8cc253f8d06d3259aba201723578c30f60a42832afe679da02f4aa50190e8651db7fbf5e7ed5b7477352983f90d873ec5d01a4b66740a93d79b3f6657e5b59ed377cca04f382a82e6444ac6cf5f6885cde6a6da5c3222c908405ef71059cdea667700274d5d8643dbfee3dc6ed38a71bfd4df23dd8c6f51b9eb14a8ff9fd0586cf494120c4a96529ebb4bbd2cfa55c2e44a907849a33c3b267886e0cab7e06283d5c6264c9f976dade37fd7162af33169ac4ab8ccac13476d6c81b41bed8d2cd22d1744afe8ab16445ed2573285e1d78736f4bf57aa8",
+      "error": "tooLong"
+    },
+    {
+      "name": "protocol version 2",
+      "key": "000102030405060708090a0b0c0d0e0f",
+      "expectedDirection": 0,
+      "binding": "",
+      "maxLength": 255,
+      "packet": "204d3c2b1a0100000000b6239b32a699a64c18ca82a5699586",
+      "error": "badVersion"
+    },
+    {
+      "name": "setup marker where a header belongs",
+      "key": "000102030405060708090a0b0c0d0e0f",
+      "expectedDirection": 0,
+      "binding": "",
+      "maxLength": 255,
+      "packet": "f14d3c2b1a0100000000b6239b32a699a63ba3ca0c1704580f",
+      "error": "badVersion"
+    },
+    {
+      "name": "address 0",
+      "key": "000102030405060708090a0b0c0d0e0f",
+      "expectedDirection": 0,
+      "binding": "",
+      "maxLength": 255,
+      "packet": "1000000000010000001c511ce18faa60ff1caed1f6b8d766a0",
+      "error": "badAddress"
+    },
+    {
+      "name": "address 0xFFFFFFFF",
+      "key": "000102030405060708090a0b0c0d0e0f",
+      "expectedDirection": 0,
+      "binding": "",
+      "maxLength": 255,
+      "packet": "10ffffffff010000001ea80c396cd05586b2172a91aa0e04fe",
+      "error": "badAddress"
+    },
+    {
+      "name": "counter 0",
+      "key": "000102030405060708090a0b0c0d0e0f",
+      "expectedDirection": 0,
+      "binding": "",
+      "maxLength": 255,
+      "packet": "104d3c2b1a00000000a60b31be19265caa2a6ed21359313881",
+      "error": "badCounter"
+    },
+    {
+      "name": "authenticated, unknown message type 0x7F",
+      "key": "000102030405060708090a0b0c0d0e0f",
+      "expectedDirection": 0,
+      "binding": "",
+      "maxLength": 255,
+      "packet": "104d3c2b1a4d0000005e45c3b1f1dd29ab48",
+      "error": "unknownType",
+      "messageType": 127
+    },
+    {
+      "name": "authenticated heartbeat, body one byte short",
+      "key": "000102030405060708090a0b0c0d0e0f",
+      "expectedDirection": 0,
+      "binding": "",
+      "maxLength": 255,
+      "packet": "104d3c2b1a4d00000020d8a8fe27e00dcc9088c0d049fbef",
+      "error": "truncated"
+    },
+    {
+      "name": "authenticated button, action byte missing",
+      "key": "000102030405060708090a0b0c0d0e0f",
+      "expectedDirection": 0,
+      "binding": "",
+      "maxLength": 255,
+      "packet": "104d3c2b1a4d00000025d8b8fe27e00c25487c0d814e70937b",
+      "error": "truncated"
+    },
+    {
+      "name": "authenticated log entries, empty body",
+      "key": "000102030405060708090a0b0c0d0e0f",
+      "expectedDirection": 0,
+      "binding": "",
+      "maxLength": 1024,
+      "packet": "104d3c2b1a4d00000011bd07e523c6b0737d",
+      "error": "truncated"
+    },
+    {
+      "name": "authenticated log entry text longer than 64 bytes",
+      "key": "000102030405060708090a0b0c0d0e0f",
+      "expectedDirection": 0,
+      "binding": "",
+      "maxLength": 1024,
+      "packet": "104d3c2b1a4d00000011dba88628e10d25cd065df4cc4e2c233edf6328041a9953f1c4bb355198f0b2e594da4be0c8752a41b3ba196a2d60db1778bc302ab7fe61c21aecb24801169e49c367a74666cdaf5f1238b9cdc40a1e5a06",
+      "error": "badLength"
+    },
+    {
+      "name": "authenticated forwarded packet carrying 17 bytes",
+      "key": "202122232425262728292a2b2c2d2e2f",
+      "expectedDirection": 0,
+      "binding": "a0a1a2a3a4a5a6a7b0b1b2b3b4b5b6b7",
+      "maxLength": 1024,
+      "packet": "10c5b4a392280000000ba6770ee8c416e829b65ee045f04890437917b09f51a83b6f2cec99c10dcf008731c3",
+      "error": "truncated"
+    },
+    {
+      "name": "authenticated forwarded packet carrying 256 bytes",
+      "key": "202122232425262728292a2b2c2d2e2f",
+      "expectedDirection": 0,
+      "binding": "a0a1a2a3a4a5a6a7b0b1b2b3b4b5b6b7",
+      "maxLength": 1024,
+      "packet": "10c5b4a39229000000bf32f1d05accfd8bbb9eeef68991228321841e36331e9d901ae0d4bf657bf724f959875292a66ab3eefab98136e107fcfc44e5dbd50d17092e95868787ebaf895af5aab8662de8dbcbde94857948e796d298857235311f3e98cc897c762e8accd5516ca3986a412bfa3d8284cfb676dbf62c53ad74c77b5f7cfea68533e3e9f0ba1f8897757803be9dcf6bb59ff0a12db1b6927d7fbaccaeef8594d3061b19e4899630d3cde3685c574c2951652f5a95ea1e61df93705de6a531d623eb9f812505bf418f7d866c34eab76147724ed8c84e7e5307603af2a981da1f4c0af391426f2e3d68944292e0b3ab7b7db7b2bdd1a8aaec978bf4a5308b7d75d90ed0261e3b3376cd976d706820eb0dd3af8ece842d1a",
+      "error": "tooLong"
+    },
+    {
+      "name": "authenticated transmit request carrying 17 bytes",
+      "key": "202122232425262728292a2b2c2d2e2f",
+      "expectedDirection": 1,
+      "binding": "a0a1a2a3a4a5a6a7b0b1b2b3b4b5b6b7",
+      "maxLength": 1024,
+      "packet": "18c5b4a392280000002ad39cff3c2240cb5b90d9ec01078a9125d91f1e722c12409d371cf3e4a83ded43b1",
+      "error": "truncated"
+    },
+    {
+      "name": "authenticated transmit request carrying 256 bytes",
+      "key": "202122232425262728292a2b2c2d2e2f",
+      "expectedDirection": 1,
+      "binding": "a0a1a2a3a4a5a6a7b0b1b2b3b4b5b6b7",
+      "maxLength": 1024,
+      "packet": "18c5b4a39229000000cae5b4fa4990f809563bb65c676d47600337a8ca26baf1b039ae98f65450e3ae1c9aca5e5c5f98195251bd36e960b52ace1f8e4fc683e5382d199c5f79db54d8c9bead49c25c43bf3221591e071099100fb0f1f739f3304b88d24d558c5a0972f9bd2eb6acbb6c6bbc35761ba8676426085d0438cfdeec452a25a6c8bb4071b4bac98e2f1e8cd2729fc2f09e04cddffafccd55ae8b7d4d3a644abe2c2f3fa9ce1c8bbb1e99c003c5b4ef81cf9f0c931e6ca7ca2a821efc57d6a16ac228cc26b3e32037c82e963047388a43dda2266e7daf3734df942db958fab7dffae331e06f16a67652788fb45b7d2843484465b52cec6df251516c4761f56d5967473dba8a796a639e5864722e26e72ef145b1c8520a",
+      "error": "tooLong"
+    },
+    {
+      "name": "authenticated reply sealed in the to-hub direction",
+      "key": "000102030405060708090a0b0c0d0e0f",
+      "expectedDirection": 0,
+      "binding": "",
+      "maxLength": 255,
+      "packet": "104d3c2b1a4d000000a0d8ab9834ec082789673c95adb2a28810dda88f29",
+      "error": "wrongDirection"
+    },
+    {
+      "name": "authenticated heartbeat sealed in the from-hub direction",
+      "key": "000102030405060708090a0b0c0d0e0f",
+      "expectedDirection": 1,
+      "binding": "",
+      "maxLength": 255,
+      "packet": "184d3c2b1a4e00000080a38fa455baff39cf41019ba1582d30",
+      "error": "wrongDirection"
+    },
+    {
+      "name": "authenticated log entries ending in a partial entry",
+      "key": "000102030405060708090a0b0c0d0e0f",
+      "expectedDirection": 0,
+      "binding": "",
+      "maxLength": 1024,
+      "packet": "104d3c2b1a4d00000011dba88628e10d258c673c364c451f9ed08d97",
+      "error": "truncated"
+    }
+  ],
+  "replayed": [
+    {
+      "name": "hub: counter already accepted, 64 below the highest",
+      "key": "000102030405060708090a0b0c0d0e0f",
+      "expectedDirection": 0,
+      "binding": "",
+      "maxLength": 255,
+      "packet": "104d3c2b1a24000000eb707b6beb19cdd3138bc952f67fc798",
+      "rule": "replayWindow",
+      "stateBefore": "64000000ffffffffffffffff",
+      "rejection": "duplicate"
+    },
+    {
+      "name": "hub: counter 65 below the highest",
+      "key": "000102030405060708090a0b0c0d0e0f",
+      "expectedDirection": 0,
+      "binding": "",
+      "maxLength": 255,
+      "packet": "104d3c2b1a23000000eaa1ab847b8908ca21f2c4b6fa3d76e4",
+      "rule": "replayWindow",
+      "stateBefore": "64000000ffffffffffffffff",
+      "rejection": "tooOld"
+    },
+    {
+      "name": "hub: repeat of the highest counter",
+      "key": "000102030405060708090a0b0c0d0e0f",
+      "expectedDirection": 0,
+      "binding": "",
+      "maxLength": 255,
+      "packet": "104d3c2b1a64000000f1c5f41741621f46b5346cf04dc12abf",
+      "rule": "replayWindow",
+      "stateBefore": "64000000ffffffffffffffff",
+      "rejection": "duplicate"
+    },
+    {
+      "name": "siren: exact repeat of the last command",
+      "key": "101112131415161718191a1b1c1d1e1f",
+      "expectedDirection": 1,
+      "binding": "",
+      "maxLength": 255,
+      "packet": "1881706f5e581b00009a423faa0ed02492dae1fc4e",
+      "rule": "strictlyHigher",
+      "stateBefore": 7000,
+      "rejection": "duplicate"
+    },
+    {
+      "name": "siren: older command arriving late",
+      "key": "101112131415161718191a1b1c1d1e1f",
+      "expectedDirection": 1,
+      "binding": "",
+      "maxLength": 255,
+      "packet": "1881706f5e581b00009a423faa0ed02492dae1fc4e",
+      "rule": "strictlyHigher",
+      "stateBefore": 7001,
+      "rejection": "tooOld"
+    }
+  ]
+}

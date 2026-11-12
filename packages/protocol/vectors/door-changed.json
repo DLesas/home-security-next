@@ -1,0 +1,71 @@
+{
+  "schemaVersion": 1,
+  "protocolVersion": 1,
+  "messageType": 2,
+  "name": "DoorChanged",
+  "direction": 0,
+  "cases": [
+    {
+      "name": "door opened, reply wanted",
+      "canonical": true,
+      "key": "000102030405060708090a0b0c0d0e0f",
+      "direction": 0,
+      "address": 439041101,
+      "counter": 41,
+      "binding": "",
+      "maxLength": 255,
+      "messageType": 2,
+      "fields": {
+        "settingsVersion": 3,
+        "flags": {
+          "doorOpen": true,
+          "coverOpen": false,
+          "usbPower": false,
+          "charging": false,
+          "replyWanted": true,
+          "localAlarmSounded": false,
+          "buzzing": false
+        },
+        "batteryCode": 115,
+        "temperatureCelsius": 19,
+        "doorChangeCount": 17,
+        "eventAgeSeconds": 2
+      },
+      "plaintext": "0203117313110200",
+      "nonce": "4d3c2b1a002900000000000000",
+      "associatedData": "104d3c2b1a29000000",
+      "packet": "104d3c2b1a2900000067600d18e03cca9101f6f35e8c18929d"
+    },
+    {
+      "name": "door closed after a local alarm, sent late",
+      "canonical": true,
+      "key": "000102030405060708090a0b0c0d0e0f",
+      "direction": 0,
+      "address": 439041101,
+      "counter": 42,
+      "binding": "",
+      "maxLength": 255,
+      "messageType": 2,
+      "fields": {
+        "settingsVersion": 3,
+        "flags": {
+          "doorOpen": false,
+          "coverOpen": false,
+          "usbPower": false,
+          "charging": false,
+          "replyWanted": true,
+          "localAlarmSounded": true,
+          "buzzing": false
+        },
+        "batteryCode": 115,
+        "temperatureCelsius": 19,
+        "doorChangeCount": 18,
+        "eventAgeSeconds": 600
+      },
+      "plaintext": "0203307313125802",
+      "nonce": "4d3c2b1a002a00000000000000",
+      "associatedData": "104d3c2b1a2a000000",
+      "packet": "104d3c2b1a2a00000008579910147936d6ed6a44ee54685dc9"
+    }
+  ]
+}

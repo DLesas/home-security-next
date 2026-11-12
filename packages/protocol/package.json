@@ -1,0 +1,14 @@
+{
+  "name": "@hsn/protocol",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Device protocol version 1: packets, message bodies, counters, USB framing and test vectors.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "bun test",
+    "vectors": "bun scripts/generate-vectors.ts"
+  }
+}

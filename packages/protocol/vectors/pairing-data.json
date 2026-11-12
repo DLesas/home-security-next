@@ -1,0 +1,161 @@
+{
+  "schemaVersion": 1,
+  "protocolVersion": 1,
+  "signingPrivateKey": "c9afa9d845ba75166b5c215767b1d6934e50c3db36e89b127b8a622b120f6721",
+  "valid": [
+    {
+      "name": "sensor pairing",
+      "canonical": true,
+      "fields": {
+        "address": 439041101,
+        "key": "000102030405060708090a0b0c0d0e0f",
+        "hubIdentity": "d6c23e2744a840cb",
+        "firmwareSigningKey": "60fed4ba255a9d31c961eb74c6356d68c049b8923b61fa6ce669622e60f29fb67903fe1008b8bc99a41ae9e95628bc64f2f1b20c2d7e9f5177a3c294d4462299",
+        "siteChannel": 1,
+        "allowedDataRateMask": 36,
+        "wifiName": "686f6d65",
+        "wifiPassword": "636f727265637420686f7273652062617474657279"
+      },
+      "bytes": "014d3c2b1a000102030405060708090a0b0c0d0e0fd6c23e2744a840cb60fed4ba255a9d31c961eb74c6356d68c049b8923b61fa6ce669622e60f29fb67903fe1008b8bc99a41ae9e95628bc64f2f1b20c2d7e9f5177a3c294d4462299012404686f6d6515636f727265637420686f7273652062617474657279"
+    },
+    {
+      "name": "no Wi-Fi details",
+      "canonical": true,
+      "fields": {
+        "address": 439041101,
+        "key": "000102030405060708090a0b0c0d0e0f",
+        "hubIdentity": "d6c23e2744a840cb",
+        "firmwareSigningKey": "60fed4ba255a9d31c961eb74c6356d68c049b8923b61fa6ce669622e60f29fb67903fe1008b8bc99a41ae9e95628bc64f2f1b20c2d7e9f5177a3c294d4462299",
+        "siteChannel": 1,
+        "allowedDataRateMask": 36,
+        "wifiName": "",
+        "wifiPassword": ""
+      },
+      "bytes": "014d3c2b1a000102030405060708090a0b0c0d0e0fd6c23e2744a840cb60fed4ba255a9d31c961eb74c6356d68c049b8923b61fa6ce669622e60f29fb67903fe1008b8bc99a41ae9e95628bc64f2f1b20c2d7e9f5177a3c294d446229901240000"
+    },
+    {
+      "name": "longest Wi-Fi name and password, the name typed with multi-byte characters",
+      "canonical": true,
+      "fields": {
+        "address": 439041101,
+        "key": "000102030405060708090a0b0c0d0e0f",
+        "hubIdentity": "d6c23e2744a840cb",
+        "firmwareSigningKey": "60fed4ba255a9d31c961eb74c6356d68c049b8923b61fa6ce669622e60f29fb67903fe1008b8bc99a41ae9e95628bc64f2f1b20c2d7e9f5177a3c294d4462299",
+        "siteChannel": 1,
+        "allowedDataRateMask": 36,
+        "wifiName": "436166c3a92d6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e",
+        "wifiPassword": "70707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070"
+      },
+      "bytes": "014d3c2b1a000102030405060708090a0b0c0d0e0fd6c23e2744a840cb60fed4ba255a9d31c961eb74c6356d68c049b8923b61fa6ce669622e60f29fb67903fe1008b8bc99a41ae9e95628bc64f2f1b20c2d7e9f5177a3c294d4462299012420436166c3a92d6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e4070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070"
+    },
+    {
+      "name": "Wi-Fi name bytes that are not UTF-8, carried as they are",
+      "canonical": true,
+      "fields": {
+        "address": 439041101,
+        "key": "000102030405060708090a0b0c0d0e0f",
+        "hubIdentity": "d6c23e2744a840cb",
+        "firmwareSigningKey": "60fed4ba255a9d31c961eb74c6356d68c049b8923b61fa6ce669622e60f29fb67903fe1008b8bc99a41ae9e95628bc64f2f1b20c2d7e9f5177a3c294d4462299",
+        "siteChannel": 1,
+        "allowedDataRateMask": 36,
+        "wifiName": "ff00fe",
+        "wifiPassword": "c328"
+      },
+      "bytes": "014d3c2b1a000102030405060708090a0b0c0d0e0fd6c23e2744a840cb60fed4ba255a9d31c961eb74c6356d68c049b8923b61fa6ce669622e60f29fb67903fe1008b8bc99a41ae9e95628bc64f2f1b20c2d7e9f5177a3c294d4462299012403ff00fe02c328"
+    },
+    {
+      "name": "unlisted site channel 3 and data rate bits 6 and 7, which pass through",
+      "canonical": true,
+      "fields": {
+        "address": 439041101,
+        "key": "000102030405060708090a0b0c0d0e0f",
+        "hubIdentity": "d6c23e2744a840cb",
+        "firmwareSigningKey": "60fed4ba255a9d31c961eb74c6356d68c049b8923b61fa6ce669622e60f29fb67903fe1008b8bc99a41ae9e95628bc64f2f1b20c2d7e9f5177a3c294d4462299",
+        "siteChannel": 3,
+        "allowedDataRateMask": 192,
+        "wifiName": "686f6d65",
+        "wifiPassword": "636f727265637420686f7273652062617474657279"
+      },
+      "bytes": "014d3c2b1a000102030405060708090a0b0c0d0e0fd6c23e2744a840cb60fed4ba255a9d31c961eb74c6356d68c049b8923b61fa6ce669622e60f29fb67903fe1008b8bc99a41ae9e95628bc64f2f1b20c2d7e9f5177a3c294d446229903c004686f6d6515636f727265637420686f7273652062617474657279"
+    },
+    {
+      "name": "hub identity that does not match the signing key, which decoding does not check",
+      "canonical": true,
+      "fields": {
+        "address": 439041101,
+        "key": "000102030405060708090a0b0c0d0e0f",
+        "hubIdentity": "0000000000000000",
+        "firmwareSigningKey": "60fed4ba255a9d31c961eb74c6356d68c049b8923b61fa6ce669622e60f29fb67903fe1008b8bc99a41ae9e95628bc64f2f1b20c2d7e9f5177a3c294d4462299",
+        "siteChannel": 1,
+        "allowedDataRateMask": 36,
+        "wifiName": "686f6d65",
+        "wifiPassword": "636f727265637420686f7273652062617474657279"
+      },
+      "bytes": "014d3c2b1a000102030405060708090a0b0c0d0e0f000000000000000060fed4ba255a9d31c961eb74c6356d68c049b8923b61fa6ce669622e60f29fb67903fe1008b8bc99a41ae9e95628bc64f2f1b20c2d7e9f5177a3c294d4462299012404686f6d6515636f727265637420686f7273652062617474657279"
+    },
+    {
+      "name": "sensor pairing with three bytes after the Wi-Fi password, which decoding ignores",
+      "canonical": false,
+      "fields": {
+        "address": 439041101,
+        "key": "000102030405060708090a0b0c0d0e0f",
+        "hubIdentity": "d6c23e2744a840cb",
+        "firmwareSigningKey": "60fed4ba255a9d31c961eb74c6356d68c049b8923b61fa6ce669622e60f29fb67903fe1008b8bc99a41ae9e95628bc64f2f1b20c2d7e9f5177a3c294d4462299",
+        "siteChannel": 1,
+        "allowedDataRateMask": 36,
+        "wifiName": "686f6d65",
+        "wifiPassword": "636f727265637420686f7273652062617474657279"
+      },
+      "bytes": "014d3c2b1a000102030405060708090a0b0c0d0e0fd6c23e2744a840cb60fed4ba255a9d31c961eb74c6356d68c049b8923b61fa6ce669622e60f29fb67903fe1008b8bc99a41ae9e95628bc64f2f1b20c2d7e9f5177a3c294d4462299012404686f6d6515636f727265637420686f727365206261747465727901ff00"
+    }
+  ],
+  "hubIdentity": [
+    {
+      "name": "the pairing cases' signing key, from signingPrivateKey",
+      "firmwareSigningKey": "60fed4ba255a9d31c961eb74c6356d68c049b8923b61fa6ce669622e60f29fb67903fe1008b8bc99a41ae9e95628bc64f2f1b20c2d7e9f5177a3c294d4462299",
+      "hubIdentity": "d6c23e2744a840cb"
+    },
+    {
+      "name": "all zeros",
+      "firmwareSigningKey": "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "hubIdentity": "f5a5fd42d16a2030"
+    },
+    {
+      "name": "all ones",
+      "firmwareSigningKey": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "hubIdentity": "8667e718294e9e0d"
+    }
+  ],
+  "invalid": [
+    {
+      "name": "format version 2",
+      "bytes": "024d3c2b1a000102030405060708090a0b0c0d0e0fd6c23e2744a840cb60fed4ba255a9d31c961eb74c6356d68c049b8923b61fa6ce669622e60f29fb67903fe1008b8bc99a41ae9e95628bc64f2f1b20c2d7e9f5177a3c294d4462299012404686f6d6515636f727265637420686f7273652062617474657279",
+      "error": "badVersion"
+    },
+    {
+      "name": "address 0",
+      "bytes": "0100000000000102030405060708090a0b0c0d0e0fd6c23e2744a840cb60fed4ba255a9d31c961eb74c6356d68c049b8923b61fa6ce669622e60f29fb67903fe1008b8bc99a41ae9e95628bc64f2f1b20c2d7e9f5177a3c294d4462299012404686f6d6515636f727265637420686f7273652062617474657279",
+      "error": "badAddress"
+    },
+    {
+      "name": "cut off before the Wi-Fi name",
+      "bytes": "014d3c2b1a000102030405060708090a0b0c0d0e0fd6c23e2744a840cb60fed4ba255a9d31c961eb74c6356d68c049b8923b61fa6ce669622e60f29fb67903fe1008b8bc99a41ae9e95628bc64f2f1b20c2d7e9f5177a3c294d44622990124",
+      "error": "truncated"
+    },
+    {
+      "name": "cut off inside the Wi-Fi name",
+      "bytes": "014d3c2b1a000102030405060708090a0b0c0d0e0fd6c23e2744a840cb60fed4ba255a9d31c961eb74c6356d68c049b8923b61fa6ce669622e60f29fb67903fe1008b8bc99a41ae9e95628bc64f2f1b20c2d7e9f5177a3c294d4462299012404686f",
+      "error": "truncated"
+    },
+    {
+      "name": "Wi-Fi name length 33",
+      "bytes": "014d3c2b1a000102030405060708090a0b0c0d0e0fd6c23e2744a840cb60fed4ba255a9d31c961eb74c6356d68c049b8923b61fa6ce669622e60f29fb67903fe1008b8bc99a41ae9e95628bc64f2f1b20c2d7e9f5177a3c294d4462299012421686f6d6515636f727265637420686f7273652062617474657279",
+      "error": "badLength"
+    },
+    {
+      "name": "Wi-Fi password length 65",
+      "bytes": "014d3c2b1a000102030405060708090a0b0c0d0e0fd6c23e2744a840cb60fed4ba255a9d31c961eb74c6356d68c049b8923b61fa6ce669622e60f29fb67903fe1008b8bc99a41ae9e95628bc64f2f1b20c2d7e9f5177a3c294d4462299012400417070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070",
+      "error": "badLength"
+    }
+  ]
+}

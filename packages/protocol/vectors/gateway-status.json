@@ -1,0 +1,102 @@
+{
+  "schemaVersion": 1,
+  "protocolVersion": 1,
+  "messageType": 34,
+  "name": "GatewayStatus",
+  "direction": 0,
+  "cases": [
+    {
+      "name": "gateway status on Wi-Fi",
+      "canonical": true,
+      "key": "202122232425262728292a2b2c2d2e2f",
+      "direction": 0,
+      "address": 2460202181,
+      "counter": 5,
+      "binding": "a0a1a2a3a4a5a6a7b0b1b2b3b4b5b6b7",
+      "maxLength": 1024,
+      "messageType": 34,
+      "fields": {
+        "settingsVersion": 1,
+        "uptimeSeconds": 86400,
+        "airtimeHundredthsPercent": 125,
+        "noiseMedianDbm": -118,
+        "noiseHighestDbm": -95,
+        "normalNoiseDbm": -117,
+        "packetsReceived": 42,
+        "packetsCrcFailed": 3,
+        "wifiRssiDbm": -61,
+        "flags": {
+          "usbConnected": false,
+          "cellFitted": false,
+          "onMains": true
+        }
+      },
+      "plaintext": "2201805101007d008aa18b2a000300c304",
+      "nonce": "c5b4a392000500000000000000",
+      "associatedData": "10c5b4a39205000000a0a1a2a3a4a5a6a7b0b1b2b3b4b5b6b7",
+      "packet": "10c5b4a39205000000a3522deff6da31bbba967b06cba5709dfc0c6c47fdf7327595"
+    },
+    {
+      "name": "gateway status on USB",
+      "canonical": true,
+      "key": "202122232425262728292a2b2c2d2e2f",
+      "direction": 0,
+      "address": 2460202181,
+      "counter": 6,
+      "binding": "a0a1a2a3a4a5a6a7b0b1b2b3b4b5b6b7",
+      "maxLength": 1024,
+      "messageType": 34,
+      "fields": {
+        "settingsVersion": 255,
+        "uptimeSeconds": 4294967295,
+        "airtimeHundredthsPercent": 10000,
+        "noiseMedianDbm": -128,
+        "noiseHighestDbm": 127,
+        "normalNoiseDbm": 0,
+        "packetsReceived": 65535,
+        "packetsCrcFailed": 65535,
+        "wifiRssiDbm": 0,
+        "flags": {
+          "usbConnected": true,
+          "cellFitted": true,
+          "onMains": true
+        }
+      },
+      "plaintext": "22ffffffffff1027807f00ffffffff0007",
+      "nonce": "c5b4a392000600000000000000",
+      "associatedData": "10c5b4a39206000000a0a1a2a3a4a5a6a7b0b1b2b3b4b5b6b7",
+      "packet": "10c5b4a39206000000f95f3c82f211662eeb0cf4e1311f27f8979a6d411ceb9b6c02"
+    },
+    {
+      "name": "gateway status with the unused flag bits 3 to 7 set, which receivers ignore",
+      "canonical": false,
+      "key": "202122232425262728292a2b2c2d2e2f",
+      "direction": 0,
+      "address": 2460202181,
+      "counter": 18,
+      "binding": "a0a1a2a3a4a5a6a7b0b1b2b3b4b5b6b7",
+      "maxLength": 1024,
+      "messageType": 34,
+      "fields": {
+        "settingsVersion": 1,
+        "uptimeSeconds": 30,
+        "airtimeHundredthsPercent": 0,
+        "noiseMedianDbm": -120,
+        "noiseHighestDbm": -119,
+        "normalNoiseDbm": -120,
+        "packetsReceived": 0,
+        "packetsCrcFailed": 0,
+        "wifiRssiDbm": -50,
+        "flags": {
+          "usbConnected": false,
+          "cellFitted": false,
+          "onMains": false
+        }
+      },
+      "plaintext": "22011e000000000088898800000000cef8",
+      "nonce": "c5b4a392001200000000000000",
+      "associatedData": "10c5b4a39212000000a0a1a2a3a4a5a6a7b0b1b2b3b4b5b6b7",
+      "packet": "10c5b4a3921200000017a7509af2584d74689ed49f961aec4fc216cc25fbe3a57a4e"
+    }
+  ]
+}

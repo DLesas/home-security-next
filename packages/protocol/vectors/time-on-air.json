@@ -1,0 +1,342 @@
+{
+  "schemaVersion": 1,
+  "protocolVersion": 1,
+  "cases": [
+    {
+      "dataRate": 0,
+      "spreadingFactor": 12,
+      "length": 0,
+      "microseconds": 663552,
+      "milliseconds": 663.552
+    },
+    {
+      "dataRate": 0,
+      "spreadingFactor": 12,
+      "length": 18,
+      "microseconds": 1318912,
+      "milliseconds": 1318.912
+    },
+    {
+      "dataRate": 0,
+      "spreadingFactor": 12,
+      "length": 21,
+      "microseconds": 1482752,
+      "milliseconds": 1482.752
+    },
+    {
+      "dataRate": 0,
+      "spreadingFactor": 12,
+      "length": 25,
+      "microseconds": 1482752,
+      "milliseconds": 1482.752
+    },
+    {
+      "dataRate": 0,
+      "spreadingFactor": 12,
+      "length": 26,
+      "microseconds": 1646592,
+      "milliseconds": 1646.592
+    },
+    {
+      "dataRate": 0,
+      "spreadingFactor": 12,
+      "length": 28,
+      "microseconds": 1646592,
+      "milliseconds": 1646.592
+    },
+    {
+      "dataRate": 0,
+      "spreadingFactor": 12,
+      "length": 30,
+      "microseconds": 1646592,
+      "milliseconds": 1646.592
+    },
+    {
+      "dataRate": 0,
+      "spreadingFactor": 12,
+      "length": 255,
+      "microseconds": 9019392,
+      "milliseconds": 9019.392
+    },
+    {
+      "dataRate": 1,
+      "spreadingFactor": 11,
+      "length": 0,
+      "microseconds": 331776,
+      "milliseconds": 331.776
+    },
+    {
+      "dataRate": 1,
+      "spreadingFactor": 11,
+      "length": 18,
+      "microseconds": 659456,
+      "milliseconds": 659.456
+    },
+    {
+      "dataRate": 1,
+      "spreadingFactor": 11,
+      "length": 21,
+      "microseconds": 741376,
+      "milliseconds": 741.376
+    },
+    {
+      "dataRate": 1,
+      "spreadingFactor": 11,
+      "length": 25,
+      "microseconds": 823296,
+      "milliseconds": 823.296
+    },
+    {
+      "dataRate": 1,
+      "spreadingFactor": 11,
+      "length": 26,
+      "microseconds": 823296,
+      "milliseconds": 823.296
+    },
+    {
+      "dataRate": 1,
+      "spreadingFactor": 11,
+      "length": 28,
+      "microseconds": 905216,
+      "milliseconds": 905.216
+    },
+    {
+      "dataRate": 1,
+      "spreadingFactor": 11,
+      "length": 30,
+      "microseconds": 905216,
+      "milliseconds": 905.216
+    },
+    {
+      "dataRate": 1,
+      "spreadingFactor": 11,
+      "length": 255,
+      "microseconds": 5001216,
+      "milliseconds": 5001.216
+    },
+    {
+      "dataRate": 2,
+      "spreadingFactor": 10,
+      "length": 0,
+      "microseconds": 206848,
+      "milliseconds": 206.848
+    },
+    {
+      "dataRate": 2,
+      "spreadingFactor": 10,
+      "length": 18,
+      "microseconds": 329728,
+      "milliseconds": 329.728
+    },
+    {
+      "dataRate": 2,
+      "spreadingFactor": 10,
+      "length": 21,
+      "microseconds": 370688,
+      "milliseconds": 370.688
+    },
+    {
+      "dataRate": 2,
+      "spreadingFactor": 10,
+      "length": 25,
+      "microseconds": 411648,
+      "milliseconds": 411.648
+    },
+    {
+      "dataRate": 2,
+      "spreadingFactor": 10,
+      "length": 26,
+      "microseconds": 411648,
+      "milliseconds": 411.648
+    },
+    {
+      "dataRate": 2,
+      "spreadingFactor": 10,
+      "length": 28,
+      "microseconds": 411648,
+      "milliseconds": 411.648
+    },
+    {
+      "dataRate": 2,
+      "spreadingFactor": 10,
+      "length": 30,
+      "microseconds": 452608,
+      "milliseconds": 452.608
+    },
+    {
+      "dataRate": 2,
+      "spreadingFactor": 10,
+      "length": 255,
+      "microseconds": 2295808,
+      "milliseconds": 2295.808
+    },
+    {
+      "dataRate": 3,
+      "spreadingFactor": 9,
+      "length": 0,
+      "microseconds": 103424,
+      "milliseconds": 103.424
+    },
+    {
+      "dataRate": 3,
+      "spreadingFactor": 9,
+      "length": 18,
+      "microseconds": 185344,
+      "milliseconds": 185.344
+    },
+    {
+      "dataRate": 3,
+      "spreadingFactor": 9,
+      "length": 21,
+      "microseconds": 185344,
+      "milliseconds": 185.344
+    },
+    {
+      "dataRate": 3,
+      "spreadingFactor": 9,
+      "length": 25,
+      "microseconds": 205824,
+      "milliseconds": 205.824
+    },
+    {
+      "dataRate": 3,
+      "spreadingFactor": 9,
+      "length": 26,
+      "microseconds": 205824,
+      "milliseconds": 205.824
+    },
+    {
+      "dataRate": 3,
+      "spreadingFactor": 9,
+      "length": 28,
+      "microseconds": 226304,
+      "milliseconds": 226.304
+    },
+    {
+      "dataRate": 3,
+      "spreadingFactor": 9,
+      "length": 30,
+      "microseconds": 226304,
+      "milliseconds": 226.304
+    },
+    {
+      "dataRate": 3,
+      "spreadingFactor": 9,
+      "length": 255,
+      "microseconds": 1250304,
+      "milliseconds": 1250.304
+    },
+    {
+      "dataRate": 4,
+      "spreadingFactor": 8,
+      "length": 0,
+      "microseconds": 51712,
+      "milliseconds": 51.712
+    },
+    {
+      "dataRate": 4,
+      "spreadingFactor": 8,
+      "length": 18,
+      "microseconds": 92672,
+      "milliseconds": 92.672
+    },
+    {
+      "dataRate": 4,
+      "spreadingFactor": 8,
+      "length": 21,
+      "microseconds": 102912,
+      "milliseconds": 102.912
+    },
+    {
+      "dataRate": 4,
+      "spreadingFactor": 8,
+      "length": 25,
+      "microseconds": 113152,
+      "milliseconds": 113.152
+    },
+    {
+      "dataRate": 4,
+      "spreadingFactor": 8,
+      "length": 26,
+      "microseconds": 113152,
+      "milliseconds": 113.152
+    },
+    {
+      "dataRate": 4,
+      "spreadingFactor": 8,
+      "length": 28,
+      "microseconds": 123392,
+      "milliseconds": 123.392
+    },
+    {
+      "dataRate": 4,
+      "spreadingFactor": 8,
+      "length": 30,
+      "microseconds": 123392,
+      "milliseconds": 123.392
+    },
+    {
+      "dataRate": 4,
+      "spreadingFactor": 8,
+      "length": 255,
+      "microseconds": 707072,
+      "milliseconds": 707.072
+    },
+    {
+      "dataRate": 5,
+      "spreadingFactor": 7,
+      "length": 0,
+      "microseconds": 25856,
+      "milliseconds": 25.856
+    },
+    {
+      "dataRate": 5,
+      "spreadingFactor": 7,
+      "length": 18,
+      "microseconds": 51456,
+      "milliseconds": 51.456
+    },
+    {
+      "dataRate": 5,
+      "spreadingFactor": 7,
+      "length": 21,
+      "microseconds": 56576,
+      "milliseconds": 56.576
+    },
+    {
+      "dataRate": 5,
+      "spreadingFactor": 7,
+      "length": 25,
+      "microseconds": 61696,
+      "milliseconds": 61.696
+    },
+    {
+      "dataRate": 5,
+      "spreadingFactor": 7,
+      "length": 26,
+      "microseconds": 61696,
+      "milliseconds": 61.696
+    },
+    {
+      "dataRate": 5,
+      "spreadingFactor": 7,
+      "length": 28,
+      "microseconds": 66816,
+      "milliseconds": 66.816
+    },
+    {
+      "dataRate": 5,
+      "spreadingFactor": 7,
+      "length": 30,
+      "microseconds": 71936,
+      "milliseconds": 71.936
+    },
+    {
+      "dataRate": 5,
+      "spreadingFactor": 7,
+      "length": 255,
+      "microseconds": 399616,
+      "milliseconds": 399.616
+    }
+  ]
+}

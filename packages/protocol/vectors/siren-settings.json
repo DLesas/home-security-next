@@ -1,0 +1,78 @@
+{
+  "schemaVersion": 1,
+  "protocolVersion": 1,
+  "messageType": 145,
+  "name": "SirenSettings",
+  "direction": 1,
+  "cases": [
+    {
+      "name": "siren settings",
+      "canonical": true,
+      "key": "101112131415161718191a1b1c1d1e1f",
+      "direction": 1,
+      "address": 1584361601,
+      "counter": 7100,
+      "binding": "",
+      "maxLength": 255,
+      "messageType": 145,
+      "fields": {
+        "settingsVersion": 2,
+        "wifiReportIntervalSeconds": 30,
+        "loraCheckIntervalUnits": 20,
+        "maxSoundSeconds": 900,
+        "sendDataRate": 2,
+        "commandDataRate": 5
+      },
+      "plaintext": "91021e1484030205",
+      "nonce": "81706f5e01bc1b000000000000",
+      "associatedData": "1881706f5ebc1b0000",
+      "packet": "1881706f5ebc1b00007c15b232fa69bed421b720713e11745e"
+    },
+    {
+      "name": "siren settings for a slow site",
+      "canonical": true,
+      "key": "101112131415161718191a1b1c1d1e1f",
+      "direction": 1,
+      "address": 1584361601,
+      "counter": 7101,
+      "binding": "",
+      "maxLength": 255,
+      "messageType": 145,
+      "fields": {
+        "settingsVersion": 3,
+        "wifiReportIntervalSeconds": 60,
+        "loraCheckIntervalUnits": 40,
+        "maxSoundSeconds": 180,
+        "sendDataRate": 0,
+        "commandDataRate": 3
+      },
+      "plaintext": "91033c28b4000003",
+      "nonce": "81706f5e01bd1b000000000000",
+      "associatedData": "1881706f5ebd1b0000",
+      "packet": "1881706f5ebd1b00009329d892a8bbd3d83584a51096e8d9d8"
+    },
+    {
+      "name": "siren settings at every limit, with unlisted data rates 6 and 7",
+      "canonical": true,
+      "key": "101112131415161718191a1b1c1d1e1f",
+      "direction": 1,
+      "address": 1584361601,
+      "counter": 7102,
+      "binding": "",
+      "maxLength": 255,
+      "messageType": 145,
+      "fields": {
+        "settingsVersion": 255,
+        "wifiReportIntervalSeconds": 255,
+        "loraCheckIntervalUnits": 255,
+        "maxSoundSeconds": 65535,
+        "sendDataRate": 6,
+        "commandDataRate": 7
+      },
+      "plaintext": "91ffffffffff0607",
+      "nonce": "81706f5e01be1b000000000000",
+      "associatedData": "1881706f5ebe1b0000",
+      "packet": "1881706f5ebe1b0000148d43496e46a604c8c7048a3ca4e297"
+    }
+  ]
+}

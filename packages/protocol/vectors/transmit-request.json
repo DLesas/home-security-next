@@ -1,0 +1,101 @@
+{
+  "schemaVersion": 1,
+  "protocolVersion": 1,
+  "messageType": 161,
+  "name": "TransmitRequest",
+  "direction": 1,
+  "cases": [
+    {
+      "name": "transmit request: a reply as soon as possible",
+      "canonical": true,
+      "key": "202122232425262728292a2b2c2d2e2f",
+      "direction": 1,
+      "address": 2460202181,
+      "counter": 20,
+      "binding": "a0a1a2a3a4a5a6a7b0b1b2b3b4b5b6b7",
+      "maxLength": 1024,
+      "messageType": 161,
+      "fields": {
+        "when": 1,
+        "gatewayTimeMicros": 0,
+        "dataRate": 5,
+        "powerDbm": 22,
+        "priority": 0,
+        "packet": "184d3c2b1a090000003030e8f23c575152ba80f0a22a7f8d62ca4448454b"
+      },
+      "plaintext": "a10100000000051600184d3c2b1a090000003030e8f23c575152ba80f0a22a7f8d62ca4448454b",
+      "nonce": "c5b4a392011400000000000000",
+      "associatedData": "18c5b4a39214000000a0a1a2a3a4a5a6a7b0b1b2b3b4b5b6b7",
+      "packet": "18c5b4a392140000006f3bd2cf3a17c4541f11f441f04433c8457d03bdad551647257f5371fae4ddee1070ac3fb111f5b2c9befea1de6a81"
+    },
+    {
+      "name": "transmit request: a siren command (the first siren command case's packet) at a given time",
+      "canonical": true,
+      "key": "202122232425262728292a2b2c2d2e2f",
+      "direction": 1,
+      "address": 2460202181,
+      "counter": 21,
+      "binding": "a0a1a2a3a4a5a6a7b0b1b2b3b4b5b6b7",
+      "maxLength": 1024,
+      "messageType": 161,
+      "fields": {
+        "when": 0,
+        "gatewayTimeMicros": 4294967295,
+        "dataRate": 0,
+        "powerDbm": 14,
+        "priority": 1,
+        "packet": "1881706f5e581b00009a423faa0ed02492dae1fc4e"
+      },
+      "plaintext": "a100ffffffff000e011881706f5e581b00009a423faa0ed02492dae1fc4e",
+      "nonce": "c5b4a392011500000000000000",
+      "associatedData": "18c5b4a39215000000a0a1a2a3a4a5a6a7b0b1b2b3b4b5b6b7",
+      "packet": "18c5b4a39215000000654249f4d7c2716287ca4b0dbad7ff1bf76dc0c2f9bb022558cdb8924c57980f51d630d32a7e"
+    },
+    {
+      "name": "transmit request at the radio's lowest power, -9 dBm",
+      "canonical": true,
+      "key": "202122232425262728292a2b2c2d2e2f",
+      "direction": 1,
+      "address": 2460202181,
+      "counter": 22,
+      "binding": "a0a1a2a3a4a5a6a7b0b1b2b3b4b5b6b7",
+      "maxLength": 1024,
+      "messageType": 161,
+      "fields": {
+        "when": 1,
+        "gatewayTimeMicros": 1000,
+        "dataRate": 5,
+        "powerDbm": -9,
+        "priority": 0,
+        "packet": "184d3c2b1a090000003030e8f23c575152ba80f0a22a7f8d62ca4448454b"
+      },
+      "plaintext": "a101e803000005f700184d3c2b1a090000003030e8f23c575152ba80f0a22a7f8d62ca4448454b",
+      "nonce": "c5b4a392011600000000000000",
+      "associatedData": "18c5b4a39216000000a0a1a2a3a4a5a6a7b0b1b2b3b4b5b6b7",
+      "packet": "18c5b4a3921600000046e73ce6f3aaed54678d376639c9129922da1310b34862a14dea8e5eaa13416619d15566a0fde110e43b13d4058ac7"
+    },
+    {
+      "name": "transmit request with unlisted when 2, data rate 6 and priority 2, which pass through",
+      "canonical": true,
+      "key": "202122232425262728292a2b2c2d2e2f",
+      "direction": 1,
+      "address": 2460202181,
+      "counter": 23,
+      "binding": "a0a1a2a3a4a5a6a7b0b1b2b3b4b5b6b7",
+      "maxLength": 1024,
+      "messageType": 161,
+      "fields": {
+        "when": 2,
+        "gatewayTimeMicros": 5,
+        "dataRate": 6,
+        "powerDbm": 0,
+        "priority": 2,
+        "packet": "1881706f5e581b00009a423faa0ed02492dae1fc4e"
+      },
+      "plaintext": "a102050000000600021881706f5e581b00009a423faa0ed02492dae1fc4e",
+      "nonce": "c5b4a392011700000000000000",
+      "associatedData": "18c5b4a39217000000a0a1a2a3a4a5a6a7b0b1b2b3b4b5b6b7",
+      "packet": "18c5b4a39217000000bda24159117209139545ea3f34a63ff6ca01313c3ea70012b23fd87477d5fd1bbcbf94058a6a"
+    }
+  ]
+}
