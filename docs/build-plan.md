@@ -58,7 +58,7 @@ Reports are in [spikes/](spikes/).
 | --- | --- | --- |
 | Protocol spec | Agreed: [protocol.md](protocol.md) | LR1–LR10, D71, D72, D104, D106 |
 | Shared protocol package | Done: [`packages/protocol`](../packages/protocol). Packet codec, counters, USB framing and test vectors in TypeScript, with an independent verifier that rebuilds every vector from the spec using Node's own AES-CCM | LR1–LR3 |
-| Firmware core | Carried over from the old repo's Zephyr core, reshaped around a transport-neutral link; watchdog and double-sleep bugs fixed | FW1, FW3–FW9 |
+| Firmware core | Done: the event loop, every hardware interface and the shared services, designed in [firmware-design.md](firmware-design.md). The old Zephyr core's behaviour and tests carry over as scenarios; its blocking code does not. The old watchdog and double-sleep bugs cannot occur by construction, and tests enforce it | FW1, FW3–FW9 |
 | Packet codec and crypto (C++) | Done: [`firmware/core`](../firmware) and `firmware/platform/psa`. Written from the spec and vectors alone; passes every vector under Apple clang and GCC, with memory and undefined-behaviour checkers. Tests enforce no heap, no exceptions and no floating point in the core | LR1–LR3 |
 | Sensor role | Door, button and tamper handling, heartbeat, countdown buzzer, local alarm when the hub does not answer | DS1–DS14, D88, D89 |
 | Siren role | Commands, acknowledgements, duplicate drop, automatic stop, reports | SR1–SR7 |
@@ -66,7 +66,7 @@ Reports are in [spikes/](spikes/).
 | Host tests | All three roles against fake hardware and a fake radio | FW3 |
 | Minimal hub | TypeScript service with SQLite: gateway link, entry countdown per sensor, siren command with retry, event log | HB1, HB2, HB11, AL3, AL4, D86 |
 | Command-line tool | Arm, disarm, show state, set device keys | D38 |
-| Simulated radio | The three roles built for the Mac, joined to the real hub by a fake radio, so the whole chain runs with no boards and in continuous integration | FW3 |
+| Simulated radio | Bench done: a scheduler for any number of simulated devices with drifting clocks, a shared radio medium, a test hub and a recorded timeline, in `firmware/platform/host`. Still to do: joining it to the real hub, once the hub exists | FW3 |
 
 Done when: in the simulation, opening the armed door starts the buzzer and the siren role switches when the countdown ends unless the command line disarms first.
 
@@ -75,6 +75,7 @@ Done when: in the simulation, opening the armed door starts the buzzer and the s
 | Piece | What it is | Requirements |
 | --- | --- | --- |
 | ESP-IDF platform layer | Pins, deep sleep, watchdog, storage, SX1262 driver, Wi-Fi, serial key setup | FW2, PR5 |
+| Hardware contract tests | One small test suite run against both the simulator's fake hardware and the real drivers on a board, so the simulator is known not to promise what the hardware does not do | FW3 |
 | Spikes S6, S7, S8 | Range, reply time, two settings on one radio, current | O10, O11, O14 |
 
 Done when: opening the armed door on the bench starts the sensor's buzzer, and the siren board switches 30 seconds later unless disarmed from the command line; disarming stops the buzzer; the spike results are written down.

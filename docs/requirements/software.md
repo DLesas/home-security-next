@@ -31,10 +31,10 @@ Items marked † are proposals that have not been explicitly agreed.
 | DS5 | Armed state arrives in the hub's reply and is stored across sleep (D8) | old core, over HTTP |
 | DS6 | When the door opens while armed and no reply comes from the hub (gateway or hub down), the sensor buzzes for the stored countdown and then sounds its own alarm. That alarm lasts about 3 minutes while the sensor keeps trying the hub, and stops early when the hub answers "disarmed" or the button is pressed (D88) | old sensor role, stale-armed alarm |
 | DS7 | Button: short press reports; about 5 s opens pairing for about 2 minutes; about 15 s factory-resets | new |
-| DS8 | While armed, a pairing hold does nothing and is reported. A factory-reset hold is reported and the sensor buzzes; the reset is refused if the hub answers and goes ahead if nothing answers (D89) | new |
+| DS8 | While armed, a pairing hold does nothing and is reported. A factory-reset hold is reported and the sensor buzzes; the reset is refused if the hub answers and goes ahead if nothing answers through the 10 minutes of retries (D89) | new |
 | DS9 | Cover tamper is reported immediately | new |
-| DS10 | Telemetry: battery voltage, charging state, chip temperature | old core sends temperature, voltage, frequency |
-| DS11 | Low-battery warning by buzzer and to the hub | new |
+| DS10 | Telemetry in every packet: battery voltage, charging state, chip temperature. The voltage is measured before the radio transmits, not during, so the reading is not pulled down by the transmit current (D109) | old core sends temperature, voltage, frequency |
+| DS11 | Low-battery warning by buzzer at the voltage the hub treats as 10%, and to the hub in every packet (D109) | new |
 | DS12 | Every door change is sent at once. The buzzer starts when the hub's reply says an entry countdown has started, so it works even if the sensor's stored armed state is out of date (D23, D24, D71) | new |
 | DS13 | While buzzing, the sensor keeps its radio listening and stops on a "disarmed" message from the hub; it stops by itself when the countdown ends (D24) | new |
 | DS14 | This sensor's countdown length (D86) arrives in the hub's reply and is stored, like the heartbeat interval, for use when no reply comes (DS6) | new |
@@ -106,7 +106,7 @@ Items marked † are proposals that have not been explicitly agreed.
 | PR1 | Phone app pairs a device over Bluetooth using the code shown on the unit's display (PR6) | new |
 | PR2 | Pairing delivers the device identity, its key, the hub's firmware signing key, and Wi-Fi details: required for sirens and for gateways not on USB, optional for sensors (D47) | old core has serial provisioning, `provisioning`, `provisioning_session` |
 | PR3 | Bluetooth is off outside pairing and update sessions | new |
-| PR4 | Factory reset erases keys and settings, and the hub is told | new |
+| PR4 | Factory reset erases keys and settings, and the hub is told by a button report sent just before erasing | new |
 | PR5 | Serial provisioning stays for development | old core |
 | PR6 | The device creates its pairing code on first boot and after a factory reset, and shows it as text and a QR code on its e-paper display; the phone app scans the QR code or the user types the code (D85) | new |
 | PR7 | A new or factory-reset gateway plugged into the hub computer by USB is added automatically, without a click or Bluetooth, and the app shows that it was added. Other boards, and gateways of another hub, are left alone (D100) | new |
@@ -150,6 +150,7 @@ Items marked † are proposals that have not been explicitly agreed.
 | HB30 | Countdown deadlines and alarm state are saved as they change. After a restart the hub reads each siren's state, sounds the sirens for any countdown that ran out while it was down, and does not re-trigger a sounding alarm (D80) | new |
 | HB31 | Schedules follow the hub's local time zone, daylight saving included | old schedule logic |
 | HB32 | Armed state is held per sensor; modes, groups and schedules change it as described in D74 | old hub arms per sensor |
+| HB33 | The hub turns each battery voltage into a percentage from a table for the fitted cell, and warns the users who can view a device when its battery reaches 10%. The warning is raised once on the way down and clears when the battery is back above 15% (D109) | new |
 
 ## 9. Remote access
 
@@ -178,7 +179,7 @@ Two apps (D31): a phone app for iOS and Android, and a web app served by the hub
 | AP1 | Link to a hub by code (D61); modes, arm, disarm, groups, schedules, device list, history | `mobileApp2`, `webapp` (no sign-in) |
 | AP2 | Bluetooth pairing flow (phone only) | new |
 | AP3 | Bluetooth firmware update for out-of-range sensors (phone only) | new |
-| AP4 | Show battery, signal strength, firmware version and tamper state per device | new |
+| AP4 | Show battery percentage, signal strength, firmware version and tamper state per device (D109) | new |
 | AP5 | Edit the heartbeat interval | new |
 | AP6 | Notifications for countdown, alarm, tamper, device silent, low battery, gateway offline, siren path lost, hub offline, arm and disarm, and updates (D75) | old system pushes warning and critical events through `eventService` |
 | AP7 | User management with per-sensor and per-camera permissions, hidden until switched on (D33) | new |
@@ -225,6 +226,7 @@ Built after the core system works (D14).
 | AL9 | After the siren stops by itself, everything stays armed; the door that set it off is ignored until it closes, then arms again (D67) | old 30 s cooldown in `alarmTimeoutManager.ts` |
 | AL10 | A manual disarm during a scheduled armed period lasts until the next schedule entry runs (D68, D87) | new |
 | AL11 | A Disarm ends an alarm only when every sensor that set it off is then disarmed; otherwise the sirens run on to their automatic stop. A second door opening during a countdown or alarm adds the sirens of its groups (D95) | new |
+| AL12 | Arming with a low battery: when a mode, group or sensor being armed includes a sensor at 10% battery or below, the user is told which and asked before it goes on. A schedule arms anyway and sends a warning (D109) | new |
 
 ## 13. First milestone
 
