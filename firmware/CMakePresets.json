@@ -1,0 +1,62 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": { "major": 3, "minor": 28, "patch": 0 },
+  "configurePresets": [
+    {
+      "name": "host-debug",
+      "displayName": "Host, debug, AddressSanitizer and UndefinedBehaviorSanitizer",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "HSN_SANITIZE": "ON"
+      }
+    },
+    {
+      "name": "host-release",
+      "displayName": "Host, optimised for size, no sanitizers",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "MinSizeRel",
+        "HSN_SANITIZE": "OFF"
+      }
+    }
+  ],
+  "buildPresets": [
+    { "name": "host-debug", "configurePreset": "host-debug" },
+    { "name": "host-release", "configurePreset": "host-release" }
+  ],
+  "testPresets": [
+    {
+      "name": "host-debug",
+      "configurePreset": "host-debug",
+      "output": { "outputOnFailure": true },
+      "execution": { "noTestsAction": "error" }
+    },
+    {
+      "name": "host-release",
+      "configurePreset": "host-release",
+      "output": { "outputOnFailure": true },
+      "execution": { "noTestsAction": "error" }
+    }
+  ],
+  "workflowPresets": [
+    {
+      "name": "host-debug",
+      "steps": [
+        { "type": "configure", "name": "host-debug" },
+        { "type": "build", "name": "host-debug" },
+        { "type": "test", "name": "host-debug" }
+      ]
+    },
+    {
+      "name": "host-release",
+      "steps": [
+        { "type": "configure", "name": "host-release" },
+        { "type": "build", "name": "host-release" },
+        { "type": "test", "name": "host-release" }
+      ]
+    }
+  ]
+}
