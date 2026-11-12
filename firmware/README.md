@@ -1,6 +1,6 @@
 # Firmware
 
-Firmware for the sensors, sirens and gateways (ESP32-S3, ESP-IDF v6.1). So far this holds the device protocol of [docs/protocol.md](../docs/protocol.md), version 1, checked byte for byte against [packages/protocol/vectors](../packages/protocol/vectors). It was written from the specification and the vectors only, without reading the TypeScript implementation, so a misreading on either side shows up as a mismatch.
+Firmware for the sensors, sirens and gateways (ESP32-S3, ESP-IDF v6.1). It holds the device protocol of [docs/protocol.md](../docs/protocol.md), version 1, checked byte for byte against [packages/protocol/vectors](../packages/protocol/vectors), and the device layer of [docs/firmware-design.md](../docs/firmware-design.md): events, the Runner, the hardware interfaces, the shared services, host fakes, and the three role skeletons. The codec was written from the specification and the vectors only, without reading the TypeScript implementation, so a misreading on either side shows up as a mismatch.
 
 ## Layout
 
@@ -21,9 +21,17 @@ core/                               hsn_core: portable C++17, no heap, no platfo
     counters.hpp   sender resume points and the strictly-higher receive rule (section 4)
     units.hpp      unit conversions with integer arithmetic
     radio.hpp      data rates and LoRa time on air (section 2)
-  src/             the above, plus codec.hpp, the one encoder and decoder
+  include/hsn/device/   the device layer (design sections 2–6)
+    time.hpp events.hpp role.hpp timers.hpp status.hpp services.hpp device.hpp runner.hpp
+    hal/           one header per hardware interface, vendor-free
+    services/      secure channel, airtime, radio port, retry, random, log, record, setup, health
+  src/             the above, plus codec.hpp, the one encoder and decoder; src/device/ for the layer
+roles/<role>/                       hsn_role_sensor, _siren, _gateway: one Role each (skeletons for now)
 platform/psa/                       hsn_psa: PacketCipher on PSA Crypto; hub_identity, the SHA-256 of section 9
-tests/                              doctest host tests, the vector harness, rule-check probes
+platform/host/                      hsn_host: a fake per interface, HostBoard and HostInstance, and the
+                                    bench: Simulation, Medium, TestHub, timeline (see its README.md)
+tests/                              doctest host tests: protocol/ (codec and vectors), device/, roles/,
+                                    host/ (the bench), system/; rule probes
 ```
 
 ## Rules of the core
@@ -35,16 +43,19 @@ tests/                              doctest host tests, the vector harness, rule
 - Only allocation-free standard headers, no platform includes, no floating point, no recursion, every loop bounded by an input length or a constant.
 - No undefined behaviour on any input: integers are assembled from bytes, little-endian on every host; signed values are converted by arithmetic; slices clamp to their view.
 - Results are values: `Error` and `Result<T>` are `[[nodiscard]]` types. Nothing throws or aborts.
-- Namespace `hsn::protocol`.
+- Namespaces `hsn::protocol` (codec) and `hsn::device` (device layer). Roles live in `hsn::roles::<role>` and follow the same rules.
+- Interfaces have a protected, non-virtual destructor (a virtual one references `operator delete`). `device::Role`'s methods have do-nothing defaults defined in the core instead of being pure virtual, because a pure virtual function makes every role library reference `__cxa_pure_virtual`. Test code deriving from `Role` is built without RTTI, like the core that emits `Role`'s vtable.
 
 What can be enforced is enforced by CTest:
 
 | Test | Enforces |
 | --- | --- |
 | `core_symbols` | `libhsn_core.a` references no `operator new`/`delete`, `malloc`, `free`, `abort`, `__cxa_*` exception or pure-virtual symbols, unwinder or `__throw_*` symbols |
-| `core_sources` | core sources include only `<array> <cstddef> <cstdint> <cstring> <limits> <optional> <tuple> <type_traits> <utility>` and the core's own headers, and use none of `float`, `double`, `new`, `delete`, `malloc`, `free`, `throw`, `try`, `catch`, `typeid`, `dynamic_cast`, `goto`, or allocating `std::` types |
+| `core_sources` | core sources include only `<array> <cstddef> <cstdint> <cstring> <limits> <optional> <tuple> <type_traits> <utility>` and the core's own headers (`hsn/protocol/*`, `hsn/device/**`, the private `codec.hpp`), and use none of `float`, `double`, `new`, `delete`, `malloc`, `free`, `throw`, `try`, `catch`, `typeid`, `dynamic_cast`, `goto`, or allocating `std::` types |
+| `role_<role>_sources` | the same rules for `roles/<role>/`, which may include the core's public headers and its own `hsn/roles/<role>/*` only: not another role, a platform header or `codec.hpp` |
+| `role_<role>_symbols` | each role library passes the `core_symbols` check |
 | `*_catches_violations` | each check fails on a probe that breaks its rules, so neither passes vacuously |
-| `-Wframe-larger-than=512` | in builds without sanitizers, a core or PSA function with a stack frame over 512 bytes does not compile |
+| `-Wframe-larger-than=512` | in builds without sanitizers, a core, role or PSA function with a stack frame over 512 bytes does not compile |
 
 Recursion is not checked mechanically; the core has none.
 
@@ -88,7 +99,7 @@ const auto packet_size =
 
 ## Not in the firmware
 
-- **The hub's 64-packet receive window and its restore jump of 2²⁴** (section 4). They are hub-only. The vector harness skips `counters.json`'s `replayWindow` and `restore` sections in an explicit, commented list; replayed packets under the window rule are still opened.
+- **The hub's 64-packet receive window and its restore jump of 2²⁴** (section 4). They are hub-only. The vector harness skips `counters.json`'s `replayWindow` and `restore` sections in an explicit, commented list; replayed packets under the window rule are still opened. The test hub in `hsn_host` has the window, checked against `replayWindow` in `tests/host/replay_window_test.cpp`.
 - **`signingPrivateKey`** in `pairing-data.json`: kept there for later firmware-signature tests. The `hubIdentity` section is checked, with `psa_hash_compute`.
 - **Snr and airtime as fractions.** The core gives the SNR in hundredths of a decibel (`snr_hundredths_db_from_quarters`), which is exact; airtime is already in hundredths of a percent on the wire. The tests compare both with the vectors' decimal values.
 

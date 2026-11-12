@@ -73,11 +73,24 @@ TEST_CASE("unknown message types are refused and never visited") {
 }
 
 TEST_CASE("flags write unnamed bits as zero and ignore them when read") {
+  protocol::Reply reply{};
+  reply.flags = {true, true, true};
+  std::array<std::uint8_t, 16> out{};
+  REQUIRE(protocol::encode_plaintext(reply, out).ok());
+  CHECK(out[2] == 0x07);
+  std::array<std::uint8_t, 12> body{};
+  body[1] = 0xF8;
+  REQUIRE(protocol::decode_body(protocol::ByteView(body), reply) == Error::none);
+  CHECK(to_json(reply.flags) ==
+        json{{"armed", false}, {"countdownStarted", false}, {"updateAvailable", false}});
+}
+
+TEST_CASE("the sensor status flags name all eight bits, bit 7 listening at the sending rate") {
   protocol::Heartbeat heartbeat{};
-  heartbeat.flags = {true, true, true, true, true, true, true};
+  heartbeat.flags = {true, true, true, true, true, true, true, true};
   std::array<std::uint8_t, 8> out{};
   REQUIRE(protocol::encode_plaintext(heartbeat, out).ok());
-  CHECK(out[2] == 0x7F);
+  CHECK(out[2] == 0xFF);
   const std::array<std::uint8_t, 7> body{0, 0x80, 0, 0, 0, 0, 0};
   REQUIRE(protocol::decode_body(protocol::ByteView(body), heartbeat) == Error::none);
   CHECK(to_json(heartbeat.flags) == json{{"doorOpen", false},
@@ -86,7 +99,8 @@ TEST_CASE("flags write unnamed bits as zero and ignore them when read") {
                                          {"charging", false},
                                          {"replyWanted", false},
                                          {"localAlarmSounded", false},
-                                         {"buzzing", false}});
+                                         {"buzzing", false},
+                                         {"listeningAtSendRate", true}});
 }
 
 TEST_CASE("carried packets must be 18 to 255 bytes on encode too") {

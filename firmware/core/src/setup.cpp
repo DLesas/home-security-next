@@ -33,11 +33,13 @@ template Error decode_setup_body(ByteView, Identity&);
 template Error decode_setup_body(ByteView, Provision&);
 template Error decode_setup_body(ByteView, ProvisionResult&);
 template Error decode_setup_body(ByteView, Erase&);
+template Error decode_setup_body(ByteView, SetRole&);
 
 template Result<std::size_t> encode_setup(const Identify&, MutableByteView);
 template Result<std::size_t> encode_setup(const Identity&, MutableByteView);
 template Result<std::size_t> encode_setup(const Provision&, MutableByteView);
 template Result<std::size_t> encode_setup(const ProvisionResult&, MutableByteView);
 template Result<std::size_t> encode_setup(const Erase&, MutableByteView);
+template Result<std::size_t> encode_setup(const SetRole&, MutableByteView);
 
 }  // namespace hsn::protocol

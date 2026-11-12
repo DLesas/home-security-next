@@ -37,6 +37,17 @@ std::uint32_t milliseconds_from_tenths(std::uint16_t tenths);
 std::optional<std::uint16_t> tenths_from_milliseconds(std::uint32_t milliseconds);
 
 /**
+ * Decodes a reply's clock correction, in units of 10 parts per million, into parts per million.
+ */
+std::int32_t ppm_from_clock_correction(std::int16_t units);
+
+/**
+ * Encodes parts per million as clock correction units of 10 ppm, an exact half rounded up
+ * (toward positive infinity, so −15 ppm gives −1); empty outside −32,768 to 32,767 units.
+ */
+std::optional<std::int16_t> clock_correction_from_ppm(std::int32_t ppm);
+
+/**
  * Converts a signal-to-noise ratio in quarter decibels to hundredths of a decibel, which is exact
  * and keeps the core free of floating point.
  */

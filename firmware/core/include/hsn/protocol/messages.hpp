@@ -47,8 +47,9 @@ struct ButtonAction {
   static constexpr std::uint8_t short_press = 1;
   static constexpr std::uint8_t pairing_hold_ignored = 2;
   static constexpr std::uint8_t factory_reset_hold_while_armed = 3;
-  static constexpr std::array<std::uint8_t, 3> known{short_press, pairing_hold_ignored,
-                                                     factory_reset_hold_while_armed};
+  static constexpr std::uint8_t factory_reset_going_ahead = 4;
+  static constexpr std::array<std::uint8_t, 4> known{
+      short_press, pairing_hold_ignored, factory_reset_hold_while_armed, factory_reset_going_ahead};
 };
 
 /** Siren command actions (section 6). */
@@ -143,9 +144,11 @@ struct SensorFlags {
   bool reply_wanted = false;
   bool local_alarm_sounded = false;
   bool buzzing = false;
+  /** The sensor listens for this packet's answer at the rate it was sent at (section 7). */
+  bool listening_at_send_rate = false;
 
   /**
-   * Bits 0 to 6, in order.
+   * Bits 0 to 7, in order.
    */
   static constexpr auto flag_bits() {
     return std::make_tuple(
@@ -153,7 +156,8 @@ struct SensorFlags {
         field("usbPower", &SensorFlags::usb_power), field("charging", &SensorFlags::charging),
         field("replyWanted", &SensorFlags::reply_wanted),
         field("localAlarmSounded", &SensorFlags::local_alarm_sounded),
-        field("buzzing", &SensorFlags::buzzing));
+        field("buzzing", &SensorFlags::buzzing),
+        field("listeningAtSendRate", &SensorFlags::listening_at_send_rate));
   }
 };
 
@@ -411,7 +415,8 @@ constexpr std::size_t kMaxLogTextSize = 64;
 
 /** One log entry; its text is a view into the input or into the caller's data. */
 struct LogEntry {
-  std::uint32_t milliseconds_since_start = 0;
+  /** How long before the packet was sealed the entry was made, in tenths of a second. */
+  std::uint32_t age_tenths = 0;
   std::uint8_t level = 0;
   std::uint16_t code = 0;
   LengthPrefixed<kMaxLogTextSize, TextContent> text;
@@ -420,7 +425,7 @@ struct LogEntry {
    * Wire layout: 8 bytes, then the text.
    */
   static constexpr auto layout() {
-    return std::make_tuple(field("millisecondsSinceStart", &LogEntry::milliseconds_since_start),
+    return std::make_tuple(field("ageTenths", &LogEntry::age_tenths),
                            field("level", &LogEntry::level), field("code", &LogEntry::code),
                            field("text", &LogEntry::text));
   }
@@ -545,7 +550,8 @@ struct Reply {
   /** See DataRate. */
   std::uint8_t reply_data_rate = 0;
   std::uint16_t next_heartbeat_tenths = 0;
-  std::int16_t clock_correction_ppm = 0;
+  /** Clock correction in units of 10 ppm; see ppm_from_clock_correction. */
+  std::int16_t clock_correction_ten_ppm = 0;
 
   /**
    * Wire layout, 12 bytes.
@@ -560,7 +566,7 @@ struct Reply {
                            field("sendDataRate", &Reply::send_data_rate),
                            field("replyDataRate", &Reply::reply_data_rate),
                            field("nextHeartbeatTenths", &Reply::next_heartbeat_tenths),
-                           field("clockCorrectionPpm", &Reply::clock_correction_ppm));
+                           field("clockCorrectionTenPpm", &Reply::clock_correction_ten_ppm));
   }
 };
 

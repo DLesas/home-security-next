@@ -39,6 +39,7 @@ constexpr std::uint8_t identity = 0x02;
 constexpr std::uint8_t provision = 0x03;
 constexpr std::uint8_t provision_result = 0x04;
 constexpr std::uint8_t erase = 0x05;
+constexpr std::uint8_t set_role = 0x06;
 }  // namespace setup_type
 
 /** Provision results (section 10). */
@@ -159,8 +160,25 @@ struct Erase {
   }
 };
 
+/**
+ * Set role (0x06), hub to device: the role to store (D103). An unlisted role decodes and passes
+ * through; whether it is accepted is the device's rule (section 10).
+ */
+struct SetRole {
+  static constexpr std::uint8_t type = setup_type::set_role;
+  /** See Role. */
+  std::uint8_t role = 0;
+
+  /**
+   * Wire layout, 1 byte.
+   */
+  static constexpr auto layout() {
+    return std::make_tuple(field("role", &SetRole::role));
+  }
+};
+
 /** Every setup message of version 1, for dispatch on the setup type. */
-using SetupMessages = std::tuple<Identify, Identity, Provision, ProvisionResult, Erase>;
+using SetupMessages = std::tuple<Identify, Identity, Provision, ProvisionResult, Erase, SetRole>;
 
 /**
  * Decodes pairing data on its own (as Bluetooth will deliver it). Extra bytes are ignored;

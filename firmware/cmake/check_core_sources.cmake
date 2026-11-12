@@ -1,6 +1,10 @@
-# Fails when a core source includes a header outside the allowed list or uses a forbidden
+# Fails when a core or role source includes a header outside the allowed list or uses a forbidden
 # construct (heap, exceptions, RTTI, floating point, allocating standard types).
 # Usage: cmake -DSOURCE_DIR=<firmware/core> -P check_core_sources.cmake
+#        cmake -DSOURCE_DIR=<firmware/roles/x> -DOWN_PREFIX=hsn/roles/x/ -P check_core_sources.cmake
+# Core sources may include the codec's and the device layer's headers, and the codec's private
+# codec.hpp. A role's sources may include those public headers and its own, never another role's,
+# a platform header, or codec.hpp.
 
 # A -P script gets old policies unless it declares its own: quoted arguments are then expanded
 # twice and IN_LIST is unknown. Every if() below also quotes the values it tests.
@@ -43,7 +47,24 @@ foreach(source IN LISTS sources)
     endif()
     if("${line}" MATCHES "^[ \t]*#[ \t]*include[ \t]*\"([^\"]+)\"")
       set(header "${CMAKE_MATCH_1}")
-      if(NOT "${header}" MATCHES "^hsn/protocol/[a-z_]+\\.hpp$" AND NOT "${header}" STREQUAL "codec.hpp")
+      set(allowed FALSE)
+      if("${header}" MATCHES "^hsn/protocol/[a-z_]+\\.hpp$"
+         OR "${header}" MATCHES "^hsn/device/([a-z_]+/)?[a-z_]+\\.hpp$")
+        set(allowed TRUE)
+      elseif("${OWN_PREFIX}" STREQUAL "" AND "${header}" STREQUAL "codec.hpp")
+        set(allowed TRUE)
+      elseif(NOT "${OWN_PREFIX}" STREQUAL "")
+        string(LENGTH "${OWN_PREFIX}" prefix_length)
+        string(LENGTH "${header}" header_length)
+        if(header_length GREATER prefix_length)
+          string(SUBSTRING "${header}" 0 ${prefix_length} header_start)
+          string(SUBSTRING "${header}" ${prefix_length} -1 header_rest)
+          if("${header_start}" STREQUAL "${OWN_PREFIX}" AND "${header_rest}" MATCHES "^[a-z_]+\\.hpp$")
+            set(allowed TRUE)
+          endif()
+        endif()
+      endif()
+      if(NOT allowed)
         list(APPEND problems "${source}:${number}: include \"${header}\" is not allowed")
       endif()
       continue()

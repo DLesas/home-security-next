@@ -7,6 +7,7 @@ constexpr std::uint32_t kBatteryBaseMillivolts = 2500;
 constexpr std::uint32_t kBatteryStepMillivolts = 10;
 constexpr std::uint32_t kSecondsPerUnit = 15;
 constexpr std::uint32_t kMillisecondsPerTenth = 100;
+constexpr std::int32_t kPpmPerClockUnit = 10;
 
 }  // namespace
 
@@ -48,6 +49,23 @@ std::optional<std::uint16_t> tenths_from_milliseconds(std::uint32_t milliseconds
     return std::nullopt;
   }
   return static_cast<std::uint16_t>(tenths);
+}
+
+std::int32_t ppm_from_clock_correction(std::int16_t units) {
+  return kPpmPerClockUnit * units;
+}
+
+std::optional<std::int16_t> clock_correction_from_ppm(std::int32_t ppm) {
+  // Round half up: floor((ppm + 5) / 10), with the floor taken for negative values too.
+  const std::int64_t shifted = static_cast<std::int64_t>(ppm) + kPpmPerClockUnit / 2;
+  std::int64_t units = shifted / kPpmPerClockUnit;
+  if (shifted % kPpmPerClockUnit != 0 && shifted < 0) {
+    units -= 1;
+  }
+  if (units < -32768 || units > 32767) {
+    return std::nullopt;
+  }
+  return static_cast<std::int16_t>(units);
 }
 
 std::int16_t snr_hundredths_db_from_quarters(std::int8_t quarter_db) {

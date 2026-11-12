@@ -248,7 +248,7 @@ Message sample_message(Arena& arena) {
     message.packet.bytes = arena.keep(Bytes(protocol::kMinCarriedPacketSize, 0x10));
   } else if constexpr (std::is_same_v<Message, protocol::LogEntries>) {
     const json entries =
-        json::array({{{"millisecondsSinceStart", 1}, {"level", 2}, {"code", 3}, {"text", "door"}}});
+        json::array({{{"ageTenths", 1}, {"level", 2}, {"code", 3}, {"text", "door"}}});
     from_json(entries, message.entries, arena);
   }
   return message;

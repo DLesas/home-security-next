@@ -29,7 +29,8 @@ using protocol::Error;
 const std::set<std::pair<std::string, std::string>> kSkipped = {
     // The hub's restore jump of 2^24 (section 4): hub only.
     {"counters.json", "restore"},
-    // The hub's 64-packet receive window (section 4): hub only.
+    // The hub's 64-packet receive window (section 4): hub only; the host test hub's window is
+    // checked against this section in tests/host/replay_window_test.cpp.
     {"counters.json", "replayWindow"},
     // The private key the signing keys derive from, kept for later firmware-signature tests.
     {"pairing-data.json", "signingPrivateKey"},
@@ -507,6 +508,19 @@ void check_units(VectorFile& file) {
     } else {
       REQUIRE(tenths.has_value());
       CHECK(*tenths == item.at("tenths").get<int>());
+    }
+  }
+  for (const json& item : file.section("clockCorrectionDecode")) {
+    CHECK(protocol::ppm_from_clock_correction(item.at("units").get<std::int16_t>()) ==
+          item.at("ppm").get<std::int32_t>());
+  }
+  for (const json& item : file.section("clockCorrectionEncode")) {
+    const auto units = protocol::clock_correction_from_ppm(item.at("ppm").get<std::int32_t>());
+    if (item.at("units").is_null()) {
+      CHECK_FALSE(units.has_value());
+    } else {
+      REQUIRE(units.has_value());
+      CHECK(*units == item.at("units").get<int>());
     }
   }
   for (const json& item : file.section("snrDecode")) {
