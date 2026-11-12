@@ -1,0 +1,5 @@
+drift +- 1 s: lost 0.63%, false silent after 3 / 4 missed: 0.0 / 0.0
+drift +- 3 s: lost 0.64%, false silent after 3 / 4 missed: 0.0 / 0.0
+drift +- 6 s: lost 0.64%, false silent after 3 / 4 missed: 0.0 / 0.0
+drift +-10 s: lost 0.73%, false silent after 3 / 4 missed: 0.0 / 0.0
+drift +-15 s: lost 0.92%, false silent after 3 / 4 missed: 2.0 / 0.0

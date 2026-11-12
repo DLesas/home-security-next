@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>O12 check</title>
+<style>
+  body { font: 16px/1.5 system-ui, sans-serif; margin: 24px; max-width: 760px; background: #fff; color: #111; }
+  li { margin: 6px 0; } .pass { color: #0a6b2d; } .fail { color: #b00020; font-weight: 600; } .info { color: #8a5a00; }
+  @media (prefers-color-scheme: dark) { body { background: #111; color: #eee; } .pass { color: #6fd08c; } .fail { color: #ff7a8a; } .info { color: #e0b060; } }
+</style>
+</head>
+<body>
+<h1>Web app check behind a certificate warning</h1>
+<p id="verdict">Running…</p>
+<ul id="results"></ul>
+<p id="sent"></p>
+<script type="module" src="/page.js"></script>
+</body>
+</html>

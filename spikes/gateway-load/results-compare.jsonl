@@ -1,0 +1,12 @@
+{"case": "10 sensors at SF12", "variant": "listen first (current spec)", "lost": 5.0, "lc_lost": 9.47, "first": 94.03, "med": 3.15, "p99": 10.58, "worst": 159.86, "gw": 1.24, "s3": 157.0, "s4": 5.0}
+{"case": "10 sensors at SF12", "variant": "+ faster replies", "lost": 3.71, "lc_lost": 8.21, "first": 94.71, "med": 1.87, "p99": 6.39, "worst": 155.95, "gw": 0.17, "s3": 86.0, "s4": 4.0}
+{"case": "10 sensors at SF12", "variant": "+ heartbeat slots", "lost": 1.13, "lc_lost": 1.13, "first": 93.88, "med": 3.15, "p99": 9.01, "worst": 200.89, "gw": 1.32, "s3": 0.0, "s4": 0.0}
+{"case": "10 sensors at SF12", "variant": "+ both", "lost": 0.63, "lc_lost": 0.71, "first": 94.74, "med": 1.87, "p99": 5.16, "worst": 194.66, "gw": 0.18, "s3": 0.0, "s4": 0.0}
+{"case": "20 sensors at SF10", "variant": "listen first (current spec)", "lost": 4.03, "lc_lost": 9.23, "first": 95.5, "med": 1.01, "p99": 3.95, "worst": 93.68, "gw": 1.02, "s3": 265.0, "s4": 19.0}
+{"case": "20 sensors at SF10", "variant": "+ faster replies", "lost": 3.09, "lc_lost": 8.33, "first": 96.52, "med": 0.66, "p99": 3.48, "worst": 98.15, "gw": 0.15, "s3": 147.0, "s4": 7.0}
+{"case": "20 sensors at SF10", "variant": "+ heartbeat slots", "lost": 0.52, "lc_lost": 0.8, "first": 95.53, "med": 1.01, "p99": 3.85, "worst": 206.49, "gw": 1.1, "s3": 0.0, "s4": 0.0}
+{"case": "20 sensors at SF10", "variant": "+ both", "lost": 0.3, "lc_lost": 0.44, "first": 96.51, "med": 0.66, "p99": 3.39, "worst": 95.81, "gw": 0.17, "s3": 0.0, "s4": 0.0}
+{"case": "30 sensors at SF7", "variant": "listen first (current spec)", "lost": 0.92, "lc_lost": 2.16, "first": 99.02, "med": 0.3, "p99": 2.26, "worst": 7.79, "gw": 0.24, "s3": 2.0, "s4": 0.0}
+{"case": "30 sensors at SF7", "variant": "+ faster replies", "lost": 0.92, "lc_lost": 2.16, "first": 99.02, "med": 0.3, "p99": 2.26, "worst": 7.79, "gw": 0.24, "s3": 2.0, "s4": 0.0}
+{"case": "30 sensors at SF7", "variant": "+ heartbeat slots", "lost": 0.11, "lc_lost": 0.17, "first": 98.98, "med": 0.3, "p99": 2.32, "worst": 6.82, "gw": 0.25, "s3": 0.0, "s4": 0.0}
+{"case": "30 sensors at SF7", "variant": "+ both", "lost": 0.11, "lc_lost": 0.17, "first": 98.98, "med": 0.3, "p99": 2.32, "worst": 6.82, "gw": 0.25, "s3": 0.0, "s4": 0.0}

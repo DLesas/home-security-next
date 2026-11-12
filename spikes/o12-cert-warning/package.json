@@ -1,0 +1,11 @@
+{
+  "name": "spike-o12-cert-warning",
+  "private": true,
+  "type": "module",
+  "description": "Spike O12: does the web app work behind a one-time certificate warning? Throwaway code.",
+  "dependencies": {
+    "@noble/ciphers": "latest",
+    "@noble/curves": "latest",
+    "@noble/hashes": "latest"
+  }
+}

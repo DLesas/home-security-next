@@ -1,0 +1,126 @@
+{
+  "platform": "darwin",
+  "arch": "arm64",
+  "results": [
+    {
+      "name": "Bun 1.4.2, single executable, add-ons not marked external",
+      "runs": 3,
+      "error": null,
+      "startMs": 41,
+      "idleRssMb": 21.7,
+      "idleFootprintMb": 9.4,
+      "busyRssMb": 78.3,
+      "busyFootprintMb": 29,
+      "allLoadedRssMb": 92.3,
+      "socketsEchoed": 200,
+      "rowsWritten": 60000,
+      "checks": [
+        {
+          "name": "SQLite through Drizzle",
+          "ok": true,
+          "detail": "bun:sqlite (built in)"
+        },
+        {
+          "name": "AES-128-CCM, 8-byte tag (device packets)",
+          "ok": false,
+          "detail": "Unknown cipher"
+        },
+        {
+          "name": "ECDSA P-256 sign and verify (firmware signing)",
+          "ok": true,
+          "detail": "signature 70 bytes"
+        },
+        {
+          "name": "Ed25519 verify (release signature)",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "X25519 and ChaCha20-Poly1305 (app channel)",
+          "ok": false,
+          "detail": "Unknown cipher"
+        },
+        {
+          "name": "mDNS advertise (bonjour-service)",
+          "ok": true,
+          "detail": "published and withdrawn"
+        },
+        {
+          "name": "USB serial (serialport, native)",
+          "ok": true,
+          "detail": "native binding loaded, 2 port(s) listed"
+        },
+        {
+          "name": "ONNX Runtime (native), one inference",
+          "ok": false,
+          "detail": "dlopen(/var/folders/5q/q8k_97m52lg77405mnsyj39c0000gn/T/.bun-501-4e0432cd22791638.node, 0x0001): Library not loaded: @rpath/libonnxruntime.1.dylib"
+        },
+        {
+          "name": "WebGPU (Dawn bindings), adapter and compute shader",
+          "ok": false,
+          "detail": "Cannot find module '/$bunfs/root/dist/darwin-universal/dawn.node'"
+        }
+      ]
+    },
+    {
+      "name": "Node 26.13.1, heap capped at 64 MB",
+      "runs": 3,
+      "error": null,
+      "startMs": 75,
+      "idleRssMb": 75.7,
+      "idleFootprintMb": 28,
+      "busyRssMb": 179.8,
+      "busyFootprintMb": 135,
+      "allLoadedRssMb": 211.4,
+      "socketsEchoed": 200,
+      "rowsWritten": 60000,
+      "checks": [
+        {
+          "name": "SQLite through Drizzle",
+          "ok": true,
+          "detail": "better-sqlite3 (native add-on)"
+        },
+        {
+          "name": "AES-128-CCM, 8-byte tag (device packets)",
+          "ok": true,
+          "detail": "tag 8 bytes, tamper rejected"
+        },
+        {
+          "name": "ECDSA P-256 sign and verify (firmware signing)",
+          "ok": true,
+          "detail": "signature 70 bytes"
+        },
+        {
+          "name": "Ed25519 verify (release signature)",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "X25519 and ChaCha20-Poly1305 (app channel)",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "name": "mDNS advertise (bonjour-service)",
+          "ok": true,
+          "detail": "published and withdrawn"
+        },
+        {
+          "name": "USB serial (serialport, native)",
+          "ok": true,
+          "detail": "native binding loaded, 2 port(s) listed"
+        },
+        {
+          "name": "ONNX Runtime (native), one inference",
+          "ok": true,
+          "detail": "identity model ran"
+        },
+        {
+          "name": "WebGPU (Dawn bindings), adapter and compute shader",
+          "ok": true,
+          "detail": "compute shader ran on apple metal-3 apple-m4-pro"
+        }
+      ]
+    }
+  ]
+}
