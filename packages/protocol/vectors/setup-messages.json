@@ -135,6 +135,46 @@
       "frame": "03f10500"
     },
     {
+      "name": "set role 1",
+      "canonical": true,
+      "setupType": 6,
+      "fields": {
+        "role": 1
+      },
+      "bytes": "f10601",
+      "frame": "04f1060100"
+    },
+    {
+      "name": "set role 2",
+      "canonical": true,
+      "setupType": 6,
+      "fields": {
+        "role": 2
+      },
+      "bytes": "f10602",
+      "frame": "04f1060200"
+    },
+    {
+      "name": "set role 3",
+      "canonical": true,
+      "setupType": 6,
+      "fields": {
+        "role": 3
+      },
+      "bytes": "f10603",
+      "frame": "04f1060300"
+    },
+    {
+      "name": "set role with unlisted role 9, which passes through",
+      "canonical": true,
+      "setupType": 6,
+      "fields": {
+        "role": 9
+      },
+      "bytes": "f10609",
+      "frame": "04f1060900"
+    },
+    {
       "name": "identity with two bytes after its fields, which decoding ignores",
       "canonical": false,
       "setupType": 2,
@@ -199,6 +239,11 @@
     {
       "name": "provision result missing its byte",
       "bytes": "f104",
+      "error": "truncated"
+    },
+    {
+      "name": "set role missing its byte",
+      "bytes": "f106",
       "error": "truncated"
     }
   ]

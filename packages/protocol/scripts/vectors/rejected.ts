@@ -85,7 +85,7 @@ const overRadioLimit = sensorPacket(
   encodeMessage({
     type: MessageType.LogEntries,
     entries: ["y".repeat(64), "y".repeat(64), "y".repeat(64), "z".repeat(14)].map((text) => ({
-      millisecondsSinceStart: 0,
+      ageTenths: 0,
       level: 0,
       code: 0,
       text,

@@ -62,6 +62,7 @@ const noSensorFlags = {
   replyWanted: false,
   localAlarmSounded: false,
   buzzing: false,
+  listeningAtSendRate: false,
 };
 
 const cases: readonly Case[] = [
@@ -194,7 +195,7 @@ const cases: readonly Case[] = [
       sendDataRate: 2,
       replyDataRate: 5,
       nextHeartbeatTenths: 1800,
-      clockCorrectionPpm: -100,
+      clockCorrectionTenPpm: -100,
     },
     key: sensorKey,
     direction: Direction.FromHub,
@@ -466,8 +467,8 @@ const cases: readonly Case[] = [
     message: {
       type: MessageType.LogEntries,
       entries: [
-        { millisecondsSinceStart: 1500, level: 2, code: 0x0101, text: "ok" },
-        { millisecondsSinceStart: 0, level: 0, code: 0xbeef, text: "" },
+        { ageTenths: 1500, level: 2, code: 0x0101, text: "ok" },
+        { ageTenths: 0, level: 0, code: 0xbeef, text: "" },
       ],
     },
     key: sirenKey,

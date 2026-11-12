@@ -254,7 +254,7 @@ describe("sealing", () => {
     const logEntries = (lastTextLength: number): Message => ({
       type: MessageType.LogEntries,
       entries: [...Array<number>(13).fill(64), lastTextLength].map((length) => ({
-        millisecondsSinceStart: 0,
+        ageTenths: 0,
         level: 0,
         code: 0,
         text: "t".repeat(length),
@@ -299,6 +299,7 @@ describe("type and direction (section 5)", () => {
         replyWanted: false,
         localAlarmSounded: false,
         buzzing: false,
+        listeningAtSendRate: false,
       },
       batteryCode: 0,
       temperatureCelsius: 0,

@@ -11,6 +11,8 @@ export const SENSOR_STATUS_FLAGS = [
   "replyWanted",
   "localAlarmSounded",
   "buzzing",
+  // The sensor will listen for the answer at the rate it sent at, not its reply rate.
+  "listeningAtSendRate",
 ] as const;
 
 /** Body of heartbeat, door changed and cover changed: 7 bytes. */
@@ -30,6 +32,7 @@ export const ButtonAction = {
   ShortPress: 1,
   PairingHoldIgnoredWhileArmed: 2,
   FactoryResetHoldWhileArmed: 3,
+  FactoryResetGoingAhead: 4,
 } as const;
 export type ButtonAction = (typeof ButtonAction)[keyof typeof ButtonAction];
 
@@ -60,8 +63,9 @@ export const replyLayout = layout([
   ["replyDataRate", u8],
   // Tenths of a second after the end of the answered packet; 0 keeps the schedule.
   ["nextHeartbeatTenths", u16],
-  // Parts per million to add to the sensor's sleep timer.
-  ["clockCorrectionPpm", i16],
+  // How much to stretch or shrink the sensor's sleep times, in units of 10 parts per million;
+  // see ppmFromTenPpmUnits.
+  ["clockCorrectionTenPpm", i16],
 ]);
 
 /** Disarmed notice has no body. Bound to the door report that started the countdown. */

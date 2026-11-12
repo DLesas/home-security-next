@@ -11,6 +11,7 @@ import {
   encodeUsbFrame,
   fromHex,
   hubIdentity,
+  isEnumValue,
   type PairingData,
   ProvisionResultCode,
   Role,
@@ -276,6 +277,12 @@ const setupCases: readonly DecodeCase<SetupMessage>[] = [
     },
   ],
   ["erase", { type: SetupType.Erase }],
+  ...[Role.Sensor, Role.Siren, Role.Gateway, 9].map((role): DecodeCase<SetupMessage> => [
+    isEnumValue(Role, role)
+      ? `set role ${role}`
+      : `set role with unlisted role ${role}, which passes through`,
+    { type: SetupType.SetRole, role },
+  ]),
   [
     "identity with two bytes after its fields, which decoding ignores",
     unpairedGatewayIdentity,
@@ -296,6 +303,7 @@ const invalidSetup: readonly (readonly [string, Uint8Array])[] = [
   ["identity cut short", fromHex("f10203a1b2c3d4e5f6000100")],
   ["identity with paired = 2", fromHex("f10203a1b2c3d4e5f600010002000000000000000000")],
   ["provision result missing its byte", fromHex("f104")],
+  ["set role missing its byte", fromHex("f106")],
 ];
 
 function setupFile(): JsonObject {

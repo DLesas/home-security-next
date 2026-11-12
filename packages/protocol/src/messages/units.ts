@@ -51,6 +51,23 @@ export function tenthsFromMilliseconds(milliseconds: number): number {
   return tenths;
 }
 
+const PPM_PER_UNIT = 10;
+
+/** The reply's clock correction is in units of 10 parts per million. */
+export function ppmFromTenPpmUnits(units: number): number {
+  return units * PPM_PER_UNIT;
+}
+
+/** Parts per million to 10-ppm units, an exact half rounding up; throws if it does not fit 16 bits. */
+export function tenPpmUnitsFromPpm(ppm: number): number {
+  // `+ 0` turns the −0 that Math.round gives for −0.5 into 0.
+  const units = Math.round(ppm / PPM_PER_UNIT) + 0;
+  if (!Number.isInteger(units) || units < -0x8000 || units > 0x7fff) {
+    throw new RangeError("clock correction must be from −327,680 to 327,670 ppm");
+  }
+  return units;
+}
+
 /** Forwarded packets carry the signal-to-noise ratio × 4. */
 export function snrDecibels(quarterDecibels: number): number {
   return quarterDecibels / 4;

@@ -76,8 +76,10 @@ export {
   batteryMillivolts,
   fifteenSecondUnitsFromSeconds,
   millisecondsFromTenths,
+  ppmFromTenPpmUnits,
   secondsFromFifteenSecondUnits,
   snrDecibels,
+  tenPpmUnitsFromPpm,
   tenthsFromMilliseconds,
 } from "./messages/units.ts";
 

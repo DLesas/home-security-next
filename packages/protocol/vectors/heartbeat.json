@@ -24,7 +24,8 @@
           "charging": false,
           "replyWanted": false,
           "localAlarmSounded": false,
-          "buzzing": false
+          "buzzing": false,
+          "listeningAtSendRate": false
         },
         "batteryCode": 120,
         "temperatureCelsius": 21,
@@ -55,17 +56,18 @@
           "charging": true,
           "replyWanted": true,
           "localAlarmSounded": true,
-          "buzzing": true
+          "buzzing": true,
+          "listeningAtSendRate": true
         },
         "batteryCode": 255,
         "temperatureCelsius": -128,
         "doorChangeCount": 255,
         "eventAgeSeconds": 65535
       },
-      "plaintext": "01ff7fff80ffffff",
+      "plaintext": "01ffffff80ffffff",
       "nonce": "4d3c2b1a00ffffffff00000000",
       "associatedData": "104d3c2b1affffffff",
-      "packet": "104d3c2b1affffffffc5f97d71b1515ce2b4ecdb800b4669b7"
+      "packet": "104d3c2b1affffffffc5f9fd71b1515ce200a441f94d298588"
     },
     {
       "name": "heartbeat asking for a link check, on USB power and charging",
@@ -86,7 +88,8 @@
           "charging": true,
           "replyWanted": true,
           "localAlarmSounded": false,
-          "buzzing": false
+          "buzzing": false,
+          "listeningAtSendRate": false
         },
         "batteryCode": 170,
         "temperatureCelsius": 127,
@@ -117,7 +120,8 @@
           "charging": false,
           "replyWanted": false,
           "localAlarmSounded": false,
-          "buzzing": false
+          "buzzing": false,
+          "listeningAtSendRate": false
         },
         "batteryCode": 120,
         "temperatureCelsius": 21,
@@ -130,8 +134,8 @@
       "packet": "174d3c2b1a02000000ec1495eab0e45b5a4ac21e8872a902dc"
     },
     {
-      "name": "heartbeat with the unused flag bit 7 set, which receivers ignore",
-      "canonical": false,
+      "name": "heartbeat asking for a link check, listening at the sending rate",
+      "canonical": true,
       "key": "000102030405060708090a0b0c0d0e0f",
       "direction": 0,
       "address": 439041101,
@@ -146,19 +150,20 @@
           "coverOpen": false,
           "usbPower": false,
           "charging": false,
-          "replyWanted": false,
+          "replyWanted": true,
           "localAlarmSounded": false,
-          "buzzing": false
+          "buzzing": false,
+          "listeningAtSendRate": true
         },
         "batteryCode": 120,
         "temperatureCelsius": 21,
         "doorChangeCount": 0,
         "eventAgeSeconds": 0
       },
-      "plaintext": "0103807815000000",
+      "plaintext": "0103907815000000",
       "nonce": "4d3c2b1a000400000000000000",
       "associatedData": "104d3c2b1a04000000",
-      "packet": "104d3c2b1a040000005e4b8fecb71a94e73ea324db5dd6d5d3"
+      "packet": "104d3c2b1a040000005e4b9fecb71a94e74148af3f0deb92ad"
     },
     {
       "name": "heartbeat with two bytes after the known fields, which receivers ignore",
@@ -179,7 +184,8 @@
           "charging": false,
           "replyWanted": false,
           "localAlarmSounded": false,
-          "buzzing": false
+          "buzzing": false,
+          "listeningAtSendRate": false
         },
         "batteryCode": 120,
         "temperatureCelsius": 21,

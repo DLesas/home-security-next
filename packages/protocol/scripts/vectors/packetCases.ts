@@ -65,6 +65,7 @@ const noSensorFlags = {
   replyWanted: false,
   localAlarmSounded: false,
   buzzing: false,
+  listeningAtSendRate: false,
 };
 const allSensorFlags = {
   doorOpen: true,
@@ -74,6 +75,7 @@ const allSensorFlags = {
   replyWanted: true,
   localAlarmSounded: true,
   buzzing: true,
+  listeningAtSendRate: true,
 };
 
 const heartbeat: Message = {
@@ -86,7 +88,7 @@ const heartbeat: Message = {
   eventAgeSeconds: 0,
 };
 
-const doorOpened: Message = {
+const doorOpened: MessageOf<typeof MessageType.DoorChanged> = {
   type: MessageType.DoorChanged,
   settingsVersion: 3,
   flags: { ...noSensorFlags, doorOpen: true, replyWanted: true },
@@ -137,7 +139,7 @@ const replyToDoor: Message = {
   sendDataRate: 2,
   replyDataRate: 5,
   nextHeartbeatTenths: 0,
-  clockCorrectionPpm: 0,
+  clockCorrectionTenPpm: 0,
 };
 
 const replyCase: PacketCase = {
@@ -217,7 +219,7 @@ const largestRadioPacket = sealCase({
   message: {
     type: MessageType.LogEntries,
     entries: ["l".repeat(64), "l".repeat(64), "l".repeat(64), "m".repeat(13)].map((text) => ({
-      millisecondsSinceStart: 0,
+      ageTenths: 0,
       level: 0,
       code: 0,
       text,
@@ -251,7 +253,7 @@ const replyToLinkCheck: Message = {
   sendDataRate: 2,
   replyDataRate: 5,
   nextHeartbeatTenths: 1800,
-  clockCorrectionPpm: 12,
+  clockCorrectionTenPpm: 12,
 };
 
 export const packetCases: readonly PacketCase[] = [
@@ -297,13 +299,15 @@ export const packetCases: readonly PacketCase[] = [
     variation: { headerLowBits: 0x07 },
   },
   {
-    name: "heartbeat with the unused flag bit 7 set, which receivers ignore",
+    name: "heartbeat asking for a link check, listening at the sending rate",
     device: sensor,
     counter: 4,
     binding: NO_BINDING,
     maxLength: radio,
-    message: heartbeat,
-    variation: { plaintext: withBitsSet(heartbeat, 2, 0x80) },
+    message: {
+      ...heartbeat,
+      flags: { ...noSensorFlags, replyWanted: true, listeningAtSendRate: true },
+    },
   },
   {
     name: "heartbeat with two bytes after the known fields, which receivers ignore",
@@ -336,6 +340,15 @@ export const packetCases: readonly PacketCase[] = [
       doorChangeCount: 18,
       eventAgeSeconds: 600,
     },
+  },
+
+  {
+    name: "door opened, listening for the reply at the sending rate",
+    device: sensor,
+    counter: 43,
+    binding: NO_BINDING,
+    maxLength: radio,
+    message: { ...doorOpened, flags: { ...doorOpened.flags, listeningAtSendRate: true } },
   },
 
   // Cover changed (0x03)
@@ -390,6 +403,7 @@ export const packetCases: readonly PacketCase[] = [
     ButtonAction.ShortPress,
     ButtonAction.PairingHoldIgnoredWhileArmed,
     ButtonAction.FactoryResetHoldWhileArmed,
+    ButtonAction.FactoryResetGoingAhead,
   ].map((buttonAction, i): PacketCase => ({
     name: `button, action ${buttonAction}`,
     device: sensor,
@@ -407,7 +421,7 @@ export const packetCases: readonly PacketCase[] = [
   {
     name: "button with unlisted action 9, which passes through",
     device: sensor,
-    counter: 203,
+    counter: 204,
     binding: NO_BINDING,
     maxLength: radio,
     message: { ...heartbeat, type: MessageType.Button, eventAgeSeconds: 0, buttonAction: 9 },
@@ -742,7 +756,7 @@ export const packetCases: readonly PacketCase[] = [
     maxLength: link,
     message: {
       type: MessageType.LogEntries,
-      entries: [{ millisecondsSinceStart: 1500, level: 2, code: 0x0101, text: "wifi connected" }],
+      entries: [{ ageTenths: 1500, level: 2, code: 0x0101, text: "wifi connected" }],
     },
   },
   {
@@ -754,9 +768,9 @@ export const packetCases: readonly PacketCase[] = [
     message: {
       type: MessageType.LogEntries,
       entries: [
-        { millisecondsSinceStart: 0, level: 0, code: 0, text: "" },
-        { millisecondsSinceStart: 0xffffffff, level: 255, code: 65535, text: "Tür offen – 5 °C" },
-        { millisecondsSinceStart: 60000, level: 3, code: 7, text: "x".repeat(64) },
+        { ageTenths: 0, level: 0, code: 0, text: "" },
+        { ageTenths: 0xffffffff, level: 255, code: 65535, text: "Tür offen – 5 °C" },
+        { ageTenths: 60000, level: 3, code: 7, text: "x".repeat(64) },
       ],
     },
   },
@@ -769,7 +783,7 @@ export const packetCases: readonly PacketCase[] = [
     message: {
       type: MessageType.LogEntries,
       entries: Array.from({ length: 13 }, (_, i) => ({
-        millisecondsSinceStart: 1000 * i,
+        ageTenths: 1000 * i,
         level: i % 4,
         code: i,
         text: String.fromCharCode(0x61 + i).repeat(64),
@@ -785,7 +799,7 @@ export const packetCases: readonly PacketCase[] = [
     maxLength: link,
     message: {
       type: MessageType.LogEntries,
-      entries: [{ millisecondsSinceStart: 1, level: 1, code: 1, text: "\uFFFD\uFFFD(A" }],
+      entries: [{ ageTenths: 1, level: 1, code: 1, text: "\uFFFD\uFFFD(A" }],
     },
     // One entry whose text bytes are ff c3 28 41: a stray byte, a cut-off sequence, "(A".
     variation: { plaintext: fromHex("30" + "01000000" + "01" + "0100" + "04" + "ffc32841") },
@@ -810,7 +824,7 @@ export const packetCases: readonly PacketCase[] = [
       sendDataRate: 0,
       replyDataRate: 3,
       nextHeartbeatTenths: 1795,
-      clockCorrectionPpm: -32768,
+      clockCorrectionTenPpm: -32768,
     },
   },
   {

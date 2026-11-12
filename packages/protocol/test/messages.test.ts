@@ -101,7 +101,7 @@ describe("every message type", () => {
 });
 
 describe("flags", () => {
-  test("each sensor status bit maps to its name, and bit 7 is ignored", () => {
+  test("each sensor status bit maps to its name, all eight in use", () => {
     for (let byte = 0; byte < 256; byte++) {
       const result = decodeMessage(
         fromHex("0100" + byte.toString(16).padStart(2, "0") + "0000000000"),
@@ -112,7 +112,7 @@ describe("flags", () => {
       SENSOR_STATUS_FLAGS.forEach((name, bit) => {
         expect(heartbeat.flags[name]).toBe((byte & (1 << bit)) !== 0);
       });
-      expect(encodeMessage(heartbeat)[2]).toBe(byte & 0x7f);
+      expect(encodeMessage(heartbeat)[2]).toBe(byte);
     }
   });
 
@@ -159,7 +159,7 @@ describe("open-ended bodies", () => {
       ok: true,
       value: {
         type: MessageType.LogEntries,
-        entries: [{ millisecondsSinceStart: 1000, level: 1, code: 2, text: "abc" }],
+        entries: [{ ageTenths: 1000, level: 1, code: 2, text: "abc" }],
       },
     });
     const two = fromHex("30" + entry + entry);
@@ -181,7 +181,7 @@ describe("open-ended bodies", () => {
       ok: true,
       value: {
         type: MessageType.LogEntries,
-        entries: [{ millisecondsSinceStart: 0, level: 0, code: 0, text: "\uFFFD\uFFFD(" }],
+        entries: [{ ageTenths: 0, level: 0, code: 0, text: "\uFFFD\uFFFD(" }],
       },
     });
   });
@@ -209,7 +209,7 @@ describe("encoding refuses values that do not fit", () => {
       "log text of 65 bytes",
       {
         type: MessageType.LogEntries,
-        entries: [{ millisecondsSinceStart: 0, level: 0, code: 0, text: "é".repeat(33) }],
+        entries: [{ ageTenths: 0, level: 0, code: 0, text: "é".repeat(33) }],
       },
     ],
     ["no log entries", { type: MessageType.LogEntries, entries: [] }],

@@ -29,7 +29,7 @@
         "sendDataRate": 2,
         "replyDataRate": 5,
         "nextHeartbeatTenths": 0,
-        "clockCorrectionPpm": 0
+        "clockCorrectionTenPpm": 0
       },
       "plaintext": "8103031e1c0c05020500000000",
       "nonce": "4d3c2b1a010900000000000000",
@@ -60,7 +60,7 @@
         "sendDataRate": 0,
         "replyDataRate": 3,
         "nextHeartbeatTenths": 1795,
-        "clockCorrectionPpm": -32768
+        "clockCorrectionTenPpm": -32768
       },
       "plaintext": "8104042d001405000303070080",
       "nonce": "4d3c2b1a010a00000000000000",
@@ -91,7 +91,7 @@
         "sendDataRate": 6,
         "replyDataRate": 7,
         "nextHeartbeatTenths": 1800,
-        "clockCorrectionPpm": 12
+        "clockCorrectionTenPpm": 12
       },
       "plaintext": "8104001e000c05060708070c00",
       "nonce": "4d3c2b1a010c00000000000000",
@@ -122,7 +122,7 @@
         "sendDataRate": 2,
         "replyDataRate": 5,
         "nextHeartbeatTenths": 1800,
-        "clockCorrectionPpm": 12
+        "clockCorrectionTenPpm": 12
       },
       "plaintext": "8104f81e000c05020508070c00",
       "nonce": "4d3c2b1a010d00000000000000",

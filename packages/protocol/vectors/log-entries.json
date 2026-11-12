@@ -18,7 +18,7 @@
       "fields": {
         "entries": [
           {
-            "millisecondsSinceStart": 1500,
+            "ageTenths": 1500,
             "level": 2,
             "code": 257,
             "text": "wifi connected"
@@ -43,19 +43,19 @@
       "fields": {
         "entries": [
           {
-            "millisecondsSinceStart": 0,
+            "ageTenths": 0,
             "level": 0,
             "code": 0,
             "text": ""
           },
           {
-            "millisecondsSinceStart": 4294967295,
+            "ageTenths": 4294967295,
             "level": 255,
             "code": 65535,
             "text": "Tür offen – 5 °C"
           },
           {
-            "millisecondsSinceStart": 60000,
+            "ageTenths": 60000,
             "level": 3,
             "code": 7,
             "text": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
@@ -80,79 +80,79 @@
       "fields": {
         "entries": [
           {
-            "millisecondsSinceStart": 0,
+            "ageTenths": 0,
             "level": 0,
             "code": 0,
             "text": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
           },
           {
-            "millisecondsSinceStart": 1000,
+            "ageTenths": 1000,
             "level": 1,
             "code": 1,
             "text": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
           },
           {
-            "millisecondsSinceStart": 2000,
+            "ageTenths": 2000,
             "level": 2,
             "code": 2,
             "text": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
           },
           {
-            "millisecondsSinceStart": 3000,
+            "ageTenths": 3000,
             "level": 3,
             "code": 3,
             "text": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
           },
           {
-            "millisecondsSinceStart": 4000,
+            "ageTenths": 4000,
             "level": 0,
             "code": 4,
             "text": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
           },
           {
-            "millisecondsSinceStart": 5000,
+            "ageTenths": 5000,
             "level": 1,
             "code": 5,
             "text": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
           },
           {
-            "millisecondsSinceStart": 6000,
+            "ageTenths": 6000,
             "level": 2,
             "code": 6,
             "text": "gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg"
           },
           {
-            "millisecondsSinceStart": 7000,
+            "ageTenths": 7000,
             "level": 3,
             "code": 7,
             "text": "hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh"
           },
           {
-            "millisecondsSinceStart": 8000,
+            "ageTenths": 8000,
             "level": 0,
             "code": 8,
             "text": "iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii"
           },
           {
-            "millisecondsSinceStart": 9000,
+            "ageTenths": 9000,
             "level": 1,
             "code": 9,
             "text": "jjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjj"
           },
           {
-            "millisecondsSinceStart": 10000,
+            "ageTenths": 10000,
             "level": 2,
             "code": 10,
             "text": "kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk"
           },
           {
-            "millisecondsSinceStart": 11000,
+            "ageTenths": 11000,
             "level": 3,
             "code": 11,
             "text": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
           },
           {
-            "millisecondsSinceStart": 12000,
+            "ageTenths": 12000,
             "level": 0,
             "code": 12,
             "text": "mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm"
@@ -177,7 +177,7 @@
       "fields": {
         "entries": [
           {
-            "millisecondsSinceStart": 1,
+            "ageTenths": 1,
             "level": 1,
             "code": 1,
             "text": "��(A"

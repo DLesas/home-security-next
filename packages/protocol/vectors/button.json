@@ -24,7 +24,8 @@
           "charging": false,
           "replyWanted": true,
           "localAlarmSounded": false,
-          "buzzing": false
+          "buzzing": false,
+          "listeningAtSendRate": false
         },
         "batteryCode": 120,
         "temperatureCelsius": 21,
@@ -56,7 +57,8 @@
           "charging": false,
           "replyWanted": true,
           "localAlarmSounded": false,
-          "buzzing": false
+          "buzzing": false,
+          "listeningAtSendRate": false
         },
         "batteryCode": 120,
         "temperatureCelsius": 21,
@@ -88,7 +90,8 @@
           "charging": false,
           "replyWanted": true,
           "localAlarmSounded": false,
-          "buzzing": false
+          "buzzing": false,
+          "listeningAtSendRate": false
         },
         "batteryCode": 120,
         "temperatureCelsius": 21,
@@ -102,7 +105,7 @@
       "packet": "104d3c2b1aca000000dda499f8d2db561493819997bd5ada01f0"
     },
     {
-      "name": "button with unlisted action 9, which passes through",
+      "name": "button, action 4",
       "canonical": true,
       "key": "000102030405060708090a0b0c0d0e0f",
       "direction": 0,
@@ -118,9 +121,43 @@
           "coverOpen": false,
           "usbPower": false,
           "charging": false,
+          "replyWanted": true,
+          "localAlarmSounded": false,
+          "buzzing": false,
+          "listeningAtSendRate": false
+        },
+        "batteryCode": 120,
+        "temperatureCelsius": 21,
+        "doorChangeCount": 0,
+        "eventAgeSeconds": 1,
+        "buttonAction": 4
+      },
+      "plaintext": "040310781500010004",
+      "nonce": "4d3c2b1a00cb00000000000000",
+      "associatedData": "104d3c2b1acb000000",
+      "packet": "104d3c2b1acb0000005b9e4ca7d5837dd9f4bac04aa7043aefdd"
+    },
+    {
+      "name": "button with unlisted action 9, which passes through",
+      "canonical": true,
+      "key": "000102030405060708090a0b0c0d0e0f",
+      "direction": 0,
+      "address": 439041101,
+      "counter": 204,
+      "binding": "",
+      "maxLength": 255,
+      "messageType": 4,
+      "fields": {
+        "settingsVersion": 3,
+        "flags": {
+          "doorOpen": false,
+          "coverOpen": false,
+          "usbPower": false,
+          "charging": false,
           "replyWanted": false,
           "localAlarmSounded": false,
-          "buzzing": false
+          "buzzing": false,
+          "listeningAtSendRate": false
         },
         "batteryCode": 120,
         "temperatureCelsius": 21,
@@ -129,9 +166,9 @@
         "buttonAction": 9
       },
       "plaintext": "040300781500000009",
-      "nonce": "4d3c2b1a00cb00000000000000",
-      "associatedData": "104d3c2b1acb000000",
-      "packet": "104d3c2b1acb0000005b9e5ca7d5837cd9f9d0a52a4a50a24316"
+      "nonce": "4d3c2b1a00cc00000000000000",
+      "associatedData": "104d3c2b1acc000000",
+      "packet": "104d3c2b1acc0000004f1b8864915c05ad2cf407a9cbb76b160c"
     }
   ]
 }

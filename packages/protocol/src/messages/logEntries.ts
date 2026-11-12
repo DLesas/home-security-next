@@ -7,7 +7,9 @@ export const MAX_LOG_TEXT_BYTES = 64;
 /** One entry: 8 bytes plus its text. */
 export const logEntry = struct(
   layout([
-    ["millisecondsSinceStart", u32],
+    // How long before the packet was sealed the entry was made, in tenths of a second; see
+    // millisecondsFromTenths.
+    ["ageTenths", u32],
     ["level", u8],
     ["code", u16],
     ["text", lengthPrefixedText(MAX_LOG_TEXT_BYTES)],

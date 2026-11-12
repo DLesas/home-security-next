@@ -5,8 +5,10 @@ import {
   batteryMillivolts,
   fifteenSecondUnitsFromSeconds,
   millisecondsFromTenths,
+  ppmFromTenPpmUnits,
   secondsFromFifteenSecondUnits,
   snrDecibels,
+  tenPpmUnitsFromPpm,
   tenthsFromMilliseconds,
 } from "../../src/index.ts";
 import type { Json, JsonObject } from "./json.ts";
@@ -48,6 +50,13 @@ export function unitVectorFile(): JsonObject {
         tenths: orNull(() => tenthsFromMilliseconds(milliseconds)),
       }),
     ),
+    clockCorrectionDecode: [-32768, -100, -1, 0, 1, 12, 32767].map((units): Json => ({
+      units,
+      ppm: ppmFromTenPpmUnits(units),
+    })),
+    clockCorrectionEncode: [
+      -327680, -327685, -1000, -25, -15, -14, -5, 0, 4, 5, 15, 25, 123, 327670, 327674, 327675,
+    ].map((ppm): Json => ({ ppm, units: orNull(() => tenPpmUnitsFromPpm(ppm)) })),
     snrDecode: [-128, -30, -1, 0, 1, 127].map((quarterDecibels): Json => ({
       quarterDecibels,
       decibels: snrDecibels(quarterDecibels),

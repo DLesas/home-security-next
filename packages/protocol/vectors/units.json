@@ -201,6 +201,102 @@
       "tenths": null
     }
   ],
+  "clockCorrectionDecode": [
+    {
+      "units": -32768,
+      "ppm": -327680
+    },
+    {
+      "units": -100,
+      "ppm": -1000
+    },
+    {
+      "units": -1,
+      "ppm": -10
+    },
+    {
+      "units": 0,
+      "ppm": 0
+    },
+    {
+      "units": 1,
+      "ppm": 10
+    },
+    {
+      "units": 12,
+      "ppm": 120
+    },
+    {
+      "units": 32767,
+      "ppm": 327670
+    }
+  ],
+  "clockCorrectionEncode": [
+    {
+      "ppm": -327680,
+      "units": -32768
+    },
+    {
+      "ppm": -327685,
+      "units": -32768
+    },
+    {
+      "ppm": -1000,
+      "units": -100
+    },
+    {
+      "ppm": -25,
+      "units": -2
+    },
+    {
+      "ppm": -15,
+      "units": -1
+    },
+    {
+      "ppm": -14,
+      "units": -1
+    },
+    {
+      "ppm": -5,
+      "units": 0
+    },
+    {
+      "ppm": 0,
+      "units": 0
+    },
+    {
+      "ppm": 4,
+      "units": 0
+    },
+    {
+      "ppm": 5,
+      "units": 1
+    },
+    {
+      "ppm": 15,
+      "units": 2
+    },
+    {
+      "ppm": 25,
+      "units": 3
+    },
+    {
+      "ppm": 123,
+      "units": 12
+    },
+    {
+      "ppm": 327670,
+      "units": 32767
+    },
+    {
+      "ppm": 327674,
+      "units": 32767
+    },
+    {
+      "ppm": 327675,
+      "units": null
+    }
+  ],
   "snrDecode": [
     {
       "quarterDecibels": -128,

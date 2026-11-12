@@ -5,8 +5,10 @@ import {
   batteryMillivolts,
   fifteenSecondUnitsFromSeconds,
   millisecondsFromTenths,
+  ppmFromTenPpmUnits,
   secondsFromFifteenSecondUnits,
   snrDecibels,
+  tenPpmUnitsFromPpm,
   tenthsFromMilliseconds,
 } from "../src/index.ts";
 
@@ -49,6 +51,19 @@ describe("other units", () => {
     expect(tenthsFromMilliseconds(6_553_500)).toBe(65535);
     expect(() => tenthsFromMilliseconds(6_553_550)).toThrow(RangeError);
     expect(() => tenthsFromMilliseconds(-100)).toThrow(RangeError);
+  });
+
+  test("clock correction in units of 10 ppm, an exact half rounding up", () => {
+    expect(ppmFromTenPpmUnits(-32768)).toBe(-327680);
+    expect(ppmFromTenPpmUnits(12)).toBe(120);
+    expect(tenPpmUnitsFromPpm(123)).toBe(12);
+    expect(tenPpmUnitsFromPpm(25)).toBe(3);
+    expect(tenPpmUnitsFromPpm(-25)).toBe(-2);
+    expect(tenPpmUnitsFromPpm(-5)).toBe(0);
+    expect(tenPpmUnitsFromPpm(327674)).toBe(32767);
+    expect(tenPpmUnitsFromPpm(-327685)).toBe(-32768);
+    expect(() => tenPpmUnitsFromPpm(327675)).toThrow(RangeError);
+    expect(() => tenPpmUnitsFromPpm(-327686)).toThrow(RangeError);
   });
 
   test("signal-to-noise and airtime", () => {

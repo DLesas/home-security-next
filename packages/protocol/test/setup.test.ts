@@ -152,6 +152,8 @@ describe("setup messages", () => {
     ["provision", { type: SetupType.Provision, pairing }, "f103" + pairingHex],
     ["provision result", { type: SetupType.ProvisionResult, result: 2 }, "f104" + "02"],
     ["erase", { type: SetupType.Erase }, "f105"],
+    ["set role", { type: SetupType.SetRole, role: 2 }, "f106" + "02"],
+    ["set role, unlisted role", { type: SetupType.SetRole, role: 9 }, "f106" + "09"],
   ] satisfies [string, SetupMessage, string][])("%s, hand-assembled", (_, message, hex) => {
     expect(toHex(encodeSetupMessage(message))).toBe(hex);
     expect(decodeSetupMessage(fromHex(hex))).toEqual({ ok: true, value: message });
@@ -182,9 +184,13 @@ describe("setup messages", () => {
       ok: false,
       error: { code: "unknownType", messageType: 0 },
     });
+    expect(decodeSetupMessage(fromHex("f107"))).toEqual({
+      ok: false,
+      error: { code: "unknownType", messageType: 7 },
+    });
     expect(decodeSetupMessage(fromHex("f106"))).toEqual({
       ok: false,
-      error: { code: "unknownType", messageType: 6 },
+      error: { code: "truncated" },
     });
     const badPaired = encodeSetupMessage(identity);
     badPaired[12] = 2;

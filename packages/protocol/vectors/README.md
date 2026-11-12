@@ -9,7 +9,7 @@ Test cases for the device protocol, version 1 ([docs/protocol.md](../../../docs/
 - **Booleans** are JSON `true` or `false`.
 - **Text** (log text only) is a JSON string. On the wire it is UTF-8; its byte length, not its character count, is what the limit applies to. Invalid UTF-8 never makes a packet invalid: it decodes with U+FFFD replacement characters, as WHATWG's UTF-8 decoder produces them (one per maximal invalid subsequence).
 - **Enumerated values** (role, button action, siren action, state, reason, when, priority, result, interference event, site channel, data rate, provision result) are integers and may hold values version 1 does not list; such a packet is still valid and the value passes through unchanged (section 3). Each kind has at least one case whose name contains "unlisted".
-- **Unused flag bits** are written as zero and ignored when read. Each flags byte has a decode-only case with them set, whose name contains "unused flag bit".
+- **Unused flag bits** are written as zero and ignored when read. Each flags byte that has unused bits (reply, siren report, gateway status) has a decode-only case with them set, whose name contains "unused flag bit". The sensor status flags byte has none: all eight bits are named, so it has no such case.
 - **Names** are camelCase.
 - **Directions** are numbers: `0` to the hub, `1` from the hub. This is both the header's bit 3 and the nonce's direction byte.
 - **Errors** are the strings below. A receiver need not use the same names internally, but it must reject exactly the listed cases, and a harness should map its own errors onto these.
@@ -68,8 +68,8 @@ Listed in wire order. `u8`, `u16`, `u32` are unsigned, `i8`, `i16` signed, all l
 
 | Type | Fields |
 | --- | --- |
-| Heartbeat, door changed, cover changed (0x01–0x03) | `settingsVersion` u8, `flags` {`doorOpen`, `coverOpen`, `usbPower`, `charging`, `replyWanted`, `localAlarmSounded`, `buzzing`}, `batteryCode` u8 (2,500 + 10 × value mV), `temperatureCelsius` i8, `doorChangeCount` u8, `eventAgeSeconds` u16 |
-| Button (0x04) | as above, then `buttonAction` u8 |
+| Heartbeat, door changed, cover changed (0x01–0x03) | `settingsVersion` u8, `flags` {`doorOpen`, `coverOpen`, `usbPower`, `charging`, `replyWanted`, `localAlarmSounded`, `buzzing`, `listeningAtSendRate`}, `batteryCode` u8 (2,500 + 10 × value mV), `temperatureCelsius` i8, `doorChangeCount` u8, `eventAgeSeconds` u16 |
+| Button (0x04) | as above, then `buttonAction` u8 (1 to 4 listed) |
 | Started (0x05) | `role` u8, `firmwareVersion` version, `resetCause` u8, `lastFatalError` u16, `settingsVersion` u8 |
 | Siren report (0x10) | `settingsVersion` u8, `state` u8, `soundingSecondsLeft` u16, `lastCommandCounterLow` u16, `flags` {`onMains`, `cellFitted`, `charging`, `coverOpen`, `wifiConnected`}, `cellBatteryCode` u8, `temperatureCelsius` i8, `reason` u8 |
 | Hello (0x20) | `gatewayRandom` bytes(8), `firmwareVersion` version, `settingsVersion` u8 |
@@ -77,8 +77,8 @@ Listed in wire order. `u8`, `u16`, `u32` are unsigned, `i8`, `i16` signed, all l
 | Gateway status (0x22) | `settingsVersion` u8, `uptimeSeconds` u32, `airtimeHundredthsPercent` u16, `noiseMedianDbm` i8, `noiseHighestDbm` i8, `normalNoiseDbm` i8, `packetsReceived` u16, `packetsCrcFailed` u16, `wifiRssiDbm` i8, `flags` {`usbConnected`, `cellFitted`, `onMains`} |
 | Transmit result (0x23) | `requestCounter` u32, `result` u8, `sentAtMicros` u32 |
 | Interference (0x24) | `event` u8 (1 started, 0 ended), `noiseDbm` i8, `durationSeconds` u16 |
-| Log entries (0x30) | `entries`: an array of one or more `{ millisecondsSinceStart` u32, `level` u8, `code` u16, `text` (length u8 then UTF-8, at most 64 bytes) `}`, back to back to the end of the body |
-| Reply (0x81) | `settingsVersion` u8, `flags` {`armed`, `countdownStarted`, `updateAvailable`}, `countdownSeconds` u8, `countdownRemainingSeconds` u8, `heartbeatIntervalUnits` u8 (× 15 s), `linkCheckEvery` u8, `sendDataRate` u8, `replyDataRate` u8, `nextHeartbeatTenths` u16 (× 0.1 s), `clockCorrectionPpm` i16 |
+| Log entries (0x30) | `entries`: an array of one or more `{ ageTenths` u32 (how long before the packet was sealed the entry was made, × 0.1 s), `level` u8, `code` u16, `text` (length u8 then UTF-8, at most 64 bytes) `}`, back to back to the end of the body |
+| Reply (0x81) | `settingsVersion` u8, `flags` {`armed`, `countdownStarted`, `updateAvailable`}, `countdownSeconds` u8, `countdownRemainingSeconds` u8, `heartbeatIntervalUnits` u8 (× 15 s), `linkCheckEvery` u8, `sendDataRate` u8, `replyDataRate` u8, `nextHeartbeatTenths` u16 (× 0.1 s), `clockCorrectionTenPpm` i16 (× 10 parts per million) |
 | Disarmed notice (0x82) | none; `fields` is `{}` |
 | Siren command (0x90) | `action` u8, `soundSeconds` u16 |
 | Siren settings (0x91) | `settingsVersion` u8, `wifiReportIntervalSeconds` u8, `loraCheckIntervalUnits` u8 (× 15 s), `maxSoundSeconds` u16, `sendDataRate` u8, `commandDataRate` u8 |
@@ -124,7 +124,7 @@ USB framing (section 10): COBS, then one zero byte.
 
 Clear-text USB setup messages (section 10).
 
-- `valid`: `setupType` (the second byte), `canonical`, `fields`, `bytes` (the message, starting with `f1`) and `frame` (as sent over USB). `canonical` is as for message cases: when `false`, `bytes` has extra bytes after the fields, which decoding ignores, so the case is decode only. Fields by type: identify (0x01) and erase (0x05) none; identity (0x02) `role` u8, `chipId` bytes(6), `firmwareVersion` version, `paired` boolean (one byte, 0 or 1), `hubIdentity` bytes(8), `developmentBuild` boolean; provision (0x03) `pairing`, pairing data as in the next file; provision result (0x04) `result` u8.
+- `valid`: `setupType` (the second byte), `canonical`, `fields`, `bytes` (the message, starting with `f1`) and `frame` (as sent over USB). `canonical` is as for message cases: when `false`, `bytes` has extra bytes after the fields, which decoding ignores, so the case is decode only. Fields by type: identify (0x01) and erase (0x05) none; identity (0x02) `role` u8, `chipId` bytes(6), `firmwareVersion` version, `paired` boolean (one byte, 0 or 1), `hubIdentity` bytes(8), `developmentBuild` boolean; provision (0x03) `pairing`, pairing data as in the next file; provision result (0x04) `result` u8; set role (0x06) `role` u8. Which builds accept a set role is firmware behaviour; the codec only decodes it, and an unlisted role passes through.
 - `invalid`: `bytes` and the `error` they must give.
 
 ## pairing-data.json
@@ -138,7 +138,7 @@ Pairing data (section 9): format version 1 (one byte, not in `fields`), then `ad
 
 ## units.json
 
-Unit conversions, so every implementation rounds the same way. Encoding rounds to the nearest whole number with a half rounded up, then applies the field's limits; `null` means the value cannot be encoded (an implementation refuses it).
+Unit conversions, so every implementation rounds the same way. Encoding rounds to the nearest whole number with an exact half rounded up, toward positive infinity, so −1.5 becomes −1 (section 3, "Rounding"), then applies the field's limits; `null` means the value cannot be encoded (an implementation refuses it).
 
 | Array | Each case |
 | --- | --- |
@@ -148,6 +148,8 @@ Unit conversions, so every implementation rounds the same way. Encoding rounds t
 | `fifteenSecondEncode` | `seconds` → `units`, or `null` when not a whole number of units from 0 to 255 |
 | `tenthsDecode` | `tenths` → `milliseconds`: tenths × 100 |
 | `tenthsEncode` | `milliseconds` → `tenths`, rounded, or `null` above 65,535 |
+| `clockCorrectionDecode` | `units` → `ppm`: units × 10 |
+| `clockCorrectionEncode` | `ppm` → `units`: ppm ÷ 10, rounded, or `null` outside −32,768 to 32,767 |
 | `snrDecode` | `quarterDecibels` → `decibels`: quarters ÷ 4 (exact in binary) |
 | `airtimeDecode` | `hundredthsOfPercent` → `percent`: hundredths ÷ 100 (compare within 1e-9) |
 

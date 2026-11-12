@@ -18,6 +18,7 @@ export const SetupType = {
   Provision: 0x03,
   ProvisionResult: 0x04,
   Erase: 0x05,
+  SetRole: 0x06,
 } as const;
 export type SetupType = (typeof SetupType)[keyof typeof SetupType];
 
@@ -47,6 +48,12 @@ const setupLayouts = {
   ]),
   // Hub to device, no body; development builds only.
   [SetupType.Erase]: layout([]),
+  // Hub to device; the device answers with its identity. Which builds accept it is firmware
+  // behaviour (section 10), not decided here.
+  [SetupType.SetRole]: layout([
+    // A Role value; check with isEnumValue.
+    ["role", u8],
+  ]),
 } as const;
 
 const setupCodec = taggedUnion(setupLayouts);

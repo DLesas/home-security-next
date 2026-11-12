@@ -16,7 +16,7 @@ import {
   createHash,
   createPublicKey,
 } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
@@ -24,7 +24,6 @@ import { TextDecoder } from "node:util";
 
 // An optional argument points at another copy of the vectors (used to test this script).
 const VECTORS = process.argv[2] ?? join(dirname(fileURLToPath(import.meta.url)), "..", "vectors");
-const load = (name) => JSON.parse(readFileSync(join(VECTORS, name), "utf8"));
 const hex = (s) => Buffer.from(s, "hex");
 const toHex = (b) => Buffer.from(b).toString("hex");
 
@@ -34,6 +33,86 @@ const counts = new Map();
 const count = (kind, n = 1) => counts.set(kind, (counts.get(kind) ?? 0) + n);
 const mismatch = (file, name, message) => mismatches.push(`${file} › ${name}: ${message}`);
 const note = (message) => notes.push(message);
+
+// Loading and walking the vector files. Anything the script does not understand (a file,
+// section, case field or value of the wrong shape) becomes a mismatch, never an exception.
+const loadedFiles = new Set();
+const KNOWN_TOP = {
+  message: ["schemaVersion", "protocolVersion", "messageType", "name", "direction", "cases"],
+  "rejected-packets.json": ["schemaVersion", "protocolVersion", "packets", "replayed"],
+  "counters.json": [
+    "schemaVersion",
+    "protocolVersion",
+    "take",
+    "powerLoss",
+    "restore",
+    "replayWindow",
+    "strictlyHigher",
+  ],
+  "cobs.json": ["schemaVersion", "protocolVersion", "valid", "invalid", "streams"],
+  "setup-messages.json": ["schemaVersion", "protocolVersion", "valid", "invalid"],
+  "pairing-data.json": [
+    "schemaVersion",
+    "protocolVersion",
+    "signingPrivateKey",
+    "valid",
+    "hubIdentity",
+    "invalid",
+  ],
+  "units.json": ["schemaVersion", "protocolVersion"], // plus the arrays in UNITS
+  "time-on-air.json": ["schemaVersion", "protocolVersion", "cases"],
+};
+function load(name, knownTop) {
+  loadedFiles.add(name);
+  let file;
+  try {
+    file = JSON.parse(readFileSync(join(VECTORS, name), "utf8"));
+  } catch (e) {
+    mismatch(name, "(file)", `cannot be read: ${e.message}`);
+    return {};
+  }
+  if (file === null || typeof file !== "object") {
+    mismatch(name, "(file)", "is not a JSON object");
+    return {};
+  }
+  if (file.schemaVersion !== 1) mismatch(name, "(file)", `schemaVersion ${file.schemaVersion}`);
+  if (file.protocolVersion !== 1)
+    mismatch(name, "(file)", `protocolVersion ${file.protocolVersion}`);
+  for (const k of Object.keys(file))
+    if (!knownTop.includes(k)) mismatch(name, "(file)", `section "${k}" the script does not know`);
+  return file;
+}
+function list(file, obj, key) {
+  const v = obj[key];
+  if (v === undefined) {
+    mismatch(file, "(file)", `no "${key}" section`);
+    return [];
+  }
+  if (!Array.isArray(v)) {
+    mismatch(file, "(file)", `"${key}" is not an array`);
+    return [];
+  }
+  return v;
+}
+function guard(file, c, fn) {
+  const name =
+    c !== null && typeof c === "object" && typeof c.name === "string"
+      ? c.name
+      : JSON.stringify(c)?.slice(0, 60);
+  try {
+    fn();
+  } catch (e) {
+    const why =
+      e instanceof ProtocolError
+        ? e.code
+        : `${e?.constructor?.name ?? "error"}: ${e?.message ?? e}`;
+    mismatch(file, name, `the script cannot process this case (${why})`);
+  }
+}
+function knownKeys(file, c, keys) {
+  for (const k of Object.keys(c))
+    if (!keys.includes(k)) mismatch(file, c.name, `case field "${k}" the script does not know`);
+}
 
 class ProtocolError extends Error {
   constructor(code, extra = {}) {
@@ -177,6 +256,7 @@ const SENSOR_STATUS = [
       "replyWanted",
       "localAlarmSounded",
       "buzzing",
+      "listeningAtSendRate", // bit 7, section 6
     ],
   ],
   ["batteryCode", 2, 1, "u"],
@@ -185,7 +265,7 @@ const SENSOR_STATUS = [
   ["eventAgeSeconds", 5, 2, "u"],
 ];
 const LOG_ENTRY = [
-  ["millisecondsSinceStart", 0, 4, "u"],
+  ["ageTenths", 0, 4, "u"], // tenths of a second before the packet was sealed
   ["level", 4, 1, "u"],
   ["code", 5, 2, "u"],
   ["text", 7, 1, "text", { maxBytes: 64 }],
@@ -200,7 +280,7 @@ const MESSAGES = {
     file: "button.json",
     fromHub: false,
     paths: "lora",
-    fields: [...SENSOR_STATUS, ["buttonAction", 7, 1, "u", { values: [1, 2, 3] }]],
+    fields: [...SENSOR_STATUS, ["buttonAction", 7, 1, "u", { values: [1, 2, 3, 4] }]],
   },
   0x05: {
     file: "started.json",
@@ -309,7 +389,7 @@ const MESSAGES = {
       ["sendDataRate", 6, 1, "u", DATA_RATE],
       ["replyDataRate", 7, 1, "u", DATA_RATE],
       ["nextHeartbeatTenths", 8, 2, "u"],
-      ["clockCorrectionPpm", 10, 2, "i"],
+      ["clockCorrectionTenPpm", 10, 2, "i"], // units of 10 ppm
     ],
   },
   0x82: { file: "disarmed-notice.json", fromHub: true, paths: "lora", fields: [] },
@@ -537,7 +617,8 @@ const GATEWAY_TYPES = new Set([0x20, 0x21, 0x22, 0x23, 0x24, 0xa0, 0xa1, 0xa2]);
 
 for (const [typeKey, m] of Object.entries(MESSAGES)) {
   const type = Number(typeKey);
-  const file = load(m.file);
+  const F = m.file;
+  const file = load(F, KNOWN_TOP.message);
   const fileDirection = m.fromHub ? 1 : 0;
   if (file.messageType !== type)
     mismatch(m.file, "(file)", `messageType ${file.messageType}, expected ${type}`);
@@ -545,122 +626,139 @@ for (const [typeKey, m] of Object.entries(MESSAGES)) {
     mismatch(m.file, "(file)", `direction ${file.direction}, section 5 gives ${fileDirection}`);
   if (file.cases.length === 0) note(`${m.file}: no cases`);
 
-  for (const c of file.cases) {
-    count("envelope: valid packets opened");
-    const key = hex(c.key);
-    const binding = hex(c.binding);
-    const packet = hex(c.packet);
-    const plaintext = hex(c.plaintext);
-    allValid.push({ file: m.file, c, type, packet });
+  for (const c of list(F, file, "cases"))
+    guard(F, c, () => {
+      knownKeys(F, c, [
+        "name",
+        "canonical",
+        "key",
+        "direction",
+        "address",
+        "counter",
+        "binding",
+        "maxLength",
+        "messageType",
+        "fields",
+        "plaintext",
+        "nonce",
+        "associatedData",
+        "packet",
+      ]);
+      count("envelope: valid packets opened");
+      const key = hex(c.key);
+      const binding = hex(c.binding);
+      const packet = hex(c.packet);
+      const plaintext = hex(c.plaintext);
+      allValid.push({ file: m.file, c, type, packet });
 
-    if (c.direction !== file.direction)
-      mismatch(m.file, c.name, `case direction ${c.direction} ≠ file ${file.direction}`);
-    if (c.messageType !== type)
-      mismatch(m.file, c.name, `case messageType ${c.messageType} ≠ ${type}`);
-    if (plaintext[0] !== type)
-      mismatch(m.file, c.name, `plaintext starts with ${plaintext[0]}, not ${type}`);
-    if (![0, 4, 8, 16].includes(binding.length))
-      mismatch(m.file, c.name, `binding of ${binding.length} bytes`);
+      if (c.direction !== file.direction)
+        mismatch(m.file, c.name, `case direction ${c.direction} ≠ file ${file.direction}`);
+      if (c.messageType !== type)
+        mismatch(m.file, c.name, `case messageType ${c.messageType} ≠ ${type}`);
+      if (plaintext[0] !== type)
+        mismatch(m.file, c.name, `plaintext starts with ${plaintext[0]}, not ${type}`);
+      if (![0, 4, 8, 16].includes(binding.length))
+        mismatch(m.file, c.name, `binding of ${binding.length} bytes`);
 
-    const myNonce = nonceFor(c.address, c.direction, c.counter);
-    if (toHex(myNonce) !== c.nonce)
-      mismatch(m.file, c.name, `nonce ${c.nonce}, mine ${toHex(myNonce)}`);
-    const myAad = Buffer.concat([packet.subarray(0, HEADER_LENGTH), binding]);
-    if (toHex(myAad) !== c.associatedData)
-      mismatch(m.file, c.name, `associatedData ${c.associatedData}, mine ${toHex(myAad)}`);
+      const myNonce = nonceFor(c.address, c.direction, c.counter);
+      if (toHex(myNonce) !== c.nonce)
+        mismatch(m.file, c.name, `nonce ${c.nonce}, mine ${toHex(myNonce)}`);
+      const myAad = Buffer.concat([packet.subarray(0, HEADER_LENGTH), binding]);
+      if (toHex(myAad) !== c.associatedData)
+        mismatch(m.file, c.name, `associatedData ${c.associatedData}, mine ${toHex(myAad)}`);
 
-    // Seal: canonical cases from scratch; non-canonical ones with their own header byte.
-    if (c.canonical) {
-      count("envelope: canonical packets sealed");
-      const sealed = sealPacket({
-        key,
-        direction: c.direction,
-        address: c.address,
-        counter: c.counter,
-        binding,
-        plaintext,
-      });
-      if (!sealed.equals(packet))
-        mismatch(
-          m.file,
-          c.name,
-          `sealed packet differs:\n    vector ${c.packet}\n    mine   ${toHex(sealed)}`,
-        );
-    } else {
-      const sealed = sealPacket({
-        key,
-        direction: c.direction,
-        address: c.address,
-        counter: c.counter,
-        binding,
-        plaintext,
-        header: packet[0],
-      });
-      if (!sealed.equals(packet))
-        mismatch(m.file, c.name, `non-canonical packet does not reseal with its own header byte`);
-    }
-
-    // Open.
-    const opened = errorOf(() => {
-      const o = openPacket(packet, {
-        key,
-        expectedDirection: c.direction,
-        binding,
-        maxLength: c.maxLength,
-      });
-      if (o.address !== c.address) mismatch(m.file, c.name, `opened address ${o.address}`);
-      if (o.counter !== c.counter) mismatch(m.file, c.name, `opened counter ${o.counter}`);
-      if (!o.plaintext.equals(plaintext))
-        mismatch(m.file, c.name, `opened plaintext ${toHex(o.plaintext)}`);
-    });
-    if (opened) mismatch(m.file, c.name, `my opener rejects it: ${opened.code}`);
-
-    // Body: decode from section 6, compare every field, and re-encode.
-    count(`bodies: ${m.file.replace(".json", "")}`);
-    const decoded = errorOf(() => {
-      const { fields } = decodeMessage(plaintext, c.direction);
-      for (const d of diff(c.fields, fields)) mismatch(m.file, c.name, d);
-      count(
-        "bodies: unlisted enumerated values passed through",
-        rangeProblems(m.fields, fields).length,
-      );
+      // Seal: canonical cases from scratch; non-canonical ones with their own header byte.
       if (c.canonical) {
-        const enc = Buffer.concat([Buffer.from([type]), encodeFields(m.fields, c.fields)]);
-        if (!enc.equals(plaintext))
-          mismatch(m.file, c.name, `encoded fields ${toHex(enc)} ≠ plaintext ${c.plaintext}`);
-      } else {
-        const enc = Buffer.concat([Buffer.from([type]), encodeFields(m.fields, c.fields)]);
-        const isExtra =
-          plaintext.length > enc.length && plaintext.subarray(0, enc.length).equals(enc);
-        const isHeader = plaintext.equals(enc) && (packet[0] & 0x07) !== 0;
-        const isText = !plaintext.equals(enc) && JSON.stringify(c.fields).includes("\ufffd");
-        // Unused flag bits set: equal to the encoding once those bits are cleared.
-        const cleared = Buffer.from(plaintext);
-        for (const [, offset, , kind] of m.fields)
-          if (Array.isArray(kind)) cleared[1 + offset] &= (1 << kind.length) - 1;
-        const isFlags = !plaintext.equals(cleared) && cleared.equals(enc);
-        if (!isExtra && !isHeader && !isText && !isFlags)
+        count("envelope: canonical packets sealed");
+        const sealed = sealPacket({
+          key,
+          direction: c.direction,
+          address: c.address,
+          counter: c.counter,
+          binding,
+          plaintext,
+        });
+        if (!sealed.equals(packet))
           mismatch(
             m.file,
             c.name,
-            "non-canonical, but not extra bytes, header low bits, invalid UTF-8 or unused flag bits",
+            `sealed packet differs:\n    vector ${c.packet}\n    mine   ${toHex(sealed)}`,
           );
+      } else {
+        const sealed = sealPacket({
+          key,
+          direction: c.direction,
+          address: c.address,
+          counter: c.counter,
+          binding,
+          plaintext,
+          header: packet[0],
+        });
+        if (!sealed.equals(packet))
+          mismatch(m.file, c.name, `non-canonical packet does not reseal with its own header byte`);
       }
-    });
-    if (decoded) mismatch(m.file, c.name, `my decoder or encoder fails: ${decoded.code}`);
 
-    // Section 5 paths against the size limit.
-    if (m.paths === "lora" && c.maxLength !== 255)
-      mismatch(m.file, c.name, `LoRa-only type opened with maxLength ${c.maxLength}`);
-    if (m.paths === "link" && c.maxLength !== 1024)
-      mismatch(m.file, c.name, `Wi-Fi/USB-only type opened with maxLength ${c.maxLength}`);
-    if (c.maxLength === 255 && packet.length > 30)
-      note(
-        `${m.file} › ${c.name}: radio packet of ${packet.length} bytes, above section 3's "largest radio packet in this version is 30"`,
-      );
-    if (c.canonical && packet[0] & 0x07)
-      mismatch(m.file, c.name, "canonical packet has header low bits set");
-  }
+      // Open.
+      const opened = errorOf(() => {
+        const o = openPacket(packet, {
+          key,
+          expectedDirection: c.direction,
+          binding,
+          maxLength: c.maxLength,
+        });
+        if (o.address !== c.address) mismatch(m.file, c.name, `opened address ${o.address}`);
+        if (o.counter !== c.counter) mismatch(m.file, c.name, `opened counter ${o.counter}`);
+        if (!o.plaintext.equals(plaintext))
+          mismatch(m.file, c.name, `opened plaintext ${toHex(o.plaintext)}`);
+      });
+      if (opened) mismatch(m.file, c.name, `my opener rejects it: ${opened.code}`);
+
+      // Body: decode from section 6, compare every field, and re-encode.
+      count(`bodies: ${m.file.replace(".json", "")}`);
+      const decoded = errorOf(() => {
+        const { fields } = decodeMessage(plaintext, c.direction);
+        for (const d of diff(c.fields, fields)) mismatch(m.file, c.name, d);
+        count(
+          "bodies: unlisted enumerated values passed through",
+          rangeProblems(m.fields, fields).length,
+        );
+        if (c.canonical) {
+          const enc = Buffer.concat([Buffer.from([type]), encodeFields(m.fields, c.fields)]);
+          if (!enc.equals(plaintext))
+            mismatch(m.file, c.name, `encoded fields ${toHex(enc)} ≠ plaintext ${c.plaintext}`);
+        } else {
+          const enc = Buffer.concat([Buffer.from([type]), encodeFields(m.fields, c.fields)]);
+          const isExtra =
+            plaintext.length > enc.length && plaintext.subarray(0, enc.length).equals(enc);
+          const isHeader = plaintext.equals(enc) && (packet[0] & 0x07) !== 0;
+          const isText = !plaintext.equals(enc) && JSON.stringify(c.fields).includes("\ufffd");
+          // Unused flag bits set: equal to the encoding once those bits are cleared.
+          const cleared = Buffer.from(plaintext);
+          for (const [, offset, , kind] of m.fields)
+            if (Array.isArray(kind)) cleared[1 + offset] &= (1 << kind.length) - 1;
+          const isFlags = !plaintext.equals(cleared) && cleared.equals(enc);
+          if (!isExtra && !isHeader && !isText && !isFlags)
+            mismatch(
+              m.file,
+              c.name,
+              "non-canonical, but not extra bytes, header low bits, invalid UTF-8 or unused flag bits",
+            );
+        }
+      });
+      if (decoded) mismatch(m.file, c.name, `my decoder or encoder fails: ${decoded.code}`);
+
+      // Section 5 paths against the size limit.
+      if (m.paths === "lora" && c.maxLength !== 255)
+        mismatch(m.file, c.name, `LoRa-only type opened with maxLength ${c.maxLength}`);
+      if (m.paths === "link" && c.maxLength !== 1024)
+        mismatch(m.file, c.name, `Wi-Fi/USB-only type opened with maxLength ${c.maxLength}`);
+      if (c.maxLength === 255 && packet.length > 30)
+        note(
+          `${m.file} › ${c.name}: radio packet of ${packet.length} bytes, above section 3's "largest radio packet in this version is 30"`,
+        );
+      if (c.canonical && packet[0] & 0x07)
+        mismatch(m.file, c.name, "canonical packet has header low bits set");
+    });
 }
 
 // Cross-file checks of bindings (section 4) and keys.
@@ -768,7 +866,7 @@ function openAndDecode(packet, opts) {
 
 {
   const F = "rejected-packets.json";
-  const file = load(F);
+  const file = load(F, KNOWN_TOP[F]);
   const CLEAR_CHECKS = new Set([
     "tooLong",
     "badVersion",
@@ -776,62 +874,86 @@ function openAndDecode(packet, opts) {
     "badAddress",
     "badCounter",
   ]);
-  for (const c of file.packets) {
-    count("envelope: rejected packets");
-    const opts = {
-      key: hex(c.key),
-      expectedDirection: c.expectedDirection,
-      binding: hex(c.binding),
-      maxLength: c.maxLength,
-    };
-    const packet = hex(c.packet);
-    const err = errorOf(() => openAndDecode(packet, opts));
-    if (!err) mismatch(F, c.name, `my implementation accepts it (vector: ${c.error})`);
-    else if (err.code !== c.error) mismatch(F, c.name, `my reason ${err.code}, vector ${c.error}`);
-    else if (c.error === "unknownType" && err.extra.messageType !== c.messageType)
-      mismatch(F, c.name, `unknown type byte ${err.extra.messageType}, vector ${c.messageType}`);
-    // Does the case isolate the check it names, or would the tag fail anyway?
-    if (CLEAR_CHECKS.has(c.error) && rawOpen(packet, opts.key, opts.binding) === null)
-      note(
-        `${F} › ${c.name}: tag also fails, so the case does not isolate "${c.error}" from badTag`,
-      );
-    // Second reason that also applies; section 3 says the over-limit length byte wins.
-    if (c.error === "badLength" || c.error === "truncated") {
-      const pt = rawOpen(packet, opts.key, opts.binding);
-      if (pt && pt[0] === 0x30) {
-        const len = pt[1 + 7];
-        if (c.error === "badLength" && pt.length < 1 + 8 + len)
-          count("envelope: badLength cases also cut short (section 3 ordering)");
+  for (const c of list(F, file, "packets"))
+    guard(F, c, () => {
+      knownKeys(F, c, [
+        "name",
+        "key",
+        "expectedDirection",
+        "binding",
+        "maxLength",
+        "packet",
+        "error",
+        "messageType",
+      ]);
+      count("envelope: rejected packets");
+      const opts = {
+        key: hex(c.key),
+        expectedDirection: c.expectedDirection,
+        binding: hex(c.binding),
+        maxLength: c.maxLength,
+      };
+      const packet = hex(c.packet);
+      const err = errorOf(() => openAndDecode(packet, opts));
+      if (!err) mismatch(F, c.name, `my implementation accepts it (vector: ${c.error})`);
+      else if (err.code !== c.error)
+        mismatch(F, c.name, `my reason ${err.code}, vector ${c.error}`);
+      else if (c.error === "unknownType" && err.extra.messageType !== c.messageType)
+        mismatch(F, c.name, `unknown type byte ${err.extra.messageType}, vector ${c.messageType}`);
+      // Does the case isolate the check it names, or would the tag fail anyway?
+      if (CLEAR_CHECKS.has(c.error) && rawOpen(packet, opts.key, opts.binding) === null)
+        note(
+          `${F} › ${c.name}: tag also fails, so the case does not isolate "${c.error}" from badTag`,
+        );
+      // Second reason that also applies; section 3 says the over-limit length byte wins.
+      if (c.error === "badLength" || c.error === "truncated") {
+        const pt = rawOpen(packet, opts.key, opts.binding);
+        if (pt && pt[0] === 0x30) {
+          const len = pt[1 + 7];
+          if (c.error === "badLength" && pt.length < 1 + 8 + len)
+            count("envelope: badLength cases also cut short (section 3 ordering)");
+        }
       }
-    }
-  }
-  for (const c of file.replayed) {
-    count("counters: replayed packets");
-    const opts = {
-      key: hex(c.key),
-      expectedDirection: c.expectedDirection,
-      binding: hex(c.binding),
-      maxLength: c.maxLength,
-    };
-    let o;
-    const err = errorOf(() => {
-      o = openAndDecode(hex(c.packet), opts);
     });
-    if (err) {
-      mismatch(F, c.name, `replayed packet does not open: ${err.code}`);
-      continue;
-    }
-    let result;
-    if (c.rule === "replayWindow") result = windowAccept(hex(c.stateBefore), o.counter);
-    else if (c.rule === "strictlyHigher") result = strictlyHigher(c.stateBefore, o.counter);
-    else {
-      mismatch(F, c.name, `unknown rule ${c.rule}`);
-      continue;
-    }
-    if (result.accepted) mismatch(F, c.name, `my ${c.rule} accepts counter ${o.counter}`);
-    else if (result.rejection !== c.rejection)
-      mismatch(F, c.name, `my rejection ${result.rejection}, vector ${c.rejection}`);
-  }
+  for (const c of list(F, file, "replayed"))
+    guard(F, c, () => {
+      knownKeys(F, c, [
+        "name",
+        "key",
+        "expectedDirection",
+        "binding",
+        "maxLength",
+        "packet",
+        "rule",
+        "stateBefore",
+        "rejection",
+      ]);
+      count("counters: replayed packets");
+      const opts = {
+        key: hex(c.key),
+        expectedDirection: c.expectedDirection,
+        binding: hex(c.binding),
+        maxLength: c.maxLength,
+      };
+      let o;
+      const err = errorOf(() => {
+        o = openAndDecode(hex(c.packet), opts);
+      });
+      if (err) {
+        mismatch(F, c.name, `replayed packet does not open: ${err.code}`);
+        return;
+      }
+      let result;
+      if (c.rule === "replayWindow") result = windowAccept(hex(c.stateBefore), o.counter);
+      else if (c.rule === "strictlyHigher") result = strictlyHigher(c.stateBefore, o.counter);
+      else {
+        mismatch(F, c.name, `unknown rule ${c.rule}`);
+        return;
+      }
+      if (result.accepted) mismatch(F, c.name, `my ${c.rule} accepts counter ${o.counter}`);
+      else if (result.rejection !== c.rejection)
+        mismatch(F, c.name, `my rejection ${result.rejection}, vector ${c.rejection}`);
+    });
 }
 
 // ---------------------------------------------------------------------------
@@ -911,43 +1033,46 @@ function streamDecode(chunks) {
 
 {
   const F = "cobs.json";
-  const file = load(F);
-  for (const c of file.valid) {
-    count("cobs: valid");
-    const enc = cobsEncode(hex(c.data));
-    if (toHex(enc) !== c.encoded)
-      mismatch(F, c.name, `encoded ${c.encoded.slice(0, 40)}…, mine ${toHex(enc).slice(0, 40)}…`);
-    if (c.frame !== c.encoded + "00") mismatch(F, c.name, "frame is not encoded + 00");
-    const e = errorOf(() => {
-      const d = cobsDecode(hex(c.encoded));
-      if (toHex(d) !== c.data) mismatch(F, c.name, "decodes to different data");
-    });
-    if (e) mismatch(F, c.name, `my decoder rejects it: ${e.code}`);
-    if (hex(c.encoded).includes(0)) mismatch(F, c.name, "encoded form contains a zero byte");
-    // Section 10: a decoder also accepts the empty block after a final 254-byte run.
-    const data = hex(c.data);
-    const lastZero = data.lastIndexOf(0);
-    const finalRun = data.length - (lastZero + 1);
-    if (finalRun > 0 && finalRun % 254 === 0) {
-      count("cobs: with optional empty block");
-      const e2 = errorOf(() => {
-        if (!cobsDecode(hex(c.encoded + "01")).equals(data))
-          mismatch(F, c.name, "decoding with the empty block differs");
+  const file = load(F, KNOWN_TOP[F]);
+  for (const c of list(F, file, "valid"))
+    guard(F, c, () => {
+      count("cobs: valid");
+      const enc = cobsEncode(hex(c.data));
+      if (toHex(enc) !== c.encoded)
+        mismatch(F, c.name, `encoded ${c.encoded.slice(0, 40)}…, mine ${toHex(enc).slice(0, 40)}…`);
+      if (c.frame !== c.encoded + "00") mismatch(F, c.name, "frame is not encoded + 00");
+      const e = errorOf(() => {
+        const d = cobsDecode(hex(c.encoded));
+        if (toHex(d) !== c.data) mismatch(F, c.name, "decodes to different data");
       });
-      if (e2) mismatch(F, c.name, `decoding with the empty block fails: ${e2.code}`);
-    }
-  }
-  for (const c of file.invalid) {
-    count("cobs: invalid");
-    const e = errorOf(() => cobsDecode(hex(c.encoded)));
-    if (!e) mismatch(F, c.name, "my decoder accepts it");
-    else if (e.code !== c.error) mismatch(F, c.name, `my reason ${e.code}, vector ${c.error}`);
-  }
-  for (const c of file.streams) {
-    count("cobs: streams");
-    const frames = streamDecode(c.chunks.map(hex));
-    for (const d of diff(c.frames, frames)) mismatch(F, c.name, d);
-  }
+      if (e) mismatch(F, c.name, `my decoder rejects it: ${e.code}`);
+      if (hex(c.encoded).includes(0)) mismatch(F, c.name, "encoded form contains a zero byte");
+      // Section 10: a decoder also accepts the empty block after a final 254-byte run.
+      const data = hex(c.data);
+      const lastZero = data.lastIndexOf(0);
+      const finalRun = data.length - (lastZero + 1);
+      if (finalRun > 0 && finalRun % 254 === 0) {
+        count("cobs: with optional empty block");
+        const e2 = errorOf(() => {
+          if (!cobsDecode(hex(c.encoded + "01")).equals(data))
+            mismatch(F, c.name, "decoding with the empty block differs");
+        });
+        if (e2) mismatch(F, c.name, `decoding with the empty block fails: ${e2.code}`);
+      }
+    });
+  for (const c of list(F, file, "invalid"))
+    guard(F, c, () => {
+      count("cobs: invalid");
+      const e = errorOf(() => cobsDecode(hex(c.encoded)));
+      if (!e) mismatch(F, c.name, "my decoder accepts it");
+      else if (e.code !== c.error) mismatch(F, c.name, `my reason ${e.code}, vector ${c.error}`);
+    });
+  for (const c of list(F, file, "streams"))
+    guard(F, c, () => {
+      count("cobs: streams");
+      const frames = streamDecode(c.chunks.map(hex));
+      for (const d of diff(c.frames, frames)) mismatch(F, c.name, d);
+    });
 }
 
 // ---------------------------------------------------------------------------
@@ -1010,89 +1135,97 @@ function restore(backedUpResumePoint) {
 
 {
   const F = "counters.json";
-  const file = load(F);
-  file.take.forEach((c, i) => {
-    count("counters: take");
-    const r = take(c.step, c.next, c.resumePoint);
-    const expected = Object.fromEntries(
-      ["counter", "saveResumePoint", "nextAfter", "resumePointAfter", "error"]
-        .filter((k) => k in c)
-        .map((k) => [k, c[k]]),
-    );
-    for (const d of diff(expected, r)) mismatch(F, `take[${i}] step ${c.step} next ${c.next}`, d);
-  });
-  file.powerLoss.forEach((seq, i) => {
-    count("counters: powerLoss");
-    let next = 1;
-    let stored = seq.initialResumePoint;
-    if (seq.initialResumePoint !== seq.step)
-      mismatch(F, `powerLoss[${i}]`, "initial resume point is not the step");
-    seq.events.forEach((ev, j) => {
-      const name = `powerLoss[${i}] event ${j}`;
-      if (ev.event === "powerLoss") {
-        next = stored;
-        if (ev.resumeFrom !== stored)
-          mismatch(F, name, `resumeFrom ${ev.resumeFrom}, mine ${stored}`);
-        return;
-      }
-      const saved = [];
-      let first;
-      let lastC;
-      for (let k = 0; k < ev.count; k++) {
-        const r = take(seq.step, next, stored);
-        if (r.error) {
-          mismatch(F, name, r.error);
+  const file = load(F, KNOWN_TOP[F]);
+  list(F, file, "take").forEach((c, i) =>
+    guard(F, c, () => {
+      count("counters: take");
+      const r = take(c.step, c.next, c.resumePoint);
+      const expected = Object.fromEntries(
+        ["counter", "saveResumePoint", "nextAfter", "resumePointAfter", "error"]
+          .filter((k) => k in c)
+          .map((k) => [k, c[k]]),
+      );
+      for (const d of diff(expected, r)) mismatch(F, `take[${i}] step ${c.step} next ${c.next}`, d);
+    }),
+  );
+  list(F, file, "powerLoss").forEach((seq, i) =>
+    guard(F, seq, () => {
+      count("counters: powerLoss");
+      let next = 1;
+      let stored = seq.initialResumePoint;
+      if (seq.initialResumePoint !== seq.step)
+        mismatch(F, `powerLoss[${i}]`, "initial resume point is not the step");
+      seq.events.forEach((ev, j) => {
+        const name = `powerLoss[${i}] event ${j}`;
+        if (ev.event === "powerLoss") {
+          next = stored;
+          if (ev.resumeFrom !== stored)
+            mismatch(F, name, `resumeFrom ${ev.resumeFrom}, mine ${stored}`);
           return;
         }
-        if (r.saveResumePoint !== null) saved.push(r.saveResumePoint);
-        first ??= r.counter;
-        lastC = r.counter;
-        next = r.nextAfter;
-        stored = r.resumePointAfter;
-      }
-      for (const d of diff(
-        {
-          firstCounter: ev.firstCounter,
-          lastCounter: ev.lastCounter,
-          savedResumePoints: ev.savedResumePoints,
-        },
-        { firstCounter: first, lastCounter: lastC, savedResumePoints: saved },
-      ))
-        mismatch(F, name, d);
+        const saved = [];
+        let first;
+        let lastC;
+        for (let k = 0; k < ev.count; k++) {
+          const r = take(seq.step, next, stored);
+          if (r.error) {
+            mismatch(F, name, r.error);
+            return;
+          }
+          if (r.saveResumePoint !== null) saved.push(r.saveResumePoint);
+          first ??= r.counter;
+          lastC = r.counter;
+          next = r.nextAfter;
+          stored = r.resumePointAfter;
+        }
+        for (const d of diff(
+          {
+            firstCounter: ev.firstCounter,
+            lastCounter: ev.lastCounter,
+            savedResumePoints: ev.savedResumePoints,
+          },
+          { firstCounter: first, lastCounter: lastC, savedResumePoints: saved },
+        ))
+          mismatch(F, name, d);
+      });
+    }),
+  );
+  list(F, file, "restore").forEach((c, i) =>
+    guard(F, c, () => {
+      count("counters: restore");
+      const r = restore(c.backedUpResumePoint);
+      const expected = "error" in c ? { error: c.error } : { next: c.next };
+      for (const d of diff(expected, r))
+        mismatch(F, `restore[${i}] from ${c.backedUpResumePoint}`, d);
+    }),
+  );
+  for (const seq of list(F, file, "replayWindow"))
+    guard(F, seq, () => {
+      count("counters: replayWindow sequences");
+      let state = Buffer.alloc(12);
+      seq.steps.forEach((s, j) => {
+        count("counters: replayWindow steps");
+        const r = windowAccept(state, s.counter);
+        const mine = r.accepted
+          ? { counter: s.counter, accepted: true, highest: r.highest, state: toHex(r.state) }
+          : { counter: s.counter, accepted: false, rejection: r.rejection };
+        for (const d of diff(s, mine)) mismatch(F, `${seq.name} step ${j}`, d);
+        if (r.accepted) state = r.state;
+      });
     });
-  });
-  file.restore.forEach((c, i) => {
-    count("counters: restore");
-    const r = restore(c.backedUpResumePoint);
-    const expected = "error" in c ? { error: c.error } : { next: c.next };
-    for (const d of diff(expected, r))
-      mismatch(F, `restore[${i}] from ${c.backedUpResumePoint}`, d);
-  });
-  for (const seq of file.replayWindow) {
-    count("counters: replayWindow sequences");
-    let state = Buffer.alloc(12);
-    seq.steps.forEach((s, j) => {
-      count("counters: replayWindow steps");
-      const r = windowAccept(state, s.counter);
-      const mine = r.accepted
-        ? { counter: s.counter, accepted: true, highest: r.highest, state: toHex(r.state) }
-        : { counter: s.counter, accepted: false, rejection: r.rejection };
-      for (const d of diff(s, mine)) mismatch(F, `${seq.name} step ${j}`, d);
-      if (r.accepted) state = r.state;
+  for (const seq of list(F, file, "strictlyHigher"))
+    guard(F, seq, () => {
+      count("counters: strictlyHigher sequences");
+      let last = 0;
+      seq.steps.forEach((s, j) => {
+        count("counters: strictlyHigher steps");
+        const r = strictlyHigher(last, s.counter);
+        const mine = { lastAccepted: last, counter: s.counter, accepted: r.accepted };
+        if (!r.accepted) mine.rejection = r.rejection;
+        for (const d of diff(s, mine)) mismatch(F, `${seq.name} step ${j}`, d);
+        if (r.accepted) last = s.counter;
+      });
     });
-  }
-  for (const seq of file.strictlyHigher) {
-    count("counters: strictlyHigher sequences");
-    let last = 0;
-    seq.steps.forEach((s, j) => {
-      count("counters: strictlyHigher steps");
-      const r = strictlyHigher(last, s.counter);
-      const mine = { lastAccepted: last, counter: s.counter, accepted: r.accepted };
-      if (!r.accepted) mine.rejection = r.rejection;
-      for (const d of diff(s, mine)) mismatch(F, `${seq.name} step ${j}`, d);
-      if (r.accepted) last = s.counter;
-    });
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1119,17 +1252,18 @@ function timeOnAirMicros(sf, length) {
 
 {
   const F = "time-on-air.json";
-  const file = load(F);
-  for (const c of file.cases) {
-    count("time on air: vectors");
-    const name = `DR${c.dataRate} ${c.length} bytes`;
-    if (SF_OF_DR[c.dataRate] !== c.spreadingFactor)
-      mismatch(F, name, `SF${c.spreadingFactor}, section 2 gives SF${SF_OF_DR[c.dataRate]}`);
-    const us = timeOnAirMicros(SF_OF_DR[c.dataRate], c.length);
-    if (us !== c.microseconds) mismatch(F, name, `${c.microseconds} µs, mine ${us} µs`);
-    if (c.milliseconds !== c.microseconds / 1000)
-      mismatch(F, name, `milliseconds ${c.milliseconds} ≠ microseconds / 1000`);
-  }
+  const file = load(F, KNOWN_TOP[F]);
+  for (const c of list(F, file, "cases"))
+    guard(F, c, () => {
+      count("time on air: vectors");
+      const name = `DR${c.dataRate} ${c.length} bytes`;
+      if (SF_OF_DR[c.dataRate] !== c.spreadingFactor)
+        mismatch(F, name, `SF${c.spreadingFactor}, section 2 gives SF${SF_OF_DR[c.dataRate]}`);
+      const us = timeOnAirMicros(SF_OF_DR[c.dataRate], c.length);
+      if (us !== c.microseconds) mismatch(F, name, `${c.microseconds} µs, mine ${us} µs`);
+      if (c.milliseconds !== c.microseconds / 1000)
+        mismatch(F, name, `milliseconds ${c.milliseconds} ≠ microseconds / 1000`);
+    });
   // Section 2's table of the protocol itself, rounded to whole milliseconds.
   const TABLE = [
     ["Sensor status", 25, [62, 206, 412, 1483]],
@@ -1257,6 +1391,7 @@ const SETUP = {
   0x03: "pairing",
   0x04: [["result", 0, 1, "u", { values: [0, 1, 2] }]],
   0x05: [],
+  0x06: [["role", 0, 1, "u", { values: [1, 2, 3] }]], // set role
 };
 
 function decodeSetup(bytes) {
@@ -1280,6 +1415,7 @@ function decodeSetup(bytes) {
 }
 function encodeSetup(type, fields) {
   const spec = SETUP[type];
+  if (spec === undefined) reject("unknownType", { messageType: type });
   const body =
     spec === "pairing"
       ? encodePairing(fields.pairing)
@@ -1294,82 +1430,92 @@ function encodeSetup(type, fields) {
 
 {
   const F = "pairing-data.json";
-  const file = load(F);
+  const file = load(F, KNOWN_TOP[F]);
   if (file.signingPrivateKey === undefined) note(`${F}: no signingPrivateKey`);
   else {
     signingPublicKey = publicKeyOf(file.signingPrivateKey);
     count("pairing: public key derived from signingPrivateKey");
     if (!onP256(signingPublicKey)) mismatch(F, "signingPrivateKey", "derived key not on P-256");
   }
-  for (const c of file.valid) {
-    count("pairing: valid");
-    const e = errorOf(() => {
-      const d = decodePairing(hex(c.bytes));
-      for (const x of diff(c.fields, d)) mismatch(F, c.name, x);
-      count(
-        "pairing: unlisted enumerated values passed through",
-        rangeProblems([...PAIRING, ...PASSWORD], d).length,
-      );
+  for (const c of list(F, file, "valid"))
+    guard(F, c, () => {
+      knownKeys(F, c, ["name", "canonical", "fields", "bytes"]);
+      count("pairing: valid");
+      const e = errorOf(() => {
+        const d = decodePairing(hex(c.bytes));
+        for (const x of diff(c.fields, d)) mismatch(F, c.name, x);
+        count(
+          "pairing: unlisted enumerated values passed through",
+          rangeProblems([...PAIRING, ...PASSWORD], d).length,
+        );
+      });
+      if (e) mismatch(F, c.name, `my decoder rejects it: ${e.code}`);
+      compareEncoding(F, c, encodePairing(c.fields), hex(c.bytes));
+      checkSigningKey(F, c.name, c.fields);
     });
-    if (e) mismatch(F, c.name, `my decoder rejects it: ${e.code}`);
-    compareEncoding(F, c, encodePairing(c.fields), hex(c.bytes));
-    checkSigningKey(F, c.name, c.fields);
-  }
-  for (const c of file.hubIdentity ?? []) {
-    count("pairing: hub identity");
-    const mine = hubIdentityOf(c.firmwareSigningKey);
-    if (mine !== c.hubIdentity) mismatch(F, c.name, `hubIdentity ${c.hubIdentity}, mine ${mine}`);
-  }
-  for (const c of file.invalid) {
-    count("pairing: invalid");
-    const e = errorOf(() => decodePairing(hex(c.bytes)));
-    if (!e) mismatch(F, c.name, `my decoder accepts it (vector: ${c.error})`);
-    else if (e.code !== c.error) mismatch(F, c.name, `my reason ${e.code}, vector ${c.error}`);
-    if (c.error === "badLength") {
-      // Is the length byte also running past the end? Then truncated applies too.
-      const b = hex(c.bytes);
-      const nameLen = b[1 + 94];
-      const short = /name/.test(c.name)
-        ? b.length < 1 + 95 + nameLen
-        : b.length < 1 + 95 + nameLen + 1 + b[1 + 95 + nameLen];
-      if (short) count("pairing: badLength cases also cut short (section 3 ordering)");
-    }
-  }
+  for (const c of list(F, file, "hubIdentity"))
+    guard(F, c, () => {
+      knownKeys(F, c, ["name", "firmwareSigningKey", "hubIdentity"]);
+      count("pairing: hub identity");
+      const mine = hubIdentityOf(c.firmwareSigningKey);
+      if (mine !== c.hubIdentity) mismatch(F, c.name, `hubIdentity ${c.hubIdentity}, mine ${mine}`);
+    });
+  for (const c of list(F, file, "invalid"))
+    guard(F, c, () => {
+      knownKeys(F, c, ["name", "bytes", "error"]);
+      count("pairing: invalid");
+      const e = errorOf(() => decodePairing(hex(c.bytes)));
+      if (!e) mismatch(F, c.name, `my decoder accepts it (vector: ${c.error})`);
+      else if (e.code !== c.error) mismatch(F, c.name, `my reason ${e.code}, vector ${c.error}`);
+      if (c.error === "badLength") {
+        // Is the length byte also running past the end? Then truncated applies too.
+        const b = hex(c.bytes);
+        const nameLen = b[1 + 94];
+        const short = /name/.test(c.name)
+          ? b.length < 1 + 95 + nameLen
+          : b.length < 1 + 95 + nameLen + 1 + b[1 + 95 + nameLen];
+        if (short) count("pairing: badLength cases also cut short (section 3 ordering)");
+      }
+    });
 }
 
 {
   const F = "setup-messages.json";
-  const file = load(F);
-  for (const c of file.valid) {
-    count("setup: valid");
-    const bytes = hex(c.bytes);
-    const e = errorOf(() => {
-      const d = decodeSetup(bytes);
-      if (d.type !== c.setupType) mismatch(F, c.name, `setup type ${d.type}`);
-      for (const x of diff(c.fields, d.fields)) mismatch(F, c.name, x);
-      count("setup: unlisted enumerated values passed through", (d.problems ?? []).length);
+  const file = load(F, KNOWN_TOP[F]);
+  for (const c of list(F, file, "valid"))
+    guard(F, c, () => {
+      knownKeys(F, c, ["name", "setupType", "canonical", "fields", "bytes", "frame"]);
+      count("setup: valid");
+      const bytes = hex(c.bytes);
+      const e = errorOf(() => {
+        const d = decodeSetup(bytes);
+        if (d.type !== c.setupType) mismatch(F, c.name, `setup type ${d.type}`);
+        for (const x of diff(c.fields, d.fields)) mismatch(F, c.name, x);
+        count("setup: unlisted enumerated values passed through", (d.problems ?? []).length);
+      });
+      if (e) mismatch(F, c.name, `my decoder rejects it: ${e.code}`);
+      compareEncoding(F, c, encodeSetup(c.setupType, c.fields), bytes);
+      const frame = toHex(cobsEncode(bytes)) + "00";
+      if (frame !== c.frame) mismatch(F, c.name, `frame ${c.frame}, mine ${frame}`);
+      if (c.setupType === 3) checkSigningKey(F, c.name, c.fields.pairing);
+      if (c.setupType === 2 && c.fields.paired && signingPublicKey !== null)
+        if (c.fields.hubIdentity !== hubIdentityOf(signingPublicKey))
+          note(`${F} › ${c.name}: paired identity is not the pairing cases' hub identity`);
+      if (c.setupType === 2 && c.fields.paired === (c.fields.hubIdentity === "0000000000000000"))
+        note(
+          `${F} › ${c.name}: paired=${c.fields.paired} with hubIdentity ${c.fields.hubIdentity} ("hub identity or zeros")`,
+        );
     });
-    if (e) mismatch(F, c.name, `my decoder rejects it: ${e.code}`);
-    compareEncoding(F, c, encodeSetup(c.setupType, c.fields), bytes);
-    const frame = toHex(cobsEncode(bytes)) + "00";
-    if (frame !== c.frame) mismatch(F, c.name, `frame ${c.frame}, mine ${frame}`);
-    if (c.setupType === 3) checkSigningKey(F, c.name, c.fields.pairing);
-    if (c.setupType === 2 && c.fields.paired && signingPublicKey !== null)
-      if (c.fields.hubIdentity !== hubIdentityOf(signingPublicKey))
-        note(`${F} › ${c.name}: paired identity is not the pairing cases' hub identity`);
-    if (c.setupType === 2 && c.fields.paired === (c.fields.hubIdentity === "0000000000000000"))
-      note(
-        `${F} › ${c.name}: paired=${c.fields.paired} with hubIdentity ${c.fields.hubIdentity} ("hub identity or zeros")`,
-      );
-  }
-  for (const c of file.invalid) {
-    count("setup: invalid");
-    const e = errorOf(() => decodeSetup(hex(c.bytes)));
-    if (!e) mismatch(F, c.name, `my decoder accepts it (vector: ${c.error})`);
-    else if (e.code !== c.error) mismatch(F, c.name, `my reason ${e.code}, vector ${c.error}`);
-    else if (c.error === "unknownType" && e.extra.messageType !== c.messageType)
-      mismatch(F, c.name, `type byte ${e.extra.messageType}, vector ${c.messageType}`);
-  }
+  for (const c of list(F, file, "invalid"))
+    guard(F, c, () => {
+      knownKeys(F, c, ["name", "bytes", "error", "messageType"]);
+      count("setup: invalid");
+      const e = errorOf(() => decodeSetup(hex(c.bytes)));
+      if (!e) mismatch(F, c.name, `my decoder accepts it (vector: ${c.error})`);
+      else if (e.code !== c.error) mismatch(F, c.name, `my reason ${e.code}, vector ${c.error}`);
+      else if (c.error === "unknownType" && e.extra.messageType !== c.messageType)
+        mismatch(F, c.name, `type byte ${e.extra.messageType}, vector ${c.messageType}`);
+    });
 }
 
 // ---------------------------------------------------------------------------
@@ -1402,30 +1548,39 @@ const UNITS = {
       return t >= 0 && t <= 65535 ? t : null;
     },
   ],
+  clockCorrectionDecode: ["units", "ppm", (u) => u * 10],
+  clockCorrectionEncode: [
+    "ppm",
+    "units",
+    (ppm) => {
+      const u = roundDiv(ppm, 10);
+      return u >= -32768 && u <= 32767 ? u : null;
+    },
+  ],
   snrDecode: ["quarterDecibels", "decibels", (q) => q / 4],
   airtimeDecode: ["hundredthsOfPercent", "percent", (h) => h / 100, 1e-9],
 };
 {
   const F = "units.json";
-  const file = load(F);
-  for (const key of Object.keys(file))
-    if (Array.isArray(file[key]) && !(key in UNITS)) note(`${F}: array ${key} not checked`);
+  const file = load(F, [...KNOWN_TOP[F], ...Object.keys(UNITS)]);
   for (const [key, [from, to, fn, tolerance]] of Object.entries(UNITS)) {
-    if (!Array.isArray(file[key])) {
-      note(`${F}: no ${key} array`);
-      continue;
-    }
-    for (const c of file[key]) {
-      count(`units: ${key}`);
-      const mine = fn(c[from]);
-      const same =
-        tolerance !== undefined && mine !== null && c[to] !== null
-          ? Math.abs(mine - c[to]) <= tolerance
-          : Object.is(mine, c[to]);
-      if (!same) mismatch(F, `${key} ${from} ${c[from]}`, `vector ${c[to]}, mine ${mine}`);
-    }
+    for (const c of list(F, file, key))
+      guard(F, c, () => {
+        count(`units: ${key}`);
+        const mine = fn(c[from]);
+        const same =
+          tolerance !== undefined && mine !== null && c[to] !== null
+            ? Math.abs(mine - c[to]) <= tolerance
+            : Object.is(mine, c[to]);
+        if (!same) mismatch(F, `${key} ${from} ${c[from]}`, `vector ${c[to]}, mine ${mine}`);
+      });
   }
 }
+
+// Every vector file must be one this script checks.
+for (const name of readdirSync(VECTORS))
+  if (name.endsWith(".json") && !loadedFiles.has(name))
+    mismatch(name, "(file)", "a vector file the script does not know");
 
 // ---------------------------------------------------------------------------
 // Report
