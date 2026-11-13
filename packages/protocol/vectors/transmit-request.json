@@ -21,12 +21,12 @@
         "dataRate": 5,
         "powerDbm": 22,
         "priority": 0,
-        "packet": "184d3c2b1a090000003030e8f23c575152ba80f0a22a7f8d62ca4448454b"
+        "packet": "184d3c2b1a090000003030e8f23c575152ba80f0a22ac31c3dda6bac24d2f9ba"
       },
-      "plaintext": "a10100000000051600184d3c2b1a090000003030e8f23c575152ba80f0a22a7f8d62ca4448454b",
+      "plaintext": "a10100000000051600184d3c2b1a090000003030e8f23c575152ba80f0a22ac31c3dda6bac24d2f9ba",
       "nonce": "c5b4a392011400000000000000",
       "associatedData": "18c5b4a39214000000a0a1a2a3a4a5a6a7b0b1b2b3b4b5b6b7",
-      "packet": "18c5b4a392140000006f3bd2cf3a17c4541f11f441f04433c8457d03bdad551647257f5371fae4ddee1070ac3fb111f5b2c9befea1de6a81"
+      "packet": "18c5b4a392140000006f3bd2cf3a17c4541f11f441f04433c8457d03bdad551647257f5371fae4dd52812fbc1055706c770761f023d85c68faef"
     },
     {
       "name": "transmit request: a siren command (the first siren command case's packet) at a given time",
@@ -67,12 +67,12 @@
         "dataRate": 5,
         "powerDbm": -9,
         "priority": 0,
-        "packet": "184d3c2b1a090000003030e8f23c575152ba80f0a22a7f8d62ca4448454b"
+        "packet": "184d3c2b1a090000003030e8f23c575152ba80f0a22ac31c3dda6bac24d2f9ba"
       },
-      "plaintext": "a101e803000005f700184d3c2b1a090000003030e8f23c575152ba80f0a22a7f8d62ca4448454b",
+      "plaintext": "a101e803000005f700184d3c2b1a090000003030e8f23c575152ba80f0a22ac31c3dda6bac24d2f9ba",
       "nonce": "c5b4a392011600000000000000",
       "associatedData": "18c5b4a39216000000a0a1a2a3a4a5a6a7b0b1b2b3b4b5b6b7",
-      "packet": "18c5b4a3921600000046e73ce6f3aaed54678d376639c9129922da1310b34862a14dea8e5eaa13416619d15566a0fde110e43b13d4058ac7"
+      "packet": "18c5b4a3921600000046e73ce6f3aaed54678d376639c9129922da1310b34862a14dea8e5eaa1341da888e4549449c78a5f14c3b1209840dd77f"
     },
     {
       "name": "transmit request with unlisted when 2, data rate 6 and priority 2, which pass through",

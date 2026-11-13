@@ -60,7 +60,7 @@ const KNOWN_TOP = {
     "invalid",
   ],
   "units.json": ["schemaVersion", "protocolVersion"], // plus the arrays in UNITS
-  "time-on-air.json": ["schemaVersion", "protocolVersion", "cases"],
+  "time-on-air.json": ["schemaVersion", "protocolVersion", "cases", "eventListen"],
 };
 function load(name, knownTop) {
   loadedFiles.add(name);
@@ -372,7 +372,7 @@ const MESSAGES = {
   0x30: {
     file: "log-entries.json",
     fromHub: false,
-    paths: "link",
+    paths: "any", // section 5: any path; over LoRa one entry per packet (section 6)
     fields: [["entries", 0, 0, "entries", { record: LOG_ENTRY }]],
   },
   0x81: {
@@ -390,6 +390,9 @@ const MESSAGES = {
       ["replyDataRate", 7, 1, "u", DATA_RATE],
       ["nextHeartbeatTenths", 8, 2, "u"],
       ["clockCorrectionTenPpm", 10, 2, "i"], // units of 10 ppm
+      // Section 6 / D115: the site's next channel and sending rate, 0xFF for "stays as it is".
+      ["nextSiteChannel", 12, 1, "u", { values: [0, 1, 2, 0xff] }],
+      ["nextSendDataRate", 13, 1, "u", { values: [...DATA_RATE.values, 0xff] }],
     ],
   },
   0x82: { file: "disarmed-notice.json", fromHub: true, paths: "lora", fields: [] },
@@ -413,6 +416,7 @@ const MESSAGES = {
       ["maxSoundSeconds", 3, 2, "u"],
       ["sendDataRate", 5, 1, "u", DATA_RATE],
       ["commandDataRate", 6, 1, "u", DATA_RATE],
+      ["siteChannel", 7, 1, "u", { values: [0, 1, 2] }], // numbered as in gateway settings
     ],
   },
   0xa0: {
@@ -752,10 +756,18 @@ for (const [typeKey, m] of Object.entries(MESSAGES)) {
         mismatch(m.file, c.name, `LoRa-only type opened with maxLength ${c.maxLength}`);
       if (m.paths === "link" && c.maxLength !== 1024)
         mismatch(m.file, c.name, `Wi-Fi/USB-only type opened with maxLength ${c.maxLength}`);
-      if (c.maxLength === 255 && packet.length > 30)
-        note(
-          `${m.file} › ${c.name}: radio packet of ${packet.length} bytes, above section 3's "largest radio packet in this version is 30"`,
-        );
+      // Section 3: the largest radio packets are the reply (32) and a LoRa log entry (up to 50).
+      if (c.maxLength === 255) {
+        const limit = type === 0x30 ? 50 : 32;
+        if (packet.length > limit)
+          mismatch(
+            m.file,
+            c.name,
+            `radio packet of ${packet.length} bytes; section 3 gives at most ${limit}`,
+          );
+        if (type === 0x30 && c.fields.entries?.length !== 1)
+          mismatch(m.file, c.name, "a log entries packet over LoRa carries one entry (section 6)");
+      }
       if (c.canonical && packet[0] & 0x07)
         mismatch(m.file, c.name, "canonical packet has header low bits set");
     });
@@ -1267,11 +1279,12 @@ function timeOnAirMicros(sf, length) {
   // Section 2's table of the protocol itself, rounded to whole milliseconds.
   const TABLE = [
     ["Sensor status", 25, [62, 206, 412, 1483]],
-    ["Hub reply", 30, [72, 226, 453, 1647]],
+    ["Hub reply", 32, [72, 247, 453, 1810]],
     ["Disarmed notice", 18, [51, 185, 330, 1319]],
     ["Siren command", 21, [57, 185, 371, 1483]],
     ["Siren report", 28, [67, 226, 412, 1647]],
     ["Started", 26, [62, 206, 412, 1647]],
+    ["Log entry over LoRa, longest", 50, [98, 329, 616, 2302]],
   ];
   for (const [name, length, ms] of TABLE)
     [7, 9, 10, 12].forEach((sf, i) => {
@@ -1280,6 +1293,26 @@ function timeOnAirMicros(sf, length) {
       if (mine !== ms[i])
         mismatch("docs/protocol.md §2", `${name} SF${sf}`, `table ${ms[i]} ms, formula ${mine} ms`);
     });
+  // Section 8: event listen time by the rate the report was sent at.
+  const EVENT_LISTEN_MS = [3000, 2600, 2200, 1900, 1700, 1500]; // DR0 … DR5
+  const seen = new Set();
+  for (const c of list(F, file, "eventListen"))
+    guard(F, c, () => {
+      count("time on air: event listen times");
+      const name = `eventListen DR${c.dataRate}`;
+      seen.add(c.dataRate);
+      knownKeys(F, { ...c, name }, ["name", "dataRate", "spreadingFactor", "milliseconds"]);
+      if (SF_OF_DR[c.dataRate] !== c.spreadingFactor)
+        mismatch(F, name, `SF${c.spreadingFactor}, section 2 gives SF${SF_OF_DR[c.dataRate]}`);
+      if (EVENT_LISTEN_MS[c.dataRate] !== c.milliseconds)
+        mismatch(
+          F,
+          name,
+          `${c.milliseconds} ms, section 8 gives ${EVENT_LISTEN_MS[c.dataRate]} ms`,
+        );
+    });
+  for (let dr = 0; dr < EVENT_LISTEN_MS.length; dr++)
+    if (!seen.has(dr)) mismatch(F, "eventListen", `no entry for DR${dr} (section 8)`);
   // Worked example in S2: SF7, 16 bytes, 51.5 ms.
   if (timeOnAirMicros(7, 16) !== 51456)
     mismatch("S2", "worked example", `${timeOnAirMicros(7, 16)} µs`);
@@ -1288,7 +1321,7 @@ function timeOnAirMicros(sf, length) {
     HEADER_LENGTH + 1 + MESSAGES[type].fields.reduce((a, f) => a + f[2], 0) + TAG_LENGTH;
   for (const [name, type, bytes] of [
     ["Sensor status", 0x01, 25],
-    ["Hub reply", 0x81, 30],
+    ["Hub reply", 0x81, 32],
     ["Disarmed notice", 0x82, 18],
     ["Siren command", 0x90, 21],
     ["Siren report", 0x10, 28],

@@ -3,6 +3,7 @@ import {
   batteryCode,
   ButtonAction,
   counterBinding,
+  DataRate,
   fromHex,
   InterferenceEvent,
   isEnumValue,
@@ -12,6 +13,7 @@ import {
   messageDirection,
   type MessageOf,
   MessageType,
+  NEXT_SETTING_UNCHANGED,
   NO_BINDING,
   Role,
   sealPacket,
@@ -56,6 +58,12 @@ export interface PacketCase {
 const session = sessionBinding(gatewayRandom, hubRandom);
 const radio = MaxPacketLength.Radio;
 const link = MaxPacketLength.Link;
+
+/** A reply's next channel and rate when no move of the site is announced. */
+const noMove = {
+  nextSiteChannel: NEXT_SETTING_UNCHANGED,
+  nextSendDataRate: NEXT_SETTING_UNCHANGED,
+};
 
 const noSensorFlags = {
   doorOpen: false,
@@ -140,6 +148,7 @@ const replyToDoor: Message = {
   replyDataRate: 5,
   nextHeartbeatTenths: 0,
   clockCorrectionTenPpm: 0,
+  ...noMove,
 };
 
 const replyCase: PacketCase = {
@@ -254,6 +263,7 @@ const replyToLinkCheck: Message = {
   replyDataRate: 5,
   nextHeartbeatTenths: 1800,
   clockCorrectionTenPpm: 12,
+  ...noMove,
 };
 
 export const packetCases: readonly PacketCase[] = [
@@ -825,6 +835,7 @@ export const packetCases: readonly PacketCase[] = [
       replyDataRate: 3,
       nextHeartbeatTenths: 1795,
       clockCorrectionTenPpm: -32768,
+      ...noMove,
     },
   },
   {
@@ -843,6 +854,63 @@ export const packetCases: readonly PacketCase[] = [
     maxLength: radio,
     message: replyToLinkCheck,
     variation: { plaintext: withBitsSet(replyToLinkCheck, 2, 0xf8) },
+  },
+
+  {
+    name: "reply announcing a move to channel 2 only",
+    device: sensor,
+    counter: 14,
+    binding: counterBinding(0x01000003),
+    maxLength: radio,
+    message: {
+      ...replyToLinkCheck,
+      nextSiteChannel: SiteChannel.Mhz868_5,
+      nextSendDataRate: NEXT_SETTING_UNCHANGED,
+    },
+  },
+  {
+    name: "reply announcing a move to rate DR2 only",
+    device: sensor,
+    counter: 15,
+    binding: counterBinding(0x01000004),
+    maxLength: radio,
+    message: {
+      ...replyToLinkCheck,
+      nextSiteChannel: NEXT_SETTING_UNCHANGED,
+      nextSendDataRate: DataRate.DR2,
+    },
+  },
+  {
+    name: "reply announcing a move to channel 1 and rate DR0",
+    device: sensor,
+    counter: 16,
+    binding: counterBinding(0x01000005),
+    maxLength: radio,
+    message: {
+      ...replyToLinkCheck,
+      nextSiteChannel: SiteChannel.Mhz868_3,
+      nextSendDataRate: DataRate.DR0,
+    },
+  },
+  {
+    name: "reply announcing no move",
+    device: sensor,
+    counter: 17,
+    binding: counterBinding(0x01000006),
+    maxLength: radio,
+    message: {
+      ...replyToLinkCheck,
+      nextSiteChannel: NEXT_SETTING_UNCHANGED,
+      nextSendDataRate: NEXT_SETTING_UNCHANGED,
+    },
+  },
+  {
+    name: "reply announcing unlisted channel 3 and rate 6, which pass through",
+    device: sensor,
+    counter: 18,
+    binding: counterBinding(0x01000007),
+    maxLength: radio,
+    message: { ...replyToLinkCheck, nextSiteChannel: 3, nextSendDataRate: 6 },
   },
 
   // Disarmed notice (0x82)
@@ -904,6 +972,7 @@ export const packetCases: readonly PacketCase[] = [
       maxSoundSeconds: 900,
       sendDataRate: 2,
       commandDataRate: 5,
+      siteChannel: SiteChannel.Mhz868_1,
     },
   },
   {
@@ -920,6 +989,7 @@ export const packetCases: readonly PacketCase[] = [
       maxSoundSeconds: 180,
       sendDataRate: 0,
       commandDataRate: 3,
+      siteChannel: SiteChannel.Mhz868_3,
     },
   },
   {
@@ -936,6 +1006,24 @@ export const packetCases: readonly PacketCase[] = [
       maxSoundSeconds: 65535,
       sendDataRate: 6,
       commandDataRate: 7,
+      siteChannel: SiteChannel.Mhz868_5,
+    },
+  },
+  {
+    name: "siren settings with unlisted site channel 3, which passes through",
+    device: siren,
+    counter: 7103,
+    binding: NO_BINDING,
+    maxLength: radio,
+    message: {
+      type: MessageType.SirenSettings,
+      settingsVersion: 4,
+      wifiReportIntervalSeconds: 30,
+      loraCheckIntervalUnits: 20,
+      maxSoundSeconds: 900,
+      sendDataRate: 2,
+      commandDataRate: 5,
+      siteChannel: 3,
     },
   },
 

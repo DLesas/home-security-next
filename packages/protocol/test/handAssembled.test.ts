@@ -196,6 +196,8 @@ const cases: readonly Case[] = [
       replyDataRate: 5,
       nextHeartbeatTenths: 1800,
       clockCorrectionTenPpm: -100,
+      nextSiteChannel: 1,
+      nextSendDataRate: 3,
     },
     key: sensorKey,
     direction: Direction.FromHub,
@@ -206,7 +208,20 @@ const cases: readonly Case[] = [
       clear: "18" + "4d3c2b1a" + "cdab0000",
       nonce: "4d3c2b1a" + "01" + "cdab0000" + "00000000",
       aad: "18" + "4d3c2b1a" + "cdab0000" + "02010000",
-      plaintext: "81" + "04" + "03" + "1e" + "19" + "0c" + "05" + "02" + "05" + "0807" + "9cff",
+      plaintext:
+        "81" +
+        "04" +
+        "03" +
+        "1e" +
+        "19" +
+        "0c" +
+        "05" +
+        "02" +
+        "05" +
+        "0807" +
+        "9cff" +
+        "01" +
+        "03",
     },
   },
   {
@@ -280,6 +295,7 @@ const cases: readonly Case[] = [
       maxSoundSeconds: 900,
       sendDataRate: 2,
       commandDataRate: 5,
+      siteChannel: 2,
     },
     key: sirenKey,
     direction: Direction.FromHub,
@@ -290,7 +306,7 @@ const cases: readonly Case[] = [
       clear: "18" + "81706f5e" + "bc1b0000",
       nonce: "81706f5e" + "01" + "bc1b0000" + "00000000",
       aad: "18" + "81706f5e" + "bc1b0000",
-      plaintext: "91" + "02" + "1e" + "14" + "8403" + "02" + "05",
+      plaintext: "91" + "02" + "1e" + "14" + "8403" + "02" + "05" + "02",
     },
   },
   {

@@ -47,9 +47,16 @@
     {
       "dataRate": 0,
       "spreadingFactor": 12,
-      "length": 30,
-      "microseconds": 1646592,
-      "milliseconds": 1646.592
+      "length": 32,
+      "microseconds": 1810432,
+      "milliseconds": 1810.432
+    },
+    {
+      "dataRate": 0,
+      "spreadingFactor": 12,
+      "length": 50,
+      "microseconds": 2301952,
+      "milliseconds": 2301.952
     },
     {
       "dataRate": 0,
@@ -103,9 +110,16 @@
     {
       "dataRate": 1,
       "spreadingFactor": 11,
-      "length": 30,
-      "microseconds": 905216,
-      "milliseconds": 905.216
+      "length": 32,
+      "microseconds": 987136,
+      "milliseconds": 987.136
+    },
+    {
+      "dataRate": 1,
+      "spreadingFactor": 11,
+      "length": 50,
+      "microseconds": 1314816,
+      "milliseconds": 1314.816
     },
     {
       "dataRate": 1,
@@ -159,9 +173,16 @@
     {
       "dataRate": 2,
       "spreadingFactor": 10,
-      "length": 30,
+      "length": 32,
       "microseconds": 452608,
       "milliseconds": 452.608
+    },
+    {
+      "dataRate": 2,
+      "spreadingFactor": 10,
+      "length": 50,
+      "microseconds": 616448,
+      "milliseconds": 616.448
     },
     {
       "dataRate": 2,
@@ -215,9 +236,16 @@
     {
       "dataRate": 3,
       "spreadingFactor": 9,
-      "length": 30,
-      "microseconds": 226304,
-      "milliseconds": 226.304
+      "length": 32,
+      "microseconds": 246784,
+      "milliseconds": 246.784
+    },
+    {
+      "dataRate": 3,
+      "spreadingFactor": 9,
+      "length": 50,
+      "microseconds": 328704,
+      "milliseconds": 328.704
     },
     {
       "dataRate": 3,
@@ -271,9 +299,16 @@
     {
       "dataRate": 4,
       "spreadingFactor": 8,
-      "length": 30,
-      "microseconds": 123392,
-      "milliseconds": 123.392
+      "length": 32,
+      "microseconds": 133632,
+      "milliseconds": 133.632
+    },
+    {
+      "dataRate": 4,
+      "spreadingFactor": 8,
+      "length": 50,
+      "microseconds": 174592,
+      "milliseconds": 174.592
     },
     {
       "dataRate": 4,
@@ -327,9 +362,16 @@
     {
       "dataRate": 5,
       "spreadingFactor": 7,
-      "length": 30,
+      "length": 32,
       "microseconds": 71936,
       "milliseconds": 71.936
+    },
+    {
+      "dataRate": 5,
+      "spreadingFactor": 7,
+      "length": 50,
+      "microseconds": 97536,
+      "milliseconds": 97.536
     },
     {
       "dataRate": 5,
@@ -337,6 +379,38 @@
       "length": 255,
       "microseconds": 399616,
       "milliseconds": 399.616
+    }
+  ],
+  "eventListen": [
+    {
+      "dataRate": 0,
+      "spreadingFactor": 12,
+      "milliseconds": 3000
+    },
+    {
+      "dataRate": 1,
+      "spreadingFactor": 11,
+      "milliseconds": 2600
+    },
+    {
+      "dataRate": 2,
+      "spreadingFactor": 10,
+      "milliseconds": 2200
+    },
+    {
+      "dataRate": 3,
+      "spreadingFactor": 9,
+      "milliseconds": 1900
+    },
+    {
+      "dataRate": 4,
+      "spreadingFactor": 8,
+      "milliseconds": 1700
+    },
+    {
+      "dataRate": 5,
+      "spreadingFactor": 7,
+      "milliseconds": 1500
     }
   ]
 }

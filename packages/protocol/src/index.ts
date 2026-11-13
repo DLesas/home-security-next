@@ -54,7 +54,12 @@ export {
 export { messageDirection, MessageType } from "./messages/messageType.ts";
 export { decodeMessage, encodeMessage, type Message, type MessageOf } from "./messages/message.ts";
 export { Role } from "./messages/common.ts";
-export { ButtonAction, REPLY_FLAGS, SENSOR_STATUS_FLAGS } from "./messages/sensor.ts";
+export {
+  ButtonAction,
+  NEXT_SETTING_UNCHANGED,
+  REPLY_FLAGS,
+  SENSOR_STATUS_FLAGS,
+} from "./messages/sensor.ts";
 export {
   SIREN_REPORT_FLAGS,
   SirenAction,
@@ -135,6 +140,8 @@ export {
   DataRate,
   dataRateMask,
   dataRatesInMask,
+  EVENT_LISTEN_MS,
+  eventListenMs,
   SiteChannel,
   spreadingFactor,
   timeOnAirMs,

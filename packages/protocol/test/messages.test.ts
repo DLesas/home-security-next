@@ -31,10 +31,10 @@ const fixedBodyLength: Readonly<Record<number, number>> = {
   [MessageType.GatewayStatus]: 16,
   [MessageType.TransmitResult]: 9,
   [MessageType.Interference]: 4,
-  [MessageType.Reply]: 12,
+  [MessageType.Reply]: 14,
   [MessageType.DisarmedNotice]: 0,
   [MessageType.SirenCommand]: 3,
-  [MessageType.SirenSettings]: 7,
+  [MessageType.SirenSettings]: 8,
   [MessageType.Welcome]: 8,
   [MessageType.GatewaySettings]: 8,
 };

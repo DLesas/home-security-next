@@ -29,12 +29,14 @@
         "sendDataRate": 2,
         "replyDataRate": 5,
         "nextHeartbeatTenths": 0,
-        "clockCorrectionTenPpm": 0
+        "clockCorrectionTenPpm": 0,
+        "nextSiteChannel": 255,
+        "nextSendDataRate": 255
       },
-      "plaintext": "8103031e1c0c05020500000000",
+      "plaintext": "8103031e1c0c05020500000000ffff",
       "nonce": "4d3c2b1a010900000000000000",
       "associatedData": "184d3c2b1a0900000029000000",
-      "packet": "184d3c2b1a090000003030e8f23c575152ba80f0a22a7f8d62ca4448454b"
+      "packet": "184d3c2b1a090000003030e8f23c575152ba80f0a22ac31c3dda6bac24d2f9ba"
     },
     {
       "name": "reply to a link check, with the next heartbeat moment and a clock correction",
@@ -60,12 +62,14 @@
         "sendDataRate": 0,
         "replyDataRate": 3,
         "nextHeartbeatTenths": 1795,
-        "clockCorrectionTenPpm": -32768
+        "clockCorrectionTenPpm": -32768,
+        "nextSiteChannel": 255,
+        "nextSendDataRate": 255
       },
-      "plaintext": "8104042d001405000303070080",
+      "plaintext": "8104042d001405000303070080ffff",
       "nonce": "4d3c2b1a010a00000000000000",
       "associatedData": "184d3c2b1a0a00000000000001",
-      "packet": "184d3c2b1a0a00000088dff456a39cd423647ca131a431eae3f57d7918dc"
+      "packet": "184d3c2b1a0a00000088dff456a39cd423647ca131a4668cd8f0df02482efe6b"
     },
     {
       "name": "reply with unlisted data rates 6 and 7, which pass through",
@@ -91,12 +95,14 @@
         "sendDataRate": 6,
         "replyDataRate": 7,
         "nextHeartbeatTenths": 1800,
-        "clockCorrectionTenPpm": 12
+        "clockCorrectionTenPpm": 12,
+        "nextSiteChannel": 255,
+        "nextSendDataRate": 255
       },
-      "plaintext": "8104001e000c05060708070c00",
+      "plaintext": "8104001e000c05060708070c00ffff",
       "nonce": "4d3c2b1a010c00000000000000",
       "associatedData": "184d3c2b1a0c00000001000001",
-      "packet": "184d3c2b1a0c0000009fb480fdabc18c47114541449ee00ea2b0525ff634"
+      "packet": "184d3c2b1a0c0000009fb480fdabc18c47114541449e79734d72435dd2e9f96d"
     },
     {
       "name": "reply with the unused flag bits 3 to 7 set, which receivers ignore",
@@ -122,12 +128,179 @@
         "sendDataRate": 2,
         "replyDataRate": 5,
         "nextHeartbeatTenths": 1800,
-        "clockCorrectionTenPpm": 12
+        "clockCorrectionTenPpm": 12,
+        "nextSiteChannel": 255,
+        "nextSendDataRate": 255
       },
-      "plaintext": "8104f81e000c05020508070c00",
+      "plaintext": "8104f81e000c05020508070c00ffff",
       "nonce": "4d3c2b1a010d00000000000000",
       "associatedData": "184d3c2b1a0d00000002000001",
-      "packet": "184d3c2b1a0d000000e1e9b06ff8ea6262d829b0b467016905d40937753e"
+      "packet": "184d3c2b1a0d000000e1e9b06ff8ea6262d829b0b4673a1b106377bf86baf085"
+    },
+    {
+      "name": "reply announcing a move to channel 2 only",
+      "canonical": true,
+      "key": "000102030405060708090a0b0c0d0e0f",
+      "direction": 1,
+      "address": 439041101,
+      "counter": 14,
+      "binding": "03000001",
+      "maxLength": 255,
+      "messageType": 129,
+      "fields": {
+        "settingsVersion": 4,
+        "flags": {
+          "armed": false,
+          "countdownStarted": false,
+          "updateAvailable": false
+        },
+        "countdownSeconds": 30,
+        "countdownRemainingSeconds": 0,
+        "heartbeatIntervalUnits": 12,
+        "linkCheckEvery": 5,
+        "sendDataRate": 2,
+        "replyDataRate": 5,
+        "nextHeartbeatTenths": 1800,
+        "clockCorrectionTenPpm": 12,
+        "nextSiteChannel": 2,
+        "nextSendDataRate": 255
+      },
+      "plaintext": "8104001e000c05020508070c0002ff",
+      "nonce": "4d3c2b1a010e00000000000000",
+      "associatedData": "184d3c2b1a0e00000003000001",
+      "packet": "184d3c2b1a0e00000013ccc968fd755a4288bb972ddcf89ac10515b1a85bb78c"
+    },
+    {
+      "name": "reply announcing a move to rate DR2 only",
+      "canonical": true,
+      "key": "000102030405060708090a0b0c0d0e0f",
+      "direction": 1,
+      "address": 439041101,
+      "counter": 15,
+      "binding": "04000001",
+      "maxLength": 255,
+      "messageType": 129,
+      "fields": {
+        "settingsVersion": 4,
+        "flags": {
+          "armed": false,
+          "countdownStarted": false,
+          "updateAvailable": false
+        },
+        "countdownSeconds": 30,
+        "countdownRemainingSeconds": 0,
+        "heartbeatIntervalUnits": 12,
+        "linkCheckEvery": 5,
+        "sendDataRate": 2,
+        "replyDataRate": 5,
+        "nextHeartbeatTenths": 1800,
+        "clockCorrectionTenPpm": 12,
+        "nextSiteChannel": 255,
+        "nextSendDataRate": 2
+      },
+      "plaintext": "8104001e000c05020508070c00ff02",
+      "nonce": "4d3c2b1a010f00000000000000",
+      "associatedData": "184d3c2b1a0f00000004000001",
+      "packet": "184d3c2b1a0f00000091bd0c8d11efd0df44a1e9cdba062c18951f3f773377a5"
+    },
+    {
+      "name": "reply announcing a move to channel 1 and rate DR0",
+      "canonical": true,
+      "key": "000102030405060708090a0b0c0d0e0f",
+      "direction": 1,
+      "address": 439041101,
+      "counter": 16,
+      "binding": "05000001",
+      "maxLength": 255,
+      "messageType": 129,
+      "fields": {
+        "settingsVersion": 4,
+        "flags": {
+          "armed": false,
+          "countdownStarted": false,
+          "updateAvailable": false
+        },
+        "countdownSeconds": 30,
+        "countdownRemainingSeconds": 0,
+        "heartbeatIntervalUnits": 12,
+        "linkCheckEvery": 5,
+        "sendDataRate": 2,
+        "replyDataRate": 5,
+        "nextHeartbeatTenths": 1800,
+        "clockCorrectionTenPpm": 12,
+        "nextSiteChannel": 1,
+        "nextSendDataRate": 0
+      },
+      "plaintext": "8104001e000c05020508070c000100",
+      "nonce": "4d3c2b1a011000000000000000",
+      "associatedData": "184d3c2b1a1000000005000001",
+      "packet": "184d3c2b1a10000000570a034cf23f1965a8c18ccfc6024f874ab562c2ac6cd2"
+    },
+    {
+      "name": "reply announcing no move",
+      "canonical": true,
+      "key": "000102030405060708090a0b0c0d0e0f",
+      "direction": 1,
+      "address": 439041101,
+      "counter": 17,
+      "binding": "06000001",
+      "maxLength": 255,
+      "messageType": 129,
+      "fields": {
+        "settingsVersion": 4,
+        "flags": {
+          "armed": false,
+          "countdownStarted": false,
+          "updateAvailable": false
+        },
+        "countdownSeconds": 30,
+        "countdownRemainingSeconds": 0,
+        "heartbeatIntervalUnits": 12,
+        "linkCheckEvery": 5,
+        "sendDataRate": 2,
+        "replyDataRate": 5,
+        "nextHeartbeatTenths": 1800,
+        "clockCorrectionTenPpm": 12,
+        "nextSiteChannel": 255,
+        "nextSendDataRate": 255
+      },
+      "plaintext": "8104001e000c05020508070c00ffff",
+      "nonce": "4d3c2b1a011100000000000000",
+      "associatedData": "184d3c2b1a1100000006000001",
+      "packet": "184d3c2b1a110000007bafc75e123767791043af0718756dfad5e54753542a3b"
+    },
+    {
+      "name": "reply announcing unlisted channel 3 and rate 6, which pass through",
+      "canonical": true,
+      "key": "000102030405060708090a0b0c0d0e0f",
+      "direction": 1,
+      "address": 439041101,
+      "counter": 18,
+      "binding": "07000001",
+      "maxLength": 255,
+      "messageType": 129,
+      "fields": {
+        "settingsVersion": 4,
+        "flags": {
+          "armed": false,
+          "countdownStarted": false,
+          "updateAvailable": false
+        },
+        "countdownSeconds": 30,
+        "countdownRemainingSeconds": 0,
+        "heartbeatIntervalUnits": 12,
+        "linkCheckEvery": 5,
+        "sendDataRate": 2,
+        "replyDataRate": 5,
+        "nextHeartbeatTenths": 1800,
+        "clockCorrectionTenPpm": 12,
+        "nextSiteChannel": 3,
+        "nextSendDataRate": 6
+      },
+      "plaintext": "8104001e000c05020508070c000306",
+      "nonce": "4d3c2b1a011200000000000000",
+      "associatedData": "184d3c2b1a1200000007000001",
+      "packet": "184d3c2b1a120000009da1bcdbd4a762c15b7c48db53e15b7c313a905f8b9990"
     }
   ]
 }

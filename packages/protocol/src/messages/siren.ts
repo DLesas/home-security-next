@@ -48,7 +48,7 @@ export const sirenReportLayout = layout([
   ["reason", u8],
 ]);
 
-/** Body of siren settings: 7 bytes. The siren answers with a report. */
+/** Body of siren settings: 8 bytes. The siren answers with a report. */
 export const sirenSettingsLayout = layout([
   ["settingsVersion", u8],
   ["wifiReportIntervalSeconds", u8],
@@ -60,4 +60,6 @@ export const sirenSettingsLayout = layout([
   ["sendDataRate", u8],
   // A DataRate value; check with isEnumValue.
   ["commandDataRate", u8],
+  // The site channel to send on: a SiteChannel value; check with isEnumValue.
+  ["siteChannel", u8],
 ]);

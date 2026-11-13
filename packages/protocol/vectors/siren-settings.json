@@ -21,12 +21,13 @@
         "loraCheckIntervalUnits": 20,
         "maxSoundSeconds": 900,
         "sendDataRate": 2,
-        "commandDataRate": 5
+        "commandDataRate": 5,
+        "siteChannel": 0
       },
-      "plaintext": "91021e1484030205",
+      "plaintext": "91021e148403020500",
       "nonce": "81706f5e01bc1b000000000000",
       "associatedData": "1881706f5ebc1b0000",
-      "packet": "1881706f5ebc1b00007c15b232fa69bed421b720713e11745e"
+      "packet": "1881706f5ebc1b00007c15b232fa69bed4e0f594a93e167298a0"
     },
     {
       "name": "siren settings for a slow site",
@@ -44,12 +45,13 @@
         "loraCheckIntervalUnits": 40,
         "maxSoundSeconds": 180,
         "sendDataRate": 0,
-        "commandDataRate": 3
+        "commandDataRate": 3,
+        "siteChannel": 1
       },
-      "plaintext": "91033c28b4000003",
+      "plaintext": "91033c28b400000301",
       "nonce": "81706f5e01bd1b000000000000",
       "associatedData": "1881706f5ebd1b0000",
-      "packet": "1881706f5ebd1b00009329d892a8bbd3d83584a51096e8d9d8"
+      "packet": "1881706f5ebd1b00009329d892a8bbd3d84a6d4ec80cdb480df5"
     },
     {
       "name": "siren settings at every limit, with unlisted data rates 6 and 7",
@@ -67,12 +69,37 @@
         "loraCheckIntervalUnits": 255,
         "maxSoundSeconds": 65535,
         "sendDataRate": 6,
-        "commandDataRate": 7
+        "commandDataRate": 7,
+        "siteChannel": 2
       },
-      "plaintext": "91ffffffffff0607",
+      "plaintext": "91ffffffffff060702",
       "nonce": "81706f5e01be1b000000000000",
       "associatedData": "1881706f5ebe1b0000",
-      "packet": "1881706f5ebe1b0000148d43496e46a604c8c7048a3ca4e297"
+      "packet": "1881706f5ebe1b0000148d43496e46a60415319067435ada40be"
+    },
+    {
+      "name": "siren settings with unlisted site channel 3, which passes through",
+      "canonical": true,
+      "key": "101112131415161718191a1b1c1d1e1f",
+      "direction": 1,
+      "address": 1584361601,
+      "counter": 7103,
+      "binding": "",
+      "maxLength": 255,
+      "messageType": 145,
+      "fields": {
+        "settingsVersion": 4,
+        "wifiReportIntervalSeconds": 30,
+        "loraCheckIntervalUnits": 20,
+        "maxSoundSeconds": 900,
+        "sendDataRate": 2,
+        "commandDataRate": 5,
+        "siteChannel": 3
+      },
+      "plaintext": "91041e148403020503",
+      "nonce": "81706f5e01bf1b000000000000",
+      "associatedData": "1881706f5ebf1b0000",
+      "packet": "1881706f5ebf1b000088d4ef32d02807014ecc247fc111e7526d"
     }
   ]
 }

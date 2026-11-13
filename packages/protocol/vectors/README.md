@@ -78,10 +78,10 @@ Listed in wire order. `u8`, `u16`, `u32` are unsigned, `i8`, `i16` signed, all l
 | Transmit result (0x23) | `requestCounter` u32, `result` u8, `sentAtMicros` u32 |
 | Interference (0x24) | `event` u8 (1 started, 0 ended), `noiseDbm` i8, `durationSeconds` u16 |
 | Log entries (0x30) | `entries`: an array of one or more `{ ageTenths` u32 (how long before the packet was sealed the entry was made, × 0.1 s), `level` u8, `code` u16, `text` (length u8 then UTF-8, at most 64 bytes) `}`, back to back to the end of the body |
-| Reply (0x81) | `settingsVersion` u8, `flags` {`armed`, `countdownStarted`, `updateAvailable`}, `countdownSeconds` u8, `countdownRemainingSeconds` u8, `heartbeatIntervalUnits` u8 (× 15 s), `linkCheckEvery` u8, `sendDataRate` u8, `replyDataRate` u8, `nextHeartbeatTenths` u16 (× 0.1 s), `clockCorrectionTenPpm` i16 (× 10 parts per million) |
+| Reply (0x81) | `settingsVersion` u8, `flags` {`armed`, `countdownStarted`, `updateAvailable`}, `countdownSeconds` u8, `countdownRemainingSeconds` u8, `heartbeatIntervalUnits` u8 (× 15 s), `linkCheckEvery` u8, `sendDataRate` u8, `replyDataRate` u8, `nextHeartbeatTenths` u16 (× 0.1 s), `clockCorrectionTenPpm` i16 (× 10 parts per million), `nextSiteChannel` u8, `nextSendDataRate` u8. The last two announce a move of the site (section 7, D115); 0xFF (255) in either means that one stays as it is, and both 255 means no move is announced. The body is 14 bytes; a 12-byte body is `truncated` |
 | Disarmed notice (0x82) | none; `fields` is `{}` |
 | Siren command (0x90) | `action` u8, `soundSeconds` u16 |
-| Siren settings (0x91) | `settingsVersion` u8, `wifiReportIntervalSeconds` u8, `loraCheckIntervalUnits` u8 (× 15 s), `maxSoundSeconds` u16, `sendDataRate` u8, `commandDataRate` u8 |
+| Siren settings (0x91) | `settingsVersion` u8, `wifiReportIntervalSeconds` u8, `loraCheckIntervalUnits` u8 (× 15 s), `maxSoundSeconds` u16, `sendDataRate` u8, `commandDataRate` u8, `siteChannel` u8. The body is 8 bytes; a 7-byte body is `truncated` |
 | Welcome (0xA0) | `hubRandom` bytes(8) |
 | Transmit request (0xA1) | `when` u8, `gatewayTimeMicros` u32, `dataRate` u8, `powerDbm` i8, `priority` u8, `packet` rest (18 to 255 bytes) |
 | Gateway settings (0xA2) | `settingsVersion` u8, `siteChannel` u8, `listenDataRateMask` u8, `statusIntervalSeconds` u8, `interferenceThresholdDb` u8, `interferenceSeconds` u8, `defaultTxPowerDbm` i8, `sirenTxPowerDbm` i8 |
@@ -90,7 +90,7 @@ A packet carried inside another (`packet` in forwarded packet and transmit reque
 
 ## rejected-packets.json
 
-`packets`: packets that must fail to open. Each has `name`, `key`, `expectedDirection`, `binding`, `maxLength`, `packet` (as for valid cases) and `error`, plus `messageType` when `error` is `unknownType`. Open `packet` with the given values; it must fail with `error`. Cases include altered tags, bytes and header fields, a wrong key, a wrong or missing binding, a binding from an old gateway connection, both wrong directions, truncation, the radio size limit, bad version, address and counter values, carried packets of 17 and 256 bytes in forwarded packets and transmit requests, authenticated packets whose type does not match their direction, and authenticated packets whose plaintext is not a valid message.
+`packets`: packets that must fail to open. Each has `name`, `key`, `expectedDirection`, `binding`, `maxLength`, `packet` (as for valid cases) and `error`, plus `messageType` when `error` is `unknownType`. Open `packet` with the given values; it must fail with `error`. Cases include altered tags, bytes and header fields, a wrong key, a wrong or missing binding, a binding from an old gateway connection, both wrong directions, truncation, the radio size limit, bad version, address and counter values, carried packets of 17 and 256 bytes in forwarded packets and transmit requests, authenticated packets whose type does not match their direction, authenticated packets whose plaintext is not a valid message, and a reply and siren settings with their shorter bodies from before D115.
 
 `replayed`: packets that open, then must be refused by the receiver's counter rule. Fields as above (all open with an empty binding), plus:
 
@@ -155,4 +155,6 @@ Unit conversions, so every implementation rounds the same way. Encoding rounds t
 
 ## time-on-air.json
 
-LoRa time on air (section 2) for every data rate and a range of packet lengths. Each case: `dataRate`, `spreadingFactor`, `length` (bytes), `microseconds` (exact integer) and `milliseconds` (the same value as a decimal). Settings: 125 kHz, coding rate 4/5, 8-symbol preamble, explicit header, CRC on, low data rate optimisation at SF11 and SF12. With these settings the time is always a whole number of microseconds, so compare `microseconds` exactly.
+`cases`: LoRa time on air (section 2) for every data rate and a range of packet lengths, including every length in section 2's table (the 32-byte reply and the 50-byte longest log entry among them). Each case: `dataRate`, `spreadingFactor`, `length` (bytes), `microseconds` (exact integer) and `milliseconds` (the same value as a decimal). Settings: 125 kHz, coding rate 4/5, 8-symbol preamble, explicit header, CRC on, low data rate optimisation at SF11 and SF12. With these settings the time is always a whole number of microseconds, so compare `microseconds` exactly.
+
+`eventListen`: the event listen time (section 8 †), how long a sensor listens for the hub's answer after a door, cover, button or started report, by the data rate the report was sent at. Each entry: `dataRate`, `spreadingFactor` and `milliseconds`. The hub times its event replies from the same table, so both sides test against this one list.

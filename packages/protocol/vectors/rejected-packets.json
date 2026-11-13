@@ -71,7 +71,7 @@
       "expectedDirection": 1,
       "binding": "2a000000",
       "maxLength": 255,
-      "packet": "184d3c2b1a090000003030e8f23c575152ba80f0a22a7f8d62ca4448454b",
+      "packet": "184d3c2b1a090000003030e8f23c575152ba80f0a22ac31c3dda6bac24d2f9ba",
       "error": "badTag"
     },
     {
@@ -80,7 +80,7 @@
       "expectedDirection": 1,
       "binding": "",
       "maxLength": 255,
-      "packet": "184d3c2b1a090000003030e8f23c575152ba80f0a22a7f8d62ca4448454b",
+      "packet": "184d3c2b1a090000003030e8f23c575152ba80f0a22ac31c3dda6bac24d2f9ba",
       "error": "badTag"
     },
     {
@@ -98,7 +98,7 @@
       "expectedDirection": 0,
       "binding": "29000000",
       "maxLength": 255,
-      "packet": "184d3c2b1a090000003030e8f23c575152ba80f0a22a7f8d62ca4448454b",
+      "packet": "184d3c2b1a090000003030e8f23c575152ba80f0a22ac31c3dda6bac24d2f9ba",
       "error": "wrongDirection"
     },
     {
@@ -202,6 +202,24 @@
       "messageType": 127
     },
     {
+      "name": "authenticated reply with the 12-byte body of before D115, too short",
+      "key": "000102030405060708090a0b0c0d0e0f",
+      "expectedDirection": 1,
+      "binding": "2c000000",
+      "maxLength": 255,
+      "packet": "184d3c2b1a14000000d2f2fdebb41d0561df5ed54f024126ff56cb92a110",
+      "error": "truncated"
+    },
+    {
+      "name": "authenticated siren settings with the 7-byte body of before D115, too short",
+      "key": "101112131415161718191a1b1c1d1e1f",
+      "expectedDirection": 1,
+      "binding": "",
+      "maxLength": 255,
+      "packet": "1881706f5e201c0000428cf4985287a55119024a2ee33ae775",
+      "error": "truncated"
+    },
+    {
       "name": "authenticated heartbeat, body one byte short",
       "key": "000102030405060708090a0b0c0d0e0f",
       "expectedDirection": 0,
@@ -279,7 +297,7 @@
       "expectedDirection": 0,
       "binding": "",
       "maxLength": 255,
-      "packet": "104d3c2b1a4d000000a0d8ab9834ec082789673c95adb2a28810dda88f29",
+      "packet": "104d3c2b1a4d000000a0d8ab9834ec082789673c95add0b228f670ec51acf6b9",
       "error": "wrongDirection"
     },
     {

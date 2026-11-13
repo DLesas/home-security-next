@@ -1,5 +1,13 @@
 import { describe, expect, test } from "bun:test";
-import { dataRateMask, dataRatesInMask, spreadingFactor, timeOnAirMs } from "../src/index.ts";
+import {
+  DATA_RATE_COUNT,
+  dataRateMask,
+  dataRatesInMask,
+  EVENT_LISTEN_MS,
+  eventListenMs,
+  spreadingFactor,
+  timeOnAirMs,
+} from "../src/index.ts";
 
 describe("data rates", () => {
   test("DR0 to DR5 map to SF12 down to SF7", () => {
@@ -22,11 +30,12 @@ describe("time on air", () => {
   // docs/protocol.md section 2, milliseconds rounded to whole numbers.
   const table: readonly (readonly [string, number, readonly [number, number, number, number]])[] = [
     ["sensor status", 25, [62, 206, 412, 1483]],
-    ["hub reply", 30, [72, 226, 453, 1647]],
+    ["hub reply", 32, [72, 247, 453, 1810]],
     ["disarmed notice", 18, [51, 185, 330, 1319]],
     ["siren command", 21, [57, 185, 371, 1483]],
     ["siren report", 28, [67, 226, 412, 1647]],
     ["started", 26, [62, 206, 412, 1647]],
+    ["log entry over LoRa, longest", 50, [98, 329, 616, 2302]],
   ];
   test.each(table)("%s, %i bytes, matches the spec table", (_, length, expected) => {
     const rounded = [7, 9, 10, 12].map((sf) => Math.round(timeOnAirMs(sf, length)));
@@ -52,5 +61,26 @@ describe("time on air", () => {
     expect(() => timeOnAirMs(7, 256)).toThrow(RangeError);
     expect(() => timeOnAirMs(7, -1)).toThrow(RangeError);
     expect(timeOnAirMs(7, 0)).toBeGreaterThan(0);
+  });
+});
+
+describe("event listen time", () => {
+  test("is section 8's table, 3.0 s at DR0 down to 1.5 s at DR5", () => {
+    expect([0, 1, 2, 3, 4, 5].map(eventListenMs)).toEqual([3000, 2600, 2200, 1900, 1700, 1500]);
+    expect(EVENT_LISTEN_MS).toHaveLength(DATA_RATE_COUNT);
+  });
+
+  test("has no value for an index outside the table", () => {
+    expect(eventListenMs(6)).toBeUndefined();
+    expect(eventListenMs(-1)).toBeUndefined();
+    expect(eventListenMs(2.5)).toBeUndefined();
+  });
+
+  test("leaves room for a reply at every rate (section 7, worked example)", () => {
+    // The hub's latest start is the listen time less the reply's airtime: positive at every rate.
+    for (let dataRate = 0; dataRate < DATA_RATE_COUNT; dataRate++) {
+      const listen = eventListenMs(dataRate) ?? 0;
+      expect(listen - timeOnAirMs(spreadingFactor(dataRate) ?? 7, 30)).toBeGreaterThan(0);
+    }
   });
 });

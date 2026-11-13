@@ -45,7 +45,13 @@ export const buttonLayout = layout([
 
 export const REPLY_FLAGS = ["armed", "countdownStarted", "updateAvailable"] as const;
 
-/** Body of reply: 12 bytes. Bound to the sensor packet it answers. */
+/**
+ * In a reply's next site channel or next sending rate: that setting stays as it is. With both
+ * at this value, no move of the site is announced (section 7, D115).
+ */
+export const NEXT_SETTING_UNCHANGED = 0xff;
+
+/** Body of reply: 14 bytes. Bound to the sensor packet it answers. */
 export const replyLayout = layout([
   ["settingsVersion", u8],
   ["flags", flagsByte(REPLY_FLAGS)],
@@ -66,6 +72,12 @@ export const replyLayout = layout([
   // How much to stretch or shrink the sensor's sleep times, in units of 10 parts per million;
   // see ppmFromTenPpmUnits.
   ["clockCorrectionTenPpm", i16],
+  // The channel the site is moving to: a SiteChannel value (check with isEnumValue), or
+  // NEXT_SETTING_UNCHANGED.
+  ["nextSiteChannel", u8],
+  // The data rate the site is moving to: a DataRate value (check with isEnumValue), or
+  // NEXT_SETTING_UNCHANGED.
+  ["nextSendDataRate", u8],
 ]);
 
 /** Disarmed notice has no body. Bound to the door report that started the countdown. */

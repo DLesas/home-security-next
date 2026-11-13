@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  type BlockCipher,
   counterBinding,
   createAesCcm,
   Direction,
@@ -12,6 +13,7 @@ import {
   MessageType,
   MIN_PACKET_LENGTH,
   NO_BINDING,
+  nodeAes128,
   openPacket,
   packetNonce,
   readPacketHeader,
@@ -321,5 +323,67 @@ describe("type and direction (section 5)", () => {
     );
     const packet = new Uint8Array([...clear, ...sealed]);
     expect(open(packet)).toEqual({ ok: false, error: { code: "wrongDirection" } });
+  });
+});
+
+describe("a block cipher passed in (D94)", () => {
+  /** The runtime's AES for `cipherKey`, counting the blocks it encrypts. */
+  function countingCipher(cipherKey: Uint8Array): { cipher: BlockCipher; blocks: () => number } {
+    const inner = nodeAes128(cipherKey);
+    let blocks = 0;
+    return {
+      cipher: {
+        encryptBlock(block) {
+          blocks++;
+          return inner.encryptBlock(block);
+        },
+      },
+      blocks: () => blocks,
+    };
+  }
+  const options = {
+    key,
+    direction: Direction.FromHub,
+    address,
+    counter: 7,
+    binding: counterBinding(3),
+    maxLength: MaxPacketLength.Radio,
+  } as const;
+
+  test("seals the same bytes as the built-in cipher, through the one given", () => {
+    const counting = countingCipher(key);
+    const sealed = sealPacket(command, { ...options, cipher: counting.cipher });
+    expect(toHex(sealed)).toBe(toHex(sealPacket(command, options)));
+    expect(counting.blocks()).toBeGreaterThan(0);
+  });
+
+  test("opens through the one given, and serves many packets keyed once", () => {
+    const counting = countingCipher(key);
+    const open = (counter: number) =>
+      openPacket(sealPacket(command, { ...options, counter }), {
+        key,
+        expectedDirection: Direction.FromHub,
+        binding: options.binding,
+        maxLength: MaxPacketLength.Radio,
+        cipher: counting.cipher,
+      });
+    expect(open(8)).toMatchObject({ ok: true, value: { message: command } });
+    const afterOne = counting.blocks();
+    expect(open(9)).toMatchObject({ ok: true, value: { header: { counter: 9 } } });
+    expect(counting.blocks()).toBe(2 * afterOne);
+  });
+
+  test("is the cipher actually used: one keyed differently fails the tag", () => {
+    const other = nodeAes128(fromHex("ffffffffffffffffffffffffffffffff"));
+    const packet = sealPacket(command, options);
+    const opened = openPacket(packet, {
+      key,
+      expectedDirection: Direction.FromHub,
+      binding: options.binding,
+      maxLength: MaxPacketLength.Radio,
+      cipher: other,
+    });
+    expect(opened).toEqual({ ok: false, error: { code: "badTag" } });
+    expect(toHex(sealPacket(command, { ...options, cipher: other }))).not.toBe(toHex(packet));
   });
 });

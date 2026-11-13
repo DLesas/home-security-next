@@ -5,6 +5,19 @@ const SPREADING_FACTOR_BY_DATA_RATE = [12, 11, 10, 9, 8, 7] as const;
 
 export const DATA_RATE_COUNT = SPREADING_FACTOR_BY_DATA_RATE.length;
 
+/**
+ * Event listen time (section 8 †): how long a sensor listens for the hub's answer after a door,
+ * cover, button or started report, by the data rate the report was sent at, DR0 to DR5, in
+ * milliseconds. The hub's latest moment for an event reply comes from it, so hub and sensor
+ * read the one table; the firmware holds the same values as `kEventListenMs`.
+ */
+export const EVENT_LISTEN_MS = [3000, 2600, 2200, 1900, 1700, 1500] as const;
+
+/** The event listen time for a data rate index, or `undefined` for an index not in the table. */
+export function eventListenMs(dataRate: number): number | undefined {
+  return Number.isInteger(dataRate) ? EVENT_LISTEN_MS[dataRate] : undefined;
+}
+
 /** Data rate indexes, as every data rate field carries them. */
 export const DataRate = { DR0: 0, DR1: 1, DR2: 2, DR3: 3, DR4: 4, DR5: 5 } as const;
 export type DataRate = (typeof DataRate)[keyof typeof DataRate];

@@ -53,7 +53,7 @@ const reply = sealRaw({
   direction: Direction.FromHub,
   counter: 9,
   binding: counterBinding(41),
-  plaintext: fromHex("8103031e1c0c05020500000000"),
+  plaintext: fromHex("8103031e1c0c05020500000000ffff"),
 }).packet;
 
 /** Authenticated packets from the sensor whose plaintext is not a valid message. */
@@ -269,6 +269,34 @@ const rejectedPackets: readonly Rejected[] = [
     packet: sensorPacket(fromHex("7f")),
   },
   {
+    name: "authenticated reply with the 12-byte body of before D115, too short",
+    device: sensor,
+    expectedDirection: Direction.FromHub,
+    binding: counterBinding(44),
+    maxLength: radio,
+    packet: sealRaw({
+      device: sensor,
+      direction: Direction.FromHub,
+      counter: 20,
+      binding: counterBinding(44),
+      plaintext: fromHex("8103031e1c0c05020500000000"),
+    }).packet,
+  },
+  {
+    name: "authenticated siren settings with the 7-byte body of before D115, too short",
+    device: siren,
+    expectedDirection: Direction.FromHub,
+    binding: NO_BINDING,
+    maxLength: radio,
+    packet: sealRaw({
+      device: siren,
+      direction: Direction.FromHub,
+      counter: 7200,
+      binding: NO_BINDING,
+      plaintext: fromHex("91" + "02" + "1e" + "14" + "8403" + "02" + "05"),
+    }).packet,
+  },
+  {
     name: "authenticated heartbeat, body one byte short",
     device: sensor,
     ...toHub,
@@ -337,7 +365,7 @@ const rejectedPackets: readonly Rejected[] = [
     device: sensor,
     ...toHub,
     maxLength: radio,
-    packet: sensorPacket(fromHex("8103031e1c0c05020500000000")),
+    packet: sensorPacket(fromHex("8103031e1c0c05020500000000ffff")),
   },
   {
     name: "authenticated heartbeat sealed in the from-hub direction",
