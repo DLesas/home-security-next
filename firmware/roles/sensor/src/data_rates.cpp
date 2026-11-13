@@ -64,8 +64,9 @@ device::Duration heartbeat_interval(std::uint8_t interval_units, std::uint8_t se
 }
 
 device::Duration event_listen_time(std::uint8_t send_rate) {
+  // The core's table, one for the sensor and the hub (§8 †).
   const std::uint8_t rate = is_known_rate(send_rate) ? send_rate : kFastestRate;
-  return device::milliseconds(kEventListenMs[rate]);
+  return device::milliseconds(protocol::event_listen_milliseconds(rate).value());
 }
 
 device::Duration symbol_time(std::uint8_t data_rate) {

@@ -52,7 +52,11 @@ struct SirenSettingsHeld {
   std::uint8_t send_data_rate = 0;
   /** The rate the siren listens for commands at. See protocol::DataRate. */
   std::uint8_t command_data_rate = 0;
-  std::uint8_t reserved = 0;
+  /**
+   * The site channel it sends on (protocol::SiteChannel): from the pairing until settings
+   * move it (§7, "Changing the site's channel or rate", D115).
+   */
+  std::uint8_t site_channel = 0;
   /** Caps a command's seconds to sound. */
   std::uint16_t max_sound_seconds = 0;
 };
@@ -141,6 +145,6 @@ struct SirenState {
 static_assert(std::is_trivially_copyable_v<SirenState>, "the retained block is copied as bytes");
 
 /** Bumped whenever SirenState changes, so an older retained copy is discarded. */
-constexpr std::uint8_t kSirenStateLayout = 5;
+constexpr std::uint8_t kSirenStateLayout = 6;
 
 }  // namespace hsn::roles::siren

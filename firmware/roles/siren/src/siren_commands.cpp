@@ -113,6 +113,11 @@ void SirenRole::apply_settings(const protocol::SirenSettings& settings, device::
   if (protocol::is_known<protocol::DataRate>(settings.command_data_rate)) {
     held.command_data_rate = settings.command_data_rate;
   }
+  // §7, D115: a new site channel or sending rate is used from the next transmission on; a
+  // channel this version does not know keeps the one held (§3).
+  if (protocol::is_known<protocol::SiteChannel>(settings.site_channel)) {
+    held.site_channel = settings.site_channel;
+  }
   const SirenSettingsHeld before = state_.settings;
   state_.settings = held;
   // Record writes only when the stored bytes differ (design section 5).

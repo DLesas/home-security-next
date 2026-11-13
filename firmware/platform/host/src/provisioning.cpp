@@ -38,6 +38,14 @@ void provision(HostBoard& board, const Provisioning& provisioning) {
   board.set_key(provisioning.key);
 }
 
+void make_board(HostBoard& board, std::uint8_t role) {
+  device::Record<device::RoleRecord> stored(board.storage, device::StoreKey::role,
+                                            device::kRoleRecordVersion, {});
+  if (stored.update(device::RoleRecord{role}) != device::HalError::none) {
+    throw SimulationError("flash refused the role");
+  }
+}
+
 bool import_stored_key(HostBoard& board) {
   device::Record<device::PairingRecord> stored(board.storage, device::StoreKey::pairing,
                                                device::kPairingRecordVersion, {});

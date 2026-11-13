@@ -34,7 +34,7 @@ std::optional<std::uint8_t> slower_allowed_rate(std::uint8_t data_rate, std::uin
  */
 device::Duration heartbeat_interval(std::uint8_t interval_units, std::uint8_t send_rate);
 
-/** Returns the event listen time after a packet sent at `send_rate` (§8) †. */
+/** Returns the event listen time after a packet sent at `send_rate`, from the core (§8) †. */
 device::Duration event_listen_time(std::uint8_t send_rate);
 
 /** Returns one LoRa symbol at a data rate: 2^SF ÷ 125 kHz (§2); SF7's for an unlisted rate. */

@@ -68,7 +68,9 @@ void SensorRole::send_heartbeat(device::Instant now) {
   state_.heartbeats_since_check = saturating_increment(state_.heartbeats_since_check);
   // Every Nth asks for a reply; every one does while the latest reply-wanted packet went
   // unanswered, so a sensor that lost touch is back within a heartbeat or two (§7).
-  const bool link_check = state_.heartbeats_since_check >= every || state_.misses > 0;
+  // So does every one while it holds the next settings of a move (§7, D115).
+  const bool link_check =
+      state_.heartbeats_since_check >= every || state_.misses > 0 || holds_next();
   protocol::Heartbeat heartbeat;
   static_cast<protocol::SensorStatus&>(heartbeat) = status(link_check, now, false, now);
   const device::Status sent =

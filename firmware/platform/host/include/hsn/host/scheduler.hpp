@@ -35,6 +35,11 @@ public:
    */
   void run_until(device::Instant limit);
 
+  /** Returns when the earliest waiting action is due, or never when none waits. */
+  device::Instant next_at() const {
+    return heap_.empty() ? device::Instant::never() : heap_.front().at;
+  }
+
   /** Returns how many actions are waiting. */
   std::size_t pending() const {
     return heap_.size();

@@ -232,6 +232,8 @@ public:
   /** Packets that opened neither as a hello nor under the session. */
   std::uint32_t unopened = 0;
   std::uint32_t hellos = 0;
+  /** The provision results that reached the hub, in order (§10 setup messages). */
+  std::vector<std::uint8_t> provision_results;
   std::uint32_t link_ups = 0;
   protocol::RandomValue gateway_random{};
   protocol::RandomValue hub_random{};

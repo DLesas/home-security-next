@@ -25,9 +25,10 @@ TEST_CASE("time on air matches the table of section 2, in rounded milliseconds")
     std::size_t bytes;
     std::array<int, 4> milliseconds;  // SF7, SF9, SF10, SF12
   };
-  const std::array<Row, 6> table{{
+  const std::array<Row, 7> table{{
       {25, {62, 206, 412, 1483}},
-      {30, {72, 226, 453, 1647}},
+      {32, {72, 247, 453, 1810}},
+      {50, {98, 329, 616, 2302}},
       {18, {51, 185, 330, 1319}},
       {21, {57, 185, 371, 1483}},
       {28, {67, 226, 412, 1647}},
@@ -41,6 +42,13 @@ TEST_CASE("time on air matches the table of section 2, in rounded milliseconds")
       REQUIRE(time.ok());
       CHECK(std::lround(time.value() / 1000.0) == row.milliseconds[i]);
     }
+  }
+}
+
+TEST_CASE("unlisted data rates have no event listen time") {
+  for (int data_rate = 6; data_rate < 256; ++data_rate) {
+    CHECK(protocol::event_listen_milliseconds(static_cast<std::uint8_t>(data_rate)).error() ==
+          Error::bad_value);
   }
 }
 

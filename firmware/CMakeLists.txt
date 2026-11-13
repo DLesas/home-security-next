@@ -17,6 +17,7 @@ add_subdirectory(core)
 add_subdirectory(platform/psa)
 add_subdirectory(roles)
 add_subdirectory(platform/host)
+add_subdirectory(tools/bench)
 
 enable_testing()
 add_subdirectory(tests)

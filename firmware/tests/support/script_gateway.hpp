@@ -29,6 +29,11 @@ struct ScriptGatewayConfig {
   std::uint8_t listen_data_rate = 5;
   /** Connect over USB instead of the network link. */
   bool use_usb = false;
+  /**
+   * How long after settings arrive it applies their channel and rate: zero, at once, as a
+   * gateway does; longer for a gateway that is late to follow a move (protocol section 7).
+   */
+  device::Duration apply_settings_after;
   /** Entries it logs, in time order; each goes over its link as it arises, once welcomed. */
   std::vector<ScriptLogEntry> log_entries;
 };
@@ -93,6 +98,7 @@ private:
   void result(std::uint32_t counter, std::uint8_t outcome, device::Instant now);
   void serve_queue(device::Instant now);
   void send_logs(device::Instant now);
+  void apply_settings();
 
   device::Services& services_;
   device::GatewayIo& io_;
@@ -100,6 +106,11 @@ private:
   ScriptGatewayLog& log_;
   device::SessionState session_;
   std::uint8_t site_channel_ = 1;
+  /** The one rate it listens at: its config's, until settings name one (protocol section 6). */
+  std::uint8_t listen_rate_ = 5;
+  /** Settings received and not yet applied, and when they will be. */
+  protocol::GatewaySettings arrived_;
+  device::Instant apply_at_ = device::Instant::never();
   bool transmitting_ = false;
   bool receiving_ = false;
   bool scheduled_ = false;

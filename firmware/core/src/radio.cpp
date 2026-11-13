@@ -8,6 +8,9 @@ namespace {
 
 constexpr std::uint32_t kMicrosecondsPerSecond = 1000000;
 constexpr std::uint8_t kSlowestSpreadingFactor = 12;
+// Section 8, "Event listen time", DR0 to DR5. Provisional (†) until measured (O10).
+constexpr std::array<std::uint16_t, 6> kEventListenMilliseconds{3000, 2600, 2200, 1900, 1700, 1500};
+static_assert(kEventListenMilliseconds.size() == DataRate::known.size(), "one entry per data rate");
 // Low data rate optimisation is on at SF11 and SF12 (section 2).
 constexpr std::uint8_t kLowDataRateFrom = 11;
 
@@ -51,6 +54,13 @@ Result<std::uint32_t> time_on_air_microseconds(std::uint8_t data_rate, std::size
       quarter_symbols * (std::uint64_t{1} << (sf - 2)) * kMicrosecondsPerSecond;
   // At 125 kHz every result divides exactly; the largest (SF12, 255 bytes) is about 9 seconds.
   return static_cast<std::uint32_t>(scaled / LoraSettings::bandwidth_hz);
+}
+
+Result<std::uint16_t> event_listen_milliseconds(std::uint8_t data_rate) {
+  if (!is_known<DataRate>(data_rate)) {
+    return Error::bad_value;
+  }
+  return kEventListenMilliseconds[data_rate];
 }
 
 }  // namespace hsn::protocol

@@ -112,7 +112,10 @@ struct Site {
     if (hub_mode() == host::HubMode::gateway_link) {
       ScriptGatewayConfig config;
       config.listen_data_rate = listen_data_rate;
-      gateway("gateway", config, gateway_log);
+      // The hub's settings name the same one rate, which the gateway then keeps listening at.
+      host::GatewayConfig settings;
+      settings.listen_data_rate_mask = static_cast<std::uint8_t>(1u << listen_data_rate);
+      gateway("gateway", config, gateway_log, settings);
     }
   }
 

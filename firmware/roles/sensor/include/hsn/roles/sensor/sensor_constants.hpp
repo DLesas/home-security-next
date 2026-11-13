@@ -28,12 +28,6 @@ constexpr device::Duration kReplyLate = device::milliseconds(50);
 constexpr std::uint8_t kReplyLateSymbols = 8;
 
 /**
- * Event listen time after a door, cover, button, started or log entries packet, by the data rate
- * it was sent at, DR0 to DR5, in milliseconds: about 3 s at SF12 to about 1.5 s at SF7 † (§8).
- */
-constexpr std::array<std::uint16_t, 6> kEventListenMs{3000, 2600, 2200, 1900, 1700, 1500};
-
-/**
  * Symbols the radio uses to confirm a preamble before its receive timer stops (hardware notes
  * section 3, SetLoRaSymbNumTimeout: even values only); the window of §8 allows 8.
  */
@@ -110,8 +104,8 @@ constexpr device::Duration kLongestAwake = device::seconds(20 * 60);
 /** The flash record of the settings held, without the armed state (design §5). */
 constexpr device::StoreKey kSettingsKey = device::StoreKey::sensor_first;
 
-/** The settings record's version byte (design §5). */
-constexpr std::uint8_t kSettingsRecordVersion = 1;
+/** The settings record's version byte (design §5); 2 added the site and the move (D115). */
+constexpr std::uint8_t kSettingsRecordVersion = 2;
 
 /** Data rates the protocol lists, DR0 to DR5 (§2, "Data rates"). */
 constexpr std::uint8_t kDataRateCount = 6;

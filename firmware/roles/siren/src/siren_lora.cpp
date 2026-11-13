@@ -213,7 +213,7 @@ void SirenRole::take_lora_item(LoraItem item) {
 
 std::optional<device::Transmission> SirenRole::transmission(LoraItem item) const {
   const std::optional<std::uint32_t> site =
-      device::site_channel_frequency(services_.setup.pairing().site_channel);
+      device::site_channel_frequency(state_.settings.site_channel);
   if (!site.has_value()) {
     return std::nullopt;
   }

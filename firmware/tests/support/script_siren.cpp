@@ -64,6 +64,10 @@ void ScriptSiren::on_command(protocol::ByteView packet, bool by_wifi, protocol::
       if (protocol::decode_body(opened.value().packet.body, settings) == protocol::Error::none) {
         log_.settings_version = settings.settings_version;
         command_rate_ = settings.command_data_rate;
+        // From its next transmission on (protocol section 6, siren settings).
+        send_rate_ = settings.send_data_rate;
+        site_channel_ = settings.site_channel;
+        settings_held_ = true;
       }
     }
   }
@@ -113,8 +117,10 @@ void ScriptSiren::send_lora(device::Instant now) {
   }
   device::Transmission transmission;
   transmission.channel.frequency_hz =
-      device::site_channel_frequency(services_.setup.pairing().site_channel).value_or(868300000u);
-  transmission.channel.data_rate = config_.send_data_rate;
+      device::site_channel_frequency(settings_held_ ? site_channel_
+                                                    : services_.setup.pairing().site_channel)
+          .value_or(868300000u);
+  transmission.channel.data_rate = settings_held_ ? send_rate_ : config_.send_data_rate;
   transmission.power_dbm = config_.power_dbm;
   transmission.tx_class = device::TxClass::essential;
   if (services_.radio_port.send(protocol::ByteView(lora_packet_).first(lora_size_), transmission,

@@ -54,6 +54,9 @@ public:
   /** Queues or schedules a packet. */
   void send(Send send);
 
+  /** Listens on another site channel and set of rates from now on (a move's switch). */
+  void retune(std::uint32_t site_frequency_hz, std::uint8_t data_rates);
+
   /** The radio on the medium. */
   StationId station() const {
     return station_;

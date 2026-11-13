@@ -536,6 +536,12 @@ struct ReplyFlags {
   }
 };
 
+/**
+ * In a reply's next site channel or next sending rate: that setting stays as it is. With both
+ * fields at this value no move of the site is announced (section 6, D115).
+ */
+constexpr std::uint8_t kStaysAsItIs = 0xFF;
+
 /** Reply (0x81), bound to the sensor packet it answers. */
 struct Reply {
   static constexpr std::uint8_t type = message_type::reply;
@@ -552,9 +558,13 @@ struct Reply {
   std::uint16_t next_heartbeat_tenths = 0;
   /** Clock correction in units of 10 ppm; see ppm_from_clock_correction. */
   std::int16_t clock_correction_ten_ppm = 0;
+  /** The channel the site is moving to (see SiteChannel), or kStaysAsItIs. */
+  std::uint8_t next_site_channel = kStaysAsItIs;
+  /** The data rate the site is moving to (see DataRate), or kStaysAsItIs. */
+  std::uint8_t next_send_data_rate = kStaysAsItIs;
 
   /**
-   * Wire layout, 12 bytes.
+   * Wire layout, 14 bytes.
    */
   static constexpr auto layout() {
     return std::make_tuple(field("settingsVersion", &Reply::settings_version),
@@ -566,7 +576,9 @@ struct Reply {
                            field("sendDataRate", &Reply::send_data_rate),
                            field("replyDataRate", &Reply::reply_data_rate),
                            field("nextHeartbeatTenths", &Reply::next_heartbeat_tenths),
-                           field("clockCorrectionTenPpm", &Reply::clock_correction_ten_ppm));
+                           field("clockCorrectionTenPpm", &Reply::clock_correction_ten_ppm),
+                           field("nextSiteChannel", &Reply::next_site_channel),
+                           field("nextSendDataRate", &Reply::next_send_data_rate));
   }
 };
 
@@ -609,9 +621,11 @@ struct SirenSettings {
   std::uint8_t send_data_rate = 0;
   /** See DataRate. */
   std::uint8_t command_data_rate = 0;
+  /** The site channel to send on, numbered as in gateway settings; see SiteChannel. */
+  std::uint8_t site_channel = 0;
 
   /**
-   * Wire layout, 7 bytes.
+   * Wire layout, 8 bytes.
    */
   static constexpr auto layout() {
     return std::make_tuple(
@@ -620,7 +634,8 @@ struct SirenSettings {
         field("loraCheckIntervalUnits", &SirenSettings::lora_check_interval_units),
         field("maxSoundSeconds", &SirenSettings::max_sound_seconds),
         field("sendDataRate", &SirenSettings::send_data_rate),
-        field("commandDataRate", &SirenSettings::command_data_rate));
+        field("commandDataRate", &SirenSettings::command_data_rate),
+        field("siteChannel", &SirenSettings::site_channel));
   }
 };
 

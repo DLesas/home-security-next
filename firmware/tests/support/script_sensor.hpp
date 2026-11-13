@@ -2,12 +2,14 @@
 
 // A scripted sensor for the test hub's tests: the smallest device that speaks the sensor's side
 // of the protocol through the core's SecureChannel and RadioPort. It is not the sensor role: no
-// retries, no deep sleep, no local alarm. It sends a door report on every door change and
-// listens for the reply, sends heartbeats and listens at the reply moment, keeps the settings a
-// reply carries, and after a reply that started a countdown listens for the disarmed notice (a
-// heartbeat meanwhile ends that listening: give it no heartbeats in countdown tests). It can log
-// scripted entries and send them over LoRa as the sensor does: one entry at warning or above
-// after a heartbeat, kept in the core's log until the hub's reply to that packet arrives.
+// retries (but one, while it holds next settings), no deep sleep, no local alarm. It follows a
+// move of the site as protocol section 7 says a sensor does, keeping the next settings in RAM. It
+// sends a door report on every door change and listens for the reply, sends heartbeats and listens
+// at the reply moment, keeps the settings a reply carries, and after a reply that started a
+// countdown listens for the disarmed notice (a heartbeat meanwhile ends that listening: give it no
+// heartbeats in countdown tests). It can log scripted entries and send them over LoRa as the sensor
+// does: one entry at warning or above after a heartbeat, kept in the core's log until the hub's
+// reply to that packet arrives.
 
 #include <array>
 #include <cstdint>
@@ -52,6 +54,14 @@ struct ScriptSensorConfig {
   bool send_logs = false;
 };
 
+/** A move it followed (protocol section 7): when it took the new settings, and which. */
+struct ScriptSensorMove {
+  /** The board's clock. */
+  device::Instant at;
+  std::uint8_t site_channel = 0;
+  std::uint8_t send_data_rate = 0;
+};
+
 /** What a ScriptSensor heard, kept by the test. */
 struct ScriptSensorLog {
   struct Heard {
@@ -75,6 +85,10 @@ struct ScriptSensorLog {
     bool answered = false;
   };
   std::vector<LogSend> log_sends;
+  /** Moves it followed, and the next settings the latest reply announced (0xFF: stays). */
+  std::vector<ScriptSensorMove> moves;
+  std::uint8_t next_site_channel = protocol::kStaysAsItIs;
+  std::uint8_t next_send_data_rate = protocol::kStaysAsItIs;
 
   /** How many packets of one type it accepted. */
   std::size_t count(std::uint8_t type) const;
@@ -98,7 +112,10 @@ private:
   enum class Sent : std::uint8_t { nothing, heartbeat, event, log };
 
   bool port_busy() const;
-  void send_event(std::uint8_t type, device::Instant now);
+  void choose_settings();
+  void on_unanswered(device::Instant now);
+  void adopt(const protocol::Reply& reply, bool answered_on_next, device::Instant now);
+  void send_event(std::uint8_t type, device::Instant now, bool retry = false);
   void send_heartbeat(device::Instant now);
   void send_log(device::Instant now);
   bool send_sealed(std::size_t size, device::Instant now);
@@ -108,7 +125,6 @@ private:
   void on_packet(protocol::ByteView packet, device::Instant now);
   void run_timers(device::Instant now);
   std::uint8_t reply_rate() const;
-  std::uint32_t site_frequency() const;
 
   device::Services& services_;
   device::SensorIo& io_;
@@ -116,6 +132,24 @@ private:
   ScriptSensorLog& log_;
   protocol::Reply held_;
   bool holds_settings_ = false;
+  /**
+   * A move of the site (protocol section 7): the current channel and rate, the next ones a reply
+   * announced, and which settings the packet being sent and the latest reply-wanted one use.
+   */
+  std::uint8_t channel_ = 0;
+  std::uint8_t rate_ = 0;
+  bool has_next_ = false;
+  std::uint8_t next_channel_ = 0;
+  std::uint8_t next_rate_ = 0;
+  /** A reply-wanted packet went unanswered: the next goes on the other settings. */
+  bool other_settings_ = false;
+  /** The packet being sent goes on the next settings; it listens at its sending rate. */
+  bool sending_on_next_ = false;
+  bool sending_other_ = false;
+  /** The latest reply-wanted packet: its counter until answered, and its settings. */
+  std::uint32_t awaiting_ = 0;
+  bool awaiting_on_next_ = false;
+  std::uint8_t awaiting_type_ = 0;
   bool at_send_rate_ = false;
   bool door_open_ = false;
   std::uint8_t change_count_ = 0;

@@ -82,6 +82,7 @@ void TestHub::send_siren_settings(std::size_t index) {
   settings.max_sound_seconds = siren.siren.max_sound_seconds;
   settings.send_data_rate = siren.siren.send_data_rate;
   settings.command_data_rate = siren.siren.command_data_rate;
+  settings.site_channel = options_.site_channel;
   siren.settings_waiting = false;
   decide(HubAction::siren_settings, siren.name, siren.version);
   issue_to_siren(index,
@@ -110,6 +111,10 @@ void TestHub::on_siren_packet(std::size_t index, const Opened& opened, const Arr
     return;
   }
   siren.held_version = held_version;
+  if (held_version == siren.version) {
+    // A siren has followed a move when a report shows its new settings (protocol section 7).
+    note_followed(siren);
+  }
   // Settings go out when the siren holds others or new ones wait, unless a command is still being
   // confirmed (protocol section 7, siren command, step 5).
   if ((held_version != siren.version || siren.settings_waiting) && !siren.pending.active) {

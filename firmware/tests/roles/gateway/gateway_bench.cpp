@@ -1,5 +1,7 @@
 #include "gateway_bench.hpp"
 
+#include "hsn/protocol/setup.hpp"
+
 namespace hsn::test {
 
 host::SimDevice& add_gateway(Site& site, const std::string& name, const host::GatewayConfig& config,
@@ -147,6 +149,11 @@ void LinkHub::link_down(host::LinkWire& wire) {
 }
 
 void LinkHub::link_packet(host::LinkWire& wire, const Bytes& packet) {
+  if (packet.size() == 3 && packet[0] == protocol::kSetupMarker &&
+      packet[1] == protocol::setup_type::provision_result) {
+    provision_results.push_back(packet[2]);
+    return;
+  }
   Got got;
   got.at = sim_.now();
   got.link = wire.link().kind();

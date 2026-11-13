@@ -1,5 +1,6 @@
 #include "hsn/host/link_wire.hpp"
 
+#include <algorithm>
 #include <utility>
 
 namespace hsn::host {
@@ -64,9 +65,9 @@ void LinkWire::packet_sent(FakeLink&, protocol::ByteView packet) {
   if (!carries()) {
     return;
   }
-  const std::uint64_t generation = generation_;
-  scheduler_.schedule(scheduler_.now() + latency_, [this, generation, bytes]() {
-    if (generation == generation_ && peer_ != nullptr) {
+  const std::uint64_t sending = sending_;
+  scheduler_.schedule(scheduler_.now() + latency_, [this, sending, bytes]() {
+    if (sending == sending_ && peer_ != nullptr) {
       peer_->link_packet(*this, bytes);
     }
   });
@@ -75,7 +76,7 @@ void LinkWire::packet_sent(FakeLink&, protocol::ByteView packet) {
 void LinkWire::connect_requested(FakeLink&) {
   // A new connection replaces any old one.
   close_hub_side();
-  generation_ += 1;
+  lose_in_flight();
   const std::uint64_t generation = generation_;
   if (peer_ == nullptr) {
     scheduler_.schedule(scheduler_.now() + device::kLinkDeadAfter, [this, generation]() {
@@ -100,7 +101,7 @@ void LinkWire::connect_requested(FakeLink&) {
 }
 
 void LinkWire::disconnected(FakeLink&) {
-  generation_ += 1;
+  lose_in_flight();
   close_hub_side();
 }
 
@@ -117,7 +118,7 @@ void LinkWire::send_to_device(const Bytes& packet) {
 }
 
 void LinkWire::drop(device::Duration noticed_after) {
-  generation_ += 1;
+  lose_in_flight();
   close_hub_side();
   const std::uint64_t generation = generation_;
   scheduler_.schedule(scheduler_.now() + noticed_after, [this, generation]() {
@@ -129,10 +130,30 @@ void LinkWire::drop(device::Duration noticed_after) {
   });
 }
 
-void LinkWire::device_reset() {
+void LinkWire::lose_in_flight() {
+  generation_ += 1;
+  sending_ += 1;
+}
+
+void LinkWire::device_reset(bool finish_sending) {
+  // What travels towards the device is lost at any reset.
   generation_ += 1;
   static_cast<void>(link_.down_event());
-  close_hub_side();
+  if (!finish_sending) {
+    sending_ += 1;
+    close_hub_side();
+    return;
+  }
+  // A restart the device asked for: what it already sent still arrives, within the grace (design
+  // section 4, Waiter). Packets in flight arrive by now + latency, scheduled before this cut-off,
+  // so they run first at a tie; any due after the grace are lost.
+  const std::uint64_t sending = sending_;
+  scheduler_.schedule(scheduler_.now() + std::min(latency_, kRestartGrace), [this, sending]() {
+    if (sending == sending_) {
+      sending_ += 1;
+      close_hub_side();
+    }
+  });
 }
 
 }  // namespace hsn::host

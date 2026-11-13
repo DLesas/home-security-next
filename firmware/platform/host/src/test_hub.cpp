@@ -93,6 +93,24 @@ const char* hub_action_name(HubAction action) {
       return "transmit_result";
     case HubAction::no_path:
       return "no_path";
+    case HubAction::move_requested:
+      return "move_requested";
+    case HubAction::move_confirmed:
+      return "move_confirmed";
+    case HubAction::move_unconfirmed:
+      return "move_unconfirmed";
+    case HubAction::move_switch_waiting:
+      return "move_switch_waiting";
+    case HubAction::move_switched:
+      return "move_switched";
+    case HubAction::move_forced:
+      return "move_forced";
+    case HubAction::move_cancelled:
+      return "move_cancelled";
+    case HubAction::device_followed:
+      return "device_followed";
+    case HubAction::move_done:
+      return "move_done";
   }
   return "?";
 }
@@ -136,6 +154,8 @@ TestHub::TestHub(Simulation& sim, HubOptions options)
           arrival.rssi_dbm = rssi_dbm;
           arrival.snr_quarter_db = snr_quarter_db;
           arrival.data_rate = data_rate;
+          // The radio hears on the site channel it is tuned to now.
+          arrival.site_channel = options_.site_channel;
           sim_.schedule(sim_.now() + options_.processing,
                         [this, arrival]() { on_arrival(arrival); });
         },
@@ -188,6 +208,12 @@ void TestHub::add_sensor(SimDevice& device, const SensorConfig& config) {
   sensor.sensor = config;
   sensor.sensor.address = sensor.address;
   sensor.reply_rate_of_version[sensor.version] = config.reply_data_rate;
+  // Paired during a move: current settings, and the move to learn like every other sensor; paired
+  // after the switch, the new settings, with nothing to follow (protocol section 7).
+  sensor.version_announces[sensor.version] = move_.stage == MoveStage::announcing;
+  sensor.announce_version = sensor.version;
+  sensor.announce_send_rate = config.send_data_rate;
+  sensor.move_followed = move_.stage == MoveStage::switched;
 }
 
 void TestHub::add_siren(SimDevice& device, const SirenConfig& config) {
@@ -195,6 +221,7 @@ void TestHub::add_siren(SimDevice& device, const SirenConfig& config) {
   siren.siren = config;
   siren.siren.address = siren.address;
   siren.reply_rate_of_version[siren.version] = config.command_data_rate;
+  siren.move_followed = move_.stage == MoveStage::switched;
   if (config.wifi) {
     device.wire(device::LinkKind::network).attach(*this, options_.link_latency);
   }
@@ -485,8 +512,7 @@ void TestHub::change_sensor(const std::string& name, const SensorConfig& config)
   const std::uint32_t address = sensor.address;
   sensor.sensor = config;
   sensor.sensor.address = address;
-  bump(sensor.version);
-  sensor.reply_rate_of_version[sensor.version] = config.reply_data_rate;
+  new_sensor_version(sensor);
 }
 
 void TestHub::change_siren(const std::string& name, const SirenConfig& config) {

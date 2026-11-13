@@ -3,7 +3,9 @@
 // A scripted siren for the test hub's tests: it listens continuously on 869.525 MHz, connects its
 // network link, and judges every command or settings packet with the core's open_command. A new
 // command is acted on and answered with a report on the path it came by, an exact repeat is
-// answered again, an older one gets nothing (protocol section 7). It can log scripted entries and
+// answered again, an older one gets nothing (protocol section 7). Settings set its command rate,
+// and its site channel and sending rate from its next transmission, which is how it follows a
+// move of the site. It can log scripted entries and
 // send them over Wi-Fi as they arise. Not the siren role: no regular reports, no LoRa checks, no
 // reconnects.
 
@@ -83,6 +85,10 @@ private:
   ScriptSirenConfig config_;
   ScriptSirenLog& log_;
   std::uint8_t command_rate_;
+  /** Where it sends: from its pairing and config until settings say (protocol section 6). */
+  std::uint8_t send_rate_ = 0;
+  std::uint8_t site_channel_ = 0;
+  bool settings_held_ = false;
   device::Instant output_until_ = device::Instant::never();
   bool lora_waiting_ = false;
   bool wifi_up_ = false;

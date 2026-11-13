@@ -135,9 +135,15 @@ public:
     records_.clear();
   }
 
+  /** Is told of every record as it is added: the real-time bench streams them (hsn_bench). */
+  void set_listener(std::function<void(const Record&)> listener) {
+    listener_ = std::move(listener);
+  }
+
 private:
   std::vector<std::string> actors_;
   std::vector<Record> records_;
+  std::function<void(const Record&)> listener_;
 };
 
 /**

@@ -8,6 +8,7 @@
 #include <iomanip>
 #include <map>
 #include <memory>
+#include <optional>
 #include <random>
 #include <set>
 #include <sstream>
@@ -26,8 +27,6 @@ using roles::gateway::GatewayRole;
  * packet from it.
  */
 constexpr std::int64_t kMissedBeforeSilent = 3;
-/** Event listen time by sending rate, DR0 to DR5, ms (§8 †, the sensor's and hub's value). */
-constexpr std::array<std::uint16_t, 6> kEventListenMs = roles::sensor::kEventListenMs;
 /** A sensor saves its counter's resume point every 64 packets (§4 "Sending"). */
 constexpr std::size_t kResumeStep = 64;
 /**
@@ -92,7 +91,7 @@ struct LoadFigures {
 };
 
 /** Measures a load run from the timeline and the hub's records. */
-LoadFigures measure(LoadSite& load) {
+LoadFigures measure(LoadSite& load, std::size_t extra_writes = 0) {
   SystemSite& site = load.site;
   LoadFigures figures;
   std::set<std::pair<std::string, std::uint32_t>> recorded;
@@ -124,7 +123,8 @@ LoadFigures measure(LoadSite& load) {
   }
   figures.busiest_gateway_hour = busiest_hour_on(load.gateway, kHubHz);
 
-  const Duration listen = milliseconds(kEventListenMs[load.rate]);
+  // The event listen time at the sending rate (§8 †), as the sensor and the hub use it.
+  const Duration listen = milliseconds(protocol::event_listen_milliseconds(load.rate).value());
   const Duration interval = heartbeat_interval(load.rate);
   std::size_t flash_total = 0;
   for (host::SimDevice* door : load.doors) {
@@ -135,7 +135,8 @@ LoadFigures measure(LoadSite& load) {
     const std::size_t writes = door->records().kind(RecordKind::flash_write).count();
     flash_total += writes;
     figures.over_flash_budget +=
-        writes > transmissions.size() / kResumeStep + kFlashWritesBesideResume ? 1u : 0u;
+        writes > transmissions.size() / kResumeStep + kFlashWritesBesideResume + extra_writes ? 1u
+                                                                                              : 0u;
     figures.most_flash_writes = std::max(figures.most_flash_writes, writes);
     for (const auto& change : buzzer(*door)) {
       if (change.second != Sound::off) {
@@ -265,13 +266,52 @@ std::string describe(const std::string& name, const LoadFigures& f, std::int64_t
 }
 
 /** D: a disarmed site under everyday load, checked and measured. */
-void everyday_load(std::size_t sensors, std::uint8_t data_rate, std::int64_t span_seconds) {
+/** A move during a load run: announced this long after the start, switched once confirmed. */
+constexpr Duration kMoveAnnounceAt = seconds(200);
+constexpr Duration kMovePoll = seconds(5);
+/**
+ * A move costs each sensor two settings writes: the next settings it is told, kept in flash so a
+ * restart does not lose them, and those settings becoming its own (§7, D115; design section 5).
+ */
+constexpr std::size_t kFlashWritesPerMove = 2;
+
+/** Switches the announced move as soon as every sensor has confirmed it (§7, D115). */
+void switch_when_confirmed(LoadSite& load) {
+  if (load.site.hub.move_unconfirmed().empty()) {
+    REQUIRE(load.site.hub.switch_move());
+    return;
+  }
+  load.site.sim.schedule(load.site.sim.now() + kMovePoll,
+                         [&load]() { switch_when_confirmed(load); });
+}
+
+/**
+ * D: a disarmed site under everyday load, checked and measured. With `move_to`, the site starts
+ * at DR5 and moves to that rate early in the day (D115), and the whole day is held to the same
+ * checks.
+ */
+void everyday_load(std::size_t sensors, std::uint8_t data_rate, std::int64_t span_seconds,
+                   std::optional<std::uint8_t> move_to = std::nullopt) {
   LoadSite load(data_rate, sensors);
   load.random_doors(span_seconds, kDoorSeed + static_cast<std::uint32_t>(sensors * 8 + data_rate));
+  if (move_to.has_value()) {
+    load.site.sim.schedule(host::at(kMoveAnnounceAt), [&]() {
+      host::SiteMove move;
+      move.send_data_rate = *move_to;
+      load.site.hub.announce_move(move);
+      switch_when_confirmed(load);
+    });
+  }
   load.site.run_until(at_s(span_seconds));
-  const LoadFigures figures = measure(load);
-  const std::string line = describe(
-      std::to_string(sensors) + " sensors DR" + std::to_string(data_rate), figures, span_seconds);
+  if (move_to.has_value()) {
+    CHECK(load.site.hub.decisions(HubAction::move_done).size() == 1);
+    load.rate = *move_to;
+  }
+  const LoadFigures figures = measure(load, move_to.has_value() ? kFlashWritesPerMove : 0);
+  const std::string line =
+      describe(std::to_string(sensors) + " sensors DR" + std::to_string(data_rate) +
+                   (move_to.has_value() ? " moved to DR" + std::to_string(*move_to) : ""),
+               figures, span_seconds);
   MESSAGE(line);
   INFO(line);
 
@@ -562,6 +602,10 @@ TEST_SUITE("long") {
 
   TEST_CASE("D108 D110 D52: 10 sensors at DR2, disarmed, a day") {
     everyday_load(10, protocol::DataRate::dr2, kDay);
+  }
+
+  TEST_CASE("D115 D110 D52: 10 sensors moved from DR5 to DR2, then a day: the same bounds") {
+    everyday_load(10, protocol::DataRate::dr5, kDay, protocol::DataRate::dr2);
   }
 
   // Once caught heartbeat replies at SF9 and slower going unheard, with neighbours lost to them.

@@ -92,8 +92,17 @@ public:
    */
   void drop(device::Duration noticed_after = device::Duration{});
 
-  /** The device reset or slept deep: its link is gone, without an event on its side. */
-  void device_reset();
+  /**
+   * The device reset or slept deep: its link is gone, without an event on its side, and what
+   * travels towards it is lost. With `finish_sending` (a restart the device asked for through the
+   * waiter), what it had already sent still reaches the peer, for at most kRestartGrace, and the
+   * hub side closes after it; otherwise (power loss, deep sleep, a scripted restart) that is lost
+   * too and the hub side closes at once.
+   */
+  void device_reset(bool finish_sending = false);
+
+  /** How long a restart lets the links finish sending (firmware-design.md, Waiter). */
+  static constexpr device::Duration kRestartGrace = device::milliseconds(200);
 
   // LinkObserver
   void packet_sent(FakeLink& link, protocol::ByteView packet) override;
@@ -104,6 +113,7 @@ private:
   void record(RecordKind kind, const Bytes* packet);
   bool carries() const;
   void close_hub_side();
+  void lose_in_flight();
 
   Scheduler& scheduler_;
   Timeline& timeline_;
@@ -117,6 +127,8 @@ private:
   bool connected_ = false;
   /** Bumped when the connection changes; packets in flight on an older one are lost. */
   std::uint64_t generation_ = 0;
+  /** The same for packets from the device, which a restart lets finish. */
+  std::uint64_t sending_ = 0;
 };
 
 }  // namespace hsn::host

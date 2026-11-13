@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -43,6 +44,13 @@ struct SimulationOptions {
  * A broken bench rule (the hardware-call budget, a zero-time loop) throws SimulationError out of
  * run_until, which fails the test case with its message.
  */
+/**
+ * A board's chip identifier: a function of the simulation seed and the device's name only, so a
+ * board keeps it from run to run whatever else is added. It reads as a locally administered
+ * unicast MAC address (first byte xxxxxx10), as an ESP32's base MAC is a MAC address.
+ */
+std::array<std::uint8_t, 6> chip_id_for(std::uint64_t seed, const std::string& name);
+
 class Simulation {
 public:
   /** An empty simulation at true time zero. */
@@ -51,7 +59,10 @@ public:
   Simulation& operator=(const Simulation&) = delete;
   ~Simulation();
 
-  /** Adds a device; it powers on at spec.power_on. Names must be unique. */
+  /**
+   * Adds a device; it powers on at spec.power_on. Names must be unique. Its board gets its own
+   * chip identifier, chip_id_for(seed, name), kept across every reset.
+   */
   SimDevice& add_device(DeviceSpec spec);
 
   /** Returns a device by name; throws SimulationError if there is none. */

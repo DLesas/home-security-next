@@ -108,6 +108,9 @@ void Timeline::add(const Record& record) {
     throw SimulationError("timeline record out of order at " + format_instant(record.at));
   }
   records_.push_back(record);
+  if (listener_) {
+    listener_(record);
+  }
 }
 
 Selection Timeline::select() const {

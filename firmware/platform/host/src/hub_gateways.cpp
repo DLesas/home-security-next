@@ -98,6 +98,7 @@ void TestHub::on_gateway_packet(std::size_t index, LinkWire& wire, const Bytes& 
       arrival.rssi_dbm = forwarded.rssi_dbm;
       arrival.snr_quarter_db = forwarded.snr_quarter_db;
       arrival.data_rate = forwarded.data_rate;
+      arrival.site_channel = forwarded.site_channel;
       on_arrival(arrival);
       break;
     }

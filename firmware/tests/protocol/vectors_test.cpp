@@ -471,6 +471,19 @@ void check_time_on_air(VectorFile& file) {
     CHECK(time.value() == item.at("microseconds").get<std::uint32_t>());
     CHECK(std::fabs(time.value() / 1000.0 - item.at("milliseconds").get<double>()) < 1e-9);
   }
+  int rates = 0;
+  for (const json& item : file.section("eventListen")) {
+    INFO("event listen: " << item.dump());
+    const auto data_rate = item.at("dataRate").get<std::uint8_t>();
+    const auto spreading_factor = protocol::spreading_factor(data_rate);
+    REQUIRE(spreading_factor.has_value());
+    CHECK(*spreading_factor == item.at("spreadingFactor").get<int>());
+    const auto listen = protocol::event_listen_milliseconds(data_rate);
+    REQUIRE(listen.ok());
+    CHECK(listen.value() == item.at("milliseconds").get<int>());
+    rates += 1;
+  }
+  CHECK(rates == static_cast<int>(protocol::DataRate::known.size()));
 }
 
 void check_units(VectorFile& file) {

@@ -42,6 +42,12 @@ void SensorRole::on_packet(protocol::ByteView packet, device::Instant now) {
 
 void SensorRole::on_reply(const protocol::Reply& reply, std::uint32_t answered, TryKind kind,
                           device::Instant now) {
+  if (state_.tries.sent_on_next(answered)) {
+    // Answered on the next settings: they are the current ones now, for good (§7, D115).
+    adopt_next();
+  }
+  // Answered: whatever settings it went on work, so the next packet goes on the current ones.
+  state_.use_next = false;
   apply_settings(reply, now);
   if (reply.next_heartbeat_tenths != 0) {
     // Counted from the end of the packet this reply answers (§6): the latest heartbeat's or the
@@ -108,6 +114,18 @@ void SensorRole::on_reply(const protocol::Reply& reply, std::uint32_t answered, 
   }
 }
 
+void SensorRole::adopt_next() {
+  StoredSettings& settings = state_.settings;
+  if (settings.next_site_channel != protocol::kStaysAsItIs) {
+    settings.site_channel = settings.next_site_channel;
+  }
+  if (settings.next_send_data_rate != protocol::kStaysAsItIs) {
+    // The site's rate is from now on the one rate it may send at; the reply names it as the
+    // rate to send at, and announces nothing more, which clears the next settings (§7).
+    settings.allowed_rate_mask = static_cast<std::uint8_t>(1u << settings.next_send_data_rate);
+  }
+}
+
 void SensorRole::ensure_settings_loaded(device::Instant now) {
   if (settings_loaded_) {
     return;
@@ -130,8 +148,8 @@ void SensorRole::apply_settings(const protocol::Reply& reply, device::Instant no
   next.heartbeat_interval_units = reply.heartbeat_interval_units;
   next.link_check_every = reply.link_check_every;
   next.clock_correction_ten_ppm = reply.clock_correction_ten_ppm;
-  const std::uint8_t mask = services_.setup.pairing().allowed_data_rate_mask;
-  // A rate the device does not know, or the pairing does not allow, keeps the current one (§3).
+  const std::uint8_t mask = next.allowed_rate_mask;
+  // A rate the device does not know, or its settings do not allow, keeps the current one (§3).
   if (is_allowed_rate(reply.send_data_rate, mask)) {
     next.send_data_rate = reply.send_data_rate;
     state_.send_rate = reply.send_data_rate;
@@ -144,6 +162,25 @@ void SensorRole::apply_settings(const protocol::Reply& reply, device::Instant no
   } else if (new_version) {
     services_.log.add(now, device::LogLevel::warning, sensor_log::setting_ignored,
                       "reply rate ignored", reply.reply_data_rate);
+  }
+  // Next settings of a move, kept in flash so a restart does not lose them; a reply announcing
+  // none clears any held, which is how the hub cancels a move (§7, D115). One that cannot be
+  // used is ignored, and the move with it.
+  const bool next_channel_known =
+      reply.next_site_channel == protocol::kStaysAsItIs ||
+      device::site_channel_frequency(reply.next_site_channel).has_value();
+  const bool next_rate_known = reply.next_send_data_rate == protocol::kStaysAsItIs ||
+                               is_known_rate(reply.next_send_data_rate);
+  if (next_channel_known && next_rate_known) {
+    next.next_site_channel = reply.next_site_channel;
+    next.next_send_data_rate = reply.next_send_data_rate;
+  } else {
+    next.next_site_channel = protocol::kStaysAsItIs;
+    next.next_send_data_rate = protocol::kStaysAsItIs;
+    if (new_version) {
+      services_.log.add(now, device::LogLevel::warning, sensor_log::setting_ignored,
+                        "next site ignored");
+    }
   }
   state_.settings = next;
   ensure_settings_loaded(now);
@@ -166,6 +203,10 @@ void SensorRole::note_miss(device::Instant now) {
   if (state_.misses >= kMissesBeforeUnslotted) {
     state_.slotted = false;
   }
+  if (holds_next()) {
+    // During a move, the following packet goes on the other settings (§7, D115).
+    state_.use_next = !state_.use_next;
+  }
   if (state_.misses <= kMissesBeforeOwnRate) {
     return;
   }
@@ -177,7 +218,7 @@ void SensorRole::note_miss(device::Instant now) {
     return;
   }
   state_.misses_at_rate = 0;
-  const std::uint8_t mask = services_.setup.pairing().allowed_data_rate_mask;
+  const std::uint8_t mask = state_.settings.allowed_rate_mask;
   const std::uint8_t next =
       slower_allowed_rate(state_.send_rate, mask).value_or(fastest_allowed_rate(mask));
   if (next != state_.send_rate) {

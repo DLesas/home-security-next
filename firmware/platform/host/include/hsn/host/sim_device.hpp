@@ -196,7 +196,7 @@ private:
   void power_up();
   void start_boot(device::BootKind kind, device::WakeMask woke_by, std::uint8_t reset_cause);
   void boot(device::BootInfo info);
-  void go_down();
+  void go_down(bool finish_sending = false);
   void enter_deep_sleep(const device::WaitRequest& request);
   void plan();
   void deliver(const device::Event& event, const char* what);

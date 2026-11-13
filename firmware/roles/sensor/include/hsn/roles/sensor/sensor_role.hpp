@@ -129,6 +129,10 @@ private:
   /** Listens as the windows and the countdown ask, or puts the radio to sleep (LR7). */
   void keep_listening(device::Instant now);
   void listen(device::Duration timeout, device::Instant now);
+  /** True while it holds the next settings of a move of the site (§7, D115). */
+  bool holds_next() const;
+  /** The sending rate of the settings in use: the next ones' after a miss during a move. */
+  std::uint8_t send_rate_in_use() const;
   /** The rate replies come at: the reply rate, or the sending rate after fall-back (§7). */
   std::uint8_t listen_rate() const;
   /** True when the sensor says flag bit 7: it listens at the rate it sends at (§6, §7). */
@@ -147,6 +151,8 @@ private:
   /** Keeps the reply's settings: flash only when a stored field changes (design §5). */
   void apply_settings(const protocol::Reply& reply, device::Instant now);
   void ensure_settings_loaded(device::Instant now);
+  /** The next settings become the current ones, for good (§7, D115). */
+  void adopt_next();
   /** A reply-wanted packet went unanswered: the data-rate fall-back (§7). */
   void note_miss(device::Instant now);
   /** A disarmed notice bound to a counter of `kind`; the second copy is ignored (§6). */

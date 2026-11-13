@@ -158,6 +158,27 @@ enum class HubAction : std::uint8_t {
   transmit_result,
   /** A packet had no gateway to go through. */
   no_path,
+  /**
+   * A move of the site was asked for (protocol section 7, D115). value: next channel × 256 +
+   * next rate, each 0xFF when it stays.
+   */
+  move_requested,
+  /** A sensor's packet showed a settings version that carries the move. */
+  move_confirmed,
+  /** A switch was asked while this sensor has not confirmed; nothing was switched. */
+  move_unconfirmed,
+  /** A switch was asked during a countdown or an alarm: it goes when they end. */
+  move_switch_waiting,
+  /** The switch: gateways and sirens get the new settings. value: 1 when forced. */
+  move_switched,
+  /** Forced past this sensor, which never confirmed: it must be paired again. */
+  move_forced,
+  /** The move was cancelled before the switch. */
+  move_cancelled,
+  /** A device was first heard on the new settings (a siren: its report shows them). */
+  device_followed,
+  /** Every device has followed. */
+  move_done,
 };
 
 /** One decision, with when and for which device. */

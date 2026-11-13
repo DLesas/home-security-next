@@ -31,6 +31,13 @@ struct Provisioning {
 void provision(HostBoard& board, const Provisioning& provisioning);
 
 /**
+ * Stores only the role, as when a board is made (D103): it starts unpaired, in setup-only mode,
+ * for a hub to provision over USB. Call before the board's first boot; throws SimulationError if
+ * flash refuses.
+ */
+void make_board(HostBoard& board, std::uint8_t role);
+
+/**
  * Imports the stored pairing's key into the board's cipher, as the platform does at every start;
  * returns false when the board is not paired.
  */

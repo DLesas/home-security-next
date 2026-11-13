@@ -60,7 +60,7 @@ constexpr device::Duration kReconnectSteadyGap = device::seconds(30);
 
 /** The settings record: a siren store key (design section 5) and its version byte. */
 constexpr device::StoreKey kSettingsKey = device::StoreKey::siren_first;
-constexpr std::uint8_t kSettingsRecordVersion = 1;
+constexpr std::uint8_t kSettingsRecordVersion = 2;  // 2: the site channel in place of a spare byte
 
 /** Body sizes of the packets the siren sends (protocol section 6). */
 constexpr std::size_t kSirenReportBodySize = 10;

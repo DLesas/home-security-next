@@ -12,6 +12,10 @@ constexpr StoredSettings kDefaultSettings{0,
                                           kDefaultLinkCheckEvery,
                                           protocol::DataRate::dr5,
                                           protocol::DataRate::dr5,
+                                          0,
+                                          0,
+                                          protocol::kStaysAsItIs,
+                                          protocol::kStaysAsItIs,
                                           0};
 
 }  // namespace

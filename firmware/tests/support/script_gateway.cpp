@@ -1,5 +1,7 @@
 #include "script_gateway.hpp"
 
+#include "hsn/protocol/radio.hpp"
+
 #include "hsn/device/services/radio_plan.hpp"
 
 namespace hsn::test {
@@ -49,7 +51,7 @@ void ScriptGateway::send_to_hub(std::size_t size) {
 void ScriptGateway::listen() {
   device::RxParams params;
   params.channel.frequency_hz = device::site_channel_frequency(site_channel_).value_or(868300000u);
-  params.channel.data_rate = config_.listen_data_rate;
+  params.channel.data_rate = listen_rate_;
   params.stop = device::RxStop::header;
   static_cast<void>(services_.hal.radio.receive(params));
 }
@@ -170,10 +172,8 @@ void ScriptGateway::on_link(const device::LinkEvent& event, device::Instant now)
           if (protocol::decode_body(body, settings) == protocol::Error::none) {
             log_.settings += 1;
             log_.settings_version = settings.settings_version;
-            site_channel_ = settings.site_channel;
-            if (!transmitting_) {
-              listen();
-            }
+            arrived_ = settings;
+            apply_at_ = now + config_.apply_settings_after;
           }
           break;
         }
@@ -206,7 +206,7 @@ void ScriptGateway::on_radio(const device::RadioEvent& radio, device::Instant no
         forwarded.received_at_micros = low32(radio.at);
         forwarded.rssi_dbm = radio.rssi_dbm;
         forwarded.snr_quarter_db = radio.snr_quarter_db;
-        forwarded.data_rate = config_.listen_data_rate;
+        forwarded.data_rate = listen_rate_;
         forwarded.site_channel = site_channel_;
         forwarded.packet.bytes = radio.packet;
         const auto sealed =
@@ -249,11 +249,27 @@ void ScriptGateway::send_logs(device::Instant now) {
   }
 }
 
+void ScriptGateway::apply_settings() {
+  apply_at_ = device::Instant::never();
+  site_channel_ = arrived_.site_channel;
+  // One radio hears one rate: the fastest the mask names (protocol section 2).
+  for (std::uint8_t rate = protocol::DataRate::dr0; rate <= protocol::DataRate::dr5; ++rate) {
+    const std::uint8_t bit = static_cast<std::uint8_t>(1u << rate);
+    if ((arrived_.listen_data_rate_mask & bit) != 0) {
+      listen_rate_ = rate;
+    }
+  }
+  if (!transmitting_) {
+    listen();
+  }
+}
+
 void ScriptGateway::handle(const device::Event& event) {
   const device::Instant now = event.now;
   switch (event.kind) {
     case device::EventKind::boot:
       site_channel_ = services_.setup.pairing().site_channel;
+      listen_rate_ = config_.listen_data_rate;
       if (link() != nullptr) {
         static_cast<void>(link()->connect(services_.setup.pairing().link_target()));
       }
@@ -277,6 +293,9 @@ void ScriptGateway::handle(const device::Event& event) {
       transmit(at_time_, now);
     }
   }
+  if (apply_at_ <= now) {
+    apply_settings();
+  }
   logger_.run(services_.log, now);
   send_logs(now);
 }
@@ -284,6 +303,7 @@ void ScriptGateway::handle(const device::Event& event) {
 device::Wake ScriptGateway::next_wake() const {
   device::Wake wake;
   wake.at = device::earliest(scheduled_ ? at_time_.when : device::Instant::never(), logger_.next());
+  wake.at = device::earliest(wake.at, apply_at_);
   wake.deepest = device::SleepDepth::awake;
   return wake;
 }

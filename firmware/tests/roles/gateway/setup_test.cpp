@@ -48,10 +48,7 @@ host::SimDevice& factory_gateway(host::Simulation& sim) {
   return device;
 }
 
-/**
- * The provision results the gateway sent on USB. Read from the port itself: the bench drops a
- * packet still on the wire when the board restarts, and a board restarts right after accepting.
- */
+/** The provision results the gateway sent on USB, read from the port itself. */
 std::vector<std::uint8_t> provision_results(host::SimDevice& gateway) {
   std::vector<std::uint8_t> results;
   for (const host::FakeLink::Sent& sent : gateway.board().usb.sent) {
@@ -77,6 +74,8 @@ TEST_CASE("PR7 D100 a new gateway on the hub computer's USB is paired and connec
   INFO(sim.timeline().select().dump());
   CHECK(provision_results(gateway) ==
         std::vector<std::uint8_t>{protocol::ProvisionOutcome::accepted});
+  // The restart that follows lets the result finish reaching the hub (design, Waiter): first time.
+  CHECK(hub.provision_results == std::vector<std::uint8_t>{protocol::ProvisionOutcome::accepted});
   CHECK(gateway.boots() == 2);
   // Paired and restarted, it says hello on the same cable with its new key, and is welcomed.
   CHECK(hub.hellos == 1);
@@ -104,6 +103,7 @@ TEST_CASE("D100 a gateway paired to a hub is left alone when plugged into anothe
   sim.run_until(at(seconds(3)));
   CHECK(provision_results(gateway) ==
         std::vector<std::uint8_t>{protocol::ProvisionOutcome::refused});
+  CHECK(hub.provision_results == std::vector<std::uint8_t>{protocol::ProvisionOutcome::refused});
   CHECK(gateway.boots() == 1);
   device::Record<device::PairingRecord> stored(gateway.board().storage, device::StoreKey::pairing,
                                                device::kPairingRecordVersion, {});

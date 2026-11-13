@@ -32,21 +32,37 @@ bool SensorRole::window_open() const {
          !state_.log_window_end.is_never();
 }
 
+bool SensorRole::holds_next() const {
+  return state_.settings.next_site_channel != protocol::kStaysAsItIs ||
+         state_.settings.next_send_data_rate != protocol::kStaysAsItIs;
+}
+
+std::uint8_t SensorRole::send_rate_in_use() const {
+  return state_.use_next && state_.settings.next_send_data_rate != protocol::kStaysAsItIs
+             ? state_.settings.next_send_data_rate
+             : state_.send_rate;
+}
+
 bool SensorRole::at_send_rate() const {
-  // With no settings version held there is no reply rate either (§2).
-  return state_.settings_version == 0 || state_.listen_at_send_rate;
+  // With no settings version held there is no reply rate either (§2); a packet on the next
+  // settings of a move is answered at the rate it went at (§7).
+  return state_.settings_version == 0 || state_.listen_at_send_rate || state_.use_next;
 }
 
 std::uint8_t SensorRole::listen_rate() const {
-  return at_send_rate() ? state_.send_rate : state_.settings.reply_data_rate;
+  return at_send_rate() ? send_rate_in_use() : state_.settings.reply_data_rate;
 }
 
 std::optional<device::RadioChannel> SensorRole::site_channel() const {
-  const auto frequency = device::site_channel_frequency(services_.setup.pairing().site_channel);
+  const std::uint8_t channel =
+      state_.use_next && state_.settings.next_site_channel != protocol::kStaysAsItIs
+          ? state_.settings.next_site_channel
+          : state_.settings.site_channel;
+  const auto frequency = device::site_channel_frequency(channel);
   if (!frequency.has_value()) {
     return std::nullopt;
   }
-  return device::RadioChannel{*frequency, state_.send_rate};
+  return device::RadioChannel{*frequency, send_rate_in_use()};
 }
 
 device::Status SensorRole::start_send(const device::Sealed& sealed,
@@ -66,7 +82,7 @@ device::Status SensorRole::start_send(const device::Sealed& sealed,
     // Only the latest heartbeat and log packet can still be answered.
     state_.tries.remove(kind);
   }
-  state_.tries.add(sealed.counter, kind);
+  state_.tries.add(sealed.counter, kind, state_.use_next);
   const bool carries_flags = kind != TryKind::started && kind != TryKind::log;
   if (carries_flags && state_.local_alarm_sounded && state_.alarm_flag_counter == 0) {
     // Flag bit 5 is cleared by a reply to this packet or a later one (§6).
@@ -131,7 +147,7 @@ void SensorRole::on_sent(device::Instant at, device::Instant now) {
       state_.timers.arm(SensorTimer::reply_moment, at + corrected(kReplyMoment - kReplyEarly));
       break;
     case TryKind::log:
-      state_.log_window_end = at + event_listen_time(state_.send_rate);
+      state_.log_window_end = at + event_listen_time(send_rate_in_use());
       break;
     case TryKind::none:
     case TryKind::countdown:
@@ -139,7 +155,7 @@ void SensorRole::on_sent(device::Instant at, device::Instant now) {
       break;
     default:
       // A report: listen at once, for the event listen time (§7, §8).
-      state_.report_window_end = at + event_listen_time(state_.send_rate);
+      state_.report_window_end = at + event_listen_time(send_rate_in_use());
       break;
   }
 }

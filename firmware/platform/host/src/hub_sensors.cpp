@@ -21,15 +21,14 @@ std::int64_t seconds_left(device::Instant now, device::Instant until, std::int64
 }  // namespace
 
 device::Duration TestHub::event_listen_time(std::uint8_t data_rate) const {
-  return device::milliseconds(options_.event_listen_ms[std::min<std::size_t>(data_rate, 5)]);
+  return device::milliseconds(options_.event_listen_ms[data_rate]);
 }
 
 void TestHub::arm() {
   armed_ = true;
   for (Known& device : known_) {
     if (device.role == protocol::Role::sensor) {
-      bump(device.version);
-      device.reply_rate_of_version[device.version] = device.sensor.reply_data_rate;
+      new_sensor_version(device);
     }
   }
   decide(HubAction::armed, "");
@@ -43,8 +42,7 @@ void TestHub::disarm() {
     if (sensor.role != protocol::Role::sensor) {
       continue;
     }
-    bump(sensor.version);
-    sensor.reply_rate_of_version[sensor.version] = sensor.sensor.reply_data_rate;
+    new_sensor_version(sensor);
     Countdown& countdown = sensor.countdown;
     if (!countdown.active) {
       continue;
@@ -69,6 +67,7 @@ void TestHub::disarm() {
       }
     }
   }
+  retry_waiting_switch();
 }
 
 std::uint8_t TestHub::reply_rate(const Known& sensor, std::uint8_t held_version,
@@ -135,14 +134,19 @@ void TestHub::on_sensor_packet(std::size_t index, const Opened& opened, const Ar
       protocol::Started started;
       static_cast<void>(protocol::decode_body(body, started));
       held_version = started.settings_version;
+      note_confirmation(sensor, held_version);
       // The hub always replies to a sensor's Started (protocol section 6).
       reply_to_sensor(index, arrival, held_version, opened.counter, false, false);
+      if (move_.stage == MoveStage::switched && arrived_on_new(arrival)) {
+        note_followed(sensor);
+      }
       return;
     }
     default:
       return;
   }
   held_version = status.settings_version;
+  note_confirmation(sensor, held_version);
   wanted = status.flags.reply_wanted || held_version != sensor.version;
   // Until a reply goes, a fallen-back sensor listens at its sending rate after any packet.
   sensor.listening_at_send_rate = status.flags.listening_at_send_rate;
@@ -152,10 +156,16 @@ void TestHub::on_sensor_packet(std::size_t index, const Opened& opened, const Ar
   if (opened.type == protocol::message_type::door_changed && status.flags.door_open) {
     door_opened(index, status, opened.counter, arrival);
   }
+  // The first packet on the new settings is answered at the rate it came at (protocol section 7).
+  const bool first_on_new =
+      move_.stage == MoveStage::switched && arrived_on_new(arrival) && !sensor.move_followed;
   if (wanted) {
     reply_to_sensor(index, arrival, held_version, opened.counter,
                     opened.type == protocol::message_type::heartbeat,
-                    status.flags.listening_at_send_rate);
+                    status.flags.listening_at_send_rate || first_on_new);
+  }
+  if (first_on_new) {
+    note_followed(sensor);
   }
 }
 
@@ -193,6 +203,7 @@ void TestHub::door_opened(std::size_t index, const protocol::SensorStatus& statu
     const std::int64_t left = seconds_left(now, sirens_stop, 0xFFFF);
     decide(HubAction::late_report_sirens, sensor.name, left);
     alarm_ = true;
+    alarm_until_ = now + device::seconds(left);
     sound_sirens(static_cast<std::uint16_t>(left));
   } else {
     decide(HubAction::late_report_notification, sensor.name,
@@ -208,11 +219,14 @@ void TestHub::countdown_ended(std::size_t index, std::uint64_t generation) {
   }
   countdown.active = false;
   if (!armed_) {
+    retry_waiting_switch();
     return;
   }
   alarm_ = true;
+  alarm_until_ = sim_.now() + device::seconds(options_.alarm_seconds);
   decide(HubAction::alarm, sensor.name);
   sound_sirens(options_.alarm_seconds);
+  retry_waiting_switch();
 }
 
 void TestHub::sound_sirens(std::uint16_t seconds) {
@@ -254,6 +268,7 @@ void TestHub::reply_to_sensor(std::size_t index, const Arrival& arrival, std::ui
   reply.next_heartbeat_tenths =
       heartbeat && options_.heartbeat_slots ? next_heartbeat_tenths(index, arrival.ended_at) : 0;
   reply.clock_correction_ten_ppm = sensor.sensor.clock_correction_ten_ppm;
+  fill_move(sensor, arrival, reply);
 
   Downlink downlink;
   downlink.packet =

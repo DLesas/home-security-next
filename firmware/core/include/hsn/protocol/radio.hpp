@@ -43,4 +43,12 @@ std::optional<std::uint8_t> spreading_factor(std::uint8_t data_rate);
  */
 Result<std::uint32_t> time_on_air_microseconds(std::uint8_t data_rate, std::size_t length);
 
+/**
+ * Returns the event listen time for a packet sent at `data_rate`, in milliseconds: how long a
+ * sensor listens for the hub's answer after a door, cover, button, started or log packet, and how
+ * late the hub may start that answer (section 8 †). Fails with Error::bad_value for an unlisted
+ * data rate.
+ */
+Result<std::uint16_t> event_listen_milliseconds(std::uint8_t data_rate);
+
 }  // namespace hsn::protocol

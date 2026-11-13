@@ -54,14 +54,26 @@ hsn_test_executable(hsn_tests
   host/test_hub_test.cpp
   host/test_hub_gateway_test.cpp
   host/test_hub_log_test.cpp
+  host/test_hub_move_test.cpp
   host/readme_example_test.cpp
   host/hub_radio_test.cpp
+  host/real_time_test.cpp
+  host/pty_link_test.cpp
+  host/bench_json_test.cpp
+  host/bench_script_test.cpp
+  host/restart_links_test.cpp
   system/armed_door_test.cpp)
 target_compile_definitions(hsn_tests PRIVATE
   HSN_VECTORS_DIR="${PROJECT_SOURCE_DIR}/../packages/protocol/vectors")
 file(GLOB hsn_sim_test_sources CONFIGURE_DEPENDS host/*.cpp system/*.cpp)
 set_source_files_properties(device/device_runner_test.cpp ${hsn_sim_test_sources}
   PROPERTIES COMPILE_OPTIONS -fno-rtti)
+
+# A short real-time run of the bench executable, hsn_bench, with no hub: its own executable, since
+# it spawns the program and talks to it over pseudo-terminals.
+hsn_test_executable(hsn_bench_run_tests host/bench_run_test.cpp)
+target_compile_definitions(hsn_bench_run_tests PRIVATE HSN_BENCH_PATH="$<TARGET_FILE:hsn_bench>")
+add_dependencies(hsn_bench_run_tests hsn_bench)
 
 # One executable per role, hsn_role_<role>_tests: every .cpp under tests/roles/<role>/, against
 # that role's library only, so its owner adds files without editing this file and another role's

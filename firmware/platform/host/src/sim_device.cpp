@@ -137,7 +137,7 @@ void SimDevice::boot(device::BootInfo info) {
   metered("boot", [&]() { boot_->runner.start(device::Event::booted(local, info)); });
 }
 
-void SimDevice::go_down() {
+void SimDevice::go_down(bool finish_sending) {
   board_.clock.set(local_now());
   // Every path that stops the chip resets its pins: the sounder output goes low.
   if (board_.siren_io.drive_low_on_reset()) {
@@ -146,8 +146,8 @@ void SimDevice::go_down() {
     context_.timeline.add(entry);
   }
   radio_.quiesce();
-  usb_.device_reset();
-  network_.device_reset();
+  usb_.device_reset(finish_sending);
+  network_.device_reset(finish_sending);
   boot_.reset();
   wake_generation_ += 1;
 }
@@ -184,8 +184,9 @@ void SimDevice::plan() {
   const bool depth_changed = !waited_ || last_wait_.depth != request.depth;
   last_wait_ = request;
   if (request.restart) {
+    // Asked for through the waiter: the links finish sending what they were given first.
     context_.timeline.add(record(RecordKind::restart));
-    go_down();
+    go_down(true);
     start_boot(device::BootKind::other_reset, device::WakeMask(), kResetSoftware);
     return;
   }

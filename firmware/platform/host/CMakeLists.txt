@@ -28,6 +28,11 @@ add_library(hsn_host STATIC
   src/hub_radio.cpp
   src/test_hub.cpp
   src/hub_sensors.cpp
+  src/hub_move.cpp
+  src/real_time.cpp
+  src/pty_link.cpp
+  src/bench_json.cpp
+  src/bench_script.cpp
   src/hub_sirens.cpp
   src/hub_gateways.cpp)
 target_include_directories(hsn_host PUBLIC include)

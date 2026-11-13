@@ -26,6 +26,15 @@ void HubRadio::listen() {
   medium_.receive(station_, listening);
 }
 
+void HubRadio::retune(std::uint32_t site_frequency_hz, std::uint8_t data_rates) {
+  site_frequency_hz_ = site_frequency_hz;
+  data_rates_ = data_rates;
+  // While it sends it is deaf; it listens again, retuned, when the send ends.
+  if (!busy()) {
+    listen();
+  }
+}
+
 bool HubRadio::busy() const {
   return medium_.transmitting(station_);
 }

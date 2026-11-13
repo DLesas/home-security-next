@@ -22,11 +22,10 @@ void SirenRole::on_boot(const device::BootInfo& boot, device::Instant now) {
     io_.output(on);
   }
   load_settings(now);
-  const std::optional<std::uint32_t> site =
-      device::site_channel_frequency(services_.setup.pairing().site_channel);
-  if (!site.has_value()) {
+  // Settings only ever hold a channel this version knows; the pairing's may not be one.
+  if (!device::site_channel_frequency(state_.settings.site_channel).has_value()) {
     services_.log.add(now, device::LogLevel::error, siren_log::no_site_channel, "no site channel",
-                      services_.setup.pairing().site_channel);
+                      state_.settings.site_channel);
   }
   state_.started_pending = true;
   state_.timers.arm(SirenTimer::started_lora, now + kStartedLoraAfter);
@@ -90,6 +89,8 @@ SirenSettingsHeld SirenRole::default_settings() const {
   // §2: until it has a reply rate, a device listens at its own sending rate.
   held.send_data_rate = fastest_allowed_rate();
   held.command_data_rate = held.send_data_rate;
+  // §7, D115: the pairing gives the first site channel; settings may move it.
+  held.site_channel = services_.setup.pairing().site_channel;
   held.max_sound_seconds = kDefaultMaxSoundSeconds;
   return held;
 }
@@ -118,6 +119,9 @@ void SirenRole::load_settings(device::Instant now) {
     }
     if (!protocol::is_known<protocol::DataRate>(held.command_data_rate)) {
       held.command_data_rate = fallback.command_data_rate;
+    }
+    if (!protocol::is_known<protocol::SiteChannel>(held.site_channel)) {
+      held.site_channel = fallback.site_channel;
     }
     return;
   }

@@ -72,13 +72,28 @@ TEST_CASE("unknown message types are refused and never visited") {
   CHECK_FALSE(visited);
 }
 
+TEST_CASE("a reply built without the move fields announces no move") {
+  const protocol::Reply reply{};
+  CHECK(reply.next_site_channel == protocol::kStaysAsItIs);
+  CHECK(reply.next_send_data_rate == protocol::kStaysAsItIs);
+  std::array<std::uint8_t, 15> out{};
+  const auto size = protocol::encode_plaintext(reply, out);
+  REQUIRE(size.ok());
+  CHECK(size.value() == 15);
+  CHECK(out[13] == 0xFF);
+  CHECK(out[14] == 0xFF);
+  // The body before D115 was 12 bytes; it is now too short.
+  protocol::Reply decoded{};
+  CHECK(protocol::decode_body(protocol::ByteView(out).subspan(1, 12), decoded) == Error::truncated);
+}
+
 TEST_CASE("flags write unnamed bits as zero and ignore them when read") {
   protocol::Reply reply{};
   reply.flags = {true, true, true};
   std::array<std::uint8_t, 16> out{};
   REQUIRE(protocol::encode_plaintext(reply, out).ok());
   CHECK(out[2] == 0x07);
-  std::array<std::uint8_t, 12> body{};
+  std::array<std::uint8_t, 14> body{};
   body[1] = 0xF8;
   REQUIRE(protocol::decode_body(protocol::ByteView(body), reply) == Error::none);
   CHECK(to_json(reply.flags) ==

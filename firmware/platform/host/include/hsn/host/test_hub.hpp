@@ -20,6 +20,7 @@
 #include "hsn/protocol/binding.hpp"
 #include "hsn/protocol/messages.hpp"
 #include "hsn/protocol/packet.hpp"
+#include "hsn/protocol/radio.hpp"
 #include "hsn/psa/psa_packet_cipher.hpp"
 
 namespace hsn::host {
@@ -30,6 +31,15 @@ enum class HubMode : std::uint8_t {
   direct_radio,
   /** Real gateway roles carry every radio packet over their links: gateway and system tests. */
   gateway_link,
+};
+
+/**
+ * The event listen time per sending data rate, read from the protocol's one table
+ * (protocol::event_listen_milliseconds, section 8): a view, not a copy.
+ */
+struct EventListenTable {
+  /** Milliseconds for a data rate; the slowest rate's for an unlisted one. */
+  std::uint16_t operator[](std::size_t data_rate) const;
 };
 
 /** The hub's settings; timings default to protocol section 8. */
@@ -51,8 +61,8 @@ struct HubOptions {
   device::Duration link_latency = device::milliseconds(25);
   /** Heartbeat reply moment: from a heartbeat's end to its reply's start. */
   device::Duration reply_moment = device::seconds(1);
-  /** Event listen time per sending data rate, DR0 to DR5, in milliseconds. */
-  std::array<std::uint16_t, 6> event_listen_ms{3000, 2600, 2200, 1900, 1700, 1500};
+  /** Event listen time per sending data rate, in milliseconds: the protocol's table. */
+  EventListenTable event_listen_ms;
   /** The disarmed notice is sent twice, this far apart. */
   device::Duration disarmed_notice_gap = device::seconds(2);
   /** Siren commands repeat this often on Wi-Fi and on LoRa until confirmed, for this long. */
@@ -110,6 +120,27 @@ struct GatewayConfig {
   bool usb = false;
   /** The hub is at the other end of the gateway's network link. */
   bool network = true;
+};
+
+/**
+ * A move of the whole site to another channel, sending rate or both (protocol section 7, D115).
+ * A setting left empty stays as it is.
+ */
+struct SiteMove {
+  /** 0 = 868.1, 1 = 868.3, 2 = 868.5 MHz. */
+  std::optional<std::uint8_t> site_channel;
+  /** The one data rate every sensor and siren will send at and every gateway listen at. */
+  std::optional<std::uint8_t> send_data_rate;
+};
+
+/** Where a move stands. */
+enum class MoveStage : std::uint8_t {
+  /** No move, or the last one is done or cancelled. */
+  none,
+  /** Every sensor's replies name the next settings; the hub waits for each to confirm. */
+  announcing,
+  /** Gateways and sirens have the new settings; sensors follow. */
+  switched,
 };
 
 /**
@@ -175,6 +206,41 @@ public:
    * replaces whatever the siren had waiting.
    */
   void command_siren(const std::string& name, std::uint8_t action, std::uint16_t seconds);
+
+  /**
+   * Starts a move (protocol section 7, step 1, "Announce"): every sensor gets a settings version
+   * whose replies name the next channel and rate. Throws while another move is in progress, or
+   * when it would change nothing.
+   */
+  void announce_move(const SiteMove& move);
+
+  /**
+   * Step 2, "Switch": gateways get their new settings (in direct radio mode, the hub's radio
+   * retunes), then each siren its settings with the new channel and rate on both paths. Refused,
+   * naming each sensor that has not confirmed, unless `force`; forced, it names each such
+   * sensor as left behind. During a countdown or an alarm it waits for them to end. Returns true
+   * when it switched now.
+   */
+  bool switch_move(bool force = false);
+
+  /** Cancels a move before the switch: every sensor gets a version announcing nothing. */
+  void cancel_move();
+
+  /** Where the move stands. */
+  MoveStage move_stage() const {
+    return move_.stage;
+  }
+
+  /** Sensors that have not confirmed the move being announced, in pairing order. */
+  std::vector<std::string> move_unconfirmed() const;
+
+  /** True when a device has followed the switch. */
+  bool move_followed(const std::string& name) const;
+
+  /** The site channel now (it changes at a switch). */
+  std::uint8_t site_channel() const {
+    return options_.site_channel;
+  }
 
   /** Ends a link's connection from the hub's side (a siren's Wi-Fi, a gateway's link). */
   void drop_link(const std::string& name, device::LinkKind kind,
@@ -309,6 +375,13 @@ private:
      * command clears it.
      */
     device::Instant sounding_until;
+    /** The move: versions whose replies name the next settings, and how far it got. */
+    std::map<std::uint8_t, bool> version_announces;
+    /** The version and sending rate its replies had while the move was announced. */
+    std::uint8_t announce_version = 0;
+    std::uint8_t announce_send_rate = 0;
+    bool move_confirmed = false;
+    bool move_followed = false;
     Countdown countdown;
     SirenConfig siren;
     Pending pending;
@@ -330,6 +403,20 @@ private:
     std::int16_t rssi_dbm = 0;
     std::int8_t snr_quarter_db = 0;
     std::uint8_t data_rate = 0;
+    /** The site channel it arrived on: the hub radio's, or as the gateway forwarded it. */
+    std::uint8_t site_channel = 0;
+  };
+
+  /** The site's move (protocol section 7, D115). */
+  struct Move {
+    MoveStage stage = MoveStage::none;
+    SiteMove target;
+    /** The channel and rate the site is moving to, every setting filled in. */
+    std::uint8_t to_channel = 0;
+    std::uint8_t to_rate = 0;
+    /** A switch asked during a countdown or an alarm, and whether it was forced. */
+    bool switch_waiting = false;
+    bool force = false;
   };
 
   /** A packet the hub opened. */
@@ -414,6 +501,18 @@ private:
   void repeat_on_lora(std::size_t index, std::uint64_t generation);
   std::uint8_t command_rate(const Known& siren) const;
 
+  // hub_move.cpp: moving the site (protocol section 7, "Changing the site's channel or rate").
+  void new_sensor_version(Known& sensor);
+  bool arrived_on_new(const Arrival& arrival) const;
+  void note_confirmation(Known& sensor, std::uint8_t held_version);
+  void note_followed(Known& device);
+  bool alarm_running() const;
+  bool switch_blocked();
+  void retry_waiting_switch();
+  void do_switch(bool forced);
+  void note_followed_all_done();
+  void fill_move(const Known& sensor, const Arrival& arrival, protocol::Reply& reply) const;
+
   // hub_gateways.cpp: connection, settings, forwarded packets, transmit requests and results.
   void on_gateway_packet(std::size_t index, LinkWire& wire, const Bytes& packet);
   void send_gateway_settings(std::size_t index);
@@ -427,6 +526,9 @@ private:
   std::unique_ptr<HubRadio> radio_;
   bool armed_ = false;
   bool alarm_ = false;
+  /** When the alarm's sounding time ends: an alarm runs until then, or a disarm. */
+  device::Instant alarm_until_;
+  Move move_;
   std::uint64_t random_state_;
   std::uint64_t next_tag_ = 1;
   std::map<std::uint64_t, Outstanding> outstanding_;

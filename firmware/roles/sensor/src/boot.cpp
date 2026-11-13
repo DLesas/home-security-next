@@ -38,7 +38,12 @@ void SensorRole::cold_start(device::Instant now) {
   state_ = kFreshState;
   ensure_settings_loaded(now);
   state_.settings = settings_record_.get();
-  const std::uint8_t mask = services_.setup.pairing().allowed_data_rate_mask;
+  if (!settings_record_.stored()) {
+    // The pairing gives the site's channel and rates only until settings are stored (§7, §9).
+    state_.settings.site_channel = services_.setup.pairing().site_channel;
+    state_.settings.allowed_rate_mask = services_.setup.pairing().allowed_data_rate_mask;
+  }
+  const std::uint8_t mask = state_.settings.allowed_rate_mask;
   state_.send_rate = is_allowed_rate(state_.settings.send_data_rate, mask)
                          ? state_.settings.send_data_rate
                          : fastest_allowed_rate(mask);

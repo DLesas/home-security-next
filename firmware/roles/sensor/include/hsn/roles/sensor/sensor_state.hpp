@@ -9,6 +9,7 @@
 #include "hsn/device/services/secure_channel.hpp"
 #include "hsn/device/time.hpp"
 #include "hsn/device/timers.hpp"
+#include "hsn/protocol/messages.hpp"
 
 // The door sensor's whole state between wakes (design §5): one trivially copyable struct that
 // Device keeps in the retained block. Nothing here is written to flash except the settings
@@ -124,6 +125,14 @@ struct StoredSettings {
   std::uint8_t send_data_rate = 0;
   /** Data rate replies come at (§7, "Faster replies"). */
   std::uint8_t reply_data_rate = 0;
+  /** The site channel it sends on: the pairing's, until a move replaces it (§7, D115). */
+  std::uint8_t site_channel = 0;
+  /** The data rates it may send at, one bit each: the pairing's, until a move (§7, D115). */
+  std::uint8_t allowed_rate_mask = 0;
+  /** The channel the site is moving to, or protocol::kStaysAsItIs (§6, reply; §7). */
+  std::uint8_t next_site_channel = protocol::kStaysAsItIs;
+  /** The sending rate the site is moving to, or protocol::kStaysAsItIs (§6, reply; §7). */
+  std::uint8_t next_send_data_rate = protocol::kStaysAsItIs;
   /** Written as zero. */
   std::uint8_t reserved = 0;
 };
@@ -135,8 +144,11 @@ struct StoredSettings {
  */
 class TryRing {
 public:
-  /** Adds a counter; when full, the oldest goes. */
-  void add(std::uint32_t counter, TryKind kind);
+  /** Adds a counter, and whether it went on the next settings of a move; the oldest goes. */
+  void add(std::uint32_t counter, TryKind kind, bool on_next = false);
+
+  /** True when a counter's packet went on the next settings of a move (§7, D115). */
+  bool sent_on_next(std::uint32_t counter) const;
 
   /** Removes every counter of one kind. */
   void remove(TryKind kind);
@@ -156,6 +168,8 @@ public:
 private:
   std::array<std::uint32_t, device::kMaxBoundCandidates> counters_{};
   std::array<TryKind, device::kMaxBoundCandidates> kinds_{};
+  /** One bit per slot: that packet went on the next settings. */
+  std::uint16_t on_next_ = 0;
 };
 
 /** Adds one to a counter byte, stopping at its largest value: every count here is bounded. */
@@ -183,6 +197,8 @@ struct SensorState {
   // Sending and listening (§7).
   /** The rate it sends at: the settings' rate, or slower after unanswered packets (LR4). */
   std::uint8_t send_rate = 0;
+  /** The next packet goes on the next settings of a move: the last one went unanswered (§7). */
+  bool use_next = false;
   /** Listening for answers at the sending rate, flag bit 7 (§7, data rate). */
   bool listen_at_send_rate = false;
   /** Reply-wanted packets in a row that went unanswered. */
@@ -276,6 +292,6 @@ static_assert(std::is_trivially_copyable_v<SensorState>, "the retained block is 
 constexpr SensorState kFreshState{};
 
 /** Bumped whenever SensorState changes: an old retained copy is then discarded. */
-constexpr std::uint8_t kSensorStateLayout = 4;
+constexpr std::uint8_t kSensorStateLayout = 5;
 
 }  // namespace hsn::roles::sensor
