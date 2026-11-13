@@ -60,7 +60,7 @@ The hub chooses the site channel during setup, as the quietest of the three on t
 | DR4 | SF8 |
 | DR5 | SF7 |
 
-A gateway's one radio hears one data rate at a time. So until spike S7 shows it can hear two (O14), **a site has one sending rate**: every sensor and siren sends at it, every gateway listens at it, and the hub pairs each device with that one rate allowed. The hub chooses it from the range test: DR5 where every device is near enough, a slower one otherwise †. Replies and commands may still use a faster rate than the site's, because the gateway can transmit at any rate. A device listens for the hub on 869.525 MHz at the reply data rate in its settings, usually faster than the rate it sends at (section 7). Until it has one, it listens at its own sending rate.
+A gateway's one radio hears one data rate at a time. So until spike S7 shows it can hear two (O14), **a site has one sending rate**: every sensor and siren sends at it, every gateway listens at it, and the hub pairs each device with that one rate allowed. The hub chooses it from the range test: DR5 where every device is near enough, a slower one otherwise †. It can change the site's channel and rate later, over the air, without any device being paired again (section 7, D115). Replies and commands may still use a faster rate than the site's, because the gateway can transmit at any rate. A device listens for the hub on 869.525 MHz at the reply data rate in its settings, usually faster than the rate it sends at (section 7). Until it has one, it listens at its own sending rate.
 
 ### Time on air
 
@@ -69,7 +69,7 @@ Milliseconds, from the formula in spike S2.
 | Packet | Bytes | SF7 | SF9 | SF10 | SF12 |
 | --- | --- | --- | --- | --- | --- |
 | Sensor status | 25 | 62 | 206 | 412 | 1,483 |
-| Hub reply | 30 | 72 | 226 | 453 | 1,647 |
+| Hub reply | 32 | 72 | 247 | 453 | 1,810 |
 | Disarmed notice | 18 | 51 | 185 | 330 | 1,319 |
 | Siren command | 21 | 57 | 185 | 371 | 1,483 |
 | Siren report | 28 | 67 | 226 | 412 | 1,647 |
@@ -129,7 +129,7 @@ Encryption is **AES-128-CCM with an 8-byte tag**, using the device's 16-byte key
 
 The address in the clear lets the hub find the key without trying them all. A packet from an unknown address is dropped at once, so a neighbouring system's traffic costs nothing. Two neighbouring systems sharing an address by chance still cannot read each other's packets; the tag check fails.
 
-The smallest packet is 18 bytes and the largest radio packet in this version is 30. A radio packet may be up to 255 bytes. Over WebSocket and USB a packet may be up to 1,024 bytes, which forwarded packets and log entries need.
+The smallest packet is 18 bytes. The largest radio packets in this version are the hub's reply, 32 bytes, and a log entry over LoRa, up to 50. A radio packet may be up to 255 bytes. Over WebSocket and USB a packet may be up to 1,024 bytes, which forwarded packets and log entries need.
 
 ### Encoding rules
 
@@ -165,8 +165,8 @@ These remove any guessing, so every implementation produces the same bytes.
 
 | Receiver | Accepts a packet when | Keeps |
 | --- | --- | --- |
-| Hub, from a sensor or siren | The tag checks, and the counter is either higher than any accepted from that device, or one of the 64 below the highest (down to highest − 64) that has not been seen yet | The highest counter and which of the 64 below it were seen, per device, saved with every packet |
-| Hub, from a gateway | The tag checks, the packet is bound to the current connection, and the counter is higher than the last one on that connection. The first packet on a new connection may carry any counter | Nothing beyond the connection |
+| Hub, from a sensor or siren | The tag checks, and the counter is either higher than any accepted from that device, or one of the 64 below the highest (down to highest − 64) that has not been seen yet | The highest counter and which of the 64 below it were seen, per device, saved with the hub's next database commit: at once for a door, cover, button or started report, and within five minutes for routine packets (D112) |
+| Hub, from a gateway | The tag checks, the packet is bound to the current connection, and the counter is higher than the last one on that connection. A hello opens a new connection when its counter is higher than any the hub has accepted from that gateway, so a recorded hello cannot be replayed. A gateway that is already connected is not replaced until the new connection has proved itself with its first packet bound to the new session | The highest counter accepted from each gateway |
 | Sensor | The packet is bound to one of the sensor's own packets in the current exchange | Its own recent counters only, in sleep-retained memory |
 | Siren, commands and settings | The tag checks and the counter is higher than the last command accepted; strictly higher, so commands can never be carried out out of order | The last accepted command counter, saved to flash with each command; commands are rare |
 | Gateway | The packet is bound to the current connection, and its counter is higher than the last one on that connection. The first packet on a new connection may carry any counter | Nothing beyond the connection |
@@ -191,9 +191,11 @@ The bindings let sensors and gateways reject replays without saving anything to 
 
 Siren commands carry no binding. The hub sends the same command bytes over LoRa and Wi-Fi, and the siren's counter check drops whichever copy arrives second (D73). A binding would make the two copies differ while sharing one nonce, which this encryption scheme forbids.
 
-### Known limit
+### Known limits
 
-Packets recorded between a backup and its restore could each be replayed once to the restored hub. The risk is accepted for two reasons. Device reports carry the current state, so a replayed one is corrected by the next real one. And the change count in sensor reports shows the hub if door changes were missed.
+The hub commits routine packets (heartbeats, regular siren reports, statuses) in batches every five minutes, so that it does not wear out a small computer's memory card (D112). If the hub loses power, the routine packets it accepted since its last commit are forgotten, and each could be replayed to it once after it restarts. Door, cover, button and started reports are committed before they are answered, so they can never be replayed: a replayed door report could otherwise start a false alarm. What the hub sends is not affected: its own counters use resume points, written through to storage before they are needed.
+
+Packets recorded between a backup and its restore could each be replayed once to the restored hub. Both risks are accepted for two reasons. Device reports carry the current state, so a replayed one is corrected by the next real one. And the change count in sensor reports shows the hub if door changes were missed.
 
 ## 5. Message types
 
@@ -267,8 +269,10 @@ Bound to the sensor packet it answers.
 | 7 | 1 | Data rate replies will use |
 | 8 | 2 | Next heartbeat: when to send it, in tenths of a second after the end of the packet this reply answers; 0 keeps the current schedule |
 | 10 | 2 | Clock correction: how much to stretch or shrink the sensor's sleep times, signed, in units of 10 parts per million (so ±32%) |
+| 12 | 1 | Next site channel, numbered as in gateway settings: the channel the site is moving to. 0xFF when the channel stays as it is (section 7, "Changing the site's channel or rate") |
+| 13 | 1 | Next sending rate: the data rate the site is moving to. 0xFF when the rate stays as it is. With both fields 0xFF no move is announced |
 
-A reply always carries the full settings, so a sensor never has to ask twice.
+A reply always carries the full settings, so a sensor never has to ask twice. The settings version covers every setting in the reply, the clock correction included, so the hub always knows which correction a sensor holds. Only replies to heartbeats and to Started give a time for the next heartbeat; replies to door, cover, button and log packets carry 0, so an event does not move the rhythm.
 
 ### Disarmed notice (0x82)
 
@@ -304,8 +308,9 @@ No body. Bound to the door report that started the countdown. It also tells the 
 | 3 | 2 | Longest a command may make it sound, seconds |
 | 5 | 1 | Data rate to send at |
 | 6 | 1 | Data rate commands will use |
+| 7 | 1 | Site channel to send on, numbered as in gateway settings |
 
-The siren answers with a report. A report interval, check interval or longest time of 0 is not valid: the siren keeps the value it holds and logs a warning, so a bad settings packet can never stop it sounding. Until settings arrive, a siren caps a command at 5 minutes (D40).
+The siren answers with a report. It uses a new site channel or sending rate from its next transmission on. A report interval, check interval or longest time of 0 is not valid: the siren keeps the value it holds and logs a warning, so a bad settings packet can never stop it sounding. Until settings arrive, a siren caps a command at 5 minutes (D40).
 
 ### Hello (0x20) and welcome (0xA0)
 
@@ -372,8 +377,8 @@ Every request gets exactly one result, so the hub always knows what was not sent
 | 7 | 1 | Noise level, median since the last status, dBm, signed |
 | 8 | 1 | Noise level, highest since the last status, dBm, signed |
 | 9 | 1 | Normal noise level the gateway has learned, dBm, signed |
-| 10 | 2 | Packets received since the last status |
-| 12 | 2 | Packets that failed the radio's CRC |
+| 10 | 2 | Packets received with a good CRC since the last status, whatever their length |
+| 12 | 2 | Packets that failed the radio's CRC since the last status; they are not counted in the field before |
 | 14 | 1 | Wi-Fi signal strength, dBm, signed; 0 on USB |
 | 15 | 1 | Flags. Bit 0 connected by USB, 1 cell fitted, 2 on mains |
 
@@ -389,9 +394,9 @@ Sent as soon as interference starts and again when it ends (GW11, D82).
 
 ### Log entries (0x30)
 
-One or more entries, each: age (4), level (1), code (2), text length (1), text (up to 64 bytes). Age is how long before this packet was sealed the entry was made, in tenths of a second, so the hub can date an entry without knowing the device's clock. Entries fill the body exactly, so a partial entry at the end makes the body not valid.
+One or more entries, each: age (4), level (1), code (2), text length (1), text (up to 64 bytes). Levels: 0 debug, 1 info, 2 warning, 3 error, 4 critical; a level this version does not list is kept as it is. Age is how long before this packet was sealed the entry was made, in tenths of a second, so the hub can date an entry without knowing the device's clock. Entries fill the body exactly, so a partial entry at the end makes the body not valid.
 
-Over Wi-Fi and USB a device sends its entries as they arise. Over LoRa a packet carries one entry, of warning level or above, and counts as routine traffic: a device sends at most one after each heartbeat or LoRa check. The hub always replies to a sensor's log entries packet, and the entry stays in the sensor's buffer until that reply arrives. A sensor whose latest reply-wanted packet went unanswered holds its log entries until a reply arrives: sending them to a hub that is not answering would only use up the airtime its heartbeats need. So a fault inside a sensor reaches the hub within about one heartbeat, and nothing a device logs at warning level or above is lost while it can still reach the hub (D110).
+Over Wi-Fi and USB a device sends its entries as they arise. Over LoRa a packet carries one entry, of warning level (2) or above, with at most 24 bytes of text, so the packet is at most 50 bytes; it counts as routine traffic: a device sends at most one after each heartbeat or LoRa check. The hub always replies to a sensor's log entries packet, and the entry stays in the sensor's buffer until that reply arrives. A sensor whose latest reply-wanted packet went unanswered holds its log entries until a reply arrives: sending them to a hub that is not answering would only use up the airtime its heartbeats need. So a fault inside a sensor reaches the hub within about one heartbeat, and nothing a device logs at warning level or above is lost while it can still reach the hub (D110).
 
 ## 7. Exchanges
 
@@ -419,7 +424,7 @@ Sensor               Gateway                Hub
   │ stops buzzing       │                      │
 ```
 
-If nobody disarms, the hub sounds the sirens when the countdown ends (AL3), and the sensor stops buzzing at the same moment.
+If nobody disarms, the hub sounds the sirens when the countdown ends (AL3), and the sensor stops buzzing at the same moment. If the hub or its gateway fails during the countdown, nothing sounds until the hub is back and resumes it (D113); this is an accepted limit.
 
 ### Heartbeat slots
 
@@ -428,6 +433,7 @@ The hub gives every sensor its own moment in the heartbeat cycle, so that heartb
 - **Planning:** the hub spreads the heartbeats of every sensor on the site evenly over time, taking each one's interval and packet length into account. It keeps the moments when it will send link-check replies clear of them too.
 - **Telling the sensor:** every link-check reply gives the time of the sensor's next heartbeat, counted from the end of the heartbeat it answers, so no clocks need to agree.
 - **Correcting the clock:** a sensor's sleep clock is a cheap oscillator that runs a few percent fast or slow. The hub sees each heartbeat arrive, works out how fast that sensor's clock runs, and sends a correction in parts per million. The sensor scales its sleep times by it.
+- **Aiming the reply:** a sensor times the wait for its heartbeat reply on that same cheap clock. One that runs more than about 2% off would open its listening window before or after a reply sent exactly at the reply moment, never hear it, and so never receive its correction. The hub therefore aims each heartbeat reply at the moment the sensor will really be listening, using its own estimate of that sensor's clock; once the sensor holds its correction the two agree.
 - **Between replies:** the sensor keeps its schedule from the last reply it received. One that has not had a reply yet, or has lost several, uses its interval with ±10% at random until it hears again.
 - **What slots do not touch:** door, cover and button reports still go out the moment something happens.
 
@@ -465,9 +471,36 @@ The sensor retries about 2, 5 and 10 seconds after the event, then every 60 seco
 
 ### Data rate
 
-A sensor starts at the fastest data rate the site allows and keeps the rate that last worked (LR4). When two reply-wanted packets in a row go unanswered, it first goes back to listening for replies at its own sending rate, in case the faster reply was what failed, and says so with flag bit 7 in each packet. The hub then answers at the rate the packet arrived at. The sensor returns to its reply rate when a reply tells it one again. If two more go unanswered, it steps its sending rate one slower among the rates its pairing allows, and again after every two more. From the slowest allowed rate it goes back to the fastest, so a sensor can never be left on a rate nobody listens at. With one rate allowed, as every site has for now, there is nothing to step to and it keeps its rate. A single loss is usually a collision, and a slower rate would only make collisions likelier. The hub tells it to step faster in a reply when the signal margin is large. While its latest reply-wanted packet is unanswered, a sensor asks for a reply on every heartbeat, not only every Nth, so one that lost touch during an outage is back within a heartbeat or two of the gateway's return.
+A sensor starts at the fastest data rate the site allows and keeps the rate that last worked (LR4). When two reply-wanted packets in a row go unanswered, it first goes back to listening for replies at its own sending rate, in case the faster reply was what failed, and says so with flag bit 7 in each packet. The hub then answers at the rate the packet arrived at. The sensor returns to its reply rate when a reply tells it one again. If two more go unanswered, it steps its sending rate one slower among the rates it is allowed, and again after every two more. The rates allowed are those of its pairing, until a move of the site replaces them ("Changing the site's channel or rate"). From the slowest allowed rate it goes back to the fastest, so a sensor can never be left on a rate nobody listens at. With one rate allowed, as every site has for now, there is nothing to step to and it keeps its rate. A single loss is usually a collision, and a slower rate would only make collisions likelier. The hub tells it to step faster in a reply when the signal margin is large. While its latest reply-wanted packet is unanswered, a sensor asks for a reply on every heartbeat, not only every Nth, so one that lost touch during an outage is back within a heartbeat or two of the gateway's return.
 
 At slow rates the sensor lengthens its heartbeat to stay inside its airtime: at least 3 minutes at SF11 and 5 minutes at SF12. The hub knows each sensor's rate from the forwarded packets, so its silence timeout follows the real interval (HB8). How many missed heartbeats count as silent depends on that sensor's measured packet loss (D107).
+
+### Changing the site's channel or rate
+
+The hub can move a whole site to another channel or sending rate over the air (D115). A gateway hears one rate on one channel at a time, so the move is made in three steps, and no moment needs two settings heard at once.
+
+1. **Announce.** The hub puts the next channel and rate into every sensor's reply. They are settings like the rest, so each sensor's settings version changes, and each sensor gets them at its next heartbeat. The hub waits until every sensor's packets show the new version.
+2. **Switch.** The hub sends the gateways their new settings, and they listen on the new channel and rate at once. It then sends each siren its settings with the new channel and rate, on both paths as it sends a command; a siren uses them from its next transmission.
+3. **Follow.** Each sensor finds its old settings unanswered and moves, as below. A reply to a packet that arrived on the next settings names their rate as the rate to send at and announces nothing more. A reply to a packet that still arrived on the old settings, heard by a gateway that had not yet switched, goes on announcing the move.
+
+What a sensor does while it holds next settings:
+
+- It asks for a reply on every heartbeat, so it notices the switch at its first heartbeat after it.
+- When a reply-wanted packet goes unanswered, its following packet goes on the other settings: the next ones if that packet used the current ones, and back again if it used the next ones. It listens for the answer at the rate it sent at, and says so with flag bit 7.
+- A reply to a packet sent on the next settings makes them its current settings. They replace the channel and the allowed rate from its pairing for good: from then on the site's rate is the one rate it may send at.
+- A reply that announces no next settings clears any it holds; that is how the hub cancels a move before the switch.
+- It stores next settings in flash with its other settings, so a restart does not lose them.
+
+So an idle sensor is out of touch for a heartbeat or two after the switch, and a door report for about two seconds: its first try goes unanswered on the old settings and its retry goes on the new ones.
+
+What the hub does besides:
+
+- It does not switch until every sensor holds the next settings, unless the user forces it. With every sensor in touch that takes about two heartbeat intervals: one for the reply that announces, one for the heartbeat that confirms. The hub warns the user when a sensor has not confirmed after four intervals †, and the user then forces the switch or cancels the move. A sensor that was out of touch through the announcement never learns the next settings, keeps sending on the old ones, and has to be paired again; the hub names it.
+- It does not switch while a countdown or an alarm is running; it waits for it to end.
+- A device paired while a move is announced is given the current settings and learns the next ones like every other sensor, and the hub waits for it too. After the switch, pairing gives the new settings.
+- After the switch it holds back the silence alert of any sensor not yet heard on the new settings for four heartbeat intervals †.
+- The reply frequency, 869.525 MHz, never changes. Reply and command rates are settings of their own and change as before.
+- Every step is recorded: who asked, each sensor's confirmation, the switch, and each device first heard on the new settings (D110).
 
 ### Siren command
 
@@ -505,7 +538,7 @@ A gateway has one radio. It cannot send while it is receiving, or send two thing
 
 | Reply | When the gateway sends it | What the sensor does | If the radio is busy |
 | --- | --- | --- | --- |
-| To a heartbeat, including link checks | At a fixed moment, the heartbeat reply moment after the packet finished arriving, on the gateway's own clock | Sleeps until that moment, then listens briefly | The reply is skipped. The sensor gets its settings at the next link check. |
+| To a heartbeat, including link checks | At a fixed moment on the gateway's own clock: the heartbeat reply moment after the packet finished arriving, moved by the hub to match that sensor's clock while the sensor does not yet hold its correction ("Heartbeat slots", aiming the reply) | Sleeps until that moment, then listens briefly | The reply is skipped. The sensor gets its settings at the next link check. |
 | To a door, cover, button or started report | As soon as the radio is free, but no later than the sensor will still be listening | Listens from the moment it finishes sending, for the event listen time | The gateway waits for the radio, then sends. If it would be too late, it reports "too late" and the sensor's retry covers it. |
 | Disarmed notice | As soon as the radio is free | Listening, because it is buzzing | Waits, then sends. |
 | Siren command | As soon as the radio is free, with priority over replies | Always listening | Waits, then sends. |
@@ -526,7 +559,7 @@ Two more rules:
 | Value | Setting | Where it comes from |
 | --- | --- | --- |
 | Heartbeat reply moment: end of the heartbeat to start of the reply | 1 second † | O10 |
-| Event listen time: how long a sensor listens after a door, cover, button or started report | the hub's round trip, plus one packet's wait for a busy radio, plus the reply: from about 1.5 s at SF7 to about 3 s at SF12 with faster replies † | O10, [gateway load](spikes/gateway-load.md) |
+| Event listen time: how long a sensor listens after a door, cover, button, started or log packet, by the rate it sent at | the hub's round trip, plus one packet's wait for a busy radio, plus the reply †: 3.0 s at DR0, 2.6 s at DR1, 2.2 s at DR2, 1.9 s at DR3, 1.7 s at DR4, 1.5 s at DR5. The hub uses the same table to know how late a reply may start | O10, [gateway load](spikes/gateway-load.md) |
 | Sensor listening margin around the heartbeat reply moment | 20 ms early to 50 ms plus 8 symbols late † | Sleep clock drift |
 | Heartbeat interval | 3 minutes, at the moment the hub assigns; ±10% at random until a sensor has one | D52, DS4, D108 |
 | Reply data rate | usually three steps faster than the sending rate, chosen by the hub from the signal margin † | D108 |
@@ -557,7 +590,7 @@ The data a device receives when it is added (PR2). It is delivered over USB (sec
 | Wi-Fi network name: length, then the name's bytes exactly as the network uses them | 1 + up to 32 |
 | Wi-Fi password: length, then the password's bytes | 1 + up to 64 |
 
-Each pairing gives a new key, so counters restart at 1. The Wi-Fi name and password are carried as bytes, not text, so a device never has to check their encoding; a name the user types is encoded as UTF-8. A format version other than 1, or an address of 0 or 0xFFFFFFFF, makes the pairing data not valid.
+The site channel and the data rate allowed are the site's settings on the day the device is paired; the hub can change them later over the air (section 7, D115). Each pairing gives a new key, so counters restart at 1. The Wi-Fi name and password are carried as bytes, not text, so a device never has to check their encoding; a name the user types is encoded as UTF-8. A format version other than 1, or an address of 0 or 0xFFFFFFFF, makes the pairing data not valid.
 
 ## 10. Wi-Fi and USB
 

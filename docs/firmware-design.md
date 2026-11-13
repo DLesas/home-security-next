@@ -228,7 +228,7 @@ public:
 | RetainedMemory | Survives deep sleep. Survival through a watchdog reset or brown-out is unverified (HN(b)), so the core always checks the CRC and never assumes either way. |
 | Watchdog | The ESP-IDF task watchdog on the main task only. Reset cause comes in `BootInfo`. |
 | Random | `esp_fill_random`. This is true randomness only with Wi-Fi or the radio on, which holds for the gateway's hello. Sensor jitter needs no more. |
-| Waiter | Deep sleep and restart never return. Light sleep wakes on DIO1, inputs, link activity or `until`. Before deep sleep: stop Wi-Fi and Bluetooth, radio asleep before the SPI pins are released, LED and divider off, arm the wake levels, re-read the inputs, then sleep (HN(a)27, 34). |
+| Waiter | Deep sleep and restart never return. Before a restart the platform lets every link finish sending what it was already given, for at most 200 ms ‡, so that an answer is not cut off by the restart it announces (a Provision result, §10); a power loss gives no such grace. Light sleep wakes on DIO1, inputs, link activity or `until`. Before deep sleep: stop Wi-Fi and Bluetooth, radio asleep before the SPI pins are released, LED and divider off, arm the wake levels, re-read the inputs, then sleep (HN(a)27, 34). |
 
 Role I/O interfaces. The platform debounces inputs and reports levels as `InputEvent`s:
 

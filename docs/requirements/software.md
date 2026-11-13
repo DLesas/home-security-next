@@ -152,6 +152,7 @@ Items marked † are proposals that have not been explicitly agreed.
 | HB32 | Armed state is held per sensor; modes, groups and schedules change it as described in D74 | old hub arms per sensor |
 | HB33 | The hub turns each battery voltage into a percentage from a table for the fitted cell, and warns the users who can view a device when its battery reaches 10%. The warning is raised once on the way down and clears when the battery is back above 15% (D109) | new |
 | HB34 | Every error on the hub is caught and recorded in the event log with its origin and severity; none is swallowed. An error nothing caught is recorded before the process exits, and the restart and its cause are recorded when the hub comes back (D110) | old `eventLogs` with a system origin and four severities |
+| HB35 | The hub without cameras runs well on a Raspberry Pi 4 or 5 (D112). It keeps to a stated budget of memory, processor time and bytes written to storage per day, each measured on a real Pi before release †. What it stores stays within 500 MB of disk at the default retention (D57), for the largest site the protocol allows. Database writes are grouped: only state that must survive a power cut is written through at once (sending counters' resume points, alarm and countdown state, pairing data); every door, cover, button and started report and every warning or worse are also written at once; routine records, device readings and the replay windows of routine packets are committed together every five minutes | new |
 
 ## 9. Remote access
 
