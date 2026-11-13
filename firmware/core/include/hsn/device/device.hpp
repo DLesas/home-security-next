@@ -15,7 +15,7 @@ namespace hsn::device {
 constexpr std::uint32_t kRetainedMagic = 0x524E5348;
 
 /** Layout of the retained block's header and core part; bumped when either changes. */
-constexpr std::uint8_t kRetainedLayout = 1;
+constexpr std::uint8_t kRetainedLayout = 3;
 
 /**
  * Receives every event and passes it on (design section 2). It restores and seals the retained

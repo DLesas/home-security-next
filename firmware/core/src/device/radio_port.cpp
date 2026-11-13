@@ -31,6 +31,7 @@ Status RadioPort::send(protocol::ByteView packet, const Transmission& transmissi
   }
   std::memcpy(packet_.data(), packet.data(), packet.size());
   size_ = packet.size();
+  resume_listening_ = state_ == PortState::receiving && continuous_;
   transmission_ = transmission;
   band_ = *band;
   airtime_needed_ = *airtime;
@@ -42,13 +43,12 @@ Status RadioPort::start_check(Instant now) {
   const auto params = cad_params(transmission_.channel);
   const auto duration = cad_duration(transmission_.channel.data_rate);
   if (!params.has_value() || !duration.has_value()) {
-    state_ = PortState::idle;
+    become_idle();
     return Status::refused;
   }
   if (radio_.detect_activity(*params) != HalError::none) {
     log_.add(now, LogLevel::warning, log_code::radio_refused, "cad refused");
-    state_ = PortState::idle;
-    deadline_ = Instant::never();
+    become_idle();
     return Status::radio_error;
   }
   state_ = PortState::checking;
@@ -56,20 +56,67 @@ Status RadioPort::start_check(Instant now) {
   return Status::ok;
 }
 
+void RadioPort::start_wait(Instant now) {
+  state_ = PortState::backing_off;
+  wait_end_ = now + random_.between(kBusyWaitMin, kBusyWaitMax);
+  deadline_ = wait_end_;
+  wait_receiving_ = false;
+  wait_listening_ = false;
+  if (resume_listening_) {
+    if (radio_.receive(rx_params_) == HalError::none) {
+      wait_listening_ = true;
+    } else {
+      log_.add(now, LogLevel::warning, log_code::radio_refused, "rx refused");
+    }
+  }
+}
+
+Instant RadioPort::reception_guard(Instant now) const {
+  // A packet whose header has arrived may last up to the longest radio packet at this rate.
+  const auto longest = time_on_air(rx_params_.channel.data_rate, protocol::kMaxRadioPacketSize);
+  return now + longest.value_or(seconds(10)) + kRadioGuardMargin;
+}
+
+PortReport RadioPort::on_wait_event(const RadioEvent& event, Instant now) {
+  if (!wait_listening_) {
+    return PortReport{};
+  }
+  switch (event.kind) {
+    case RadioEventKind::header_seen:
+      // Receiving comes first: the next check waits for this reception, within a guard.
+      wait_receiving_ = true;
+      deadline_ = latest(wait_end_, reception_guard(now));
+      return PortReport{};
+    case RadioEventKind::rx_done:
+    case RadioEventKind::rx_crc_error:
+      // The receive is continuous: the radio goes on listening for the rest of the wait.
+      wait_receiving_ = false;
+      deadline_ = wait_end_;
+      return PortReport{
+          event.kind == RadioEventKind::rx_done ? PortResult::received : PortResult::rx_error,
+          event.at};
+    default:
+      return PortReport{};
+  }
+}
+
 Status RadioPort::start_transmit(Instant now) {
   // The check took time; the budget is judged again with the same class.
-  if (!airtime_.admit(band_, airtime_needed_, transmission_.tx_class, now).allowed) {
-    state_ = PortState::idle;
-    deadline_ = Instant::never();
+  const Admission admission = airtime_.admit(band_, airtime_needed_, transmission_.tx_class, now);
+  if (!admission.allowed) {
+    become_idle();
     return Status::deferred;
   }
   const HalError error = radio_.transmit(transmission_.channel, transmission_.power_dbm,
                                          protocol::ByteView(packet_.data(), size_));
   if (error != HalError::none) {
     log_.add(now, LogLevel::warning, log_code::radio_refused, "tx refused");
-    state_ = PortState::idle;
-    deadline_ = Instant::never();
+    become_idle();
     return Status::radio_error;
+  }
+  if (admission.past_limit) {
+    // D111: every packet sent past the legal hour is logged; the log merges repeats.
+    log_.add(now, LogLevel::warning, log_code::airtime_past_limit, "past airtime limit");
   }
   airtime_.record(band_, now, airtime_needed_);
   state_ = PortState::sending;
@@ -84,11 +131,11 @@ Status RadioPort::listen(const RxParams& params, Instant now) {
   }
   if (radio_.receive(params) != HalError::none) {
     log_.add(now, LogLevel::warning, log_code::radio_refused, "rx refused");
-    state_ = PortState::idle;
-    deadline_ = Instant::never();
+    become_idle();
     return Status::radio_error;
   }
   state_ = PortState::receiving;
+  rx_params_ = params;
   continuous_ = params.timeout.us == 0;
   rx_data_rate_ = params.channel.data_rate;
   rx_timeout_ = params.timeout;
@@ -107,15 +154,20 @@ void RadioPort::sleep(Instant now) {
   if (radio_.sleep(true) != HalError::none) {
     log_.add(now, LogLevel::warning, log_code::radio_refused, "sleep refused");
   }
+  become_idle();
+}
+
+void RadioPort::become_idle() {
   state_ = PortState::idle;
   deadline_ = Instant::never();
+  wait_listening_ = false;
+  wait_receiving_ = false;
 }
 
 PortReport RadioPort::recover(Instant now) {
   log_.add(now, LogLevel::error, log_code::radio_guard, "radio recovered");
   static_cast<void>(radio_.recover());
-  state_ = PortState::idle;
-  deadline_ = Instant::never();
+  become_idle();
   return PortReport{PortResult::recovered, now};
 }
 
@@ -131,8 +183,7 @@ PortReport RadioPort::on_radio(const RadioEvent& event, Instant now) {
       if (event.busy) {
         busy_checks_ = static_cast<std::uint8_t>(busy_checks_ + 1);
         if (busy_checks_ < kMaxBusyChecks) {
-          state_ = PortState::backing_off;
-          deadline_ = now + random_.between(kBusyWaitMin, kBusyWaitMax);
+          start_wait(now);
           return PortReport{};
         }
       }
@@ -145,8 +196,7 @@ PortReport RadioPort::on_radio(const RadioEvent& event, Instant now) {
       if (event.kind != RadioEventKind::tx_done) {
         return PortReport{};
       }
-      state_ = PortState::idle;
-      deadline_ = Instant::never();
+      become_idle();
       return PortReport{PortResult::sent, event.at};
     case PortState::receiving:
       switch (event.kind) {
@@ -159,25 +209,23 @@ PortReport RadioPort::on_radio(const RadioEvent& event, Instant now) {
           return PortReport{};
         case RadioEventKind::rx_done:
           if (!continuous_) {
-            state_ = PortState::idle;
-            deadline_ = Instant::never();
+            become_idle();
           }
           return PortReport{PortResult::received, event.at};
         case RadioEventKind::rx_crc_error:
           if (!continuous_) {
-            state_ = PortState::idle;
-            deadline_ = Instant::never();
+            become_idle();
           }
           return PortReport{PortResult::rx_error, event.at};
         case RadioEventKind::rx_timeout:
-          state_ = PortState::idle;
-          deadline_ = Instant::never();
+          become_idle();
           return PortReport{PortResult::rx_timeout, event.at};
         default:
           return PortReport{};
       }
-    case PortState::idle:
     case PortState::backing_off:
+      return on_wait_event(event, now);
+    case PortState::idle:
       return PortReport{};
   }
   return PortReport{};
@@ -188,6 +236,13 @@ PortReport RadioPort::on_timer(Instant now) {
     return PortReport{};
   }
   if (state_ == PortState::backing_off) {
+    // The wait is over and no reception holds it (or its guard passed): the check cancels the
+    // resumed receive.
+    if (wait_receiving_) {
+      log_.add(now, LogLevel::warning, log_code::radio_guard, "reception overran");
+    }
+    wait_receiving_ = false;
+    wait_listening_ = false;
     if (start_check(now) != Status::ok) {
       return PortReport{PortResult::not_sent, now};
     }

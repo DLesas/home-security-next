@@ -29,6 +29,27 @@ HalResult<std::uint32_t> read_u32(Storage& storage, StoreKey key) {
          (static_cast<std::uint32_t>(bytes[3]) << 24);
 }
 
+/** A transmit request's fields before its carried packet (section 6): when, time, rate, power,
+ * priority. */
+constexpr std::size_t kTransmitRequestFieldsSize = 8;
+
+/**
+ * Checks that a body holds every field its type lists (section 3), by decoding it, so a short one
+ * is dropped before any counter moves. Two cases pass to the caller: a type this version does not
+ * list, which the receiver drops and logs (section 5), and a transmit request whose fields are
+ * all there but whose carried packet is not 18 to 255 bytes, which the gateway answers "not
+ * valid" (section 6).
+ */
+Error whole_body(std::uint8_t type, ByteView body) {
+  if (type == protocol::message_type::transmit_request) {
+    return body.size() < kTransmitRequestFieldsSize ? Error::truncated : Error::none;
+  }
+  if (!protocol::is_known_message_type(type)) {
+    return Error::none;
+  }
+  return protocol::decode_message(type, body, [](const auto&) {});
+}
+
 }  // namespace
 
 Status SecureChannel::start(std::uint32_t address, protocol::CounterStep step,
@@ -142,6 +163,12 @@ Outcome<CommandOpen> SecureChannel::open_command(ByteView packet, protocol::Pack
       type != protocol::message_type::siren_settings) {
     return Outcome<CommandOpen>(Status::refused);
   }
+  // A body shorter than its type's fields is not valid (section 3): dropped before the counter is
+  // judged, so it neither moves the counter nor writes flash, as if it never came.
+  const Error body_error = whole_body(type, opened.value().body);
+  if (body_error != Error::none) {
+    return Outcome<CommandOpen>(Status::protocol_error, body_error);
+  }
   CommandOpen result;
   result.packet = opened.value();
   switch (command_rx_.accept(opened.value().header.counter)) {
@@ -174,6 +201,11 @@ Outcome<protocol::OpenedPacket> SecureChannel::open_session(ByteView packet,
                             protocol::PacketLimit::link, MutableByteView(rx_plain_));
   if (!opened.ok()) {
     return Outcome<protocol::OpenedPacket>(Status::protocol_error, opened.error());
+  }
+  // As for commands: a body short of its fields is dropped before the connection's counter moves.
+  const Error body_error = whole_body(opened.value().type, opened.value().body);
+  if (body_error != Error::none) {
+    return Outcome<protocol::OpenedPacket>(Status::protocol_error, body_error);
   }
   const std::uint32_t counter = opened.value().header.counter;
   if (!session.welcomed) {

@@ -1,6 +1,6 @@
 // USB setup messages and their rules (protocol section 10), and health reporting (FW5, FW8).
 
-#include "device/device_support.hpp"
+#include "device_support.hpp"
 #include "hsn/device/services/health.hpp"
 #include "hsn/device/services/setup.hpp"
 #include "hsn/host/fake_clock.hpp"

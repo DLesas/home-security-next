@@ -84,6 +84,37 @@ struct HubSent {
   Bytes packet;
 };
 
+/**
+ * One log entry a device sent (protocol section 6, log entries), on any path. A sensor keeps an
+ * entry it sent over LoRa until the hub's reply arrives, so when that reply is lost the hub gets
+ * the same entry again in a later packet. The audit record keeps every copy the hub received, so
+ * an entry is never lost by being taken for another, and marks a later copy with the counter of
+ * the packet that first carried it.
+ */
+struct HubLogEntry {
+  /** True instant the hub had the packet. */
+  device::Instant at;
+  /** When the entry was made: the packet's arrival less the entry's age. */
+  device::Instant made_at;
+  /** The device it came from. */
+  std::string from;
+  HubPath path = HubPath::radio;
+  /** The gateway it came through, for HubPath::gateway. */
+  std::string via;
+  /** The counter of the packet that carried it. */
+  std::uint32_t counter = 0;
+  std::uint32_t age_tenths = 0;
+  std::uint8_t level = 0;
+  std::uint16_t code = 0;
+  std::string text;
+  /**
+   * For a sensor's entry already recorded from an earlier packet (same level, code and text,
+   * made within HubOptions::log_repeat_tolerance of it): that first packet's counter. 0 for a
+   * new entry.
+   */
+  std::uint32_t repeat_of = 0;
+};
+
 /** What the hub decided. */
 enum class HubAction : std::uint8_t {
   armed,

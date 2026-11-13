@@ -123,16 +123,12 @@ void TestHub::on_sensor_packet(std::size_t index, const Opened& opened, const Ar
       protocol::Heartbeat decoded;
       static_cast<void>(protocol::decode_body(body, decoded));
       status = decoded;
-      held_version = status.settings_version;
-      wanted = status.flags.reply_wanted || held_version != sensor.version;
       break;
     }
     case protocol::message_type::button: {
       protocol::Button button;
       static_cast<void>(protocol::decode_body(body, button));
       status = button;
-      held_version = status.settings_version;
-      wanted = status.flags.reply_wanted || held_version != sensor.version;
       break;
     }
     case protocol::message_type::started: {
@@ -146,6 +142,10 @@ void TestHub::on_sensor_packet(std::size_t index, const Opened& opened, const Ar
     default:
       return;
   }
+  held_version = status.settings_version;
+  wanted = status.flags.reply_wanted || held_version != sensor.version;
+  // Until a reply goes, a fallen-back sensor listens at its sending rate after any packet.
+  sensor.listening_at_send_rate = status.flags.listening_at_send_rate;
   if (status.flags.local_alarm_sounded) {
     decide(HubAction::local_alarm_reported, sensor.name);
   }
@@ -216,8 +216,10 @@ void TestHub::countdown_ended(std::size_t index, std::uint64_t generation) {
 }
 
 void TestHub::sound_sirens(std::uint16_t seconds) {
+  // Only sirens not already sounding for this alarm are commanded: every door here adds every
+  // siren, so within one alarm each siren gets one command (protocol section 7, D95).
   for (Known& siren : known_) {
-    if (siren.role == protocol::Role::siren) {
+    if (siren.role == protocol::Role::siren && sim_.now() >= siren.sounding_until) {
       command_siren(siren.name, protocol::SirenAction::sound_alarm,
                     std::min(seconds, siren.siren.max_sound_seconds));
     }
@@ -273,6 +275,9 @@ void TestHub::reply_to_sensor(std::size_t index, const Arrival& arrival, std::ui
     downlink.limited = true;
     downlink.offset = event_listen_time(arrival.data_rate) - airtime.value_or(device::Duration{});
   }
+  // A sensor that hears this reply holds these settings and listens at their reply rate.
+  sensor.replied_version = sensor.version;
+  sensor.listening_at_send_rate = false;
   decide(HubAction::reply, sensor.name, downlink.counter);
   send_radio(downlink);
 }

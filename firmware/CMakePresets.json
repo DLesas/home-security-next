@@ -21,11 +21,44 @@
         "CMAKE_BUILD_TYPE": "MinSizeRel",
         "HSN_SANITIZE": "OFF"
       }
+    },
+    {
+      "name": "role-sensor",
+      "inherits": "host-debug",
+      "displayName": "The sensor role alone, debug, AddressSanitizer and UndefinedBehaviorSanitizer",
+      "binaryDir": "${sourceDir}/build/${presetName}"
+    },
+    {
+      "name": "role-siren",
+      "inherits": "host-debug",
+      "displayName": "The siren role alone, debug, AddressSanitizer and UndefinedBehaviorSanitizer",
+      "binaryDir": "${sourceDir}/build/${presetName}"
+    },
+    {
+      "name": "role-gateway",
+      "inherits": "host-debug",
+      "displayName": "The gateway role alone, debug, AddressSanitizer and UndefinedBehaviorSanitizer",
+      "binaryDir": "${sourceDir}/build/${presetName}"
     }
   ],
   "buildPresets": [
     { "name": "host-debug", "configurePreset": "host-debug" },
-    { "name": "host-release", "configurePreset": "host-release" }
+    { "name": "host-release", "configurePreset": "host-release" },
+    {
+      "name": "role-sensor",
+      "configurePreset": "role-sensor",
+      "targets": ["hsn_role_sensor", "hsn_role_sensor_tests"]
+    },
+    {
+      "name": "role-siren",
+      "configurePreset": "role-siren",
+      "targets": ["hsn_role_siren", "hsn_role_siren_tests"]
+    },
+    {
+      "name": "role-gateway",
+      "configurePreset": "role-gateway",
+      "targets": ["hsn_role_gateway", "hsn_role_gateway_tests"]
+    }
   ],
   "testPresets": [
     {
@@ -38,6 +71,35 @@
       "name": "host-release",
       "configurePreset": "host-release",
       "output": { "outputOnFailure": true },
+      "execution": { "noTestsAction": "error" }
+    },
+    {
+      "name": "role-sensor",
+      "configurePreset": "role-sensor",
+      "output": { "outputOnFailure": true },
+      "filter": {
+        "include": { "name": "^(hsn_role_sensor_tests|role_sensor_sources|role_sensor_symbols)$" }
+      },
+      "execution": { "noTestsAction": "error" }
+    },
+    {
+      "name": "role-siren",
+      "configurePreset": "role-siren",
+      "output": { "outputOnFailure": true },
+      "filter": {
+        "include": { "name": "^(hsn_role_siren_tests|role_siren_sources|role_siren_symbols)$" }
+      },
+      "execution": { "noTestsAction": "error" }
+    },
+    {
+      "name": "role-gateway",
+      "configurePreset": "role-gateway",
+      "output": { "outputOnFailure": true },
+      "filter": {
+        "include": {
+          "name": "^(hsn_role_gateway_tests|role_gateway_sources|role_gateway_symbols)$"
+        }
+      },
       "execution": { "noTestsAction": "error" }
     }
   ],
@@ -56,6 +118,30 @@
         { "type": "configure", "name": "host-release" },
         { "type": "build", "name": "host-release" },
         { "type": "test", "name": "host-release" }
+      ]
+    },
+    {
+      "name": "role-sensor",
+      "steps": [
+        { "type": "configure", "name": "role-sensor" },
+        { "type": "build", "name": "role-sensor" },
+        { "type": "test", "name": "role-sensor" }
+      ]
+    },
+    {
+      "name": "role-siren",
+      "steps": [
+        { "type": "configure", "name": "role-siren" },
+        { "type": "build", "name": "role-siren" },
+        { "type": "test", "name": "role-siren" }
+      ]
+    },
+    {
+      "name": "role-gateway",
+      "steps": [
+        { "type": "configure", "name": "role-gateway" },
+        { "type": "build", "name": "role-gateway" },
+        { "type": "test", "name": "role-gateway" }
       ]
     }
   ]

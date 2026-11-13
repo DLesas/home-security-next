@@ -4,6 +4,7 @@
 #include "hsn/host/test_hub.hpp"
 
 #include <algorithm>
+#include <iomanip>
 #include <sstream>
 #include <utility>
 
@@ -298,6 +299,52 @@ void TestHub::decide(HubAction action, const std::string& device, std::int64_t v
   decisions_.push_back(HubDecision{sim_.now(), action, device, value});
 }
 
+void TestHub::on_log_entries(std::size_t index, const Opened& opened, const Arrival& arrival) {
+  const Known& device = known_[index];
+  protocol::LogEntries entries;
+  static_cast<void>(
+      protocol::decode_body(protocol::ByteView(opened.body.data(), opened.body.size()), entries));
+  protocol::LogEntryReader reader(entries.entries);
+  protocol::LogEntry entry;
+  while (reader.next(entry)) {
+    HubLogEntry logged;
+    logged.at = sim_.now();
+    // An entry's age counts back from the packet (protocol section 6); the device's clock is not
+    // needed.
+    logged.made_at =
+        arrival.ended_at + device::Duration{-static_cast<std::int64_t>(entry.age_tenths) * 100000};
+    logged.from = device.name;
+    logged.path = arrival.path;
+    logged.via = arrival.gateway != kNone ? known_[arrival.gateway].name : std::string();
+    logged.counter = opened.counter;
+    logged.age_tenths = entry.age_tenths;
+    logged.level = entry.level;
+    logged.code = entry.code;
+    logged.text.assign(entry.text.bytes.begin(), entry.text.bytes.end());
+    if (device.role == protocol::Role::sensor) {
+      // The same entry again after a lost reply: kept, and marked with the first packet's counter.
+      for (auto earlier = log_entries_.rbegin(); earlier != log_entries_.rend(); ++earlier) {
+        const device::Duration apart = earlier->made_at < logged.made_at
+                                           ? logged.made_at - earlier->made_at
+                                           : earlier->made_at - logged.made_at;
+        if (earlier->from == logged.from && earlier->level == logged.level &&
+            earlier->code == logged.code && earlier->text == logged.text &&
+            apart <= options_.log_repeat_tolerance) {
+          logged.repeat_of = earlier->repeat_of != 0 ? earlier->repeat_of : earlier->counter;
+          break;
+        }
+      }
+    }
+    log_entries_.push_back(std::move(logged));
+  }
+  if (device.role == protocol::Role::sensor) {
+    // The hub always replies to a sensor's log entries; the entry stays in the sensor until that
+    // reply arrives (protocol section 6). A siren's and a gateway's are not answered.
+    reply_to_sensor(index, arrival, known_[index].replied_version, opened.counter, false,
+                    known_[index].listening_at_send_rate);
+  }
+}
+
 void TestHub::record_received(const Known* device, const Arrival& arrival, HubVerdict verdict,
                               const Opened* opened) {
   HubPacket packet;
@@ -361,7 +408,9 @@ void TestHub::on_arrival(const Arrival& arrival) {
   }
   static_cast<void>(device.window.accept(opened->counter));
   record_received(&device, arrival, HubVerdict::accepted, &*opened);
-  if (device.role == protocol::Role::sensor) {
+  if (opened->type == protocol::message_type::log_entries) {
+    on_log_entries(index, *opened, arrival);
+  } else if (device.role == protocol::Role::sensor) {
     on_sensor_packet(index, *opened, arrival);
   } else if (device.role == protocol::Role::siren) {
     on_siren_packet(index, *opened, arrival);
@@ -473,6 +522,11 @@ void TestHub::command_siren(const std::string& name, std::uint8_t action, std::u
   protocol::SirenCommand command;
   command.action = action;
   command.sound_seconds = seconds;
+  if (action == protocol::SirenAction::sound_alarm) {
+    siren.sounding_until = sim_.now() + device::seconds(seconds);
+  } else if (action == protocol::SirenAction::off) {
+    siren.sounding_until = device::Instant{};
+  }
   decide(HubAction::siren_command, name, std::int64_t{action} * 65536 + seconds);
   issue_to_siren(static_cast<std::size_t>(&siren - known_.data()),
                  seal(siren, command, protocol::Binding::none(), protocol::PacketLimit::radio),
@@ -500,6 +554,16 @@ std::vector<HubSent> TestHub::sent_to(const std::string& name, std::uint8_t type
   for (const HubSent& packet : sent_) {
     if (packet.to == name && (type == 0 || packet.type == type)) {
       found.push_back(packet);
+    }
+  }
+  return found;
+}
+
+std::vector<HubLogEntry> TestHub::log_entries_from(const std::string& name) const {
+  std::vector<HubLogEntry> found;
+  for (const HubLogEntry& entry : log_entries_) {
+    if (entry.from == name) {
+      found.push_back(entry);
     }
   }
   return found;
@@ -543,6 +607,14 @@ std::string TestHub::dump() const {
          << hub_verdict_name(packet.verdict) << " by " << path_name(packet.path)
          << (packet.via.empty() ? "" : " via " + packet.via);
     lines.emplace_back(packet.at, line.str());
+  }
+  for (const HubLogEntry& entry : log_entries_) {
+    std::ostringstream line;
+    line << "logged " << entry.from << " level " << static_cast<int>(entry.level) << " code 0x"
+         << std::hex << std::setw(4) << std::setfill('0') << entry.code << std::dec << " \""
+         << entry.text << "\" made " << format_instant(entry.made_at) << " #" << entry.counter
+         << (entry.repeat_of != 0 ? " repeat of #" + std::to_string(entry.repeat_of) : "");
+    lines.emplace_back(entry.at, line.str());
   }
   for (const HubSent& packet : sent_) {
     std::ostringstream line;

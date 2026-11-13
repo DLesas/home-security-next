@@ -1,6 +1,35 @@
-add_executable(hsn_tests
-  main.cpp
-  support.cpp
+# Shared test support, linked by every test executable: the doctest main (so each executable has
+# exactly one), the codec helpers (support.hpp), the device-layer helpers (device_support.hpp),
+# and the bench's scripted devices and probe role (sim_support.hpp).
+add_library(hsn_test_support STATIC
+  support/main.cpp
+  support/support.cpp
+  support/device_support.cpp
+  support/probe_role.cpp
+  support/script_sensor.cpp
+  support/script_siren.cpp
+  support/script_gateway.cpp)
+target_include_directories(hsn_test_support PUBLIC support)
+target_link_libraries(hsn_test_support PUBLIC hsn_host hsn_doctest hsn_json)
+# Classes derived from device::Role must be built without RTTI, like the core that emits Role's
+# vtable: with RTTI they would reference a typeinfo for Role that the core never defines.
+set_source_files_properties(support/probe_role.cpp support/script_sensor.cpp
+  support/script_siren.cpp support/script_gateway.cpp PROPERTIES COMPILE_OPTIONS -fno-rtti)
+hsn_warnings(hsn_test_support)
+hsn_sanitizers(hsn_test_support)
+
+# A doctest executable on the support library, registered with CTest under its own name.
+function(hsn_test_executable target)
+  add_executable(${target} ${ARGN})
+  target_link_libraries(${target} PRIVATE hsn_test_support)
+  hsn_warnings(${target})
+  hsn_sanitizers(${target})
+  add_test(NAME ${target} COMMAND ${target})
+endfunction()
+
+# The codec, device-layer, bench and scripted system tests. No role library: a half-written role
+# cannot break them.
+hsn_test_executable(hsn_tests
   protocol/bytes_test.cpp
   protocol/counters_test.cpp
   protocol/framing_test.cpp
@@ -9,7 +38,6 @@ add_executable(hsn_tests
   protocol/radio_units_test.cpp
   protocol/random_test.cpp
   protocol/vectors_test.cpp
-  device/device_support.cpp
   device/airtime_test.cpp
   device/device_runner_test.cpp
   device/log_record_test.cpp
@@ -18,33 +46,46 @@ add_executable(hsn_tests
   device/secure_channel_test.cpp
   device/setup_health_test.cpp
   device/time_test.cpp
-  roles/skeletons_test.cpp
-  host/probe_role.cpp
-  host/script_sensor.cpp
-  host/script_siren.cpp
-  host/script_gateway.cpp
+  host/fake_link_test.cpp
   host/medium_test.cpp
   host/simulation_test.cpp
   host/replay_window_test.cpp
   host/timeline_test.cpp
   host/test_hub_test.cpp
   host/test_hub_gateway_test.cpp
+  host/test_hub_log_test.cpp
   host/readme_example_test.cpp
   host/hub_radio_test.cpp
   system/armed_door_test.cpp)
-target_link_libraries(hsn_tests PRIVATE hsn_host hsn_role_sensor hsn_role_siren
-  hsn_role_gateway hsn_doctest hsn_json)
-target_include_directories(hsn_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_compile_definitions(hsn_tests PRIVATE
   HSN_VECTORS_DIR="${PROJECT_SOURCE_DIR}/../packages/protocol/vectors")
-# Classes derived from device::Role must be built without RTTI, like the core that emits Role's
-# vtable: with RTTI they would reference a typeinfo for Role that the core never defines.
 file(GLOB hsn_sim_test_sources CONFIGURE_DEPENDS host/*.cpp system/*.cpp)
 set_source_files_properties(device/device_runner_test.cpp ${hsn_sim_test_sources}
   PROPERTIES COMPILE_OPTIONS -fno-rtti)
-hsn_warnings(hsn_tests)
-hsn_sanitizers(hsn_tests)
-add_test(NAME hsn_tests COMMAND hsn_tests)
+
+# One executable per role, hsn_role_<role>_tests: every .cpp under tests/roles/<role>/, against
+# that role's library only, so its owner adds files without editing this file and another role's
+# state cannot break it. Every file builds a role, so all are compiled without RTTI.
+foreach(role sensor siren gateway)
+  file(GLOB_RECURSE hsn_role_test_sources CONFIGURE_DEPENDS
+    ${CMAKE_CURRENT_SOURCE_DIR}/roles/${role}/*.cpp)
+  if(NOT hsn_role_test_sources)
+    message(FATAL_ERROR "tests/roles/${role}/ has no .cpp files")
+  endif()
+  hsn_test_executable(hsn_role_${role}_tests ${hsn_role_test_sources})
+  target_link_libraries(hsn_role_${role}_tests PRIVATE hsn_role_${role} hsn_host)
+  target_compile_options(hsn_role_${role}_tests PRIVATE -fno-rtti)
+endforeach()
+
+# Whole-system tests with the real roles, hsn_system_tests: every .cpp in tests/system_roles/,
+# against all three role libraries. Created only once that folder has sources.
+file(GLOB hsn_system_role_sources CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/system_roles/*.cpp)
+if(hsn_system_role_sources)
+  hsn_test_executable(hsn_system_tests ${hsn_system_role_sources})
+  target_link_libraries(hsn_system_tests PRIVATE hsn_role_sensor hsn_role_siren hsn_role_gateway
+    hsn_host)
+  target_compile_options(hsn_system_tests PRIVATE -fno-rtti)
+endif()
 
 # hsn_core must not reference the heap, exceptions or abort.
 add_test(NAME core_symbols

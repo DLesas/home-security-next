@@ -136,14 +136,16 @@ public:
   /**
    * The siren's rule: no binding; a siren command or settings packet is judged against the last
    * accepted command counter, which is written to flash before this returns a new command.
-   * Other types are Status::refused and do not move the counter.
+   * Other types are Status::refused, and a body shorter than its type's fields is
+   * Status::protocol_error (Error::truncated); neither moves the counter or writes flash.
    */
   Outcome<CommandOpen> open_command(protocol::ByteView packet, protocol::PacketLimit limit);
 
   /**
    * The gateway's rule: before the welcome, only a welcome bound to the hello's random value;
    * after it, packets bound to the session value with strictly higher counters. Updates
-   * `session`.
+   * `session`. A body shorter than its type's fields is Status::protocol_error and moves nothing;
+   * a transmit request whose carried packet has a bad length is returned, for "not valid".
    */
   Outcome<protocol::OpenedPacket> open_session(protocol::ByteView packet, SessionState& session);
 

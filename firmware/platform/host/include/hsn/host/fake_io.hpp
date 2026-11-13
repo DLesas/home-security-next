@@ -123,6 +123,20 @@ public:
     blinks.push_back({clock_.now(), blink});
   }
 
+  /**
+   * What the hardware does on a reset, a deep sleep or a power loss: the sounder output goes low
+   * (siren_io.hpp). Not a call by the device, so it does not tick the meter. Returns true when
+   * the output was on, and records the change.
+   */
+  bool drive_low_on_reset() {
+    if (!output_state) {
+      return false;
+    }
+    output_state = false;
+    outputs.push_back({clock_.now(), false});
+    return true;
+  }
+
   /** Low at power-on, as the hardware guarantees. */
   bool output_state = false;
   bool cover = false;

@@ -4,7 +4,7 @@
 
 #include <optional>
 
-#include "device/device_support.hpp"
+#include "device_support.hpp"
 #include "hsn/device/device.hpp"
 #include "hsn/device/runner.hpp"
 #include "hsn/host/host_board.hpp"
@@ -109,6 +109,30 @@ TEST_CASE("a paired board starts its role and channel, and the boot is a start-u
   CHECK(run.services.channel.started());
   CHECK(run.services.channel.address() == kAddress);
   CHECK(run.services.uptime_seconds(at_seconds(65)) == 60);
+}
+
+TEST_CASE("the airtime record and its last transmission survive a deep-sleep wake") {
+  host::HostBoard board;
+  pair_board(board, protocol::Role::sensor);
+  std::optional<Instance> instance;
+  Instance& first = boot(instance, board, BootKind::power_on);
+  // A full legal hour on the site channel, the last packet ending at 50 s.
+  first.services.airtime.record(device::Band::g1, at_seconds(10), device::seconds(36));
+  first.services.airtime.record(device::Band::g1, at_seconds(49), device::seconds(1));
+  board.clock.set(at_seconds(50));
+  first.runner.deliver(device::Event::timer_at(board.clock.now()));  // seals the block
+
+  board.clock.set(at_seconds(52));
+  Instance& woken = boot(instance, board, BootKind::deep_sleep_wake, device::WakeMask::timer());
+  REQUIRE(woken.role.seen[0].boot.retained == RetainedStatus::intact);
+  CHECK(woken.services.airtime.used_last_hour(device::Band::g1, at_seconds(52)) ==
+        device::seconds(37));
+  // Past the hour, an essential 1 s packet waits 9 s from the last packet's end.
+  const auto admission = woken.services.airtime.admit(device::Band::g1, device::seconds(1),
+                                                      device::TxClass::essential, at_seconds(52));
+  CHECK_FALSE(admission.allowed);
+  CHECK(admission.past_limit);
+  CHECK(admission.earliest == at_seconds(59));
 }
 
 TEST_CASE("the role's state and the core's survive deep sleep in the retained block") {

@@ -62,6 +62,10 @@ public:
     tick();
     return up_;
   }
+  std::int8_t signal_dbm() const override {
+    tick();
+    return kind_ == device::LinkKind::usb ? std::int8_t{0} : wifi_signal_dbm;
+  }
 
   /** Builders for the events a platform would deliver; they also move the link's state. */
   device::LinkEvent up_event();
@@ -79,6 +83,8 @@ public:
   /** Fault switches: sends are refused as by a full queue; connect fails. */
   bool refuse_sends = false;
   bool fail_connect = false;
+  /** The Wi-Fi signal strength a network link reports; 0 means not known. USB always says 0. */
+  std::int8_t wifi_signal_dbm = 0;
 
 private:
   const device::Clock& clock_;

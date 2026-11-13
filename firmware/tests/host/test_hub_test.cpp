@@ -5,7 +5,7 @@
 
 #include <limits>
 
-#include "host/sim_support.hpp"
+#include "sim_support.hpp"
 
 namespace hsn::test {
 namespace {
@@ -600,6 +600,195 @@ TEST_CASE("late door reports in each of the three ranges of protocol section 7")
       }
     }
   }
+}
+
+/** The sound commands the hub decided on, to any siren. */
+std::size_t sound_commands(const Site& site) {
+  std::size_t count = 0;
+  for (const host::HubDecision& decision : site.hub.decisions(HubAction::siren_command)) {
+    if (decision.value / 65536 == protocol::SirenAction::sound_alarm) {
+      count += 1;
+    }
+  }
+  return count;
+}
+
+TEST_CASE("within one alarm each siren is commanded once, however many countdowns end") {
+  constexpr std::size_t kDoors = 30;
+  constexpr std::size_t kSirens = 4;
+  Site site;
+  std::vector<ScriptSensorLog> door_logs(kDoors);
+  std::vector<ScriptSirenLog> siren_logs(kSirens);
+  host::SensorConfig settings;
+  settings.countdown_seconds = 20;
+  std::vector<host::SimDevice*> doors;
+  for (std::size_t i = 0; i < kDoors; ++i) {
+    doors.push_back(
+        &site.sensor("door" + std::to_string(i), ScriptSensorConfig{}, door_logs[i], settings));
+  }
+  std::vector<host::SimDevice*> sirens;
+  for (std::size_t i = 0; i < kSirens; ++i) {
+    sirens.push_back(&site.siren("siren" + std::to_string(i), ScriptSirenConfig{}, siren_logs[i]));
+  }
+  site.hub.arm();
+  // Thirty doors within six seconds, spaced so their reports and the replies do not collide.
+  for (std::size_t i = 0; i < kDoors; ++i) {
+    doors[i]->set_input(device::Input::door, true,
+                        at(seconds(10) + milliseconds(200 * static_cast<std::int64_t>(i))));
+  }
+  site.sim.run_until(at(seconds(60)));
+  INFO(site.hub.dump());
+  CHECK(site.hub.decisions(HubAction::alarm).size() == kDoors);
+  CHECK(sound_commands(site) == kSirens);
+  for (host::SimDevice* siren : sirens) {
+    CHECK(siren->board().siren_io.output_state);
+    CHECK(site.hub.sent_to(siren->name(), type::siren_command).size() == 2);  // Wi-Fi and LoRa
+  }
+
+  // A disarm ends the alarm; the next one commands every siren afresh.
+  site.hub.disarm();
+  site.sim.run_until(at(seconds(70)));
+  for (host::SimDevice* siren : sirens) {
+    CHECK_FALSE(siren->board().siren_io.output_state);
+  }
+  site.hub.arm();
+  doors[0]->set_input(device::Input::door, false, at(seconds(72)));
+  doors[0]->set_input(device::Input::door, true, at(seconds(75)));
+  site.sim.run_until(at(seconds(110)));
+  CHECK(site.hub.decisions(HubAction::alarm).size() == kDoors + 1);
+  CHECK(sound_commands(site) == 2 * kSirens);
+  for (host::SimDevice* siren : sirens) {
+    CHECK(siren->board().siren_io.output_state);
+  }
+}
+
+TEST_CASE("an alarm that ended by itself is commanded afresh by the next countdown") {
+  host::HubOptions options;
+  options.alarm_seconds = 20;
+  Site site(options);
+  ScriptSensorLog first_log;
+  ScriptSensorLog second_log;
+  ScriptSirenLog siren_log;
+  host::SensorConfig settings;
+  settings.countdown_seconds = 5;
+  host::SimDevice& first = site.sensor("first", ScriptSensorConfig{}, first_log, settings);
+  host::SimDevice& second = site.sensor("second", ScriptSensorConfig{}, second_log, settings);
+  site.siren("siren", ScriptSirenConfig{}, siren_log);
+  site.hub.arm();
+  first.set_input(device::Input::door, true, at(seconds(10)));
+  // Its countdown ends at about 15 s and the sirens stop by themselves at about 35 s.
+  second.set_input(device::Input::door, true, at(seconds(40)));
+  site.sim.run_until(at(seconds(60)));
+  CHECK(site.hub.decisions(HubAction::alarm).size() == 2);
+  CHECK(sound_commands(site) == 2);
+}
+
+TEST_CASE("a reset or a power loss drives the siren's sounder low, on the timeline") {
+  for (const bool power_loss : {false, true}) {
+    INFO("power loss: " << power_loss);
+    Site site;
+    ScriptSensorLog door_log;
+    ScriptSirenLog siren_log;
+    host::SensorConfig settings;
+    settings.countdown_seconds = 5;
+    host::SimDevice& door = site.sensor("door", ScriptSensorConfig{}, door_log, settings);
+    host::SimDevice& siren = site.siren("siren", ScriptSirenConfig{}, siren_log);
+    site.hub.arm();
+    door.set_input(device::Input::door, true, at(seconds(10)));
+    site.sim.run_until(at(seconds(25)));
+    REQUIRE(siren.board().siren_io.output_state);
+    const device::Instant down = at(seconds(30));
+    if (power_loss) {
+      siren.power_loss(down, seconds(5));
+    } else {
+      siren.restart(down);
+    }
+    site.sim.run_until(at(seconds(50)));
+    CHECK_FALSE(siren.board().siren_io.output_state);
+    const auto outputs = siren.records().kind(RecordKind::output).records();
+    REQUIRE(outputs.size() == 2);
+    CHECK(outputs[0].flag);
+    CHECK_FALSE(outputs[1].flag);
+    CHECK(outputs[1].at == down);
+  }
+}
+
+/** A station that keeps a frequency busy: one packet after another, back to back. */
+class Jammer final : public host::StationListener {
+public:
+  Jammer(host::Simulation& sim, const device::RadioChannel& channel)
+      : sim_(sim), channel_(channel) {}
+
+  void start(host::StationId station, device::Instant when) {
+    station_ = station;
+    sim_.schedule(when, [this]() { send(); });
+  }
+
+  void tx_done(device::Instant at) override {
+    sim_.schedule(at, [this]() { send(); });
+  }
+  void rx_done(device::Instant, const host::Bytes&, std::int16_t, std::int8_t,
+               std::uint8_t) override {}
+  void rx_crc_error(device::Instant) override {}
+  void rx_timeout(device::Instant) override {}
+  void header_seen(device::Instant) override {}
+  void cad_done(device::Instant, bool) override {}
+
+private:
+  void send() {
+    // A foreign system's packet: an address no one here holds.
+    host::Bytes packet(30, 0x55);
+    packet[0] = 0x10;
+    sim_.medium().transmit(station_, channel_, 14, packet);
+  }
+
+  host::Simulation& sim_;
+  device::RadioChannel channel_;
+  host::StationId station_{};
+};
+
+TEST_CASE("a siren waiting on a busy channel to answer still hears a command sent meanwhile") {
+  Site site;
+  ScriptSirenLog siren_log;
+  ScriptSirenConfig config;
+  config.wifi = false;
+  host::SirenConfig settings;
+  settings.wifi = false;
+  host::SimDevice& siren = site.siren("siren", config, siren_log, settings);
+  // The site channel is busy from 1 s on, so the siren's answer to the first command waits.
+  Jammer jammer(site.sim, device::RadioChannel{868300000, 5});
+  jammer.start(site.sim.medium().add_station(site.sim.timeline().add_actor("jammer"), jammer),
+               at(seconds(1)));
+  site.sim.schedule(at(seconds(5)), [&]() {
+    site.hub.command_siren("siren", protocol::SirenAction::sound_alarm, 60);
+  });
+  site.sim.schedule(at(seconds(5) + milliseconds(500)),
+                    [&]() { site.hub.command_siren("siren", protocol::SirenAction::off, 0); });
+  site.sim.run_until(at(seconds(20)));
+  INFO(siren.records().dump());
+
+  const auto busy =
+      siren.records().kind(RecordKind::channel_check).where([](const host::Record& record) {
+        return record.flag;
+      });
+  REQUIRE(busy.count() >= 1);
+  const auto sent = siren.records().kind(RecordKind::transmission).records();
+  REQUIRE_FALSE(sent.empty());
+  // The off command was heard by LoRa during the busy wait: after the first busy check, before
+  // the answer went on the air.
+  const ScriptSirenLog::Command* off = nullptr;
+  for (const ScriptSirenLog::Command& command : siren_log.commands) {
+    if (command.action == protocol::SirenAction::off &&
+        command.verdict == device::CommandVerdict::new_command) {
+      off = &command;
+    }
+  }
+  REQUIRE(off != nullptr);
+  CHECK_FALSE(off->by_wifi);
+  const device::Instant heard = siren.clock().true_time(off->at);
+  CHECK(heard > busy.records()[0].at);
+  CHECK(heard < sent[0].from);
+  CHECK_FALSE(siren.board().siren_io.output_state);
 }
 
 }  // namespace

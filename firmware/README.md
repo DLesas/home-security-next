@@ -26,12 +26,20 @@ core/                               hsn_core: portable C++17, no heap, no platfo
     hal/           one header per hardware interface, vendor-free
     services/      secure channel, airtime, radio port, retry, random, log, record, setup, health
   src/             the above, plus codec.hpp, the one encoder and decoder; src/device/ for the layer
-roles/<role>/                       hsn_role_sensor, _siren, _gateway: one Role each (skeletons for now)
+roles/<role>/                       hsn_role_sensor, _siren, _gateway: one Role each (skeletons for now),
+                                    built from every .cpp under roles/<role>/src/
 platform/psa/                       hsn_psa: PacketCipher on PSA Crypto; hub_identity, the SHA-256 of section 9
 platform/host/                      hsn_host: a fake per interface, HostBoard and HostInstance, and the
                                     bench: Simulation, Medium, TestHub, timeline (see its README.md)
-tests/                              doctest host tests: protocol/ (codec and vectors), device/, roles/,
-                                    host/ (the bench), system/; rule probes
+tests/                              doctest host tests and the rule probes (probes/)
+  support/         hsn_test_support, linked by every test executable: the doctest main, codec
+                   helpers (support.hpp), device-layer helpers (device_support.hpp), and the
+                   bench's scripted devices and probe role (sim_support.hpp)
+  protocol/ device/ host/ system/   hsn_tests: codec and vectors, device layer, the bench,
+                   scripted system tests; links no role library
+  roles/<role>/    hsn_role_<role>_tests: every .cpp there, against that role's library only
+  system_roles/    hsn_system_tests: every .cpp there, against all three role libraries; only
+                   built once the folder has sources
 ```
 
 ## Rules of the core
@@ -102,6 +110,17 @@ const auto packet_size =
 - **The hub's 64-packet receive window and its restore jump of 2²⁴** (section 4). They are hub-only. The vector harness skips `counters.json`'s `replayWindow` and `restore` sections in an explicit, commented list; replayed packets under the window rule are still opened. The test hub in `hsn_host` has the window, checked against `replayWindow` in `tests/host/replay_window_test.cpp`.
 - **`signingPrivateKey`** in `pairing-data.json`: kept there for later firmware-signature tests. The `hubIdentity` section is checked, with `psa_hash_compute`.
 - **Snr and airtime as fractions.** The core gives the SNR in hundredths of a decibel (`snr_hundredths_db_from_quarters`), which is exact; airtime is already in hundredths of a percent on the wire. The tests compare both with the vectors' decimal values.
+
+## Working on one role
+
+The sensor, siren and gateway roles can be written at the same time, in one checkout. A role's owner edits only `roles/<role>/` and `tests/roles/<role>/`; new `.cpp` files there are picked up by the next build without editing any CMake file. Shared files (the core, `hsn_host`, `tests/support/`, the CMake files) change only by agreement.
+
+```sh
+bun run check:role:sensor    # or check:role:siren, check:role:gateway
+cd firmware && cmake --workflow --preset role-sensor
+```
+
+Each `role-<role>` workflow configures `firmware/build/role-<role>` with the sanitizers on, builds only `hsn_role_<role>`, `hsn_role_<role>_tests` and the libraries they need, and runs `hsn_role_<role>_tests`, `role_<role>_sources` and `role_<role>_symbols`. Another role's sources are never compiled, so its half-written state cannot break the run. `hsn_tests` links no role, and `hsn_system_tests` (`tests/system_roles/`) is the one executable that links all three. Before merging, run `check:firmware` and `check:firmware:gcc`, which build and test everything.
 
 ## Building and testing
 

@@ -2,7 +2,7 @@
 // armed door report, the countdown, the siren sounding at its end, and a disarm that stops it
 // (design section 8, system tests).
 
-#include "host/sim_support.hpp"
+#include "sim_support.hpp"
 
 namespace hsn::test {
 namespace {

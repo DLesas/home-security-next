@@ -1,7 +1,7 @@
 // The worked example of platform/host/README.md, verbatim. A scripted sensor stands in for the
 // sensor role; the sensor's engineer swaps in make_role<roles::sensor::SensorRole>(...).
 
-#include "host/sim_support.hpp"
+#include "sim_support.hpp"
 
 namespace hsn::test {
 namespace {

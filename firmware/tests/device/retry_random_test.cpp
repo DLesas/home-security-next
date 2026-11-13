@@ -2,7 +2,7 @@
 
 #include <set>
 
-#include "device/device_support.hpp"
+#include "device_support.hpp"
 #include "hsn/device/services/random_source.hpp"
 #include "hsn/device/services/retry.hpp"
 #include "hsn/host/fake_random.hpp"

@@ -61,6 +61,12 @@ struct HubOptions {
   device::Duration siren_give_up = device::seconds(60);
   /** How long sirens sound for an alarm, their automatic stop (each capped by its settings). */
   std::uint16_t alarm_seconds = 180;
+  /**
+   * A sensor's log entry is marked as a repeat of one recorded from an earlier packet when their
+   * made-at times are this close. The two estimates differ by the packets' waits for a clear
+   * channel and their times on air, since an entry's age counts to when the packet was sealed.
+   */
+  device::Duration log_repeat_tolerance = device::seconds(15);
   /** Give each sensor a heartbeat slot in link-check replies (protocol section 7). */
   bool heartbeat_slots = false;
   /** Seeds the hub's own random values (welcome). */
@@ -114,8 +120,10 @@ struct GatewayConfig {
  * when asked, at the fixed reply moment; event replies as soon as possible within the sensor's
  * listening; a countdown per sensor counted from the opening, with late reports as protocol
  * section 7 says; the disarmed notice twice; siren commands and settings on both paths, repeated
- * until a report confirms them; and for gateways the hello and welcome, settings, forwarded
- * packets, transmit requests and their results.
+ * until a report confirms them; log entries from every device on every path, kept with their
+ * made-at times, a sensor's answered with a reply as soon as possible, a siren's and a gateway's
+ * not; and for gateways the hello and welcome, settings, forwarded packets, transmit requests
+ * and their results.
  *
  * In direct radio mode it has its own ideal radio on the Medium (HubRadio); in gateway link mode
  * every radio packet goes through the gateway roles' links. Siren Wi-Fi is the same in both.
@@ -196,6 +204,14 @@ public:
   /** Decisions of one kind, optionally for one device. */
   std::vector<HubDecision> decisions(HubAction action, const std::string& device = "") const;
 
+  /** Every log entry received, in order, repeats included (HubLogEntry::repeat_of). */
+  const std::vector<HubLogEntry>& log_entries() const {
+    return log_entries_;
+  }
+
+  /** Log entries from one device, in order. */
+  std::vector<HubLogEntry> log_entries_from(const std::string& name) const;
+
   /** A device's current settings version. */
   std::uint8_t settings_version(const std::string& name) const;
 
@@ -213,7 +229,7 @@ public:
   /** The hub's radio's station in direct radio mode, for path losses; throws otherwise. */
   StationId station() const;
 
-  /** Received packets, sent packets and decisions as text, in time order, for failures. */
+  /** Received packets, log entries, sent packets and decisions as text, in time order. */
   std::string dump() const;
 
   // LinkPeer
@@ -277,8 +293,22 @@ private:
     std::map<std::uint8_t, std::uint8_t> reply_rate_of_version;
     /** The settings version a siren last said it holds; 0 before it has said. */
     std::uint8_t held_version = 0;
+    /**
+     * How a sensor listens after a packet that does not say (log entries): at the reply rate of
+     * the settings version in the latest reply the hub sent it (0: none yet, so at its sending
+     * rate), or at its sending rate while its latest status packet had flag bit 7 and no reply
+     * has gone since.
+     */
+    std::uint8_t replied_version = 0;
+    bool listening_at_send_rate = false;
     /** A siren's new settings wait for its unconfirmed command (protocol section 7). */
     bool settings_waiting = false;
+    /**
+     * Until when a siren was last commanded to sound for an alarm; while it is, another door's
+     * countdown ending does not command it again (protocol section 7, "Siren command"). An off
+     * command clears it.
+     */
+    device::Instant sounding_until;
     Countdown countdown;
     SirenConfig siren;
     Pending pending;
@@ -356,6 +386,7 @@ private:
   void record_received(const Known* device, const Arrival& arrival, HubVerdict verdict,
                        const Opened* opened);
   void decide(HubAction action, const std::string& device, std::int64_t value = 0);
+  void on_log_entries(std::size_t index, const Opened& opened, const Arrival& arrival);
   std::size_t connected_gateway(std::size_t preferred) const;
   static void bump(std::uint8_t& version);
   void random_bytes(protocol::RandomValue& out);
@@ -403,6 +434,7 @@ private:
   std::vector<HubPacket> received_;
   std::vector<HubSent> sent_;
   std::vector<HubDecision> decisions_;
+  std::vector<HubLogEntry> log_entries_;
 };
 
 template <typename Message>

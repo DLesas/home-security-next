@@ -37,7 +37,8 @@ void LogBuffer::add(Instant now, LogLevel level, std::uint16_t code, const char*
   }
   if (state_.count > 0) {
     LogRecord& newest = state_.records[(state_.start + state_.count - 1u) % kLogCapacity];
-    if (newest.code == code && newest.level == level_byte) {
+    // An entry in a packet stays as it was sent; a repeat after it starts a new entry.
+    if (newest.code == code && newest.level == level_byte && !newest.in_packet) {
       if (newest.repeats < 0xFF) {
         newest.repeats = static_cast<std::uint8_t>(newest.repeats + 1);
       }
@@ -87,12 +88,20 @@ void LogBuffer::add(Instant now, LogLevel level, std::uint16_t code, const char*
   record.text_size = static_cast<std::uint8_t>(size);
 }
 
-std::size_t LogBuffer::prepare(Instant now, protocol::LogEntries& out) {
+std::size_t LogBuffer::prepare(Instant now, protocol::LogEntries& out, LogLevel at_least,
+                               std::size_t most) {
   out = protocol::LogEntries{};
+  for (std::size_t i = 0; i < state_.count; ++i) {
+    state_.records[(state_.start + i) % kLogCapacity].in_packet = false;
+  }
+  const auto level_byte = static_cast<std::uint8_t>(at_least);
   protocol::LogEntriesWriter writer{protocol::MutableByteView(scratch_)};
   std::size_t appended = 0;
-  for (std::size_t i = 0; i < state_.count; ++i) {
-    const LogRecord& record = state_.records[(state_.start + i) % kLogCapacity];
+  for (std::size_t i = 0; i < state_.count && appended < most; ++i) {
+    LogRecord& record = state_.records[(state_.start + i) % kLogCapacity];
+    if (record.level < level_byte) {
+      continue;
+    }
     // The text, then " xN" for a repeated entry.
     std::array<std::uint8_t, kLogTextSize + 8> text{};
     std::size_t size = 0;
@@ -114,6 +123,7 @@ std::size_t LogBuffer::prepare(Instant now, protocol::LogEntries& out) {
     if (writer.append(entry) != protocol::Error::none) {
       break;
     }
+    record.in_packet = true;
     ++appended;
   }
   if (appended > 0) {
@@ -122,10 +132,17 @@ std::size_t LogBuffer::prepare(Instant now, protocol::LogEntries& out) {
   return appended;
 }
 
-void LogBuffer::release(std::size_t count) {
-  const std::size_t removed = count < state_.count ? count : state_.count;
-  state_.start = static_cast<std::uint8_t>((state_.start + removed) % kLogCapacity);
-  state_.count = static_cast<std::uint8_t>(state_.count - removed);
+void LogBuffer::release() {
+  // Keeps the entries outside the packet, in order, closing the gaps the packet's leave.
+  std::size_t kept = 0;
+  for (std::size_t i = 0; i < state_.count; ++i) {
+    const LogRecord& record = state_.records[(state_.start + i) % kLogCapacity];
+    if (!record.in_packet) {
+      state_.records[(state_.start + kept) % kLogCapacity] = record;
+      ++kept;
+    }
+  }
+  state_.count = static_cast<std::uint8_t>(kept);
   if (state_.count == 0) {
     state_.start = 0;
     state_.dropped = 0;

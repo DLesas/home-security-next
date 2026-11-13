@@ -56,15 +56,34 @@ Admission AirtimeBudget::admit(Band band, Duration airtime, TxClass tx_class, In
   // Rounded up, as record() will count it.
   const Duration counted = microseconds(units_of(airtime) * kAirtimeUnitUs);
   Admission admission;
-  if (counted > allowed) {
-    return admission;
-  }
-  const Duration used = used_last_hour(band, now);
-  if (used + counted <= allowed) {
+  if (used_last_hour(band, now) + counted <= allowed) {
     admission.allowed = true;
     admission.earliest = now;
     return admission;
   }
+  const Instant fits = fits_hour_at(band, counted, allowed, now);
+  if (tx_class == TxClass::routine) {
+    admission.earliest = fits;
+    return admission;
+  }
+  // Essential past the legal hour (D111): after a gap of nine times its airtime.
+  admission.past_limit = true;
+  const Instant gap_end = usage(state_, band).last_end + Duration{kPastLimitGapFactor * airtime.us};
+  if (now >= gap_end) {
+    admission.allowed = true;
+    admission.earliest = now;
+    return admission;
+  }
+  admission.earliest = earliest(gap_end, fits);
+  return admission;
+}
+
+Instant AirtimeBudget::fits_hour_at(Band band, Duration counted, Duration allowed,
+                                    Instant now) const {
+  if (counted > allowed) {
+    return Instant::never();
+  }
+  const Duration used = used_last_hour(band, now);
   // Walk the counted buckets from the oldest: each stops counting 61 minutes after its minute.
   const BandUsage& band_usage = usage(state_, band);
   const std::uint32_t current = minute_of(now);
@@ -80,11 +99,10 @@ Admission AirtimeBudget::admit(Band band, Duration airtime, TxClass tx_class, In
     freed += band_usage.units[slot(minute)];
     if (used - microseconds(freed * kAirtimeUnitUs) + counted <= allowed) {
       const std::uint64_t drop_minute = static_cast<std::uint64_t>(minute) + kAirtimeBuckets;
-      admission.earliest = latest(now, Instant{drop_minute * kMinuteUs});
-      return admission;
+      return latest(now, Instant{drop_minute * kMinuteUs});
     }
   }
-  return admission;
+  return Instant::never();
 }
 
 void AirtimeBudget::record(Band band, Instant start, Duration airtime) {
@@ -103,6 +121,7 @@ void AirtimeBudget::record(Band band, Instant start, Duration airtime) {
   // which keeps it counted for longer: on the safe side.
   const std::size_t index = slot(band_usage.newest_minute);
   band_usage.units[index] = saturated(band_usage.units[index] + units_of(airtime));
+  band_usage.last_end = latest(band_usage.last_end, start + airtime);
 }
 
 void AirtimeBudget::rebase(Instant now) {
@@ -114,6 +133,7 @@ void AirtimeBudget::rebase(Instant now) {
     }
     band_usage.newest_minute = minute_of(now);
     band_usage.units[slot(band_usage.newest_minute)] = saturated(total);
+    band_usage.last_end = now;
   }
 }
 

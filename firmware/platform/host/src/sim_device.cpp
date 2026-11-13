@@ -139,6 +139,12 @@ void SimDevice::boot(device::BootInfo info) {
 
 void SimDevice::go_down() {
   board_.clock.set(local_now());
+  // Every path that stops the chip resets its pins: the sounder output goes low.
+  if (board_.siren_io.drive_low_on_reset()) {
+    Record entry = record(RecordKind::output);
+    entry.flag = false;
+    context_.timeline.add(entry);
+  }
   radio_.quiesce();
   usb_.device_reset();
   network_.device_reset();

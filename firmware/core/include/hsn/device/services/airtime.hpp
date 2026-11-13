@@ -26,7 +26,16 @@ struct BandUsage {
   /** The newest minute number written (instant ÷ 60 s). */
   std::uint32_t newest_minute = 0;
   std::array<std::uint16_t, kAirtimeBuckets> units{};
+  /** The end of this device's last recorded transmission on the band (D111's gap). */
+  Instant last_end;
 };
+
+/**
+ * Past the legal hour an essential packet waits nine times its own airtime after the device's
+ * last transmission (D111): the device then sends at most one tenth of the time, so a faulty one,
+ * a stuck door switch, can never take more than a tenth of the channel from the other devices.
+ */
+constexpr std::int64_t kPastLimitGapFactor = 9;
 
 /** Every band's recent airtime: plain data, kept in the retained block (design section 5). */
 struct AirtimeState {
@@ -35,22 +44,33 @@ struct AirtimeState {
 
 /** Priority classes (protocol section 2, "Airtime budgets"). */
 enum class TxClass : std::uint8_t {
-  /** May use four fifths of the hour: heartbeats, LoRa checks, ordinary transmit requests. */
+  /** Regular: four fifths of the hour, never more: heartbeats, checks, logs, ordinary replies. */
   routine,
-  /** May use all of it: door, cover, button and started reports, command answers, commands. */
+  /**
+   * Urgent: the whole hour, and past it with the D111 gap: door, cover, button and started
+   * reports, a siren's answers and change reports, siren commands.
+   */
   essential,
 };
 
 /** Whether a transmission fits now, and if not, when it will. */
 struct Admission {
   bool allowed = false;
-  /** When it would fit, or never when it cannot fit at all. */
+  /** When it would be admitted, or never when it cannot be. */
   Instant earliest = Instant::never();
+  /**
+   * An essential packet that does not fit the legal hour: when allowed, it goes past the limit
+   * (D111) and the sender logs it; when refused, it is waiting for the gap.
+   */
+  bool past_limit = false;
 };
 
 /**
- * Airtime over a rolling hour per sub-band (LR5). Every transmitter enforces its own limit; the
- * limit is never broken: an essential packet that does not fit waits (protocol section 2).
+ * Airtime over a rolling hour per sub-band (LR5, protocol section 2). Routine traffic stays inside
+ * four fifths of the hour. Essential traffic may use the whole hour and, by D111, goes even past
+ * it, each packet after a gap of kPastLimitGapFactor times its airtime since the device's last
+ * transmission on the band. Everything sent is counted, past the limit too, so routine traffic
+ * stays refused until the hour is back inside it.
  */
 class AirtimeBudget {
 public:
@@ -63,7 +83,10 @@ public:
   static Duration allowance(Band band, TxClass tx_class);
 
   /**
-   * Judges a transmission of `airtime` starting now.
+   * Judges a transmission of `airtime` starting now. Routine: allowed inside four fifths of the
+   * hour, otherwise refused with the time it will fit. Essential: allowed inside the hour; past it,
+   * allowed once the gap since the last transmission has passed, otherwise refused with the end of
+   * the gap (or the time it fits the hour again, when that is sooner), with `past_limit` set.
    */
   Admission admit(Band band, Duration airtime, TxClass tx_class, Instant now) const;
 
@@ -74,8 +97,9 @@ public:
 
   /**
    * After the clock restarted (design section 5): the recorded times mean nothing, so every
-   * band's whole recent airtime is counted again as sent in the current minute. That keeps it
-   * counted for a full hour from now, on the safe side, without waiting for the old clock.
+   * band's whole recent airtime is counted again as sent in the current minute, and its last
+   * transmission is taken to have ended now. That keeps it counted for a full hour from now, on
+   * the safe side, without waiting for the old clock.
    */
   void rebase(Instant now);
 
@@ -92,6 +116,8 @@ public:
   std::uint16_t used_hundredths_of_percent(Band band, Instant now) const;
 
 private:
+  Instant fits_hour_at(Band band, Duration counted, Duration allowed, Instant now) const;
+
   AirtimeState& state_;
 };
 

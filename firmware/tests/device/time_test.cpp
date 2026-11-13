@@ -1,7 +1,7 @@
 // Time arithmetic, the clock correction, and TimerSet.
 
 #include "hsn/device/time.hpp"
-#include "device/device_support.hpp"
+#include "device_support.hpp"
 #include "hsn/device/timers.hpp"
 
 namespace hsn::test {

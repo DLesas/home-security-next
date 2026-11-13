@@ -120,6 +120,9 @@ void TestHub::on_gateway_packet(std::size_t index, LinkWire& wire, const Bytes& 
       }
       break;
     }
+    case protocol::message_type::log_entries:
+      on_log_entries(index, *opened, meta);
+      break;
     default:
       break;
   }

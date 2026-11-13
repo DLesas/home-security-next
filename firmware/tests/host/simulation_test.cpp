@@ -5,8 +5,8 @@
 #include <functional>
 #include <string>
 
-#include "host/sim_support.hpp"
 #include "hsn/host/simulation_error.hpp"
+#include "sim_support.hpp"
 
 namespace hsn::test {
 namespace {

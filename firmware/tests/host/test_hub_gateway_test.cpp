@@ -3,7 +3,7 @@
 // soon as possible, transmit results, and a packet heard by two gateways. Protocol sections 4, 6
 // and 7.
 
-#include "host/sim_support.hpp"
+#include "sim_support.hpp"
 
 namespace hsn::test {
 namespace {

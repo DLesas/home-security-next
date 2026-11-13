@@ -71,6 +71,12 @@ public:
    */
   virtual bool up() const = 0;
 
+  /**
+   * Returns the Wi-Fi signal strength in dBm, signed, as the gateway status carries it (protocol
+   * section 6): 0 for a USB link, or when it is not known (no association yet).
+   */
+  virtual std::int8_t signal_dbm() const = 0;
+
 protected:
   Link() = default;
   Link(const Link&) = default;
