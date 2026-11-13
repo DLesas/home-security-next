@@ -60,7 +60,7 @@ The hub chooses the site channel during setup, as the quietest of the three on t
 | DR4 | SF8 |
 | DR5 | SF7 |
 
-Each site allows a set of data rates. The provisional set † is DR5 (fast) and DR2 (slow). A long-range site may allow DR0. A device listens for the hub on 869.525 MHz at the reply data rate in its settings, usually faster than the rate it sends at (section 7). Until it has one, it listens at its own sending rate.
+A gateway's one radio hears one data rate at a time. So until spike S7 shows it can hear two (O14), **a site has one sending rate**: every sensor and siren sends at it, every gateway listens at it, and the hub pairs each device with that one rate allowed. The hub chooses it from the range test: DR5 where every device is near enough, a slower one otherwise †. Replies and commands may still use a faster rate than the site's, because the gateway can transmit at any rate. A device listens for the hub on 869.525 MHz at the reply data rate in its settings, usually faster than the rate it sends at (section 7). Until it has one, it listens at its own sending rate.
 
 ### Time on air
 
@@ -74,20 +74,32 @@ Milliseconds, from the formula in spike S2.
 | Siren command | 21 | 57 | 185 | 371 | 1,483 |
 | Siren report | 28 | 67 | 226 | 412 | 1,647 |
 | Started | 26 | 62 | 206 | 412 | 1,647 |
+| Log entry over LoRa, longest | 50 | 98 | 329 | 616 | 2,302 |
 
 ### Airtime budgets
 
-Every transmitter enforces its own limit over a rolling hour.
+Every transmitter keeps count of its airtime over a rolling hour. The limit is the law's, not ours: 1% of the hour is 36 seconds on the site channel, and 10% is 360 seconds on 869.525 MHz.
 
-| Transmitter | Rule when the budget runs low |
-| --- | --- |
-| Sensor | Door, cover, button and started reports go first: heartbeats are skipped once less than a fifth of the hour's budget is left. A report that still does not fit waits until it does. It is never dropped, and the limit is never broken; when it goes, it carries the newest state and its age. |
-| Siren controller | Answers to commands go first, then LoRa checks. |
-| Gateway | The last fifth of the hour's budget is kept for siren commands. |
+Regular traffic always stays inside the limit, and gives way early to leave room for urgent traffic. Urgent traffic is never held back: it goes at once, and it still goes when the device has used its whole legal hour (D111).
+
+| Transmitter | Urgent: goes at once | Regular: gives way |
+| --- | --- | --- |
+| Sensor | Door, cover, button and started reports | Heartbeats and log entries: skipped once less than a fifth of the hour's airtime is left |
+| Siren controller | Answers to commands, and reports of a change: the cover, mains power, the sounder stopping by itself, Wi-Fi going down | Regular reports and LoRa checks: paced to half of the hour's airtime (section 7). Log entries |
+| Gateway | Siren commands | Replies: the last fifth of the hour's airtime is kept for siren commands |
+
+How many packets the legal hour holds for one device: about 580 at SF7, 87 at SF10 and 24 at SF12. So the limit is out of reach at the fast and medium rates, and can be reached at SF12 by a door that changes more than about 24 times in an hour, or by two full retry runs.
+
+When a device has used its whole legal hour and has an urgent packet to send:
+
+- **The packet goes anyway.** This knowingly breaks the 1% rule (10% for a gateway), in a case that should be rare.
+- **One safeguard stays, against a faulty device.** Past the legal hour, a device leaves a gap of nine times the packet's time on air after its last transmission. The wait is at most about half a second at SF7, 4 seconds at SF10 and 13 seconds at SF12. Past the limit a device then sends at most a tenth of the time, so a stuck door switch cannot lock out every other sensor or empty its own cell in hours. The worst hour measured in the simulation, with a door or cover changing every 2 seconds, held about 6½ minutes of airtime: the legal 36 seconds sent back to back, then a tenth of the rest.
+- **It is logged.** Every packet sent past the limit is recorded as a warning, so the hub can tell the user that a device is using too much airtime: a faulty switch, or a sensor too far from its gateway.
+- **Regular traffic stops** on that device until it is back inside the limit.
 
 ### Listening before sending
 
-Sensors and sirens check whether another packet is already on the site channel before they send. This is the radio's channel activity detection. Following Semtech's recommended settings it takes about 3 ms at SF7 and about 160 ms at SF12 ([hardware notes](hardware-notes.md), section 3). If the channel is busy, the device waits a random 0.2 to 2 seconds and checks again. After 5 busy checks it sends anyway. The check is a courtesy on top of the airtime limit, not a replacement for it. In the [gateway load simulation](spikes/gateway-load.md) it halved the packets lost to collisions.
+Sensors and sirens check whether another packet is already on the site channel before they send. This is the radio's channel activity detection. Following Semtech's recommended settings it takes about 3 ms at SF7 and about 160 ms at SF12 ([hardware notes](hardware-notes.md), section 3). If the channel is busy, the device waits a random 0.2 to 2 seconds and checks again. After 5 busy checks it sends anyway. A device that was listening for the hub when it started to send (a siren, or a sensor buzzing for a countdown) goes back to listening during each of those waits, so it does not miss a command or a disarmed notice. The check is a courtesy on top of the airtime limit, not a replacement for it. In the [gateway load simulation](spikes/gateway-load.md) it halved the packets lost to collisions.
 
 ## 3. Packet format
 
@@ -198,7 +210,7 @@ Packets recorded between a backup and its restore could each be replayed once to
 | 0x22 | Gateway status | gateway | hub | Wi-Fi, USB |
 | 0x23 | Transmit result | gateway | hub | Wi-Fi, USB |
 | 0x24 | Interference | gateway | hub | Wi-Fi, USB |
-| 0x30 | Log entries | any device | hub | Wi-Fi, USB |
+| 0x30 | Log entries | any device | hub | any |
 | 0x81 | Reply | hub | sensor | LoRa |
 | 0x82 | Disarmed notice | hub | sensor | LoRa |
 | 0x90 | Siren command | hub | siren | LoRa and Wi-Fi at once |
@@ -260,7 +272,7 @@ A reply always carries the full settings, so a sensor never has to ask twice.
 
 ### Disarmed notice (0x82)
 
-No body. Bound to the door report that started the countdown.
+No body. Bound to the door report that started the countdown. It also tells the sensor it is no longer armed: the sensor stops buzzing and holds "not armed" until a reply says otherwise. The hub sends it twice; a sensor that hears the second copy ignores it.
 
 ### Siren command (0x90)
 
@@ -293,7 +305,7 @@ No body. Bound to the door report that started the countdown.
 | 5 | 1 | Data rate to send at |
 | 6 | 1 | Data rate commands will use |
 
-The siren answers with a report.
+The siren answers with a report. A report interval, check interval or longest time of 0 is not valid: the siren keeps the value it holds and logs a warning, so a bad settings packet can never stop it sounding. Until settings arrive, a siren caps a command at 5 minutes (D40).
 
 ### Hello (0x20) and welcome (0xA0)
 
@@ -316,6 +328,8 @@ The siren answers with a report.
 | 5 | 1 | Interference alert: seconds the level must last (30 †) |
 | 6 | 1 | Default transmit power, dBm, signed |
 | 7 | 1 | Siren command transmit power, dBm, signed |
+
+A status interval, alert level or alert duration of 0 is not valid: the gateway keeps the value it holds, or the default in section 8 if it holds none, and logs a warning.
 
 ### Forwarded packet (0x21)
 
@@ -344,6 +358,10 @@ The gateway forwards only packets that pass the radio's CRC and are at least 18 
 | | 4 | 1 | 0 sent, 1 too late, 2 no airtime left, 3 radio busy, 4 not valid |
 | | 5 | 4 | Gateway clock time it was sent |
 
+The gateway sends at the power the request names, limited to the radio's +22 dBm; the two powers in its settings are what the hub fills requests with. A request for a given time is sent at that moment. If the gateway gets to it more than 20 ms † late, it answers "too late" and does not send, because the sensor has stopped listening by then.
+
+Every request gets exactly one result, so the hub always knows what was not sent. A gateway holds only a few requests while they wait for their moment or for the radio. A request that arrives when every place is taken is answered "radio busy". The one exception is a siren command: it takes the place of the newest waiting request that is not a siren command, and that request is answered "radio busy" instead. The gateway logs a warning each time (D110).
+
 ### Gateway status (0x22)
 
 | Offset | Size | Field |
@@ -371,7 +389,9 @@ Sent as soon as interference starts and again when it ends (GW11, D82).
 
 ### Log entries (0x30)
 
-One or more entries, each: age (4), level (1), code (2), text length (1), text (up to 64 bytes). Age is how long before this packet was sealed the entry was made, in tenths of a second, so the hub can date an entry without knowing the device's clock. Entries fill the body exactly, so a partial entry at the end makes the body not valid. Wi-Fi and USB only. A sensor's logs travel only while it is on Wi-Fi for an update.
+One or more entries, each: age (4), level (1), code (2), text length (1), text (up to 64 bytes). Age is how long before this packet was sealed the entry was made, in tenths of a second, so the hub can date an entry without knowing the device's clock. Entries fill the body exactly, so a partial entry at the end makes the body not valid.
+
+Over Wi-Fi and USB a device sends its entries as they arise. Over LoRa a packet carries one entry, of warning level or above, and counts as routine traffic: a device sends at most one after each heartbeat or LoRa check. The hub always replies to a sensor's log entries packet, and the entry stays in the sensor's buffer until that reply arrives. A sensor whose latest reply-wanted packet went unanswered holds its log entries until a reply arrives: sending them to a hub that is not answering would only use up the airtime its heartbeats need. So a fault inside a sensor reaches the hub within about one heartbeat, and nothing a device logs at warning level or above is lost while it can still reach the hub (D110).
 
 ## 7. Exchanges
 
@@ -418,7 +438,7 @@ The simulation still worked with a sensor's clock wandering ±10 seconds per hea
 The gateway transmits with more power than a sensor: up to +22 dBm against 14 dBm. That extra power lets a reply use a faster setting and still reach the sensor, about three steps faster for the full difference. For example, a sensor sending at SF12 can hear replies at SF9, which takes 0.2 seconds instead of 1.5.
 
 - **Choosing the rate:** the hub picks each sensor's reply rate from the signal margin of that sensor's packets, keeping a safety margin †. It sends it in the reply's settings, and siren settings carry the same for commands.
-- **Which rate the hub uses:** a device listens at the rate in the settings it holds, which may not be the newest. Every packet from a device names the settings version it holds, so the hub sends to it at the rate of that version, until the device reports a newer one.
+- **Which rate the hub uses:** a device listens at the rate in the settings it holds, which may not be the newest. Every packet from a device names the settings version it holds, so the hub sends to it at the rate of that version, until the device reports a newer one. A log entries packet names no version and has no flags, so for its reply the hub goes by the sensor's most recent packet that did; a sensor sends a log entry straight after a heartbeat, so that is fresh.
 - **Fewer deaf moments:** a short reply keeps the gateway's single radio busy for less time, so fewer incoming packets are lost while it sends.
 - **Faster answers:** the sensor gets its answer sooner and listens for less time.
 - **Falling back:** see "Data rate" below.
@@ -436,7 +456,7 @@ Every door report carries its age. The hub counts the countdown from when the do
 
 The sensor retries about 2, 5 and 10 seconds after the event, then every 60 seconds, for up to 10 minutes. Each retry adds a random extra wait of up to half the gap before it, so two doors that opened together do not keep colliding. These are the earliest times: a retry never starts before the previous try's listening has ended, which at slow data rates is later. It listens before each try, as for every packet.
 
-- After the second failed try it steps one data rate slower.
+- Unanswered tries count towards the data-rate fall-back ("Data rate" below): after two it listens at its sending rate, and after every two more it sends one rate slower.
 - If the door changes again meanwhile, it sends the newest state instead (DS3).
 - If the first try goes unanswered and the sensor believes it is armed, it buzzes for its stored countdown, counted from the opening, then sounds its own alarm for about 3 minutes (DS6, D88). Retries carry on meanwhile.
 - Any reply stops the local alarm if it says "not armed". A press of the button stops it too.
@@ -445,11 +465,13 @@ The sensor retries about 2, 5 and 10 seconds after the event, then every 60 seco
 
 ### Data rate
 
-A sensor starts at the fastest data rate the site allows and keeps the rate that last worked (LR4). When two reply-wanted packets in a row go unanswered, it first goes back to listening for replies at its own sending rate, in case the faster reply was what failed, and says so with flag bit 7 in each packet. The hub then answers at the rate the packet arrived at. The sensor returns to its reply rate when a reply tells it one again. If two more go unanswered, it steps its sending rate one slower. A single loss is usually a collision, and a slower rate would only make collisions likelier. The hub tells it to step faster in a reply when the signal margin is large.
+A sensor starts at the fastest data rate the site allows and keeps the rate that last worked (LR4). When two reply-wanted packets in a row go unanswered, it first goes back to listening for replies at its own sending rate, in case the faster reply was what failed, and says so with flag bit 7 in each packet. The hub then answers at the rate the packet arrived at. The sensor returns to its reply rate when a reply tells it one again. If two more go unanswered, it steps its sending rate one slower among the rates its pairing allows, and again after every two more. From the slowest allowed rate it goes back to the fastest, so a sensor can never be left on a rate nobody listens at. With one rate allowed, as every site has for now, there is nothing to step to and it keeps its rate. A single loss is usually a collision, and a slower rate would only make collisions likelier. The hub tells it to step faster in a reply when the signal margin is large. While its latest reply-wanted packet is unanswered, a sensor asks for a reply on every heartbeat, not only every Nth, so one that lost touch during an outage is back within a heartbeat or two of the gateway's return.
 
 At slow rates the sensor lengthens its heartbeat to stay inside its airtime: at least 3 minutes at SF11 and 5 minutes at SF12. The hub knows each sensor's rate from the forwarded packets, so its silence timeout follows the real interval (HB8). How many missed heartbeats count as silent depends on that sensor's measured packet loss (D107).
 
 ### Siren command
+
+The hub sends a siren a command only when what that siren should do changes. A siren already sounding for an alarm is not commanded again when another door's countdown ends; only the sirens that door adds are (D95). Thirty doors opening together then cost one command per siren, not thirty.
 
 1. The hub sends the same command packet over the siren's Wi-Fi connection and, through the gateway that last heard the siren best, over LoRa (D73).
 2. The siren acts on the first copy and drops the second by its counter.
@@ -461,8 +483,12 @@ At slow rates the sensor lengthens its heartbeat to stay inside its airtime: at 
 
 - The siren reports every 30 seconds over Wi-Fi.
 - It reports over LoRa at once when a Wi-Fi report fails, and every 5 minutes as a check. A Wi-Fi report has failed when the connection is down or will not take the packet. To notice a dead connection, the siren pings the hub over the WebSocket every 15 seconds and treats 15 seconds without an answer as down.
+- A siren starts its report and check timers at a random point in their interval, so sirens that power up together after a power cut do not report at the same instants and collide.
 - The hub does not reply to reports.
 - Losing either path is a warning, and losing both means the siren is silent (D73, D52).
+- While Wi-Fi is down, each 30-second report goes over LoRa. The siren paces these reports and its LoRa checks so that together they use at most half of its airtime †: they go no closer together than 200 times one report's time on air. That is every 13 seconds at SF7, so every report goes; every 83 seconds at SF10; and every 5½ minutes at SF12. Without the pace, a siren at a slow rate would send reports back to back until its airtime ran out and then be silent for most of an hour.
+- A report of a change (the cover, mains power, the sounder stopping by itself, Wi-Fi going down) is urgent: it goes at once, and neither the pace nor the airtime kept back from regular reports holds it (section 2).
+- The hub knows each siren's sending rate, and its silence rule for a siren on LoRa alone follows the pace. Because regular reports are paced to half, the other half of the hour is always free for answers to commands and reports of a change.
 
 ### Gateway connection
 
@@ -603,7 +629,9 @@ The TypeScript package and the C++ firmware both encode and decode every case on
 - **Reply rate margin:** how much signal margin the hub keeps when choosing a faster reply rate, set from the range test (S6).
 - **Reply timing (O10):** the heartbeat reply moment and the event listen time are measured on the development boards.
 - **Capacity (O11):** the [gateway load simulation](spikes/gateway-load.md) found that airtime is ample, and that collisions between sensors are the limit. Ten sensors at SF12, or about thirty at SF7, fit one gateway with listening first. A site with many far-away sensors needs a second gateway near them, so they can use a faster setting.
-- **One radio hearing two data rates (O14):** if it cannot, each site uses one data rate, chosen from the range test.
+- **One radio hearing two data rates (O14):** until spike S7 settles it, each site uses one sending rate (section 2). The whole-system test showed why: with two rates allowed and a gateway listening at one, a sensor that fell back to the other during an outage was never heard again.
 - **How busy 869.525 MHz is (S2):** LoRaWAN networks and other devices use it too. Measured at the property.
 - **Firmware transfer:** over Wi-Fi and Bluetooth, defined in M3. The "update available" flag in replies is already in place.
 - **Pairing over Bluetooth:** defined in M3, delivering the pairing data in section 9.
+- **Interference that comes and goes:** the gateway alerts when every noise reading for 30 seconds is above its normal level. Interference that pauses briefly never fills the 30 seconds, though it can still block most packets. The rule is set from measurements on the boards; a rule that counts most of the readings, not all, is the likely change. The status already carries the median and highest noise and the count of damaged packets, so the hub can judge this too.
+- **A gateway that restarts during interference** learns the interference as its normal level and does not alert. The hub keeps each gateway's long-term normal level from its status reports and compares against that as well.

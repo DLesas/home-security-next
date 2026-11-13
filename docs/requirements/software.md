@@ -15,7 +15,7 @@ Items marked † are proposals that have not been explicitly agreed.
 | FW3 | Core logic is built and tested on the host against fake hardware | `deviceCode/zephyr/tests/native_sim` (11 tests pass) |
 | FW4 | Hardware watchdog that survives idle waits | old core starts an 8 s watchdog and then waits up to 60 s without feeding it |
 | FW5 | Reset cause and last fatal error are stored and reported on the next contact | old core |
-| FW6 | Bounded log buffer, flushed to the hub when a link is available | old core, `log_ring` |
+| FW6 | Bounded log buffer. Every failure path records an entry with a code; no error is discarded silently. Entries go to the hub as they arise over Wi-Fi and USB, and one at a time over LoRa for warnings and above, kept until the hub has them (D110) | old core, `log_ring` |
 | FW7 | Bounded retries with back-off; no unbounded loops or recursion | old core, `retry_policy` |
 | FW8 | Device reports its firmware version to the hub | new |
 | FW9 | Core talks to the hub through a transport-neutral link with LoRa, Wi-Fi (one kept-open WebSocket) and USB serial implementations, all carrying the same packets (D101) | old core is tied to Wi-Fi and HTTP (`interfaces.hpp`, `device_core`) |
@@ -63,7 +63,7 @@ Items marked † are proposals that have not been explicitly agreed.
 | LR4 | Fast setting first, slow setting when there is no reply; remember what worked | new |
 | LR10 | One sensor channel per site in 868.0–868.6 MHz; hub replies and siren commands on 869.525 MHz; a device sends on one and listens on the other (D104) | new |
 | LR11 | Heartbeats go out at moments the hub assigns per sensor, with a clock correction from the hub. Replies and siren commands use a faster data rate than the device sends at, chosen by the hub from signal margin, with a fall-back to the sending rate (D108) | new |
-| LR5 | Sensor, siren and gateway each stay within the airtime limit for their band | new |
+| LR5 | Sensor, siren and gateway each keep their regular traffic within the airtime limit for their band. Urgent traffic goes at once and is never held back, even past the limit; it is then spaced so a faulty device cannot fill the channel, and logged (D111) | new |
 | LR6 | The hub's reply to a sensor carries armed state, heartbeat interval, countdown length, "countdown started" for door events, and an "update available" flag | new |
 | LR7 | A sensor's radio is asleep whenever the sensor is asleep, except while it buzzes for a countdown (D24) | new |
 | LR8 | The protocol carries a version number so new device types and fields can be added (D27) | new |
@@ -132,7 +132,7 @@ Items marked † are proposals that have not been explicitly agreed.
 | HB12 | Siren automatic stop, and the post-alarm rule in AL9; no cooldown timer | `backend/src/alarmTimeoutManager.ts` |
 | HB13 | Schedules: each entry is one action at one time (switch to a mode, or arm or disarm a group or sensor), recurring or one-time, timeout-based, with an execution log (D87). A door open at arming time arms when it closes (AL7), so no retry loop is needed | `backend/src/scheduleManager.ts` for the timing logic; its arm-and-disarm pairs are not carried over |
 | HB14 | Live updates to connected apps after every state change | `backend/src/express/socketHandler.ts` |
-| HB15 | History of device updates and system events | PostgreSQL tables in `backend/src/db/schema` |
+| HB15 | An audit record in the database of every packet received from and sent to each device (decoded, with time, path, gateway and signal), every rejected packet and why, every decision the hub takes with its cause, and every device log entry. A flood of rejected packets is recorded as counts per source and minute, so it cannot fill the disk (D110) | PostgreSQL tables in `backend/src/db/schema`: `sensorUpdates`, `alarmUpdates`, `eventLogs` |
 | HB16 | Store firmware images and track each device's version and update state | new |
 | HB17 | Create and store each device's key at pairing | new |
 | HB18 | One TypeScript service with an embedded SQLite database; no Redis, PostgreSQL or Docker (D15) | old hub is seven Docker services |
@@ -151,6 +151,7 @@ Items marked † are proposals that have not been explicitly agreed.
 | HB31 | Schedules follow the hub's local time zone, daylight saving included | old schedule logic |
 | HB32 | Armed state is held per sensor; modes, groups and schedules change it as described in D74 | old hub arms per sensor |
 | HB33 | The hub turns each battery voltage into a percentage from a table for the fitted cell, and warns the users who can view a device when its battery reaches 10%. The warning is raised once on the way down and clears when the battery is back above 15% (D109) | new |
+| HB34 | Every error on the hub is caught and recorded in the event log with its origin and severity; none is swallowed. An error nothing caught is recorded before the process exits, and the restart and its cause are recorded when the hub comes back (D110) | old `eventLogs` with a system origin and four severities |
 
 ## 9. Remote access
 
