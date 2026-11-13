@@ -1,0 +1,10 @@
+{
+  "name": "@hsn/check-own",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "`bun run check:own <folder>…`: the checks of `bun run check`, failing only for the named folders (hub/README.md).",
+  "scripts": {
+    "test": "bun test"
+  }
+}

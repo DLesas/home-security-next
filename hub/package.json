@@ -1,0 +1,26 @@
+{
+  "name": "@hsn/hub",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "The hub: the deterministic core, its ports, the database schema and the control protocol (docs/hub-design.md).",
+  "bin": {
+    "hsn": "./cli/hsn.ts"
+  },
+  "scripts": {
+    "test": "bun test",
+    "db:generate": "drizzle-kit generate"
+  },
+  "dependencies": {
+    "@hsn/protocol": "workspace:*",
+    "bonjour-service": "1.4.4",
+    "drizzle-orm": "0.45.4",
+    "hono": "4.13.18",
+    "neverthrow": "8.2.0",
+    "serialport": "13.0.0",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "drizzle-kit": "0.31.11"
+  }
+}

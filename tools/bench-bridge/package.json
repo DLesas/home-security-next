@@ -1,0 +1,18 @@
+{
+  "name": "@hsn/bench-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Joins each network link of the firmware's bench to the hub's /device WebSocket, one frame per message both ways (docs/hub-design.md section 11).",
+  "bin": {
+    "bench-bridge": "./src/main.ts"
+  },
+  "scripts": {
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@hsn/hub": "workspace:*",
+    "@hsn/protocol": "workspace:*",
+    "neverthrow": "8.2.0"
+  }
+}

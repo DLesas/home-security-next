@@ -3,16 +3,21 @@
   "private": true,
   "type": "module",
   "workspaces": [
-    "packages/*"
+    "packages/*",
+    "hub",
+    "tools/*"
   ],
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
-    "lint": "eslint --max-warnings 0 .",
+    "lint": "bun --bun eslint --max-warnings 0 .",
     "format:check": "prettier --check .",
     "format": "prettier --write .",
     "test": "bun test",
     "verify:vectors": "node packages/protocol/verify/verify-vectors.mjs",
     "check": "bun run typecheck && bun run lint && bun run format:check && bun run test && bun run verify:vectors",
+    "check:own": "bun tools/check-own/src/check-own.ts",
+    "check:serial-linux": "sh hub/test/linux/serial.sh",
+    "m1a": "HSN_M1A=1 bun test --timeout 600000 hub/test/bench/m1a.test.ts",
     "check:firmware": "cd firmware && cmake --workflow --preset host-debug",
     "check:firmware:gcc": "docker run --rm -v \"$PWD\":/src:ro gcc:15 bash -c 'apt-get update -qq && apt-get install -y -qq cmake ninja-build && mkdir -p /work/packages/protocol && cp -r /src/firmware /work/ && cp -r /src/packages/protocol/vectors /work/packages/protocol/ && rm -rf /work/firmware/build && cd /work/firmware && cmake --workflow --preset host-release && cmake --workflow --preset host-debug'",
     "check:role:sensor": "cd firmware && cmake --workflow --preset role-sensor",

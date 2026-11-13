@@ -1,0 +1,3 @@
+// Lint probe: a core module may not import "../sirens/handle.ts".
+// Expect: no-restricted-imports "[core-import]"
+import "../sirens/handle.ts";
