@@ -227,7 +227,7 @@ Built after the core system works (D14).
 | AL8 | Every arm, disarm, countdown and alarm is recorded with who or what caused it | old `scheduleExecutions` and event logs |
 | AL9 | After the siren stops by itself, everything stays armed; the door that set it off is ignored until it closes, then arms again (D67) | old 30 s cooldown in `alarmTimeoutManager.ts` |
 | AL10 | A manual disarm during a scheduled armed period lasts until the next schedule entry runs (D68, D87) | new |
-| AL11 | A Disarm ends an alarm only when every sensor that set it off is then disarmed; otherwise the sirens run on to their automatic stop. A second door opening during a countdown or alarm adds the sirens of its groups (D95) | new |
+| AL11 | A Disarm ends an alarm only when every sensor that set it off is then disarmed; otherwise the sirens run on to their automatic stop. Only a person's Disarm does this: a scheduled disarm never ends a countdown or an alarm (D117). A second door opening during a countdown or alarm adds the sirens of its groups (D95) | new |
 | AL12 | Arming with a low battery: when a mode, group or sensor being armed includes a sensor at 10% battery or below, the user is told which and asked before it goes on. A schedule arms anyway and sends a warning (D109) | new |
 
 ## 13. First milestone

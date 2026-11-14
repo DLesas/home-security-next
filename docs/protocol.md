@@ -597,7 +597,7 @@ The site channel and the data rate allowed are the site's settings on the day th
 ### Wi-Fi
 
 - **Finding the hub:** the hub advertises itself on the home network by mDNS, as `_hsn-hub._tcp` with its identity in the record. A device connects only to the hub whose identity it was paired with.
-- **Connection:** a WebSocket to `ws://<hub>:<port>/device`, the same port as the apps. Each binary WebSocket message carries exactly one packet.
+- **Connection:** a WebSocket to `ws://<hub>:<port>/device`, on the hub's device port; the apps use a second port with HTTPS (D101). Each binary WebSocket message carries exactly one packet.
 - **No TLS:** every packet is already encrypted and authenticated, so the connection needs no TLS and no login.
 - **What uses it:** gateways and sirens use it all the time. Sensors use it only for updates.
 
