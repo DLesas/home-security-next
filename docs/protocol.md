@@ -363,7 +363,7 @@ The gateway forwards only packets that pass the radio's CRC and are at least 18 
 | | 4 | 1 | 0 sent, 1 too late, 2 no airtime left, 3 radio busy, 4 not valid |
 | | 5 | 4 | Gateway clock time it was sent |
 
-The gateway sends at the power the request names, limited to the radio's +22 dBm; the two powers in its settings are what the hub fills requests with. A request for a given time is sent at that moment. If the gateway gets to it more than 20 ms † late, it answers "too late" and does not send, because the sensor has stopped listening by then.
+The gateway sends at the power the request names, limited to the radio's range of −9 to +22 dBm †: a request below it is sent at −9 dBm, one above it at +22 dBm. The two powers in its settings are what the hub fills requests with, and the hub accepts only values inside that range for them. A request for a given time is sent at that moment. If the gateway gets to it more than 20 ms † late, it answers "too late" and does not send, because the sensor has stopped listening by then.
 
 Every request gets exactly one result, so the hub always knows what was not sent. A gateway holds only a few requests while they wait for their moment or for the radio. A request that arrives when every place is taken is answered "radio busy". The one exception is a siren command: it takes the place of the newest waiting request that is not a siren command, and that request is answered "radio busy" instead. The gateway logs a warning each time (D110).
 
@@ -528,7 +528,7 @@ The hub sends a siren a command only when what that siren should do changes. A s
 1. The gateway connects and sends a hello with a fresh random value.
 2. The hub answers with a welcome bound to that value, carrying its own random value. The two values together are the session value.
 3. The hub sends the gateway its settings.
-4. From then on the gateway sends forwarded packets, a status every 30 seconds and transmit results, and the hub sends transmit requests.
+4. From then on the gateway sends forwarded packets, a status every 30 seconds and transmit results, and the hub sends transmit requests. The first packet bound to the session proves it, whatever its type: a forwarded packet counts, and the hub acts on what it carries.
 5. The hub reports a gateway offline after 60 seconds with nothing from it (D97).
 6. A gateway that loses its connection retries after 1, 2, 4, 8, 15 and then every 30 seconds.
 
