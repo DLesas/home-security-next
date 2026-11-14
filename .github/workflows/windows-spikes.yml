@@ -1,0 +1,73 @@
+# Spikes W2 (the command socket on Windows) and W3 (hosting the Windows service), from
+# docs/m2-design.md section 9, on a hosted Windows runner. The job's product is the table in its
+# summary and the JSON lines in its artifact: an option that does not work is a result, not a
+# failure, so the spike steps never fail the job.
+name: Windows spikes (W2, W3)
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "spikes/w2-*/**"
+      - "spikes/w3-*/**"
+      - ".github/workflows/windows-spikes.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  spikes:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      WINSW_VERSION: v2.12.0
+      # WinSW publishes no checksums. The first run prints the file's SHA-256 in W3's
+      # "environment" line; review it and set it here, and later runs refuse any other file.
+      WINSW_SHA256: ""
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.2
+
+      - name: Install dependencies (W3 runs the hub)
+        continue-on-error: true
+        run: bun install --frozen-lockfile
+
+      - name: "W2: the command socket"
+        continue-on-error: true
+        run: bun spikes/w2-windows-control-socket/w2.ts --out results/w2.jsonl
+
+      - name: Fetch WinSW
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $path = Join-Path $env:RUNNER_TEMP "WinSW-x64.exe"
+          Invoke-WebRequest -Uri "https://github.com/winsw/winsw/releases/download/$env:WINSW_VERSION/WinSW-x64.exe" -OutFile $path
+          $hash = (Get-FileHash $path -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($env:WINSW_SHA256 -ne "" -and $hash -ne $env:WINSW_SHA256) {
+            Remove-Item $path
+            throw "WinSW's SHA-256 $hash differs from the pinned $env:WINSW_SHA256"
+          }
+          "WINSW=$path" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: "W3: the Windows service"
+        continue-on-error: true
+        run: bun spikes/w3-windows-service/w3.ts --out results/w3.jsonl --repo "$env:GITHUB_WORKSPACE"
+
+      - name: Table
+        if: always()
+        shell: pwsh
+        run: |
+          bun spikes/w2-windows-control-socket/summary.ts results/w2.jsonl results/w3.jsonl |
+            Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: windows-spikes
+          path: results/
+          if-no-files-found: warn
