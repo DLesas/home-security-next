@@ -4,23 +4,53 @@
  * harm. Rows of the audit tables are written as `AuditRecord`s; their only `StoreOp` is
  * retention's prune.
  */
-import type { BootId, DeviceId } from "./ids.ts";
+import type {
+  BootId,
+  ClientId,
+  DeviceId,
+  GroupId,
+  ModeId,
+  PersonId,
+  ScheduleId,
+  TokenId,
+} from "./ids.ts";
 import type {
   AlarmRow,
   AlarmSirenRow,
   AlarmTriggerRow,
+  BackupKeyRow,
+  BackupStateRow,
   BootRow,
+  ClientReplyRow,
+  ClientRow,
   CountdownRow,
   DeviceKeyRow,
   DeviceRow,
   DeviceStateRow,
   GatewayConfigRow,
+  GroupMemberRow,
+  GroupRow,
+  GroupSirenRow,
+  HealthStateRow,
   HubKeysRow,
+  LinkSecretRow,
+  LinkTokenRow,
   LossDailyRow,
+  ModeGroupRow,
+  ModeRow,
+  ModeStateRow,
+  NotificationPrefsRow,
+  PeopleSettingsRow,
+  PermissionRow,
+  PersonRoleRow,
+  PersonRow,
+  ScheduleRow,
+  ScheduleStateRow,
   SendCounterRow,
   SensorConfigRow,
   SirenConfigRow,
   SiteRow,
+  UpdateStateRow,
 } from "./rows.ts";
 
 /**
@@ -47,6 +77,29 @@ export interface StateTables {
   readonly boots: BootRow;
   readonly device_state: DeviceStateRow;
   readonly loss_daily: LossDailyRow;
+  // M2 (m2-design.md section 4).
+  readonly people: PersonRow;
+  readonly clients: ClientRow;
+  readonly client_replies: ClientReplyRow;
+  readonly permissions: PermissionRow;
+  readonly person_roles: PersonRoleRow;
+  readonly link_tokens: LinkTokenRow;
+  readonly link_secrets: LinkSecretRow;
+  readonly groups: GroupRow;
+  readonly group_members: GroupMemberRow;
+  readonly group_sirens: GroupSirenRow;
+  readonly modes: ModeRow;
+  readonly mode_groups: ModeGroupRow;
+  readonly schedules: ScheduleRow;
+  readonly health_state: HealthStateRow;
+  readonly notification_prefs: NotificationPrefsRow;
+  // M2's single rows, one writer each (section 4).
+  readonly mode_state: ModeStateRow;
+  readonly people_settings: PeopleSettingsRow;
+  readonly schedule_state: ScheduleStateRow;
+  readonly backup_state: BackupStateRow;
+  readonly backup_key: BackupKeyRow;
+  readonly update_state: UpdateStateRow;
 }
 
 /** The key that names one row of each table; a single-row table's is `undefined`. */
@@ -66,6 +119,28 @@ export interface StateTableKeys {
   readonly boots: { readonly id: BootId };
   readonly device_state: { readonly deviceId: DeviceId };
   readonly loss_daily: { readonly deviceId: DeviceId; readonly day: number };
+  // M2.
+  readonly people: { readonly id: PersonId };
+  readonly clients: { readonly id: ClientId };
+  readonly client_replies: { readonly clientId: ClientId; readonly seq: number };
+  readonly permissions: { readonly personId: PersonId; readonly deviceId: DeviceId };
+  readonly person_roles: { readonly personId: PersonId };
+  readonly link_tokens: { readonly id: TokenId };
+  readonly link_secrets: { readonly tokenId: TokenId };
+  readonly groups: { readonly id: GroupId };
+  readonly group_members: { readonly groupId: GroupId; readonly sensorId: DeviceId };
+  readonly group_sirens: { readonly groupId: GroupId; readonly sirenId: DeviceId };
+  readonly modes: { readonly id: ModeId };
+  readonly mode_groups: { readonly modeId: ModeId; readonly groupId: GroupId };
+  readonly schedules: { readonly id: ScheduleId };
+  readonly health_state: { readonly deviceId: DeviceId };
+  readonly notification_prefs: { readonly clientId: ClientId };
+  readonly mode_state: undefined;
+  readonly people_settings: undefined;
+  readonly schedule_state: undefined;
+  readonly backup_state: undefined;
+  readonly backup_key: undefined;
+  readonly update_state: undefined;
 }
 
 /** The audit tables of section 6. */
@@ -78,7 +153,10 @@ export type AuditTable =
   | "device_log"
   | "hub_events"
   | "commands"
-  | "rejects";
+  | "rejects"
+  // M2 (m2-design.md section 4).
+  | "notifications"
+  | "notification_reads";
 
 export type StateTable = keyof StateTables;
 

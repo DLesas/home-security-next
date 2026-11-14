@@ -236,6 +236,12 @@ export function formatResult(result: CommandResult): readonly string[] {
       return ["the site's Wi-Fi details are set"];
     case "log":
       return result.records.map(formatRecord);
+    case "op":
+      return [JSON.stringify(result.body)];
+    case "consoleToken":
+      return [`open ${result.url} within ${Math.round(result.expiresInMs / 1000)} s`];
+    case "fileChunk":
+      return [];
   }
 }
 
@@ -295,6 +301,14 @@ export function formatRecord(record: RecordJson): string {
     case "reject": {
       const r = record.row;
       return `${time(r.minute * 60_000)} rejected ${r.count} × ${printable(r.reason)} via ${printable(r.via)}`;
+    }
+    case "notification": {
+      const r = record.row;
+      return `${time(r.atMs)} notification ${printable(r.kind)} (${printable(r.category)}${r.critical ? ", critical" : ""})${r.deviceId === null ? "" : ` device ${r.deviceId}`}`;
+    }
+    case "notificationRead": {
+      const r = record.row;
+      return `${time(r.atMs)} notification #${r.notificationSeq} read by client ${r.clientId}`;
     }
   }
 }

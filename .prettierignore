@@ -8,3 +8,9 @@ LICENSE.md
 packages/protocol/vectors/*.json
 
 bun.lock
+
+# The app's builds and browser-test output.
+app/dist/
+app/.expo/
+app/test-results/
+app/playwright-report/

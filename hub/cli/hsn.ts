@@ -18,5 +18,14 @@ const code = await runCli(process.argv.slice(2), {
   onInterrupt: (end) => {
     process.once("SIGINT", end);
   },
+  ask: (question) => {
+    process.stdout.write(question);
+    return new Promise((resolve) => {
+      process.stdin.once("data", (data) => {
+        process.stdin.pause();
+        resolve(data.toString());
+      });
+    });
+  },
 });
 process.exitCode = code;

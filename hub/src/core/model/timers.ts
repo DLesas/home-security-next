@@ -3,7 +3,7 @@
  * module that owns them. The dispatcher runs every due timer at the start of every step, as a
  * `timer` message to that module only. Each module's `deadlines(slice)` lists its timers.
  */
-import type { DeviceId, LinkId } from "./ids.ts";
+import type { DeviceId, LinkId, ScheduleId, TokenId } from "./ids.ts";
 import type { ModuleName } from "./modules.ts";
 import type { Mono } from "./time.ts";
 
@@ -52,7 +52,24 @@ export type TimerKey =
   /** The end of the 120 s ‡ after a start within which each siren is sent "report now" (section 7). */
   | { readonly module: "sirens"; readonly kind: "reportNowWindow" }
   /** A retention round, every 10 minutes ‡ (section 6). */
-  | { readonly module: "audit"; readonly kind: "retention" };
+  | { readonly module: "audit"; readonly kind: "retention" }
+  // M2 (m2-design.md section 2).
+  /** A link token's expiry, on the monotonic clock from its creation (section 5). */
+  | { readonly module: "people"; readonly kind: "tokenExpiry"; readonly token: TokenId }
+  /** A schedule entry's next time, as a monotonic deadline (section 7, "Schedules"). */
+  | { readonly module: "schedules"; readonly kind: "entryDue"; readonly schedule: ScheduleId }
+  /** The daily backup, at its local hour (section 9, D122). */
+  | { readonly module: "upkeep"; readonly kind: "backupDaily" }
+  /** The end of the 60 s ‡ that gathers changes into one more backup (section 9). */
+  | { readonly module: "upkeep"; readonly kind: "backupCoalesce" }
+  /** A failed backup's retry, every 5 minutes ‡ (section 9). */
+  | { readonly module: "upkeep"; readonly kind: "backupRetry" }
+  /** An hour ‡ with a backup due: `backup_overdue`, once (section 9). */
+  | { readonly module: "upkeep"; readonly kind: "backupOverdue" }
+  /** The restore token's expiry, 10 minutes ‡ after it was made (section 9). */
+  | { readonly module: "upkeep"; readonly kind: "restoreExpiry" }
+  /** An approved update waiting for no countdown, alarm, site move, provisioning or restore (D54). */
+  | { readonly module: "upkeep"; readonly kind: "updateWait" };
 
 /** The timer keys one module owns. */
 export type TimerKeyOf<M extends ModuleName> = Extract<TimerKey, { readonly module: M }>;

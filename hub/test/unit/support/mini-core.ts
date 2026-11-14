@@ -6,6 +6,8 @@
  * audit last), a timer to its owner only, and one record cursor per step, starting at the boot's
  * first sequence number on a boot input and otherwise where audit says.
  */
+import { UNBUILT_CALENDAR } from "../../../src/shell/calendar/unbuilt.ts";
+import { EMPTY_M2_SNAPSHOT } from "../../../src/core/model/events.ts";
 import { err, ok, type Result } from "neverthrow";
 import { auditDeadlines } from "../../../src/core/audit/deadlines.ts";
 import { handleAudit } from "../../../src/core/audit/handle.ts";
@@ -25,7 +27,11 @@ import { entropyCursor } from "../../../src/core/util/entropy.ts";
 import { VectorCipher } from "../../world/vector-cipher.ts";
 
 /** The core's dependencies for these tests: neither module opens a packet. */
-export const MINI_DEPS: CoreDeps = { cipher: VectorCipher.fromVectors(), rules: DEFAULT_RULES };
+export const MINI_DEPS: CoreDeps = {
+  cipher: VectorCipher.fromVectors(),
+  rules: DEFAULT_RULES,
+  calendar: UNBUILT_CALENDAR,
+};
 
 /** A snapshot of an empty database (as `test/world/world.ts` has it, without loading the core). */
 export function emptyTestSnapshot(): DurableSnapshot {
@@ -45,6 +51,7 @@ export function emptyTestSnapshot(): DurableSnapshot {
     deviceState: [],
     lossDaily: [],
     provisioningKeys: new Map(),
+    m2: EMPTY_M2_SNAPSHOT,
   };
 }
 

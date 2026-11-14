@@ -274,6 +274,19 @@ export class HubLoop {
         if (advertised.isErr()) this.#ports.report(advertised.error);
         return;
       }
+      // M2's effects (m2-design.md section 2) are performed by the app listeners and the file
+      // jobs, joined in step 2; step 0's stubs never emit them, so one here is reported.
+      case "appSend":
+      case "closeClient":
+      case "linkSecret":
+      case "fileJob":
+      case "historyRead":
+        this.#ports.report({
+          kind: "internal",
+          origin: "shell/loop",
+          message: `the ${effect.kind} effect is not built yet (m2-design.md section 11, step 2)`,
+        });
+        return;
     }
   }
 

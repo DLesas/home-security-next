@@ -7,7 +7,17 @@
  */
 import type { DecisionKind } from "./decisions.ts";
 import type { RejectReason } from "./errors.ts";
-import type { BootId, DeviceId, Seq } from "./ids.ts";
+import type {
+  BootId,
+  ClientId,
+  DeviceId,
+  GroupId,
+  ModeId,
+  PersonId,
+  ScheduleId,
+  Seq,
+  TokenId,
+} from "./ids.ts";
 import type { Mono } from "./time.ts";
 
 /** `devices.state` (section 6). */
@@ -98,6 +108,27 @@ export interface HubKeysRow {
   readonly signingPublic: Uint8Array;
   /** The first 8 bytes of SHA-256 of `signingPublic` (§9). */
   readonly identity: Uint8Array;
+  // M2 (m2-design.md section 4): made by the shell at the first start of M2, null until then.
+  // `hub_keys` stays the shell's; the backup key is `upkeep`'s, in `backup_key`. Read by the
+  // shell only; never part of a `DurableSnapshot` but for the public half.
+  /** X25519, the hub's static key for apps (section 5). */
+  readonly appStaticPrivate: Uint8Array | null;
+  readonly appStaticPublic: Uint8Array | null;
+  /** PKCS #8 of the TLS key (P-256). */
+  readonly tlsPrivate: Uint8Array | null;
+  /** DER. */
+  readonly tlsCertificate: Uint8Array | null;
+}
+
+/** The hub's device-signing keys as the core sees them: the public half and the identity (§9). */
+export type HubSigningKeys = Pick<HubKeysRow, "signingPublic" | "identity">;
+
+/**
+ * The hub's app keys as the core sees them (m2-design.md section 5): the static public key, whose
+ * hash is the app identity; never a private key.
+ */
+export interface HubAppKeys {
+  readonly appStaticPublic: Uint8Array;
 }
 
 /** `site.move_stage`: a site move's stage (D115, section 6). */
@@ -390,4 +421,263 @@ export interface RejectRow {
   readonly address: number | null;
   /** The first 16 bytes of the first rejected packet. */
   readonly sample: Uint8Array;
+}
+
+// M2 (m2-design.md section 4).
+
+/** `clients.kind`. */
+export const ClientKind = { Console: 0, Web: 1, Phone: 2 } as const;
+export type ClientKind = (typeof ClientKind)[keyof typeof ClientKind];
+
+/** `link_tokens.kind`. A restore token is never stored (section 9). */
+export const TokenKind = { NewPerson: 0, OwnDevice: 1, Console: 2 } as const;
+export type TokenKind = (typeof TokenKind)[keyof typeof TokenKind];
+
+/** `modes.fixed` (D90). */
+export const ModeFixed = { No: 0, Away: 1, Disarmed: 2 } as const;
+export type ModeFixed = (typeof ModeFixed)[keyof typeof ModeFixed];
+
+/** `schedules.action`. */
+export const ScheduleAction = { SwitchMode: 0, Arm: 1, Disarm: 2 } as const;
+export type ScheduleAction = (typeof ScheduleAction)[keyof typeof ScheduleAction];
+
+export interface PersonRow {
+  readonly id: PersonId;
+  readonly name: string;
+  readonly createdMs: number;
+  readonly removedMs: number | null;
+  readonly revision: number;
+}
+
+export interface ClientRow {
+  readonly id: ClientId;
+  /** Null for the console (kind 0), which belongs to no person (section 7). */
+  readonly personId: PersonId | null;
+  /** The client's static public key (X25519); public, so the core may keep it (section 2). */
+  readonly staticKey: Uint8Array;
+  readonly kind: ClientKind;
+  readonly name: string;
+  readonly linkedByClient: ClientId | null;
+  readonly createdMs: number;
+  readonly removedMs: number | null;
+  /** The highest `seq` accepted (section 5); 0 before the first. */
+  readonly lastSeq: number;
+  /** Routine. */
+  readonly lastSeenMs: number | null;
+  readonly backupKeyEpoch: number | null;
+}
+
+export interface ClientReplyRow {
+  readonly clientId: ClientId;
+  readonly seq: number;
+  /** The reply as sent, UTF-8 JSON. */
+  readonly reply: Uint8Array;
+}
+
+export interface PermissionRow {
+  readonly personId: PersonId;
+  readonly deviceId: DeviceId;
+  readonly manage: boolean;
+  readonly view: boolean;
+}
+
+export interface PersonRoleRow {
+  readonly personId: PersonId;
+  readonly manageUsers: boolean;
+  readonly manageSystem: boolean;
+  readonly revision: number;
+}
+
+export interface LinkTokenRow {
+  readonly id: TokenId;
+  /** 4 bytes: a 128-bit secret's lookup, or a typed code's token id. */
+  readonly lookup: Uint8Array;
+  readonly kind: TokenKind;
+  readonly personId: PersonId | null;
+  readonly createdByClient: ClientId | null;
+  readonly createdBoot: BootId;
+  readonly createdMono: Mono;
+  readonly expiresAfterMs: number;
+  readonly typed: boolean;
+  readonly failures: number;
+  readonly usedMs: number | null;
+}
+
+/** A token's pre-shared key: kept apart, as `device_keys` is; never in a snapshot but by `LinkSecrets`. */
+export interface LinkSecretRow {
+  readonly tokenId: TokenId;
+  readonly psk: Uint8Array;
+}
+
+export interface GroupRow {
+  readonly id: GroupId;
+  readonly name: string;
+  readonly allSirens: boolean;
+  readonly revision: number;
+}
+
+export interface GroupMemberRow {
+  readonly groupId: GroupId;
+  readonly sensorId: DeviceId;
+}
+
+export interface GroupSirenRow {
+  readonly groupId: GroupId;
+  readonly sirenId: DeviceId;
+}
+
+export interface ModeRow {
+  readonly id: ModeId;
+  readonly name: string;
+  readonly fixed: ModeFixed;
+  readonly revision: number;
+}
+
+export interface ModeGroupRow {
+  readonly modeId: ModeId;
+  readonly groupId: GroupId;
+}
+
+export interface ScheduleRow {
+  readonly id: ScheduleId;
+  readonly name: string;
+  readonly action: ScheduleAction;
+  readonly modeId: ModeId | null;
+  readonly groupId: GroupId | null;
+  readonly sensorId: DeviceId | null;
+  /** Minutes after midnight, local. */
+  readonly localTime: number;
+  /** A bit per weekday, Monday bit 0; 0 for a one-time entry. */
+  readonly days: number;
+  /** A one-time entry's date: days since 1970-01-01. */
+  readonly date: number | null;
+  readonly enabled: boolean;
+  readonly createdBy: string;
+  readonly lastRunMs: number | null;
+  /** Days since 1970-01-01, local: an entry runs at most once per local date. */
+  readonly lastRunLocalDate: number | null;
+  readonly revision: number;
+}
+
+export interface HealthStateRow {
+  readonly deviceId: DeviceId;
+  readonly batteryLow: boolean;
+  readonly tamperOpen: boolean;
+}
+
+export interface NotificationPrefsRow {
+  readonly clientId: ClientId;
+  /** A bit per optional category (`OPTIONAL_CATEGORIES`' order), 1 on. */
+  readonly categories: number;
+  readonly revision: number;
+}
+
+// M2's single rows, each written by one module only (section 4, "One writer per row").
+
+/** Single row, `layout`'s: the current mode (D90). */
+export interface ModeStateRow {
+  /** Null when arming matches no mode. */
+  readonly currentModeId: ModeId | null;
+  /** Arming changed since the last switch: the app shows "Away, changed". */
+  readonly modeModified: boolean;
+}
+
+/** Single row, `people`'s. */
+export interface PeopleSettingsRow {
+  /** D13: off by default. */
+  readonly userManagement: boolean;
+}
+
+/** Single row, `schedules`'. */
+export interface ScheduleStateRow {
+  /** The zone last given by `timeZone`, or null before the first. */
+  readonly timeZone: string | null;
+}
+
+/** `backup_state.last_result`. */
+export const BackupResult = { Never: 0, Written: 1, Failed: 2 } as const;
+export type BackupResult = (typeof BackupResult)[keyof typeof BackupResult];
+
+/** Single row, `upkeep`'s (section 9, "Backup, export and restore"; D122). */
+export interface BackupStateRow {
+  /** Null: none chosen. */
+  readonly folder: string | null;
+  /** Null: `HubRules.backups.defaultHour`. */
+  readonly hour: number | null;
+  /** Null: `HubRules.backups.keep`. */
+  readonly keep: number | null;
+  /**
+   * The last change to people, clients, permissions, user management, paired devices or the
+   * backup key: the backup header's field (D122). Null before the first.
+   */
+  readonly lastChangeMs: number | null;
+  /** The first such change no backup holds yet; null when none is due. */
+  readonly dueSinceMs: number | null;
+  /** The 1-hour warning was raised for this due backup, so it is raised once. */
+  readonly overdueRaised: boolean;
+  readonly newestName: string | null;
+  readonly newestMs: number | null;
+  readonly lastResult: BackupResult;
+  readonly lastAttemptMs: number | null;
+  /** The restore mark: set in a restored database, cleared when `restored` is recorded. */
+  readonly restoredFromMs: number | null;
+}
+
+/** `backup_state` as migration 2 inserts it: no folder, nothing due. */
+export const BACKUP_STATE_DEFAULTS: BackupStateRow = {
+  folder: null,
+  hour: null,
+  keep: null,
+  lastChangeMs: null,
+  dueSinceMs: null,
+  overdueRaised: false,
+  newestName: null,
+  newestMs: null,
+  lastResult: BackupResult.Never,
+  lastAttemptMs: null,
+  restoredFromMs: null,
+};
+
+/**
+ * Single row, `upkeep`'s: the backup key, made from the input's entropy at the first start of M2
+ * and at each replacement (section 9). Kept apart as `link_secrets` is; never in a record.
+ */
+export interface BackupKeyRow {
+  /** 32 bytes. */
+  readonly key: Uint8Array;
+  readonly epoch: number;
+}
+
+/** Single row, `upkeep`'s (section 9, "Hub updates"). */
+export interface UpdateStateRow {
+  readonly stagedVersion: string | null;
+  readonly stagedMs: number | null;
+  readonly approvedBy: string | null;
+  readonly approvedMs: number | null;
+  readonly switchingMs: number | null;
+  readonly previousVersion: string | null;
+}
+
+/** One notification raised (section 7), 1 year. */
+export interface NotificationRow {
+  readonly seq: Seq;
+  readonly atMs: number;
+  readonly clockOk: boolean;
+  readonly kind: string;
+  readonly category: string;
+  readonly critical: boolean;
+  readonly deviceId: DeviceId | null;
+  readonly causeSeq: Seq | null;
+  /** Person ids, u32 LE each. */
+  readonly recipients: Uint8Array;
+  readonly detail: Uint8Array | null;
+}
+
+/** One client marking one notification read, 30 days. */
+export interface NotificationReadRow {
+  readonly seq: Seq;
+  readonly atMs: number;
+  readonly clockOk: boolean;
+  readonly notificationSeq: Seq;
+  readonly clientId: ClientId;
 }

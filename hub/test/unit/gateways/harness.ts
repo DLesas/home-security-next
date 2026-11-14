@@ -5,6 +5,8 @@
  * modules, with every message and effect kept, so a test sees what the other modules would get.
  * Other modules' messages (`accepted`, `rejected`, `radioOut`, `siteMove`) are put in by hand.
  */
+import { UNBUILT_CALENDAR } from "../../../src/shell/calendar/unbuilt.ts";
+import { EMPTY_M2_SNAPSHOT } from "../../../src/core/model/events.ts";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect } from "bun:test";
@@ -138,6 +140,7 @@ export function emptySnapshot(): DurableSnapshot {
     deviceState: [],
     lossDaily: [],
     provisioningKeys: new Map(),
+    m2: EMPTY_M2_SNAPSHOT,
   };
 }
 
@@ -206,7 +209,7 @@ export class Harness {
   cipher: DeviceCipher = cipher;
 
   get deps(): CoreDeps {
-    return { cipher: this.cipher, rules: this.rules };
+    return { cipher: this.cipher, rules: this.rules, calendar: UNBUILT_CALENDAR };
   }
 
   /** Runs one input event and everything it causes; returns what this one input emitted. */

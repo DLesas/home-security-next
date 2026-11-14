@@ -1,0 +1,88 @@
+/**
+ * Which module owns each app operation (m2-design.md section 2's module table, section 6): an
+ * `opRequest` goes to its owner, which checks, makes and answers it. Frozen by step 0, so the
+ * request routing of control and app cannot disagree.
+ */
+import type { AppOpName } from "@hsn/protocol/app";
+import { M2_MODULES, type M2ModuleName, type ModuleName } from "./modules.ts";
+
+/**
+ * The owner of each operation (m2-design.md section 11, "The four readings of ownership"): one of
+ * M2's modules, which takes it as an `opRequest`; an M1a module that owns the same change for
+ * `hsn`, which `app` reaches with that module's own request message (section 2, "Requests for
+ * M1a's modules"); or the shell, which answers `fileChunk` itself (section 6).
+ */
+export const OP_OWNERS: Readonly<Record<AppOpName, ModuleName | "shell">> = {
+  snapshot: "app",
+  subscribe: "app",
+  "hub.info": "app",
+  "hub.status": "app",
+  pong: "app",
+  fileChunk: "shell",
+  "device.list": "app",
+  "device.show": "app",
+  "mode.switch": "layout",
+  arm: "layout",
+  disarm: "layout",
+  "group.create": "layout",
+  "group.update": "layout",
+  "group.delete": "layout",
+  "mode.create": "layout",
+  "mode.update": "layout",
+  "mode.delete": "layout",
+  "schedule.create": "schedules",
+  "schedule.update": "schedules",
+  "schedule.delete": "schedules",
+  "notifications.list": "notify",
+  "notifications.read": "notify",
+  "notifications.prefs": "notify",
+  "people.list": "people",
+  "person.create": "people",
+  "person.rename": "people",
+  "person.remove": "people",
+  "permissions.set": "people",
+  "userManagement.set": "people",
+  "clients.list": "people",
+  "client.rename": "people",
+  "client.remove": "people",
+  "link.create": "people",
+  "link.cancel": "people",
+  "device.rename": "registry",
+  "device.remove": "registry",
+  "sensor.settings": "sensors",
+  "siren.settings": "sirens",
+  "siren.test": "sirens",
+  "gateway.settings": "gateways",
+  "usb.list": "setup",
+  "usb.add": "setup",
+  "usb.erase": "setup",
+  "site.show": "site",
+  "site.set": "site",
+  "site.wifi": "site",
+  "site.survey": "site",
+  "site.change": "site",
+  "site.changeStatus": "site",
+  "history.query": "app",
+  "backup.key": "upkeep",
+  "backup.status": "upkeep",
+  "backup.settings": "upkeep",
+  "backup.now": "upkeep",
+  "backup.export": "upkeep",
+  "restore.start": "upkeep",
+  "update.status": "upkeep",
+  "update.upload": "upkeep",
+  "update.approve": "upkeep",
+  "update.cancel": "upkeep",
+};
+
+const M2_OWNERS: ReadonlySet<string> = new Set<M2ModuleName>(M2_MODULES);
+
+function isM2(owner: string): owner is M2ModuleName {
+  return M2_OWNERS.has(owner);
+}
+
+/** The operation's owner when it is one of M2's modules, the ones `opRequest` reaches. */
+export function m2OwnerOf(op: AppOpName): M2ModuleName | undefined {
+  const owner = OP_OWNERS[op];
+  return isM2(owner) ? owner : undefined;
+}

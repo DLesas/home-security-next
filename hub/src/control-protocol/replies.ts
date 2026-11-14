@@ -3,6 +3,7 @@
  * makes it in a `respond` effect and the CLI checks it. A success carries a result of the
  * command's own kind; a failure carries an error the CLI shows.
  */
+import { appError } from "@hsn/protocol/app";
 import { z } from "zod";
 import { recordJson } from "./records.ts";
 import { dataRate, deviceName, hexBytes, roleName, siteChannel, time, unsigned } from "./values.ts";
@@ -283,6 +284,14 @@ export const commandResult = z.discriminatedUnion("kind", [
     .readonly(),
   z.object({ kind: z.literal("siteWifi") }).readonly(),
   z.object({ kind: z.literal("log"), records: z.array(recordJson).readonly() }).readonly(),
+  // M2 (m2-design.md section 6): an operation's reply body, as section 6 gives it.
+  z.object({ kind: z.literal("op"), body: z.unknown() }).readonly(),
+  /** `hsn open`'s console address with its one-time token, and how long it is good for. */
+  z
+    .object({ kind: z.literal("consoleToken"), url: z.string(), expiresInMs: z.int().min(0) })
+    .readonly(),
+  /** A file chunk taken by the shell (m2-design.md section 6). */
+  z.object({ kind: z.literal("fileChunk") }).readonly(),
 ]);
 
 /** Why a command failed. */
@@ -312,10 +321,21 @@ export const controlErrorCode = z.enum([
   "notAnnouncing",
   /** The hub could not do it: a storage failure or a fault, recorded. */
   "failed",
+  // M2.
+  /** An operation refused for one of section 5's reasons, given in `app`. */
+  "opRefused",
+  /** Step 0: the operation's module is a stub. Never sent once M2 is built. */
+  "notBuilt",
 ]);
 
 export const controlError = z
-  .object({ code: controlErrorCode, message: z.string(), names: names.optional() })
+  .object({
+    code: controlErrorCode,
+    message: z.string(),
+    names: names.optional(),
+    /** For `op` commands: the operation's own error, as an app would get it (section 5). */
+    app: appError.optional(),
+  })
   .readonly();
 
 export const controlReply = z.discriminatedUnion("ok", [

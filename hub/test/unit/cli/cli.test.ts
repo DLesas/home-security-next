@@ -6,7 +6,11 @@
  * exit code. The fake hub is the real socket server with a sink that answers by command.
  */
 import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { chmodSync, mkdirSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { FILE_CHUNKS } from "@hsn/protocol/app";
+import { CONTROL_LINE_BYTES, controlCommand } from "../../../src/control-protocol/index.ts";
+import { chunksOf } from "../../../cli/files.ts";
+import { qrLines } from "../../../cli/qr.ts";
 import { createServer } from "node:net";
 import { join } from "node:path";
 import { toHex } from "@hsn/protocol";
@@ -88,6 +92,7 @@ function io(stdin = "", onInterrupt: CliIo["onInterrupt"] = () => undefined) {
     stdin: () => Promise.resolve(stdin),
     nowMs: () => Date.UTC(2026, 10, 13, 12),
     onInterrupt,
+    ask: () => Promise.resolve("n"),
   };
   return { value, out, err };
 }
@@ -298,6 +303,23 @@ const TABLE: readonly (readonly [string, ControlCommand, CommandResult, string])
     { kind: "gatewaySet", name: "gw1", powerDbm: 14 },
     { kind: "gatewaySet", name: "gw1", version: 4 },
     "gw1: settings version 4",
+  ],
+  [
+    'op mode.switch {"mode":1}',
+    // As the hub receives it: the operation typed by its schema.
+    { kind: "op", operation: { op: "mode.switch", body: { mode: 1 } } },
+    { kind: "op", body: { armed: [3], disarmed: [], waiting: [] } },
+    '{"armed":[3],"disarmed":[],"waiting":[]}',
+  ],
+  [
+    "open",
+    { kind: "consoleToken" },
+    {
+      kind: "consoleToken",
+      url: "http://127.0.0.1:8445/#console=AAAAAAAAAAAAAAAAAAAAAA",
+      expiresInMs: 120_000,
+    },
+    "open http://127.0.0.1:8445/#console=AAAAAAAAAAAAAAAAAAAAAA within 120 s",
   ],
   [
     "siren test hall",
@@ -636,6 +658,10 @@ describe("exit codes and errors", () => {
     "gateway set gw1 siren-power=-10",
     "gateway set gw1 power=-10",
     "gateway set gw1 loud=1",
+    "op",
+    "op mode.switch {not json",
+    "op pong",
+    'op mode.switch {"mode":0}',
     "arm --all --bogus",
   ];
   for (const words of usage) {
@@ -676,6 +702,82 @@ describe("exit codes and errors", () => {
     }
     expect(text).toContain("69  the hub is not running");
     expect(run.code).toBe(ExitCode.Ok);
+  });
+});
+
+describe("M2's forms (m2-design.md section 6)", () => {
+  test("hsn op - reads the body from standard input, and a refusal prints {code, detail} as JSON", async () => {
+    answer = () => ({
+      ok: false,
+      error: {
+        code: "notBuilt",
+        message: "not built",
+        app: { code: "notBuilt", detail: { op: "mode.switch" } },
+      },
+    });
+    const run = await hsn("--json op mode.switch -", '{"mode": 3}\n');
+    expect(received).toEqual([{ kind: "op", operation: { op: "mode.switch", body: { mode: 3 } } }]);
+    expect(run.err).toEqual(['{"code":"notBuilt","detail":{"op":"mode.switch"}}']);
+    expect(run.code).toBe(ExitCode.Refused);
+    const bad = await hsn("op mode.switch -", "{}");
+    expect(bad.code).toBe(ExitCode.Usage);
+  });
+
+  test("hsn update install uploads on one connection; the shell answers its chunks, not built yet", async () => {
+    const file = join(where.folder, "release.bin");
+    writeFileSync(file, new Uint8Array(100_000).fill(7));
+    const run = await hsn(`update install ${file}`);
+    expect(received).toEqual([]);
+    expect(JSON.parse(run.err.join("")) as unknown).toEqual({ code: "notBuilt", detail: {} });
+    expect(run.code).toBe(ExitCode.Refused);
+    const missing = await hsn(`update install ${join(where.folder, "none.bin")}`);
+    expect(missing.err[0]).toContain("cannot read the file");
+  });
+
+  test("hsn backup export asks for the export, and writes nothing when it is refused", async () => {
+    answer = () => ({
+      ok: false,
+      error: {
+        code: "notBuilt",
+        message: "not built",
+        app: { code: "notBuilt", detail: { op: "backup.export" } },
+      },
+    });
+    const file = join(where.folder, "home.hsnb");
+    const run = await hsn(`backup export ${file} --history`);
+    expect(received).toEqual([
+      { kind: "op", operation: { op: "backup.export", body: { history: true } } },
+    ]);
+    expect(run.code).toBe(ExitCode.Refused);
+    expect(existsSync(file)).toBe(false);
+  });
+
+  test("a file's chunks: 48 KB each, numbered from 0, the last with the count and the hash", () => {
+    const chunks = chunksOf(new Uint8Array(FILE_CHUNKS.maxChunkBytes * 2 + 1));
+    expect(chunks.map((c) => c.n)).toEqual([0, 1, 2]);
+    expect(chunks[2]?.end?.chunks).toBe(3);
+    expect(chunks.slice(0, 2).every((c) => c.end === undefined)).toBe(true);
+    for (const chunk of chunks) expect(controlCommand.safeParse(chunk).success).toBe(true);
+    expect(chunksOf(new Uint8Array(0))).toHaveLength(1);
+    // The largest chunk's line fits the control socket's 64 KiB (section 6).
+    const line = JSON.stringify({ id: 2 ** 40, actor: "a".repeat(64), command: chunks[2] });
+    const full = JSON.stringify({ id: 2 ** 40, actor: "a".repeat(64), command: chunks[0] });
+    expect(Math.max(line.length, full.length)).toBeLessThan(CONTROL_LINE_BYTES);
+  });
+
+  test("the file commands' usage, and the restore QR drawn in the terminal", async () => {
+    for (const words of [
+      "update install",
+      "restore",
+      "restore a b",
+      "backup export",
+      "backup export a b",
+    ]) {
+      expect((await hsn(words)).code).toBe(ExitCode.Usage);
+    }
+    const lines = qrLines("hsn://restore/1?h=x");
+    expect(lines.length).toBeGreaterThan(10);
+    expect(new Set(lines.map((l) => l.length)).size).toBe(1);
   });
 });
 

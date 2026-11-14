@@ -12,14 +12,22 @@ import { HUB_IDENTITY_LENGTH, hubIdentity, SIGNING_KEY_LENGTH } from "@hsn/proto
 import type { Result } from "neverthrow";
 import { err, errAsync, ok, okAsync, ResultAsync } from "neverthrow";
 import type { HubError } from "../../core/model/errors.ts";
-import type { HubKeysRow } from "../../core/model/rows.ts";
+import type { HubKeysRow, HubSigningKeys } from "../../core/model/rows.ts";
 import type { Writer } from "../../ports/writer.ts";
 import { cryptoCall, subtle as safeSubtle } from "../safe/crypto.ts";
 
 const ORIGIN = "shell/advertise/hub-keys";
 
 /** The hub's keys as the core sees them: never the private half (`DurableSnapshot.hubKeys`). */
-export type HubPublicKeys = Omit<HubKeysRow, "signingPrivate">;
+export type HubPublicKeys = HubSigningKeys;
+
+/** M2's key columns of a row made before M2's keys are (m2-design.md section 4). */
+const NO_M2_KEYS = {
+  appStaticPrivate: null,
+  appStaticPublic: null,
+  tlsPrivate: null,
+  tlsCertificate: null,
+} as const;
 
 /** A P-256 public key exported raw: 0x04, then X and Y (SEC 1). */
 const UNCOMPRESSED_POINT = 0x04;
@@ -72,6 +80,7 @@ export function makeHubKeys(
           signingPrivate: new Uint8Array(pkcs8),
           signingPublic,
           identity,
+          ...NO_M2_KEYS,
         })),
       ),
     ),
@@ -127,6 +136,7 @@ export function seededHubKeys(
           signingPrivate: new Uint8Array(pkcs8),
           signingPublic,
           identity,
+          ...NO_M2_KEYS,
         })),
       );
   });

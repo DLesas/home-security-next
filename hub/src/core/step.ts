@@ -3,7 +3,7 @@
  * "Modules and the dispatcher").
  *
  * A step puts every due timer on the queue, earliest first, then the input's event; it then
- * takes messages from the front until the queue is empty. Every message goes to the thirteen
+ * takes messages from the front until the queue is empty. Every message goes to the twenty
  * modules in the fixed order of `MODULE_ORDER`, except a timer, which goes to its owner only; a
  * handler returns its slice unchanged for messages it ignores. Each handler sees the state after
  * every earlier handler, and what it emits joins the back of the queue (messages) or the step's
@@ -69,6 +69,27 @@ import { slotsDeadlines } from "./slots/deadlines.ts";
 import { handleSlots } from "./slots/handle.ts";
 import { EMPTY_SLOTS_SLICE } from "./slots/state.ts";
 import { entropyCursor } from "./util/entropy.ts";
+import { peopleDeadlines } from "./people/deadlines.ts";
+import { handlePeople } from "./people/handle.ts";
+import { EMPTY_PEOPLE_SLICE } from "./people/state.ts";
+import { layoutDeadlines } from "./layout/deadlines.ts";
+import { handleLayout } from "./layout/handle.ts";
+import { EMPTY_LAYOUT_SLICE } from "./layout/state.ts";
+import { appDeadlines } from "./app/deadlines.ts";
+import { handleApp } from "./app/handle.ts";
+import { EMPTY_APP_SLICE } from "./app/state.ts";
+import { schedulesDeadlines } from "./schedules/deadlines.ts";
+import { handleSchedules } from "./schedules/handle.ts";
+import { EMPTY_SCHEDULES_SLICE } from "./schedules/state.ts";
+import { healthDeadlines } from "./health/deadlines.ts";
+import { handleHealth } from "./health/handle.ts";
+import { EMPTY_HEALTH_SLICE } from "./health/state.ts";
+import { notifyDeadlines } from "./notify/deadlines.ts";
+import { handleNotify } from "./notify/handle.ts";
+import { EMPTY_NOTIFY_SLICE } from "./notify/state.ts";
+import { upkeepDeadlines } from "./upkeep/deadlines.ts";
+import { handleUpkeep } from "./upkeep/handle.ts";
+import { EMPTY_UPKEEP_SLICE } from "./upkeep/state.ts";
 
 /** A step that would handle more messages than this is a loop: a `CoreFault` (section 2). */
 export const MAX_MESSAGES_PER_STEP = 10_000;
@@ -85,13 +106,21 @@ export interface ModuleDefinition<K extends ModuleName> {
 /** One definition per module. */
 export type Modules = { readonly [K in ModuleName]: ModuleDefinition<K> };
 
-/** The thirteen modules of the core. */
+/** The twenty modules of the core: M1a's thirteen and M2's seven (m2-design.md section 2). */
 export const MODULES: Modules = {
   clock: { empty: EMPTY_CLOCK_SLICE, handle: handleClock, deadlines: clockDeadlines },
   registry: { empty: EMPTY_REGISTRY_SLICE, handle: handleRegistry, deadlines: registryDeadlines },
   links: { empty: EMPTY_LINKS_SLICE, handle: handleLinks, deadlines: linksDeadlines },
   setup: { empty: EMPTY_SETUP_SLICE, handle: handleSetup, deadlines: setupDeadlines },
   control: { empty: EMPTY_CONTROL_SLICE, handle: handleControl, deadlines: controlDeadlines },
+  people: { empty: EMPTY_PEOPLE_SLICE, handle: handlePeople, deadlines: peopleDeadlines },
+  layout: { empty: EMPTY_LAYOUT_SLICE, handle: handleLayout, deadlines: layoutDeadlines },
+  app: { empty: EMPTY_APP_SLICE, handle: handleApp, deadlines: appDeadlines },
+  schedules: {
+    empty: EMPTY_SCHEDULES_SLICE,
+    handle: handleSchedules,
+    deadlines: schedulesDeadlines,
+  },
   gateways: { empty: EMPTY_GATEWAYS_SLICE, handle: handleGateways, deadlines: gatewaysDeadlines },
   intake: { empty: EMPTY_INTAKE_SLICE, handle: handleIntake, deadlines: intakeDeadlines },
   alarm: { empty: EMPTY_ALARM_SLICE, handle: handleAlarm, deadlines: alarmDeadlines },
@@ -99,10 +128,13 @@ export const MODULES: Modules = {
   sensors: { empty: EMPTY_SENSORS_SLICE, handle: handleSensors, deadlines: sensorsDeadlines },
   slots: { empty: EMPTY_SLOTS_SLICE, handle: handleSlots, deadlines: slotsDeadlines },
   sirens: { empty: EMPTY_SIRENS_SLICE, handle: handleSirens, deadlines: sirensDeadlines },
+  health: { empty: EMPTY_HEALTH_SLICE, handle: handleHealth, deadlines: healthDeadlines },
+  notify: { empty: EMPTY_NOTIFY_SLICE, handle: handleNotify, deadlines: notifyDeadlines },
+  upkeep: { empty: EMPTY_UPKEEP_SLICE, handle: handleUpkeep, deadlines: upkeepDeadlines },
   audit: { empty: EMPTY_AUDIT_SLICE, handle: handleAudit, deadlines: auditDeadlines },
 };
 
-/** The core built from a set of modules: the real thirteen, or a test's. */
+/** The core built from a set of modules: the real twenty, or a test's. */
 export interface Core {
   readonly step: StepFunction;
   readonly nextDeadline: (state: HubState) => Mono | undefined;
@@ -202,6 +234,10 @@ export function makeCore(modules: Modules): Core {
       links: modules.links.empty,
       setup: modules.setup.empty,
       control: modules.control.empty,
+      people: modules.people.empty,
+      layout: modules.layout.empty,
+      app: modules.app.empty,
+      schedules: modules.schedules.empty,
       gateways: modules.gateways.empty,
       intake: modules.intake.empty,
       alarm: modules.alarm.empty,
@@ -209,6 +245,9 @@ export function makeCore(modules: Modules): Core {
       sensors: modules.sensors.empty,
       slots: modules.slots.empty,
       sirens: modules.sirens.empty,
+      health: modules.health.empty,
+      notify: modules.notify.empty,
+      upkeep: modules.upkeep.empty,
       audit: modules.audit.empty,
     };
   }

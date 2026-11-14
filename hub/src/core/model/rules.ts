@@ -5,6 +5,7 @@
  * to be set by a measurement. Durations are milliseconds unless the name says otherwise.
  */
 import { EVENT_LISTEN_MS } from "@hsn/protocol";
+import { APP_LISTS, LINKING, REQUEST_LIMITS } from "@hsn/protocol/app";
 import type { CadenceMs } from "./effects.ts";
 
 const SECOND = 1000;
@@ -255,7 +256,142 @@ export interface HubRules {
     /** ... deleting up to 2,000 ‡ rows a table. */
     readonly rowsPerRound: number;
   };
+
+  // M2 (m2-design.md section 7, and the core's values of sections 3, 5 and 9). The values shared
+  // with the apps are defined once in `@hsn/protocol/app` and taken from there.
+
+  /** People, clients and linking (section 5, "Linking"; section 7, "People and permissions"). */
+  readonly people: {
+    /** Codes made in an app expire after 10 minutes ‡. */
+    readonly appCodeExpiryMs: number;
+    /** Invites for someone not present after 24 hours (D99). */
+    readonly inviteExpiryMs: number;
+    /** The installer's first code after 7 days or its first use ‡ (D62). */
+    readonly installerCodeExpiryMs: number;
+    /** The console's one-time token, from `hsn open`, after 2 minutes ‡. */
+    readonly consoleTokenExpiryMs: number;
+    /** A typed code is void after 5 failed tries ‡. */
+    readonly typedMaxFailures: number;
+    /** Link failures are a warning after 10 in an hour from one address ‡. */
+    readonly linkFailureWarningPerHour: number;
+    /** Removing a client lists the clients it linked in the last 30 days ‡. */
+    readonly recentlyLinkedMs: number;
+    /** Replies kept per client for a retried `seq`: 16 ‡ (section 3). */
+    readonly storedReplies: number;
+    /** User management on keeps everyone's every permission until changed ‡ (D13). */
+    readonly userManagementKeepsPermissions: true;
+    /** The hub refuses to take *manage users* from its last holder ‡. */
+    readonly keepLastUserManager: true;
+    /** *Manage* on a device includes *view* ‡ (D33). */
+    readonly manageIncludesView: true;
+  };
+  /** Modes, groups and arming (section 7, "Modes, groups and arming"). */
+  readonly layout: {
+    /** A battery at or below this asks for confirmation before arming (D109, AL12). */
+    readonly confirmBatteryPercent: number;
+    /** Arming needs *manage* on every sensor it would change, or nothing changes ‡. */
+    readonly armAllOrNothing: true;
+    /** Disarming a group disarms its sensors even if another armed group holds them ‡. */
+    readonly groupDisarmIsPerSensor: true;
+    /** A group's "every siren" means every siren paired at the time of the alarm ‡. */
+    readonly everySirenAtAlarmTime: true;
+    /** Removing a device in a countdown or an alarm is refused (`busy`) ‡. */
+    readonly refuseRemovalWhileRunning: true;
+    /** Removing a group's last listed siren returns it to every siren ‡. */
+    readonly lastSirenRemovedMeansAll: true;
+    /** Deleting what a schedule names is refused, naming the schedules ‡. */
+    readonly refuseDeletingScheduled: true;
+    /** Editing a group while armed changes no sensor's state ‡. */
+    readonly editWhileArmedKeepsState: true;
+  };
+  /** Sessions and live updates as the core runs them (section 5). */
+  readonly app: {
+    /** Readings are sent at most once a minute per device ‡. */
+    readonly readingEventEveryMs: number;
+    /** A person losing the right to view a device gets `forget` for it ‡. */
+    readonly forgetOnLostView: true;
+  };
+  /** Schedules (section 7, "Schedules"). */
+  readonly schedules: {
+    /** A local time the clock jumps over runs at the first minute after the jump ‡. */
+    readonly skippedTime: "firstMinuteAfter";
+    /** A local time that happens twice runs once, at the first ‡. */
+    readonly repeatedTime: "first";
+    /** Two entries due in the same minute run in the order of their ids ‡. */
+    readonly sameMinuteOrder: "id";
+    /** Several missed occurrences of one entry in one gap give one decision ‡. */
+    readonly missedOccurrencesTogether: true;
+  };
+  /** Device health (section 7, "Device health"; HB33, D109). */
+  readonly health: {
+    /** Low battery at or below this percentage (HB33) ... */
+    readonly batteryLowPercent: number;
+    /** ... cleared above this one (HB33). */
+    readonly batteryOkPercent: number;
+    /**
+     * Voltage against charge, for the fitted cell: (millivolts, percent) points, lowest first,
+     * linear between (section 7, "Device health"). Until the curve is measured on the board
+     * (section 12), `BATTERY_CURVE_INTERIM`.
+     */
+    readonly batteryCurve: readonly (readonly [millivolts: number, percent: number])[];
+  };
+  /** Notifications (section 7, "Notifications"). */
+  readonly notify: {
+    /** A connecting client gets its person's unread notifications of the last 7 days ‡. */
+    readonly unreadWindowMs: number;
+    /** One raised more than 60 s ‡ before it is delivered is marked `delayed`. */
+    readonly delayedAfterMs: number;
+    /** The same kind about the same device at most once every 10 minutes ‡, but countdowns and alarms. */
+    readonly sameKindEveryMs: number;
+    /** The console receives every notification ‡. */
+    readonly consoleGetsAll: true;
+  };
+  /** History over the channel (section 7, "History"; HB24). */
+  readonly history: {
+    /** Pages of at most 500 rows ‡. */
+    readonly pageRows: number;
+    /** Retention adjustable within these days ‡: routine 1 to 90 ... */
+    readonly routineDays: { readonly min: number; readonly max: number };
+    /** ... events 30 to 730. */
+    readonly eventDays: { readonly min: number; readonly max: number };
+  };
+  /** Backups (section 9, "Backup, export and restore"; D122). */
+  readonly backups: {
+    /** The newest 20 ‡ files are kept. */
+    readonly keep: number;
+    /** The daily backup at 03:00 ‡, local, by default. */
+    readonly defaultHour: number;
+    /** Changes within 60 s ‡ of one that started a backup go into one more when it is done. */
+    readonly coalesceMs: number;
+    /** An unreachable folder is tried again every 5 minutes ‡ ... */
+    readonly retryMs: number;
+    /** ... and after an hour ‡ a warning that cannot be turned off. */
+    readonly warnAfterMs: number;
+  };
+  /** Restore (section 9). */
+  readonly restore: {
+    /** Every client's last `seq` is raised by 2³² ‡. */
+    readonly seqJump: number;
+    /** Every hub sending counter's resume point moves forward by 2²⁴ (§4, O16). */
+    readonly counterJump: number;
+    /** The restore token, never stored, expires after 10 minutes ‡ or its first use. */
+    readonly tokenExpiryMs: number;
+  };
 }
+
+/**
+ * The interim battery table for a single lithium-ion cell (4.2 V full), until the curve is
+ * measured on the board (m2-design.md sections 7 and 12). Every point is ‡ but the 10% one, which
+ * is the firmware's own 3,500 mV (`kLowBatteryMillivolts`), so the sensor's buzzer warning and the
+ * hub's agree. The 15% point sits 100 mV above it, so the low-battery state does not flap on the
+ * reading's noise.
+ */
+export const BATTERY_CURVE_INTERIM = [
+  [3000, 0],
+  [3500, 10],
+  [3600, 15],
+  [4200, 100],
+] as const;
 
 /** The rules as the design sets them. */
 export const DEFAULT_RULES: HubRules = {
@@ -369,4 +505,58 @@ export const DEFAULT_RULES: HubRules = {
   intake: { logRepeatWithinMs: 15 * SECOND },
   setup: { provisionAnswerMs: 5 * SECOND },
   retention: { everyMs: 10 * MINUTE, rowsPerRound: 2000 },
+  people: {
+    appCodeExpiryMs: LINKING.appCodeExpiryMs,
+    inviteExpiryMs: LINKING.inviteExpiryMs,
+    installerCodeExpiryMs: LINKING.installerCodeExpiryMs,
+    consoleTokenExpiryMs: LINKING.consoleTokenExpiryMs,
+    typedMaxFailures: LINKING.typedMaxFailures,
+    linkFailureWarningPerHour: LINKING.failureWarningPerHour,
+    recentlyLinkedMs: 30 * DAY,
+    storedReplies: REQUEST_LIMITS.storedReplies,
+    userManagementKeepsPermissions: true,
+    keepLastUserManager: true,
+    manageIncludesView: true,
+  },
+  layout: {
+    confirmBatteryPercent: 10,
+    armAllOrNothing: true,
+    groupDisarmIsPerSensor: true,
+    everySirenAtAlarmTime: true,
+    refuseRemovalWhileRunning: true,
+    lastSirenRemovedMeansAll: true,
+    refuseDeletingScheduled: true,
+    editWhileArmedKeepsState: true,
+  },
+  app: { readingEventEveryMs: APP_LISTS.readingEventEveryMs, forgetOnLostView: true },
+  schedules: {
+    skippedTime: "firstMinuteAfter",
+    repeatedTime: "first",
+    sameMinuteOrder: "id",
+    missedOccurrencesTogether: true,
+  },
+  health: { batteryLowPercent: 10, batteryOkPercent: 15, batteryCurve: BATTERY_CURVE_INTERIM },
+  notify: {
+    unreadWindowMs: 7 * DAY,
+    delayedAfterMs: 60 * SECOND,
+    sameKindEveryMs: 10 * MINUTE,
+    consoleGetsAll: true,
+  },
+  history: {
+    pageRows: APP_LISTS.maxHistoryRows,
+    routineDays: { min: 1, max: 90 },
+    eventDays: { min: 30, max: 730 },
+  },
+  backups: {
+    keep: 20,
+    defaultHour: 3,
+    coalesceMs: 60 * SECOND,
+    retryMs: 5 * MINUTE,
+    warnAfterMs: HOUR,
+  },
+  restore: {
+    seqJump: 2 ** 32,
+    counterJump: 2 ** 24,
+    tokenExpiryMs: LINKING.restoreTokenExpiryMs,
+  },
 };

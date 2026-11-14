@@ -1,0 +1,22 @@
+{
+  "app": {
+    "name": "HSN home security"
+  },
+  "notBuilt": "This screen is not built yet.",
+  "screens": {
+    "home": { "title": "Home" },
+    "setup": { "title": "First-time setup" },
+    "devices": { "title": "Devices" },
+    "groups": { "title": "Groups" },
+    "modes": { "title": "Modes" },
+    "schedules": { "title": "Schedules" },
+    "history": { "title": "History" },
+    "people": { "title": "People" },
+    "link": { "title": "Link a device" },
+    "notifications": { "title": "Notifications" },
+    "site": { "title": "Site settings" },
+    "backup": { "title": "Backup and restore" },
+    "updates": { "title": "Updates" },
+    "status": { "title": "Hub status" }
+  }
+}

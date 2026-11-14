@@ -3,6 +3,7 @@
  * and the dispatcher").
  */
 import type { Result } from "neverthrow";
+import type { Calendar } from "./calendar.ts";
 import type { DeviceCipher } from "./cipher.ts";
 import type { Effect } from "./effects.ts";
 import type { CoreFault } from "./errors.ts";
@@ -17,6 +18,8 @@ import type { Mono, Now } from "./time.ts";
 export interface CoreDeps {
   readonly cipher: DeviceCipher;
   readonly rules: HubRules;
+  /** Calendar arithmetic over a fixed time-zone database (m2-design.md section 2). */
+  readonly calendar: Calendar;
   /**
    * True in test builds: the state is deep-frozen after every step, so a mutation fails at once
    * (section 2). SPEC-QUESTION: the core may not read `process`, so `step` cannot tell a test

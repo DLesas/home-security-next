@@ -16,6 +16,7 @@
  * last commit carries the clean-stop mark. This file and `shell/safe/` are where `try` and
  * `throw` may appear (section 10); this one needs neither.
  */
+import { UNBUILT_CALENDAR } from "./calendar/unbuilt.ts";
 import { join } from "node:path";
 import { okAsync } from "neverthrow";
 import { dataFolder, socketPath } from "../../cli/paths.ts";
@@ -209,7 +210,7 @@ export async function runHub(options: MainOptions): Promise<number> {
   };
   const loop = new HubLoop(
     makeCore(MODULES),
-    { cipher: new KeyStoreCipher(keys.value), rules },
+    { cipher: new KeyStoreCipher(keys.value), rules, calendar: UNBUILT_CALENDAR },
     {
       clock,
       random: { bytes: (length) => randomBytes(length, ORIGIN) },

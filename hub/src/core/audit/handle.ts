@@ -101,6 +101,10 @@ function stamped(record: AuditRecord, ctx: Context): AuditRecord {
       // Numbered and stamped by control when the command arrived, written when it was answered:
       // its own time keeps `seq` in time order (section 6).
       return record;
+    case "notification":
+      return { ...record, row: { ...record.row, ...stamp } };
+    case "notificationRead":
+      return { ...record, row: { ...record.row, ...stamp } };
   }
 }
 

@@ -3,18 +3,50 @@
  * stamped with the time and carrying 32 fresh random bytes. The shell knows nothing of the
  * protocol: a frame is bytes from a link, and the core decides what it is.
  */
+import type { AppRequest, LinkRequest } from "@hsn/protocol/app";
 import type { ControlCommand } from "./control.ts";
-import type { BootId, DeviceId, LinkId, RequestId, SendRef } from "./ids.ts";
+import type {
+  BootId,
+  ClientId,
+  ConnId,
+  DeviceId,
+  JobId,
+  LinkId,
+  RequestId,
+  SendRef,
+  TokenId,
+} from "./ids.ts";
 import type {
   AlarmRow,
   AlarmSirenRow,
   AlarmTriggerRow,
+  BackupKeyRow,
+  BackupStateRow,
   BootRow,
   CountdownRow,
   DeviceRow,
   DeviceStateRow,
+  ClientReplyRow,
+  ClientRow,
   GatewayConfigRow,
-  HubKeysRow,
+  GroupMemberRow,
+  GroupRow,
+  GroupSirenRow,
+  HealthStateRow,
+  HubAppKeys,
+  HubSigningKeys,
+  LinkTokenRow,
+  ModeGroupRow,
+  ModeRow,
+  ModeStateRow,
+  NotificationPrefsRow,
+  PeopleSettingsRow,
+  PermissionRow,
+  PersonRoleRow,
+  PersonRow,
+  ScheduleRow,
+  ScheduleStateRow,
+  UpdateStateRow,
   LossDailyRow,
   PreviousExit,
   SendCounterRow,
@@ -117,7 +149,7 @@ export interface BootInfo {
 export interface DurableSnapshot {
   readonly devices: readonly DeviceRow[];
   readonly sendCounters: readonly SendCounterRow[];
-  readonly hubKeys: Omit<HubKeysRow, "signingPrivate"> | undefined;
+  readonly hubKeys: HubSigningKeys | undefined;
   readonly site: SiteRow | undefined;
   readonly sensorConfig: readonly SensorConfigRow[];
   readonly sirenConfig: readonly SirenConfigRow[];
@@ -142,7 +174,74 @@ export interface DurableSnapshot {
    * Provision message (section 2).
    */
   readonly provisioningKeys: ReadonlyMap<DeviceId, Uint8Array>;
+  /** M2's configuration and small state (m2-design.md section 4). */
+  readonly m2: M2Snapshot;
 }
+
+/**
+ * M2's tables as read at start (m2-design.md section 4), every one small and read whole. Link
+ * tokens come without their keys (`LinkSecrets` holds those, section 2); the app keys without
+ * any private half; `client_replies` whole, as `seq` needs them after a restart (section 5). The
+ * single rows are undefined only on a database without migration 2's rows (a test's).
+ */
+export interface M2Snapshot {
+  /** Undefined until the shell has made them, at the first start of M2. */
+  readonly appKeys: HubAppKeys | undefined;
+  /** `layout`'s. */
+  readonly modeState: ModeStateRow | undefined;
+  /** `people`'s. */
+  readonly peopleSettings: PeopleSettingsRow | undefined;
+  /** `schedules`'. */
+  readonly scheduleState: ScheduleStateRow | undefined;
+  /** `upkeep`'s. */
+  readonly backupState: BackupStateRow | undefined;
+  /**
+   * `upkeep`'s: the backup key, which it keeps in its slice because a phone's `LinkResult`, the
+   * `backup.key` reply and the backup and export jobs carry it (section 2). Undefined until
+   * `upkeep` makes it at the first start of M2. It never enters a record or an event.
+   */
+  readonly backupKey: BackupKeyRow | undefined;
+  readonly people: readonly PersonRow[];
+  readonly clients: readonly ClientRow[];
+  readonly clientReplies: readonly ClientReplyRow[];
+  readonly permissions: readonly PermissionRow[];
+  readonly personRoles: readonly PersonRoleRow[];
+  readonly linkTokens: readonly LinkTokenRow[];
+  readonly groups: readonly GroupRow[];
+  readonly groupMembers: readonly GroupMemberRow[];
+  readonly groupSirens: readonly GroupSirenRow[];
+  readonly modes: readonly ModeRow[];
+  readonly modeGroups: readonly ModeGroupRow[];
+  readonly schedules: readonly ScheduleRow[];
+  readonly healthState: readonly HealthStateRow[];
+  readonly notificationPrefs: readonly NotificationPrefsRow[];
+  readonly updateState: UpdateStateRow | undefined;
+}
+
+/** An M2 snapshot with nothing in it: a hub before its first M2 start, and the tests' default. */
+export const EMPTY_M2_SNAPSHOT: M2Snapshot = {
+  appKeys: undefined,
+  modeState: undefined,
+  peopleSettings: undefined,
+  scheduleState: undefined,
+  backupState: undefined,
+  backupKey: undefined,
+  people: [],
+  clients: [],
+  clientReplies: [],
+  permissions: [],
+  personRoles: [],
+  linkTokens: [],
+  groups: [],
+  groupMembers: [],
+  groupSirens: [],
+  modes: [],
+  modeGroups: [],
+  schedules: [],
+  healthState: [],
+  notificationPrefs: [],
+  updateState: undefined,
+};
 
 /** Why the control socket refused a line before the core saw it (section 9). */
 export type ControlLineRejection =
@@ -180,6 +279,14 @@ export type InputRejection =
       readonly link: LinkId;
       readonly reason: "badFrame" | "tooLong" | "closedLink";
     }
+  /** An app request the shell refused before the core saw it (m2-design.md section 2). */
+  | {
+      readonly source: "app";
+      readonly conn: ConnId;
+      readonly reason: AppRejection;
+      readonly bytes: number;
+      readonly issues: readonly string[];
+    }
   /**
    * An input the core faulted on (section 10): its state stayed as it was. The loop hands it
    * back as the next input, so its record takes the next number like any other and `seq` stays
@@ -192,6 +299,63 @@ export type InputRejection =
       readonly message: string;
       readonly detail: Readonly<Record<string, string | number | boolean>>;
     };
+
+// M2 (m2-design.md section 2, "New events and effects").
+
+/** Which app listener a connection came in on (section 5). */
+export type AppListener = "lan" | "console";
+
+/** Why an app connection closed (section 5). */
+export type ConnCloseReason =
+  /** The client closed it, or the network dropped it. */
+  | "remote"
+  /** A transport message failed to decrypt: Noise sessions do not recover. */
+  | "decryptFailed"
+  /** Nothing authenticated from the client for 60 s ‡. */
+  | "liveness"
+  /** The 24-hour lifetime ‡. */
+  | "lifetime"
+  /** The client's fifth session closed its oldest ‡. */
+  | "replaced"
+  /** The core asked for it with `closeClient`: the client was removed. */
+  | "removed"
+  /** A text message, or bytes that are not one Noise message. */
+  | "badFrame"
+  /** The hub is stopping. */
+  | "stopping";
+
+/** Why the shell refused a request before the core saw it (section 2), so the core records it. */
+export type AppRejection =
+  /** Not UTF-8 JSON. */
+  | "notJson"
+  /** JSON that is not a request the version's schemas know. */
+  | "badShape"
+  /** A change without `seq`, or a read with one. */
+  | "seqRule"
+  /** An operation the agreed version does not name. */
+  | "notInVersion";
+
+/** Why a file job failed (section 2). */
+export type FileFailure =
+  "unreachable" | "full" | "badFile" | "badSignature" | "notNewer" | "wrongKey" | "io";
+
+/** What a file job came to (`fileReady`, section 2). */
+export type FileOutcome =
+  | { readonly kind: "backupWritten"; readonly name: string; readonly bytes: number }
+  | { readonly kind: "exportSent"; readonly bytes: number }
+  | { readonly kind: "updateStaged"; readonly version: string }
+  /** A restore file's header (`readRestore`). */
+  | {
+      readonly kind: "restoreRead";
+      /** The app identity's 16 bytes of the hub the file came from. */
+      readonly identity: Uint8Array;
+      readonly epoch: number;
+      readonly madeMs: number;
+      readonly lastChangeMs: number;
+    }
+  /** The restored database is prepared beside `hub.db` (`applyRestore`). */
+  | { readonly kind: "restoreReady" }
+  | { readonly kind: "failed"; readonly reason: FileFailure; readonly message: string };
 
 /** Every input event (section 2). */
 export type HubEvent =
@@ -224,4 +388,54 @@ export type HubEvent =
   /** Something the shell refused before the core saw it: recorded, never acted on. */
   | { readonly kind: "inputRejected"; readonly rejection: InputRejection }
   /** A wake came: due timers run, as they do at the start of every step. */
-  | { readonly kind: "tick" };
+  | { readonly kind: "tick" }
+  // M2 (m2-design.md section 2).
+  /** A session is proven: the hub decrypted the client's first transport message (section 5). */
+  | {
+      readonly kind: "clientConnected";
+      readonly conn: ConnId;
+      readonly client: ClientId;
+      readonly listener: AppListener;
+      /** The channel version agreed. */
+      readonly proto: number;
+      /** The app's own version, from `ClientHello`. */
+      readonly app: string;
+    }
+  /** An authenticated, decrypted, schema-checked request (section 2). */
+  | {
+      readonly kind: "clientRequest";
+      readonly conn: ConnId;
+      readonly client: ClientId;
+      readonly request: AppRequest;
+    }
+  | { readonly kind: "clientClosed"; readonly conn: ConnId; readonly reason: ConnCloseReason }
+  /** An XXpsk3 handshake completed with a token's key: the core decides whether it links. */
+  | {
+      readonly kind: "linkCompleted";
+      readonly conn: ConnId;
+      readonly token: TokenId;
+      /** The new client's static public key. */
+      readonly staticKey: Uint8Array;
+      readonly listener: AppListener;
+      readonly link: LinkRequest;
+    }
+  /** A link handshake that named a token and failed: a wrong key, or a malformed message. */
+  | {
+      readonly kind: "linkFailed";
+      readonly token: TokenId;
+      readonly reason: "badPsk" | "malformed";
+    }
+  /** The hub computer's time zone, at boot and when it changes (checked every hour ‡). */
+  | { readonly kind: "timeZone"; readonly zone: string }
+  /** A backup, export, update or restore file the shell finished. */
+  | { readonly kind: "fileReady"; readonly job: JobId; readonly outcome: FileOutcome }
+  /** A restore handshake completed with a restore token: messages 1 to 3 (section 9). */
+  | { readonly kind: "restoreOpened"; readonly conn: ConnId; readonly token: TokenId }
+  /** The phone's backup key, after message 4 (section 5, restore's message 5). */
+  | {
+      readonly kind: "restoreKey";
+      readonly conn: ConnId;
+      readonly token: TokenId;
+      readonly key: Uint8Array;
+      readonly epoch: number;
+    };

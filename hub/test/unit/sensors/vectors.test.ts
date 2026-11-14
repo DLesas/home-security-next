@@ -5,6 +5,7 @@
  * the door-report reply produced end to end through `step`; and `time-on-air.json` against the
  * airtime and the event listen time the replies are timed by.
  */
+import { UNBUILT_CALENDAR } from "../../../src/shell/calendar/unbuilt.ts";
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -70,7 +71,7 @@ function context(): Context {
   return {
     now: { mono: mono(0), wall: 0, wallTrusted: true },
     view: emptyState(),
-    deps: { cipher, rules },
+    deps: { cipher, rules, calendar: UNBUILT_CALENDAR },
     entropy: entropyCursor(new Uint8Array(32), "frame"),
     records: { take: () => ok(seq(0)) },
     event: "frame",

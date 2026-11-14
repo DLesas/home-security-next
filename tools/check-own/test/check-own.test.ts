@@ -4,8 +4,9 @@
  * named and one not, each with a deliberate type error in turn.
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { foldersOf, OWNERS } from "../src/owners.ts";
 import { normalizeFolder, parseTypeErrors, splitTypeErrors } from "../src/type-errors.ts";
 
 const REPO = join(import.meta.dir, "..", "..", "..");
@@ -104,5 +105,23 @@ describe("the script", () => {
     const { code, output } = checkOwn("hub/src/core/nowhere");
     expect(output).toContain("not a folder: hub/src/core/nowhere");
     expect(code).toBe(2);
+  });
+});
+
+describe("M2's owners (m2-design.md section 11)", () => {
+  test("every owner's folder exists, with a README naming the owner; an owner names its folders", () => {
+    const repo = REPO;
+    for (const [owner, folders] of Object.entries(OWNERS)) {
+      for (const folder of folders) {
+        expect([folder, existsSync(join(repo, folder))]).toEqual([folder, true]);
+        const readme = join(repo, folder, "README.md");
+        const named =
+          existsSync(readme) || existsSync(join(repo, folder.split("/")[0] ?? "", "README.md"));
+        expect([folder, named]).toEqual([folder, true]);
+        if (existsSync(readme)) expect(readFileSync(readme, "utf8")).toContain(owner);
+      }
+    }
+    expect(foldersOf("a3")).toEqual(["hub/src/core/people", "hub/src/core/app"]);
+    expect(foldersOf("hub/src/core/alarm")).toEqual(["hub/src/core/alarm"]);
   });
 });

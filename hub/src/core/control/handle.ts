@@ -16,8 +16,8 @@ import type { ControlCommand, ControlReply } from "../model/control.ts";
 import type { Effect } from "../model/effects.ts";
 import type { CoreFault } from "../model/errors.ts";
 import type { Context, Handled, Handler } from "../model/handler.ts";
-import type { RequestId } from "../model/ids.ts";
-import type { Internal } from "../model/messages.ts";
+import { isAppRequest, type RequestId } from "../model/ids.ts";
+import type { Internal, OpOutcome } from "../model/messages.ts";
 import { recordStamp } from "../clock/view.ts";
 import { hubEventRecord } from "../registry/view.ts";
 import { type ControlSources, VIEW_SOURCES } from "./sources.ts";
@@ -133,6 +133,20 @@ function answered(
   });
 }
 
+/** An operation's outcome as the control socket answers it (m2-design.md section 6). */
+function controlReplyOf(outcome: OpOutcome): ControlReply {
+  if (outcome.ok) return { ok: true, result: { kind: "op", body: outcome.body } };
+  const error = outcome.error;
+  return {
+    ok: false,
+    error: {
+      code: error.code === "notBuilt" ? "notBuilt" : "opRefused",
+      message: error.code === "notBuilt" ? `${error.detail.op} is not built yet` : error.code,
+      app: error,
+    },
+  };
+}
+
 /** The handler, reading other modules through `sources` (`sources.ts`). */
 export function makeControlHandler(sources: ControlSources): Handler<"control"> {
   return (slice, message, ctx) => {
@@ -143,7 +157,15 @@ export function makeControlHandler(sources: ControlSources): Handler<"control"> 
       case "command":
         return commanded(slice, ctx, message.request, message.actor, message.command, sources);
       case "answer":
-        return answered(slice, ctx, message.request, message.reply);
+        // `app`'s requests to M1a's modules are numbered from 2⁴⁰ (m2-design.md section 2): their
+        // answers are `app`'s, not control's.
+        return isAppRequest(message.request)
+          ? ok({ slice, out: [] })
+          : answered(slice, ctx, message.request, message.reply);
+      case "opAnswer":
+        return message.answerTo.kind === "control"
+          ? answered(slice, ctx, message.answerTo.request, controlReplyOf(message.outcome))
+          : ok({ slice, out: [] });
       case "inputRejected": {
         // A control line the socket refused (section 9): answered there, recorded here, its
         // length and shape errors only, never its content.

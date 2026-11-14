@@ -4,11 +4,24 @@
  * the fixed module order. Every input event is also a message, under its own kind.
  */
 import type { Message, TransmitPriority } from "@hsn/protocol";
+import type { AppError, AppOp } from "@hsn/protocol/app";
 import type { AuditRecord } from "./audit.ts";
 import type { ControlCommand, ControlReply } from "./control.ts";
 import type { RejectReason } from "./errors.ts";
 import type { HubEvent } from "./events.ts";
-import type { DeviceId, LinkId, RequestId, SendRef, Seq } from "./ids.ts";
+import type {
+  ClientId,
+  ConnId,
+  DeviceId,
+  LinkId,
+  ModeId,
+  PersonId,
+  RequestId,
+  ScheduleId,
+  SendRef,
+  Seq,
+} from "./ids.ts";
+import type { M2ModuleName } from "./modules.ts";
 import type { ArmState, MoveStageName, TxOutcome } from "./rows.ts";
 import type { Durability } from "./store.ts";
 import type { Mono } from "./time.ts";
@@ -103,6 +116,49 @@ interface Requested {
   readonly actor: string;
   /** The `commands` record of the command, which the decisions it causes name (D110). */
   readonly record: Seq;
+}
+
+// M2 (m2-design.md section 2).
+
+/**
+ * Who an M2 request comes from: the hub computer (`hsn`, every permission, HD 9), the console
+ * client (every permission, D61), a person through one of their clients, or a schedule entry,
+ * with its own authority and never asking for confirmation (section 7, "Schedules").
+ */
+export type Actor =
+  | { readonly kind: "computer"; readonly name: string }
+  | { readonly kind: "console"; readonly client: ClientId }
+  | {
+      readonly kind: "person";
+      readonly person: PersonId;
+      readonly client: ClientId;
+      /** `"Anna (client 7)"`, as `commands.actor` holds it (section 4). */
+      readonly name: string;
+    }
+  | { readonly kind: "schedule"; readonly schedule: ScheduleId; readonly name: string };
+
+/** Where a request's answer goes: a control request, an app request, or nowhere (a schedule). */
+export type AnswerTo =
+  | { readonly kind: "control"; readonly request: RequestId }
+  | {
+      readonly kind: "app";
+      readonly conn: ConnId;
+      readonly client: ClientId;
+      /** The request's own `id`, for the reply. */
+      readonly id: number;
+      /** The change's `seq`, committed with the reply (section 3). */
+      readonly seq: number | undefined;
+    }
+  | { readonly kind: "none" };
+
+/** An operation's outcome as its owner gives it: the reply's body, or one of section 5's errors. */
+export type OpOutcome =
+  { readonly ok: true; readonly body: unknown } | { readonly ok: false; readonly error: AppError };
+
+/** The confirmation a person's request carries (D50, AL12); a schedule's never asks (AL7). */
+export interface Confirmation {
+  readonly openDoors: boolean;
+  readonly lowBattery: boolean;
 }
 
 /** Messages that are not input events. */
@@ -340,7 +396,55 @@ export type DomainMessage =
 
   // audit (module 13).
   /** A record for audit to apply the warning cap to and pass on as a `record` effect (section 5). */
-  | { readonly kind: "auditRecord"; readonly durability: Durability; readonly record: AuditRecord };
+  | { readonly kind: "auditRecord"; readonly durability: Durability; readonly record: AuditRecord }
+
+  // M2 (m2-design.md section 2's module table).
+  /**
+   * An app operation for the module that owns it (`OP_OWNERS`), from control (the hub computer),
+   * app (a person or the console) or schedules: checked, made, and answered with `opAnswer`.
+   */
+  | {
+      readonly kind: "opRequest";
+      readonly owner: M2ModuleName;
+      readonly op: AppOp;
+      readonly actor: Actor;
+      readonly answerTo: AnswerTo;
+      /** The request's `commands` record, which the decisions it causes name (D110). */
+      readonly record: Seq;
+    }
+  /** The owner's answer: control turns it into a `respond`, app into an `appSend` reply. */
+  | { readonly kind: "opAnswer"; readonly answerTo: AnswerTo; readonly outcome: OpOutcome }
+  /** control: `hsn open` asks people for a one-time console token (section 5, "The console"). */
+  | ({ readonly kind: "consoleTokenRequest" } & Requested)
+  /** people: a client was linked; its sessions may start. */
+  | { readonly kind: "clientAdded"; readonly client: ClientId; readonly person: PersonId | null }
+  /** people: a client was removed; the shell closes its sessions (`closeClient`). */
+  | { readonly kind: "clientRemoved"; readonly client: ClientId }
+  /**
+   * layout: an arming request resolved to sensors (a mode switch, a group, a sensor), for alarm,
+   * which arms them as built (HD 8) and answers, or refuses with `needsConfirmation`.
+   */
+  | {
+      readonly kind: "armSensors";
+      readonly sensors: readonly DeviceId[];
+      /** Set when the request was a switch to this mode; alarm records the per-sensor decisions. */
+      readonly mode: ModeId | undefined;
+      readonly confirm: Confirmation | undefined;
+      readonly actor: Actor;
+      readonly answerTo: AnswerTo;
+      readonly record: Seq;
+    }
+  /** layout: a disarm resolved to sensors; a schedule's holds back its triggers (D117). */
+  | {
+      readonly kind: "disarmSensors";
+      readonly sensors: readonly DeviceId[];
+      readonly mode: ModeId | undefined;
+      /** A schedule's disarm leaves the triggers and counting sensors armed (D117). */
+      readonly holdBack: boolean;
+      readonly actor: Actor;
+      readonly answerTo: AnswerTo;
+      readonly record: Seq;
+    };
 
 /** Every message on the dispatcher's queue: input events and domain messages. */
 export type Internal = HubEvent | DomainMessage;

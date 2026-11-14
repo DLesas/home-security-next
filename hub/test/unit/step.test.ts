@@ -39,12 +39,14 @@ import {
   nextDeadline,
   step,
 } from "../../src/core/step.ts";
+import { UNBUILT_CALENDAR } from "../../src/shell/calendar/unbuilt.ts";
 import { VectorCipher } from "../world/vector-cipher.ts";
 import { emptySnapshot } from "../world/world.ts";
 
 const deps: CoreDeps = {
   cipher: VectorCipher.fromVectors(),
   rules: DEFAULT_RULES,
+  calendar: UNBUILT_CALENDAR,
   deepFreeze: true,
 };
 
@@ -75,6 +77,10 @@ function withHandlers(handlers: { readonly [K in ModuleName]?: Handler<K> }): Mo
     links: pick("links"),
     setup: pick("setup"),
     control: pick("control"),
+    people: pick("people"),
+    layout: pick("layout"),
+    app: pick("app"),
+    schedules: pick("schedules"),
     gateways: pick("gateways"),
     intake: pick("intake"),
     alarm: pick("alarm"),
@@ -82,6 +88,9 @@ function withHandlers(handlers: { readonly [K in ModuleName]?: Handler<K> }): Mo
     sensors: pick("sensors"),
     slots: pick("slots"),
     sirens: pick("sirens"),
+    health: pick("health"),
+    notify: pick("notify"),
+    upkeep: pick("upkeep"),
     audit: pick("audit"),
   };
 }
@@ -100,6 +109,10 @@ function loggingHandlers(log: string[]): { readonly [K in ModuleName]: Handler<K
     links: logging("links"),
     setup: logging("setup"),
     control: logging("control"),
+    people: logging("people"),
+    layout: logging("layout"),
+    app: logging("app"),
+    schedules: logging("schedules"),
     gateways: logging("gateways"),
     intake: logging("intake"),
     alarm: logging("alarm"),
@@ -107,6 +120,9 @@ function loggingHandlers(log: string[]): { readonly [K in ModuleName]: Handler<K
     sensors: logging("sensors"),
     slots: logging("slots"),
     sirens: logging("sirens"),
+    health: logging("health"),
+    notify: logging("notify"),
+    upkeep: logging("upkeep"),
     audit: logging("audit"),
   };
 }
@@ -162,7 +178,7 @@ describe("the whole core", () => {
 });
 
 describe("the dispatcher", () => {
-  test("delivers every message to the thirteen modules in the fixed order, one queue, FIFO", () => {
+  test("delivers every message to the twenty modules in the fixed order, one queue, FIFO", () => {
     const log: string[] = [];
     const handlers = loggingHandlers(log);
     const core = makeCore(

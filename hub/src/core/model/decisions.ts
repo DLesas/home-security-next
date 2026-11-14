@@ -118,7 +118,66 @@ export const DECISION_KINDS = [
   // The site move, beyond the bench.
   /** A sensor has not confirmed after 4 of its heartbeat intervals †: a warning naming it. */
   "move_stalled",
+
+  // M2 (m2-design.md sections 1, 4, 7 and 9). Each module's own kinds; values and details are
+  // laid out by their owners in step 1, and written into HD 6's tables with the code.
+  /** layout: a mode switch, before the per-sensor `armed` and `disarmed` (section 1). */
+  "mode_switched",
+  /** schedules: an entry ran, naming what it armed, disarmed, left waiting and found low. */
+  "schedule_ran",
+  /** schedules: an entry fell due while the hub was off or its clock unset (D116): a warning. */
+  "schedule_missed",
+  /** schedules: a disarm during a countdown or an alarm left its triggers armed (D117): a warning. */
+  "schedule_held_back",
+  /** schedules: no entry runs on an untrusted clock: one warning. */
+  "schedules_waiting_for_clock",
+  /** people (section 4): written now with the change. */
+  "person_added",
+  "person_removed",
+  "client_linked",
+  "client_removed",
+  "permissions_changed",
+  "user_management_changed",
+  /** health (section 7): low battery at 10% or below, cleared above 15% (HB33). */
+  "battery_low",
+  "battery_ok",
+  /** health: cover tamper (D9). */
+  "tamper_opened",
+  "tamper_closed",
+  /** health: a pairing or reset hold while armed (HB10, D89). */
+  "long_press_ignored",
+  /**
+   * upkeep: restore and updates (section 9), decisions because they are the hub's own choices
+   * with consequences people are told of (section 7). `update_switching` is recorded and announced
+   * to the apps as a `hub` event, not notified: the hub stops a moment later.
+   */
+  "restored",
+  "update_staged",
+  "update_switching",
+  "update_healthy",
+  "update_rolled_back",
+  /** upkeep: backups (section 9), each notified to manage system and not to be turned off ‡. */
+  "backup_overdue",
+  "backup_key_replaced",
+  "backup_folder_on_data_disk",
 ] as const;
 
 /** One kind of decision (section 6, `decisions.kind`). */
 export type DecisionKind = (typeof DECISION_KINDS)[number];
+
+/**
+ * The hub events M2 adds (`hub_events.code`, HD 6): the level each is recorded at, and its class.
+ * Sessions are `client_connected` and `client_closed` (section 4); a backup's result is
+ * `backup_written` or, each failed try, `backup_failed` (section 9). Every one is routine.
+ */
+export const M2_HUB_EVENTS = {
+  client_connected: { level: "info", durability: "routine" },
+  client_closed: { level: "info", durability: "routine" },
+  backup_written: { level: "info", durability: "routine" },
+  backup_failed: { level: "warning", durability: "routine" },
+} as const satisfies Readonly<
+  Record<string, { readonly level: "info" | "warning"; readonly durability: "routine" }>
+>;
+
+/** One of M2's hub event codes. */
+export type M2HubEventCode = keyof typeof M2_HUB_EVENTS;

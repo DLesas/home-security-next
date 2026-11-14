@@ -6,6 +6,8 @@
  * through the send gate, the closes and the answers. The world jumps from deadline to deadline
  * (the core's wake, the writer's, each device's); nothing sleeps.
  */
+import { UNBUILT_CALENDAR } from "../../src/shell/calendar/unbuilt.ts";
+import { EMPTY_M2_SNAPSHOT } from "../../src/core/model/events.ts";
 import { err, ok, type Result } from "neverthrow";
 import type { DeviceCipher } from "../../src/core/model/cipher.ts";
 import type { CoreDeps } from "../../src/core/model/handler.ts";
@@ -81,6 +83,7 @@ export function emptySnapshot(): DurableSnapshot {
     deviceState: [],
     lossDaily: [],
     provisioningKeys: new Map(),
+    m2: EMPTY_M2_SNAPSHOT,
   };
 }
 
@@ -130,7 +133,7 @@ export class World {
     this.core = options.core ?? makeCore(MODULES);
     const rules = options.rules ?? DEFAULT_RULES;
     this.cipher = options.cipher ?? VectorCipher.fromVectors();
-    this.deps = { cipher: this.cipher, rules, deepFreeze: true };
+    this.deps = { cipher: this.cipher, rules, calendar: UNBUILT_CALENDAR, deepFreeze: true };
     this.writer = new RecordingWriter(rules.persistence.routineBatchMs);
     this.state = this.core.emptyState();
     this.#entropy = new SeededBytes(options.seed ?? DEFAULT_SEED);

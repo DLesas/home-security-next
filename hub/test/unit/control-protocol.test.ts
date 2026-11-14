@@ -5,7 +5,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   benchManifest,
-  type ControlCommand,
+  type ParsedControlCommand,
   controlCommand,
   controlReply,
   lockstepFromHub,
@@ -23,7 +23,7 @@ function expectParses(schema: { parse(value: unknown): unknown }, value: unknown
 }
 
 /** One valid example of every command of section 9, and of the D115 site move. */
-const COMMANDS: readonly ControlCommand[] = [
+const COMMANDS: readonly ParsedControlCommand[] = [
   { kind: "status" },
   { kind: "arm", sensors: "all", continue: false },
   { kind: "arm", sensors: ["front", "back"], continue: true },
@@ -63,6 +63,14 @@ const COMMANDS: readonly ControlCommand[] = [
   { kind: "siteWifi", name: "home", password: "secret" },
   { kind: "log", follow: false },
   { kind: "log", device: "front", since: 1_700_000_000_000, logKind: "decision", follow: true },
+  // M2 (m2-design.md section 6).
+  {
+    kind: "op",
+    op: "mode.switch",
+    body: { mode: 1, confirm: { openDoors: true, lowBattery: false } },
+  },
+  { kind: "consoleToken" },
+  { kind: "fileChunk", job: 1, n: 0, data: "AAEC", end: { chunks: 1, sha256: "0".repeat(64) } },
 ];
 
 const INVALID_COMMANDS: readonly (readonly [string, unknown])[] = [
@@ -239,6 +247,13 @@ const RESULTS: readonly unknown[] = [
   { kind: "siteChangeForce", switched: false, leftBehind: ["front"] },
   { kind: "siteWifi" },
   { kind: "log", records: [] },
+  // M2.
+  { kind: "op", body: { armed: [3], disarmed: [], waiting: [] } },
+  {
+    kind: "consoleToken",
+    url: "http://127.0.0.1:8445/#console=AAAAAAAAAAAAAAAAAAAAAA",
+    expiresInMs: 120_000,
+  },
 ];
 
 describe("replies", () => {
@@ -256,6 +271,25 @@ describe("replies", () => {
     expect(
       controlReply.safeParse({ ok: false, error: { code: "oops", message: "" } }).success,
     ).toBe(false);
+  });
+
+  test("an operation's refusal carries the app's own error; notBuilt is a code of its own (M2)", () => {
+    expectParses(controlReply, {
+      ok: false,
+      error: {
+        code: "opRefused",
+        message: "needsConfirmation",
+        app: { code: "needsConfirmation", detail: { openDoors: [3], lowBattery: [] } },
+      },
+    });
+    expectParses(controlReply, {
+      ok: false,
+      error: {
+        code: "notBuilt",
+        message: "mode.switch is not built yet",
+        app: { code: "notBuilt", detail: { op: "mode.switch" } },
+      },
+    });
   });
 
   test.each([
@@ -399,6 +433,32 @@ const RECORDS: readonly unknown[] = [
       count: 4,
       address: 0x1a2b3c4d,
       sample: "104d3c2b1a0100000000b6239b28a699",
+    },
+  },
+  // M2 (m2-design.md section 4).
+  {
+    kind: "notification",
+    row: {
+      seq: 4294967310,
+      atMs: 1_794_528_000_000,
+      clockOk: true,
+      kind: "countdown",
+      category: "countdown",
+      critical: true,
+      deviceId: 3,
+      causeSeq: 4294967309,
+      recipients: "0100000002000000",
+      detail: null,
+    },
+  },
+  {
+    kind: "notificationRead",
+    row: {
+      seq: 4294967311,
+      atMs: 1_794_528_000_500,
+      clockOk: true,
+      notificationSeq: 4294967310,
+      clientId: 7,
     },
   },
 ];

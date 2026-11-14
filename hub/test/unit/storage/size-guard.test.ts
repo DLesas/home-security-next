@@ -32,10 +32,15 @@ import {
 } from "./fixtures.ts";
 
 const MB = 1024 * 1024;
+/**
+ * The schema itself takes about 0.2 MB of pages (54 with migration 2's tables), so the marks sit
+ * a quarter of a megabyte above the round figures they had with migration 1's 29.
+ */
+const SCHEMA_MB = 0.25;
 const GUARD: SizeGuardRules = {
-  hardStopBytes: 3 * MB,
-  startBytes: 2 * MB,
-  stopBytes: 1.5 * MB,
+  hardStopBytes: (3 + SCHEMA_MB) * MB,
+  startBytes: (2 + SCHEMA_MB) * MB,
+  stopBytes: (1.5 + SCHEMA_MB) * MB,
   rowsPerCommit: 150,
   routineProtectedMs: HOUR_MS,
   eventProtectedMs: DAY_MS,
@@ -177,11 +182,12 @@ describe("the size guard (section 6)", () => {
   test("a refused commit at the hard stop says the database is full, and recovers once trimming frees pages", () => {
     const g = guarded();
     // Fill to the hard stop with rows that are still protected.
-    for (let round = 0; round < 40; round++) {
+    // Batches of 50: the two refused ones left staged are less than one commit's trimming frees.
+    for (let round = 0; round < 80; round++) {
       g.clock.advanceMs(MINUTE_MS);
-      if (g.commit(times(100, g.rows.routine)).isErr()) break;
+      if (g.commit(times(50, g.rows.routine)).isErr()) break;
     }
-    const refused = g.commit(times(100, g.rows.routine));
+    const refused = g.commit(times(50, g.rows.routine));
     expect(refused.isErr()).toBe(true);
     const failure = g.outcomes.findLast((o) => o.kind === "failed");
     expect(failure?.kind === "failed" ? failure.message : "").toContain("the database is full");

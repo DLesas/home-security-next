@@ -15,6 +15,13 @@
       "when": 1794610680339,
       "tag": "0001_gateway_counters",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1794692849377,
+      "tag": "0002_m2",
+      "breakpoints": true
     }
   ]
 }

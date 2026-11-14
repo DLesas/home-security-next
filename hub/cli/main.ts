@@ -3,9 +3,15 @@
  * socket, prints the answer readably (or as JSON lines with `--json`), and exits with a code a
  * script can use (`exit-codes.ts`). When the hub is not running it says so, and what to do.
  */
-import type { ControlCommand, ReplyLine } from "../src/control-protocol/index.ts";
-import { parseArgs, PASSWORD_FROM_STDIN } from "./args.ts";
-import { exchange } from "./client.ts";
+import type {
+  ControlError,
+  ParsedControlCommand,
+  ReplyLine,
+} from "../src/control-protocol/index.ts";
+import { type Globals, opCommand, parseArgs, PASSWORD_FROM_STDIN } from "./args.ts";
+import { type ClientError, exchange, Session } from "./client.ts";
+import { type FileCommand, runFileCommand } from "./files.ts";
+import { qrLines } from "./qr.ts";
 import { EXIT_CODE_HELP, ExitCode } from "./exit-codes.ts";
 import { formatError, formatRecord, formatResult, printable } from "./format.ts";
 import { dataFolder, socketPath } from "./paths.ts";
@@ -19,6 +25,8 @@ export interface CliIo {
   readonly nowMs: () => number;
   /** Called with a function that ends a `--follow` stream (on Ctrl-C). */
   readonly onInterrupt: (end: () => void) => void;
+  /** Asks the user a question on the terminal and gives the line answered (`hsn restore`). */
+  readonly ask: (question: string) => Promise<string>;
 }
 
 /** How long a command waits for its answer: 15 s ‡, covering a USB add's 5 s and its Set role. */
@@ -48,7 +56,13 @@ usage: hsn [--data <folder>] [--socket <path>] [--json] [--timeout <s>] <command
   site set channel=<868.1|868.3|868.5> rate=<DRn> countdown=<s> auto-stop=<s>
   site wifi --name <name> --password <password|->   (- reads the password from standard input)
   site change channel=<…> rate=<DRn> | site change status | site change cancel | site change force [--yes]
-  log [--device <name>] [--since <time|10m|2h|1d>] [--kind rx|tx|decision|log|event|reject] [--follow]
+  log [--device <name>] [--since <time|10m|2h|1d>] [--kind rx|tx|decision|log|event|reject|notification] [--follow]
+  op <operation> [<json> | -]             an app operation of M2 (m2-design.md section 6), as the hub computer;
+                                          - reads the body from standard input; the reply's body is printed as JSON
+  open                                    a one-time console token for this computer's browser
+  update install <file>                   upload a release and stage it (D54)
+  restore <file>                          restore this new hub from a backup file, with a phone's key (D53)
+  backup export <file> [--history]        write a backup, with history if asked, to <file> (HB22)
 
 The hub's data folder is --data, else $HSN_DATA_DIR, else ~/.hsn; its socket is control.sock there.
 
@@ -74,9 +88,80 @@ function exitFor(reply: ReplyLine["reply"]): ExitCode {
   }
 }
 
-function timeoutFor(command: ControlCommand, seconds: number | undefined): number {
+function timeoutFor(command: ParsedControlCommand, seconds: number | undefined): number {
   if (seconds !== undefined) return seconds * 1000;
   return command.kind === "siteSurvey" ? SURVEY_TIMEOUT_MS : DEFAULT_TIMEOUT_MS;
+}
+
+/** What a failed connection prints, and its exit code. */
+function clientFailure(error: ClientError, io: CliIo): ExitCode {
+  switch (error.kind) {
+    case "notRunning":
+      io.err(`hsn: the hub is not running: ${error.message}.`);
+      io.err("Start the hub, or pass --data <folder> if it runs with another data folder.");
+      return ExitCode.HubNotRunning;
+    case "permission":
+      io.err(`hsn: ${error.message}: run hsn as the account the hub runs as.`);
+      return ExitCode.NoPermission;
+    case "timeout":
+      io.err(
+        `hsn: ${error.message}; it may still act on the command: check with hsn status or hsn log.`,
+      );
+      return ExitCode.NoAnswer;
+    case "closed":
+    case "badReply":
+      io.err(`hsn: ${error.message}.`);
+      return ExitCode.BadReply;
+  }
+}
+
+/** An operation's refusal as `hsn op` prints it (section 6): `{code, detail}` as JSON. */
+function opError(error: ControlError): string {
+  return JSON.stringify(error.app ?? { code: error.code, detail: {} });
+}
+
+function socketOf(globals: Globals, io: CliIo): string | undefined {
+  const folder = dataFolder(globals.data, io.env);
+  return globals.socket ?? (folder === undefined ? undefined : socketPath(folder));
+}
+
+/** A command that carries a file, on its own connection (`files.ts`). */
+async function runFile(file: FileCommand, globals: Globals, io: CliIo): Promise<number> {
+  const path = socketOf(globals, io);
+  if (path === undefined) {
+    io.err("hsn: no data folder is known: pass --data <folder> or set HSN_DATA_DIR");
+    return ExitCode.Usage;
+  }
+  const opened = await Session.open(path);
+  if (opened.isErr()) return clientFailure(opened.error, io);
+  const session = opened.value;
+  const done = await runFileCommand(
+    file,
+    session,
+    actorOf(io.env),
+    { out: io.out, ask: io.ask, nowMs: io.nowMs },
+    globals.timeoutS === undefined ? DEFAULT_TIMEOUT_MS : globals.timeoutS * 1000,
+    qrLines,
+  );
+  session.close();
+  if (done.isOk()) {
+    for (const line of done.value) io.out(line);
+    return ExitCode.Ok;
+  }
+  const failure = done.error;
+  switch (failure.kind) {
+    case "client":
+      return clientFailure(failure.error, io);
+    case "refused":
+      io.err(opError(failure.error));
+      return exitFor({ ok: false, error: failure.error });
+    case "file":
+      io.err(`hsn: ${printable(failure.message)}`);
+      return ExitCode.Refused;
+    case "declined":
+      io.err("hsn: not restored");
+      return ExitCode.Refused;
+  }
 }
 
 /** Runs `hsn` with these words; resolves to the exit code. */
@@ -91,14 +176,24 @@ export async function runCli(argv: readonly string[], io: CliIo): Promise<number
     for (const line of HELP.split("\n")) io.out(line);
     return ExitCode.Ok;
   }
-  const { globals, passwordFromStdin } = parsed.value;
-  let command = parsed.value.command;
-  if (passwordFromStdin && command.kind === "siteWifi") {
-    const password = (await io.stdin()).replace(/\r?\n$/u, "");
-    command = { ...command, password: password === PASSWORD_FROM_STDIN ? "" : password };
+  if (parsed.value.kind === "file") return runFile(parsed.value.file, parsed.value.globals, io);
+  const { globals } = parsed.value;
+  let command: ParsedControlCommand;
+  if (parsed.value.kind === "opFromStdin") {
+    const read = opCommand(parsed.value.op, await io.stdin());
+    if (read.isErr()) {
+      io.err(`hsn: ${printable(read.error)}`);
+      return ExitCode.Usage;
+    }
+    command = read.value;
+  } else {
+    command = parsed.value.command;
+    if (parsed.value.passwordFromStdin && command.kind === "siteWifi") {
+      const password = (await io.stdin()).replace(/\r?\n$/u, "");
+      command = { ...command, password: password === PASSWORD_FROM_STDIN ? "" : password };
+    }
   }
-  const folder = dataFolder(globals.data, io.env);
-  const path = globals.socket ?? (folder === undefined ? undefined : socketPath(folder));
+  const path = socketOf(globals, io);
   if (path === undefined) {
     io.err("hsn: no data folder is known: pass --data <folder> or set HSN_DATA_DIR");
     return ExitCode.Usage;
@@ -115,29 +210,13 @@ export async function runCli(argv: readonly string[], io: CliIo): Promise<number
       : undefined,
     follow ? io.onInterrupt : undefined,
   );
-  if (result.isErr()) {
-    const error = result.error;
-    switch (error.kind) {
-      case "notRunning":
-        io.err(`hsn: the hub is not running: ${error.message}.`);
-        io.err("Start the hub, or pass --data <folder> if it runs with another data folder.");
-        return ExitCode.HubNotRunning;
-      case "permission":
-        io.err(`hsn: ${error.message}: run hsn as the account the hub runs as.`);
-        return ExitCode.NoPermission;
-      case "timeout":
-        io.err(
-          `hsn: ${error.message}; it may still act on the command: check with hsn status or hsn log.`,
-        );
-        return ExitCode.NoAnswer;
-      case "closed":
-      case "badReply":
-        io.err(`hsn: ${error.message}.`);
-        return ExitCode.BadReply;
-    }
-  }
+  if (result.isErr()) return clientFailure(result.error, io);
   const { reply } = result.value;
-  if (globals.json) {
+  // `hsn op` always prints JSON: the reply's body on success, `{code, detail}` on a refusal.
+  if (command.kind === "op") {
+    if (reply.reply.ok) for (const line of formatResult(reply.reply.result)) io.out(line);
+    else io.err(opError(reply.reply.error));
+  } else if (globals.json) {
     io.out(JSON.stringify(reply));
   } else if (reply.reply.ok) {
     for (const line of formatResult(reply.reply.result)) io.out(line);

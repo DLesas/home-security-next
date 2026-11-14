@@ -1,14 +1,19 @@
 /**
  * The control socket's requests and replies, the bench's lockstep messages and manifest, as Zod
  * schemas (hub-design.md sections 9 and 11). Shared by the hub's control module, its socket
- * server and the `hsn` CLI. Imports only `zod`.
+ * server and the `hsn` CLI. Imports only `zod`, and `@hsn/protocol/app` for M2's operations.
  */
 export {
+  CONTROL_LINE_BYTES,
+  CONTROL_OPS,
   controlCommand,
   type ControlCommand,
   type ControlCommandKind,
+  type FileChunkCommand,
   logKind,
+  type ParsedControlCommand,
   sensorTarget,
+  typedCommand,
 } from "./commands.ts";
 export {
   type CommandResult,
@@ -21,6 +26,8 @@ export {
 } from "./replies.ts";
 export { recordJson, type RecordJson } from "./records.ts";
 export {
+  chunkLine,
+  type ChunkLine,
   replyLine,
   type ReplyLine,
   requestLine,

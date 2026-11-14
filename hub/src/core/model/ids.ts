@@ -15,8 +15,21 @@ export type BootId = number & { readonly __brand: "BootId" };
 /** The shell's name for one open link during this run (section 3); never stored. */
 export type LinkId = number & { readonly __brand: "LinkId" };
 
-/** The shell's name for one control request, so its answer can find it (section 9). */
+/**
+ * The name of one request to a module, so its `answer` can find it (section 9). The shell numbers
+ * control requests from 1, below 2³²; `app` numbers the requests it sends M1a's modules from
+ * `APP_REQUEST_BASE` (m2-design.md section 2, "Requests for M1a's modules"), so `control` and
+ * `app` each take only the answers to their own.
+ */
 export type RequestId = number & { readonly __brand: "RequestId" };
+
+/** The first request number `app` gives M1a's modules: 2⁴⁰ ‡, above any control request. */
+export const APP_REQUEST_BASE = 2 ** 40;
+
+/** Whether a request number is one of `app`'s (from `APP_REQUEST_BASE`), not the shell's. */
+export function isAppRequest(request: RequestId): boolean {
+  return request >= APP_REQUEST_BASE;
+}
 
 /** The core's name for one `send` effect, so a `sendFailed` input can name it (section 2). */
 export type SendRef = number & { readonly __brand: "SendRef" };
@@ -26,6 +39,75 @@ export type SendRef = number & { readonly __brand: "SendRef" };
  * (section 2). It grows with time, also across restarts.
  */
 export type Seq = number & { readonly __brand: "Seq" };
+
+// M2 (m2-design.md sections 2 and 4).
+
+/** A row id of `people`. */
+export type PersonId = number & { readonly __brand: "PersonId" };
+/** A row id of `clients`: one linked browser or phone, or the console. */
+export type ClientId = number & { readonly __brand: "ClientId" };
+/** The shell's name for one app connection during this run (section 2); never stored. */
+export type ConnId = number & { readonly __brand: "ConnId" };
+/**
+ * A token the shell may accept a handshake with: a link token (a row id of `link_tokens`) or a
+ * restore token (never stored), in the two ranges of `TOKEN_RANGES`. A typed code's 4-character
+ * token id is its lookup, not a `TokenId`.
+ */
+export type TokenId = number & { readonly __brand: "TokenId" };
+/** A row id of `groups`. */
+export type GroupId = number & { readonly __brand: "GroupId" };
+/** A row id of `modes`. Away and Disarmed are made by migration 2 (D90). */
+export type ModeId = number & { readonly __brand: "ModeId" };
+/** A row id of `schedules`. */
+export type ScheduleId = number & { readonly __brand: "ScheduleId" };
+/** The core's name for one file job (a backup, an export, an update), for `fileReady`. */
+export type JobId = number & { readonly __brand: "JobId" };
+
+export function personId(id: number): PersonId {
+  return id as PersonId;
+}
+export function clientId(id: number): ClientId {
+  return id as ClientId;
+}
+export function connId(id: number): ConnId {
+  return id as ConnId;
+}
+export function tokenId(id: number): TokenId {
+  return id as TokenId;
+}
+
+/**
+ * The two ranges of `TokenId` (m2-design.md section 5, "Token numbers"), so link and restore
+ * tokens, which share `linkSecret` and the shell's table of keys, never meet: link tokens 1 to
+ * 2³¹ − 1, allocated by `people` as `link_tokens.id`, the next above the highest ever stored;
+ * restore tokens from 2³¹, allocated by `upkeep` in memory, counting up from 2³¹ at each boot.
+ * Each module ignores `linkFailed` for tokens outside its range.
+ */
+export const TOKEN_RANGES = {
+  link: { first: 1, last: 2 ** 31 - 1, owner: "people" },
+  restore: { first: 2 ** 31, last: Number.MAX_SAFE_INTEGER, owner: "upkeep" },
+} as const;
+
+/** Which range a token is in. */
+export function tokenPurpose(token: TokenId): "link" | "restore" {
+  return token >= TOKEN_RANGES.restore.first ? "restore" : "link";
+}
+export function groupId(id: number): GroupId {
+  return id as GroupId;
+}
+export function modeId(id: number): ModeId {
+  return id as ModeId;
+}
+export function scheduleId(id: number): ScheduleId {
+  return id as ScheduleId;
+}
+export function jobId(id: number): JobId {
+  return id as JobId;
+}
+
+/** The two fixed modes' ids, made by migration 2 (D90). */
+export const AWAY_MODE: ModeId = modeId(1);
+export const DISARMED_MODE: ModeId = modeId(2);
 
 export function deviceId(id: number): DeviceId {
   return id as DeviceId;

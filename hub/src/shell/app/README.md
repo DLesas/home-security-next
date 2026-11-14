@@ -1,0 +1,9 @@
+# `hub/src/shell/app/`: owner A2
+
+M2, step 1 (docs/m2-design.md section 11). The two new listeners (TLS, the certificate, `Host` and `Origin`, the content security policy), handshakes and session admission, liveness inside Noise, the ordered send queue, `ClientKeys` and `LinkSecrets` (step 0's in-memory versions are here: keep or replace them), file chunks, and `hsn open` in `hub/cli/`.
+
+The ports' interfaces (`hub/src/ports/client-keys.ts`, `link-secrets.ts`) and the events and effects you produce and perform (`clientConnected`, `clientRequest`, `clientClosed`, `linkCompleted`, `linkFailed`, `restoreOpened`, `restoreKey`, `appSend`, `closeClient`, `linkSecret`) are frozen, as are restore's six messages (`@hsn/protocol/app`: messages 1 to 3 are yours, 4 and 6 the core's `appSend`s). The policy's hashes come from the web build's `csp.json` (section 5). `linkSecret` carries its token's `purpose` (`link` or `restore`), which picks the prologue; the `LinkSecrets` port keeps it. The control socket's `fileChunk` requests are the shell's too: keep each upload per connection as `UploadRef {conn, job}`, numbering control connections from the same `ConnId` counter as app connections, in place of `file-chunks.ts`'s `notBuilt` answer. The loop reports the five M2 effects as not built until step 2 joins your listeners.
+
+**Frozen for you** (m2-design.md section 11: changed only through the step 0 owner): `hub/src/core/model/` (events, effects, messages, decisions, rows, store operations, rules, the module order, `Calendar`, `OP_OWNERS`), `hub/src/core/step.ts`, `hub/src/db/schema.ts` and `hub/drizzle/`, `hub/src/control-protocol/`, the ports in `hub/src/ports/`, and the types and schemas of `packages/protocol/src/app/`. Ask for a change there; do not make it.
+
+Check your work with `bun run check:own A2` (the checks of `bun run check`, failing only for your folders).

@@ -19,6 +19,7 @@
  *
  * Every loop here is bounded: a run that stops making progress fails with a message.
  */
+import { UNBUILT_CALENDAR } from "../../src/shell/calendar/unbuilt.ts";
 import { copyFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
@@ -537,7 +538,7 @@ export class Home {
     };
     this.#loop = new HubLoop(
       this.#core,
-      { cipher: new KeyStoreCipher(keys), rules: this.rules },
+      { cipher: new KeyStoreCipher(keys), rules: this.rules, calendar: UNBUILT_CALENDAR },
       {
         clock: this.clock,
         random: { bytes: (length) => ok(this.#random.bytes(length)) },

@@ -44,6 +44,27 @@ export const STATE_TABLES = {
   boots: schema.boots,
   device_state: schema.deviceState,
   loss_daily: schema.lossDaily,
+  people: schema.people,
+  clients: schema.clients,
+  client_replies: schema.clientReplies,
+  permissions: schema.permissions,
+  person_roles: schema.personRoles,
+  link_tokens: schema.linkTokens,
+  link_secrets: schema.linkSecrets,
+  groups: schema.groups,
+  group_members: schema.groupMembers,
+  group_sirens: schema.groupSirens,
+  modes: schema.modes,
+  mode_groups: schema.modeGroups,
+  schedules: schema.schedules,
+  health_state: schema.healthState,
+  notification_prefs: schema.notificationPrefs,
+  mode_state: schema.modeState,
+  people_settings: schema.peopleSettings,
+  schedule_state: schema.scheduleState,
+  backup_state: schema.backupState,
+  backup_key: schema.backupKey,
+  update_state: schema.updateState,
 } as const satisfies Readonly<Record<StateTable, SQLiteTable>>;
 
 /** The Drizzle table of each audit table, by its SQL name. */
@@ -57,6 +78,8 @@ export const AUDIT_TABLES = {
   hub_events: schema.hubEvents,
   commands: schema.commands,
   rejects: schema.rejects,
+  notifications: schema.notifications,
+  notification_reads: schema.notificationReads,
 } as const satisfies Readonly<Record<AuditTable, SQLiteTable>>;
 
 function describe(table: SQLiteTable): TableSpec {

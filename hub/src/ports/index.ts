@@ -8,3 +8,6 @@ export type { EventSink, LinkError, Links } from "./links.ts";
 export type { Random } from "./random.ts";
 export type { LogQuery, Reader } from "./reader.ts";
 export type { CommitInfo, FlushReason, StagedEffect, StorageError, Writer } from "./writer.ts";
+// M2 (m2-design.md section 2).
+export type { ClientKeys } from "./client-keys.ts";
+export type { AcceptedToken, LinkSecrets, TokenPurpose } from "./link-secrets.ts";

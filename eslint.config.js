@@ -67,7 +67,9 @@ const onlyFrom = (tag, message, allowed) => ({
 });
 
 // Allowed sources, as regular expressions. "No `..` after" keeps a path from climbing back out.
-const PROTOCOL = "@hsn/protocol$";
+// `@hsn/protocol/app` is the app channel of M2 (m2-design.md section 5): pure, as the device
+// protocol is.
+const PROTOCOL = "@hsn/protocol(?:/app)?$";
 const NEVERTHROW = "neverthrow$";
 const OWN_FOLDER = "\\./(?!.*\\.\\.)";
 const CORE_MODEL_OR_UTIL = "\\.\\./(?:model|util)/(?!.*\\.\\.)";
@@ -154,12 +156,16 @@ export default defineConfig(
       "firmware/build*/",
       `${PROBES}/`,
       "tools/*/test/fixtures/",
+      "app/dist/",
+      "app/.expo/",
+      "app/test-results/",
+      "app/playwright-report/",
     ],
   },
   { linterOptions: { reportUnusedDisableDirectives: "error" } },
   eslint.configs.recommended,
   {
-    files: ["**/*.ts"],
+    files: ["**/*.ts", "**/*.tsx"],
     extends: [tseslint.configs.strictTypeChecked, tseslint.configs.stylisticTypeChecked],
     languageOptions: {
       parserOptions: { projectService: true, tsconfigRootDir: import.meta.dirname },
@@ -172,6 +178,13 @@ export default defineConfig(
       "@typescript-eslint/consistent-type-imports": "error",
       "@typescript-eslint/restrict-template-expressions": ["error", { allowNumber: true }],
     },
+  },
+
+  // The app (m2-design.md section 8): every text from the locale (HB27, D58).
+  {
+    files: ["app/src/**/*.tsx"],
+    plugins: { hsn },
+    rules: { "hsn/no-literal-text": "error" },
   },
 
   // Every Result is used (section 10).
@@ -291,8 +304,8 @@ export default defineConfig(
           patterns: [
             onlyFrom(
               "control-protocol-import",
-              "control-protocol/ may import only zod and its own files (section 1).",
-              [OWN_FOLDER, "zod$"],
+              "control-protocol/ may import only zod, its own files, @hsn/protocol/app and @hsn/protocol/records (section 1; m2-design.md section 6).",
+              [OWN_FOLDER, "zod$", "@hsn/protocol/app$", "@hsn/protocol/records$"],
             ),
           ],
         },
@@ -317,6 +330,34 @@ export default defineConfig(
                 "\\.\\./src/control-protocol/(?!.*\\.\\.)",
                 PROTOCOL,
                 "node:net$",
+                NEVERTHROW,
+              ],
+            ),
+          ],
+        },
+      ],
+    },
+  },
+  // ... and, for the commands that carry a file (m2-design.md section 6), `files.ts` reads and
+  // writes the user's file (node:fs, node:crypto) and `qr.ts` draws the restore's code (toqr).
+  // The rest of the CLI still never touches a file, so it cannot open the database.
+  {
+    files: hubAndProbes("cli/files.ts", "cli/qr.ts"),
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            onlyFrom(
+              "cli-import",
+              "cli/files.ts and cli/qr.ts may import as the CLI does, and node:fs, node:crypto and toqr (m2-design.md section 6).",
+              [
+                OWN_FOLDER,
+                "\\.\\./src/control-protocol/(?!.*\\.\\.)",
+                PROTOCOL,
+                "node:fs$",
+                "node:crypto$",
+                "toqr$",
                 NEVERTHROW,
               ],
             ),

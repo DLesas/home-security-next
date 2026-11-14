@@ -1,5 +1,5 @@
 /**
- * `bun run check:own <folder> [<folder>…]` (hub/README.md): the checks of `bun run check`,
+ * `bun run check:own <folder | owner> […]` (hub/README.md): the checks of `bun run check`,
  * failing only for the named folders, so five engineers can work in one checkout at once.
  *
  * - The type check runs on the whole project, as it must, and reports only errors inside the
@@ -12,6 +12,7 @@
  */
 import { existsSync, readdirSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
+import { foldersOf } from "./owners.ts";
 import { normalizeFolder, parseTypeErrors, splitTypeErrors } from "./type-errors.ts";
 
 const REPO = join(import.meta.dir, "..", "..", "..");
@@ -41,10 +42,10 @@ function report(stage: string, ok: boolean, details = ""): boolean {
 }
 
 function main(args: readonly string[]): number {
-  const folders = args.map(normalizeFolder);
+  const folders = args.flatMap(foldersOf).map(normalizeFolder);
   if (folders.length === 0) {
     console.log(
-      "usage: bun run check:own <folder> [<folder>…]   (paths from the repository's root)",
+      "usage: bun run check:own <folder | A1…A11> […]   (paths from the repository's root, or an M2 owner)",
     );
     return 2;
   }

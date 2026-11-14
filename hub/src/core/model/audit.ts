@@ -9,6 +9,8 @@ import type {
   DecisionRow,
   DeviceLogRow,
   HubEventRow,
+  NotificationReadRow,
+  NotificationRow,
   RejectRow,
   RxRow,
   TxRow,
@@ -27,4 +29,9 @@ export type AuditRecord =
   | { readonly kind: "hubEvent"; readonly row: HubEventRow }
   | { readonly kind: "command"; readonly row: CommandRow }
   /** A full-value upsert of the minute's count for one source and reason. */
-  | { readonly kind: "reject"; readonly row: RejectRow };
+  | { readonly kind: "reject"; readonly row: RejectRow }
+  // M2 (m2-design.md section 4).
+  /** A notification raised (section 7): critical ones "now", in their decision's commit. */
+  | { readonly kind: "notification"; readonly row: NotificationRow }
+  /** A client marked a notification read: routine. */
+  | { readonly kind: "notificationRead"; readonly row: NotificationReadRow };

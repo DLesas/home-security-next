@@ -4,15 +4,16 @@
  * connection ends without a newline is a partial line, never executed.
  */
 
+import { CONTROL_LINE_BYTES } from "../../control-protocol/index.ts";
+
 /** `\n`. */
 const NEWLINE = 0x0a;
 
 /**
- * The longest request line, in bytes, without its newline: 8 KiB ‡. The longest command is a
- * `site wifi` at well under 300 bytes, so the limit only bounds what a client can make the hub
- * hold (this design's own value; section 9 sets none).
+ * The longest request line, in bytes, without its newline: 64 KiB ‡ (m2-design.md section 6),
+ * above the largest `fileChunk` line, so the limit bounds what a client can make the hub hold.
  */
-export const MAX_REQUEST_LINE_BYTES = 8 * 1024;
+export const MAX_REQUEST_LINE_BYTES = CONTROL_LINE_BYTES;
 
 export type LineEvent =
   | { readonly kind: "line"; readonly text: string }

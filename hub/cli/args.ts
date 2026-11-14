@@ -2,8 +2,9 @@
  * `hsn`'s command line (hub-design.md section 9): every command of the table, parsed into the
  * control protocol's command, then checked with its schema so the hub never sees a malformed one.
  */
-import { err, ok, type Result } from "neverthrow";
-import { type ControlCommand, controlCommand } from "../src/control-protocol/index.ts";
+import { err, ok, Result } from "neverthrow";
+import { type ParsedControlCommand, controlCommand } from "../src/control-protocol/index.ts";
+import type { FileCommand } from "./files.ts";
 
 /** Options that go with any command. */
 export interface Globals {
@@ -20,9 +21,17 @@ export type Parsed =
   | {
       readonly kind: "command";
       readonly globals: Globals;
-      readonly command: ControlCommand;
+      /** As the wire carries it: the hub types an `op`'s operation when it arrives. */
+      readonly command: ParsedControlCommand;
       readonly passwordFromStdin: boolean;
-    };
+    }
+  /** `hsn op <operation> -`: the body is read from standard input, then checked (section 6). */
+  | { readonly kind: "opFromStdin"; readonly globals: Globals; readonly op: string }
+  /** A command that carries a file: its own connection and flow (`files.ts`). */
+  | { readonly kind: "file"; readonly globals: Globals; readonly file: FileCommand };
+
+/** What `hsn op <operation> -` means: read the body from standard input. */
+export const BODY_FROM_STDIN = "-";
 
 /** Site channels as the user types them (§2). */
 const CHANNELS: Readonly<Record<string, number>> = { "868.1": 0, "868.3": 1, "868.5": 2 };
@@ -268,6 +277,17 @@ function fields(
     }
     case "site":
       return siteFields(words);
+    // M2 (m2-design.md section 6): any operation of the hub computer, with its body as JSON.
+    case "op": {
+      const [name, json, ...more] = words.rest();
+      if (name === undefined || more.length > 0) return usage("op <operation> [<json> | -]");
+      // Standard input is read, and the command checked, by `main.ts` (`opCommand`).
+      if (json === BODY_FROM_STDIN) return ok({ kind: "opFromStdin", op: name });
+      const body = json === undefined ? ok<unknown, string>({}) : jsonBody(json);
+      return body.map((b) => ({ kind: "op", op: name, body: b }));
+    }
+    case "open":
+      return none(words.rest()).map(() => ({ kind: "consoleToken" }));
     case "log":
       return options(words.rest(), ["--device", "--since", "--kind"], ["--follow"]).andThen(
         ({ values, flags, rest }) =>
@@ -342,6 +362,30 @@ function siteFields(
   }
 }
 
+/** `update install <file>`, `restore <file>`, `backup export <file> [--history]`, or none. */
+function fileCommand(words: readonly string[]): Result<FileCommand, string> | undefined {
+  const [first, second, ...rest] = words;
+  if (first === "update" && second === "install")
+    return rest.length === 1 && rest[0] !== undefined
+      ? ok({ kind: "updateInstall", path: rest[0] })
+      : usage("update install <file>");
+  if (first === "restore") {
+    const path = second;
+    return path !== undefined && rest.length === 0
+      ? ok({ kind: "restore", path })
+      : usage("restore <file>");
+  }
+  if (first === "backup" && second === "export") {
+    const history = rest.includes("--history");
+    const paths = rest.filter((w) => w !== "--history");
+    const [path] = paths;
+    return path !== undefined && paths.length === 1
+      ? ok({ kind: "backupExport", path, history })
+      : usage("backup export <file> [--history]");
+  }
+  return undefined;
+}
+
 /** The whole command line. */
 export function parseArgs(argv: readonly string[], nowMs: number): Result<Parsed, string> {
   const words: string[] = [];
@@ -370,21 +414,44 @@ export function parseArgs(argv: readonly string[], nowMs: number): Result<Parsed
       words.push(word);
     }
   }
+  const globals: Globals = { data, socket, json, timeoutS };
+  const file = fileCommand(words);
+  if (file !== undefined) return file.map((f) => ({ kind: "file", globals, file: f }));
   return fields(new Words(words), nowMs).andThen(({ passwordFromStdin, ...raw }) => {
-    const checked = controlCommand.safeParse(raw);
-    if (!checked.success) {
-      const issue = checked.error.issues[0];
-      return usage(
-        `not valid: ${issue === undefined ? "?" : `${issue.path.join(".") || "command"}: ${issue.message}`}`,
-      );
-    }
-    return ok<Parsed, string>({
+    if (raw.kind === "opFromStdin" && typeof raw.op === "string")
+      return ok<Parsed, string>({ kind: "opFromStdin", globals, op: raw.op });
+    return checkedCommand(raw).map((command): Parsed => ({
       kind: "command",
-      globals: { data, socket, json, timeoutS },
-      command: checked.data,
+      globals,
+      command,
       passwordFromStdin: passwordFromStdin === true,
-    });
+    }));
   });
+}
+
+/** A command checked with its schema, so the hub never sees a malformed one. */
+function checkedCommand(raw: unknown): Result<ParsedControlCommand, string> {
+  const checked = controlCommand.safeParse(raw);
+  if (checked.success) return ok(checked.data);
+  const issue = checked.error.issues[0];
+  return usage(
+    `not valid: ${issue === undefined ? "?" : `${issue.path.join(".") || "command"}: ${issue.message}`}`,
+  );
+}
+
+/** `hsn op <operation> -`'s command, once standard input is read. */
+export function opCommand(op: string, stdin: string): Result<ParsedControlCommand, string> {
+  return jsonBody(stdin).andThen((body) => checkedCommand({ kind: "op", op, body }));
+}
+
+const parseJsonText = Result.fromThrowable(
+  (text: string): unknown => JSON.parse(text),
+  () => "the body is not JSON",
+);
+
+/** An `op` command's body, given as one JSON argument. */
+function jsonBody(text: string): Result<unknown, string> {
+  return parseJsonText(text).orElse((message) => usage(message));
 }
 
 /** `gateway set <name> …`'s words into the command (section 9). */

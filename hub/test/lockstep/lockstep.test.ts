@@ -81,7 +81,11 @@ function dump(dataDir: string): Record<string, unknown[]> {
     .all()
     .map((t) => t.name);
   const out: Record<string, unknown[]> = {};
-  for (const table of tables) out[table] = db.query(`SELECT * FROM "${table}" ORDER BY 1, 2`).all();
+  for (const table of tables) {
+    // Single-column tables (M2's `people_settings`, `schedule_state`) have no second term.
+    const columns = db.query(`SELECT 1 FROM pragma_table_info('${table}')`).all().length;
+    out[table] = db.query(`SELECT * FROM "${table}" ORDER BY 1${columns > 1 ? ", 2" : ""}`).all();
+  }
   db.close();
   return out;
 }

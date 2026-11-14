@@ -22,7 +22,12 @@ const EXPECTED: Readonly<Record<string, { columns: string; key: string; rowid?: 
   },
   device_keys: { columns: "device_id key", key: "device_id" },
   send_counters: { columns: "device_id resume_point", key: "device_id" },
-  hub_keys: { columns: "signing_private signing_public identity", key: "" },
+  hub_keys: {
+    columns:
+      "signing_private signing_public identity app_static_private app_static_public tls_private " +
+      "tls_certificate",
+    key: "",
+  },
   site: {
     columns:
       "channel rate_mask move_id move_stage move_channel move_rate move_actor move_requested_ms " +
@@ -107,6 +112,60 @@ const EXPECTED: Readonly<Record<string, { columns: string; key: string; rowid?: 
     key: "minute via reason",
     rowid: false,
   },
+  // M2 (m2-design.md section 4, migration 2).
+  people: { columns: "id name created_ms removed_ms revision", key: "id" },
+  clients: {
+    columns:
+      "id person_id static_key kind name linked_by_client created_ms removed_ms last_seq " +
+      "last_seen_ms backup_key_epoch",
+    key: "id",
+  },
+  client_replies: { columns: "client_id seq reply", key: "client_id seq", rowid: false },
+  permissions: {
+    columns: "person_id device_id manage view",
+    key: "person_id device_id",
+    rowid: false,
+  },
+  person_roles: { columns: "person_id manage_users manage_system revision", key: "person_id" },
+  link_tokens: {
+    columns:
+      "id lookup kind person_id created_by_client created_boot created_mono expires_after_ms " +
+      "typed failures used_ms",
+    key: "id",
+  },
+  link_secrets: { columns: "token_id psk", key: "token_id" },
+  groups: { columns: "id name all_sirens revision", key: "id" },
+  group_members: { columns: "group_id sensor_id", key: "group_id sensor_id", rowid: false },
+  group_sirens: { columns: "group_id siren_id", key: "group_id siren_id", rowid: false },
+  modes: { columns: "id name fixed revision", key: "id" },
+  mode_groups: { columns: "mode_id group_id", key: "mode_id group_id", rowid: false },
+  schedules: {
+    columns:
+      "id name action mode_id group_id sensor_id local_time days date enabled created_by " +
+      "last_run_ms last_run_local_date revision",
+    key: "id",
+  },
+  health_state: { columns: "device_id battery_low tamper_open", key: "device_id" },
+  notification_prefs: { columns: "client_id categories revision", key: "client_id" },
+  mode_state: { columns: "current_mode_id mode_modified", key: "" },
+  people_settings: { columns: "user_management", key: "" },
+  schedule_state: { columns: "time_zone", key: "" },
+  backup_state: {
+    columns:
+      "folder hour keep last_change_ms due_since_ms overdue_raised newest_name newest_ms " +
+      "last_result last_attempt_ms restored_from_ms",
+    key: "",
+  },
+  backup_key: { columns: "key epoch", key: "" },
+  update_state: {
+    columns: "staged_version staged_ms approved_by approved_ms switching_ms previous_version",
+    key: "",
+  },
+  notifications: {
+    columns: "seq at_ms clock_ok kind category critical device_id cause_seq recipients detail",
+    key: "seq",
+  },
+  notification_reads: { columns: "seq at_ms clock_ok notification_seq client_id", key: "seq" },
 };
 
 interface ColumnInfo {
@@ -153,7 +212,7 @@ describe("the first migration (section 6)", () => {
     expect(withoutRowid).toBe(expected.rowid === false);
   });
 
-  test("the only other indexes are devices' two unique keys", () => {
+  test("the only other indexes are the unique keys: devices' two, and M2's five (section 4)", () => {
     const indexes = Object.keys(EXPECTED).flatMap((name) =>
       database
         .query<IndexInfo, []>(`SELECT name, "unique", origin FROM pragma_index_list('${name}')`)
@@ -165,10 +224,20 @@ describe("the first migration (section 6)", () => {
           columns: indexColumns(database, index.name),
         })),
     );
-    expect(indexes.toSorted((a, b) => a.columns.localeCompare(b.columns))).toEqual([
-      { table: "devices", unique: 1, columns: "address" },
-      { table: "devices", unique: 1, columns: "name" },
-    ]);
+    const sort = (rows: readonly { table: string; unique: number; columns: string }[]) =>
+      rows.toSorted((a, b) => `${a.table} ${a.columns}`.localeCompare(`${b.table} ${b.columns}`));
+    expect(sort(indexes)).toEqual(
+      sort([
+        { table: "devices", unique: 1, columns: "address" },
+        { table: "devices", unique: 1, columns: "name" },
+        // M2: people's names among those not removed, tokens' lookups among unused ones (partial).
+        { table: "people", unique: 1, columns: "name" },
+        { table: "clients", unique: 1, columns: "static_key" },
+        { table: "link_tokens", unique: 1, columns: "lookup" },
+        { table: "groups", unique: 1, columns: "name" },
+        { table: "modes", unique: 1, columns: "name" },
+      ]),
+    );
   });
 
   test("an audit row's seq is its row id", () => {
@@ -221,4 +290,23 @@ export const rowsMatchSchema: readonly true[] = [
   true satisfies SameKeys<rows.HubEventRow, Columns<typeof schema.hubEvents>>,
   true satisfies SameKeys<rows.CommandRow, Columns<typeof schema.commands>>,
   true satisfies SameKeys<rows.RejectRow, Columns<typeof schema.rejects>>,
+  // M2 (migration 2).
+  true satisfies SameKeys<rows.PersonRow, Columns<typeof schema.people>>,
+  true satisfies SameKeys<rows.ClientRow, Columns<typeof schema.clients>>,
+  true satisfies SameKeys<rows.ClientReplyRow, Columns<typeof schema.clientReplies>>,
+  true satisfies SameKeys<rows.PermissionRow, Columns<typeof schema.permissions>>,
+  true satisfies SameKeys<rows.PersonRoleRow, Columns<typeof schema.personRoles>>,
+  true satisfies SameKeys<rows.LinkTokenRow, Columns<typeof schema.linkTokens>>,
+  true satisfies SameKeys<rows.LinkSecretRow, Columns<typeof schema.linkSecrets>>,
+  true satisfies SameKeys<rows.GroupRow, Columns<typeof schema.groups>>,
+  true satisfies SameKeys<rows.GroupMemberRow, Columns<typeof schema.groupMembers>>,
+  true satisfies SameKeys<rows.GroupSirenRow, Columns<typeof schema.groupSirens>>,
+  true satisfies SameKeys<rows.ModeRow, Columns<typeof schema.modes>>,
+  true satisfies SameKeys<rows.ModeGroupRow, Columns<typeof schema.modeGroups>>,
+  true satisfies SameKeys<rows.ScheduleRow, Columns<typeof schema.schedules>>,
+  true satisfies SameKeys<rows.HealthStateRow, Columns<typeof schema.healthState>>,
+  true satisfies SameKeys<rows.NotificationPrefsRow, Columns<typeof schema.notificationPrefs>>,
+  true satisfies SameKeys<rows.UpdateStateRow, Columns<typeof schema.updateState>>,
+  true satisfies SameKeys<rows.NotificationRow, Columns<typeof schema.notifications>>,
+  true satisfies SameKeys<rows.NotificationReadRow, Columns<typeof schema.notificationReads>>,
 ];

@@ -158,3 +158,7 @@ Unit conversions, so every implementation rounds the same way. Encoding rounds t
 `cases`: LoRa time on air (section 2) for every data rate and a range of packet lengths, including every length in section 2's table (the 32-byte reply and the 50-byte longest log entry among them). Each case: `dataRate`, `spreadingFactor`, `length` (bytes), `microseconds` (exact integer) and `milliseconds` (the same value as a decimal). Settings: 125 kHz, coding rate 4/5, 8-symbol preamble, explicit header, CRC on, low data rate optimisation at SF11 and SF12. With these settings the time is always a whole number of microseconds, so compare `microseconds` exactly.
 
 `eventListen`: the event listen time (section 8 †), how long a sensor listens for the hub's answer after a door, cover, button or started report, by the data rate the report was sent at. Each entry: `dataRate`, `spreadingFactor` and `milliseconds`. The hub times its event replies from the same table, so both sides test against this one list.
+
+## The app channel's vectors (M2)
+
+`app-*.json` are the app channel's vectors (docs/m2-design.md section 10), owned in step 1 by **A1**, in the formats `packages/protocol/src/app/vector-formats.ts` freezes. The device protocol's vectors above are unchanged by M2.

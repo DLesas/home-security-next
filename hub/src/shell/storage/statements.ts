@@ -37,6 +37,8 @@ function insertSql(spec: TableSpec): string {
 
 function upsertSql(spec: TableSpec): string {
   const others = spec.columns.filter((c) => !spec.key.includes(c));
+  // A table that is all key (M2's pairs: a group's members, a mode's groups) has nothing to update.
+  if (others.length === 0) return `${insertSql(spec)} ON CONFLICT (${names(spec.key)}) DO NOTHING`;
   const set = others.map((c) => `${quote(c.name)} = excluded.${quote(c.name)}`).join(", ");
   return `${insertSql(spec)} ON CONFLICT (${names(spec.key)}) DO UPDATE SET ${set}`;
 }
@@ -112,6 +114,10 @@ export function auditTableOf(record: AuditRecord): AuditTable {
       return "commands";
     case "reject":
       return "rejects";
+    case "notification":
+      return "notifications";
+    case "notificationRead":
+      return "notification_reads";
   }
 }
 

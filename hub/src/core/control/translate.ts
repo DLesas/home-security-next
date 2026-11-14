@@ -6,6 +6,7 @@
  * record, since the shell flushes, reads and streams (section 3, "Reads never defeat the
  * batching").
  */
+import { m2OwnerOf } from "../model/ops.ts";
 import {
   MAX_WIFI_NAME_BYTES,
   MAX_WIFI_PASSWORD_BYTES,
@@ -305,6 +306,24 @@ export function route(
     }
     case "log":
       return { kind: "shell" };
+    // M2 (m2-design.md section 6): to the operation's owner, with the hub computer as actor.
+    case "op": {
+      const op = command.operation;
+      const owner = m2OwnerOf(op.op);
+      if (owner === undefined) {
+        return refuse("notBuilt", `${op.op} has no module yet (m2-design.md section 2)`);
+      }
+      return requested({
+        kind: "opRequest",
+        owner,
+        op,
+        actor: { kind: "computer", name: actor },
+        answerTo: { kind: "control", request },
+        record,
+      });
+    }
+    case "consoleToken":
+      return requested({ kind: "consoleTokenRequest", ...asked });
   }
 }
 

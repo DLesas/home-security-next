@@ -456,6 +456,10 @@ export function standIns(
     links: pick("links"),
     setup: pick("setup"),
     control: pick("control"),
+    people: pick("people"),
+    layout: pick("layout"),
+    app: pick("app"),
+    schedules: pick("schedules"),
     gateways: pick("gateways"),
     intake: pick("intake"),
     alarm: pick("alarm"),
@@ -463,6 +467,9 @@ export function standIns(
     sensors: pick("sensors"),
     slots: pick("slots"),
     sirens: pick("sirens"),
+    health: pick("health"),
+    notify: pick("notify"),
+    upkeep: pick("upkeep"),
     audit: pick("audit"),
   };
   return { core: makeCore(modules), armed, radioOuts, messages, toAdd };

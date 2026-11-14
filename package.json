@@ -5,10 +5,11 @@
   "workspaces": [
     "packages/*",
     "hub",
-    "tools/*"
+    "tools/*",
+    "app"
   ],
   "scripts": {
-    "typecheck": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json && tsc -p app/tsconfig.json && tsc -p app/test/tsconfig.json && tsc -p app/scripts/tsconfig.json && tsc -p app/e2e/tsconfig.json",
     "lint": "bun --bun eslint --max-warnings 0 .",
     "format:check": "prettier --check .",
     "format": "prettier --write .",
@@ -26,7 +27,9 @@
     "check:role:gateway": "cd firmware && cmake --workflow --preset role-gateway",
     "format:firmware:check": "find firmware/core firmware/platform firmware/roles firmware/tests -name '*.[ch]pp' | xargs clang-format --dry-run --Werror",
     "format:firmware": "find firmware/core firmware/platform firmware/roles firmware/tests -name '*.[ch]pp' | xargs clang-format -i",
-    "check:all": "bun run check && bun run check:firmware"
+    "check:all": "bun run check && bun run check:firmware",
+    "app:export": "cd app && CI=1 EXPO_NO_TELEMETRY=1 bun run export:web",
+    "app:e2e": "bun run app:export && cd app && node node_modules/@playwright/test/cli.js test --config e2e/playwright.config.ts"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",

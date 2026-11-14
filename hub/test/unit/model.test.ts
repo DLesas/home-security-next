@@ -18,7 +18,7 @@ import {
   seqBoot,
 } from "../../src/core/model/ids.ts";
 import type { Internal } from "../../src/core/model/messages.ts";
-import { MODULE_ORDER } from "../../src/core/model/modules.ts";
+import { M2_MODULES, MODULE_ORDER } from "../../src/core/model/modules.ts";
 import { DEFAULT_RULES } from "../../src/core/model/rules.ts";
 
 const HUB_LOG = join(
@@ -101,11 +101,36 @@ describe("messages and effects", () => {
     // A compile-time check: no internal message kind is an effect kind.
     const disjoint: Extract<Internal["kind"], Effect["kind"]> extends never ? true : false = true;
     expect(disjoint).toBe(true);
-    expect(EFFECT_KINDS).toHaveLength(7);
+    // M1a's seven, and M2's five (m2-design.md section 2).
+    expect(EFFECT_KINDS).toHaveLength(12);
   });
 
-  test("the module order is section 2's table", () => {
+  test("the module order is section 2's table, M2's seven in their places (m2-design.md section 2)", () => {
     expect(MODULE_ORDER).toEqual([
+      "clock",
+      "registry",
+      "links",
+      "setup",
+      "control",
+      "people",
+      "layout",
+      "app",
+      "schedules",
+      "gateways",
+      "intake",
+      "alarm",
+      "site",
+      "sensors",
+      "slots",
+      "sirens",
+      "health",
+      "notify",
+      "upkeep",
+      "audit",
+    ]);
+    // M1a's thirteen keep their relative order.
+    const m1a = MODULE_ORDER.filter((m) => !(M2_MODULES as readonly string[]).includes(m));
+    expect(m1a).toEqual([
       "clock",
       "registry",
       "links",

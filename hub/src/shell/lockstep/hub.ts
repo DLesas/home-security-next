@@ -12,10 +12,16 @@
  * 64 inputs. When none came but a wake is due, one `tick` turn runs. What the hub sent, recorded
  * and answered meanwhile is the `idle` answer.
  */
+import { UNBUILT_CALENDAR } from "../calendar/unbuilt.ts";
 import { join } from "node:path";
 import { fromHex, toHex } from "@hsn/protocol";
 import { err, ok, type Result } from "neverthrow";
-import type { LockstepIdle, LockstepToHub, ReplyLine } from "../../control-protocol/index.ts";
+import {
+  type LockstepIdle,
+  type LockstepToHub,
+  type ReplyLine,
+  typedCommand,
+} from "../../control-protocol/index.ts";
 import type { AuditRecord } from "../../core/model/audit.ts";
 import type { ControlReply } from "../../core/model/control.ts";
 import type { HubError } from "../../core/model/errors.ts";
@@ -27,6 +33,7 @@ import type { Clock } from "../../ports/clock.ts";
 import type { LogQuery } from "../../ports/reader.ts";
 import { ensureHubKeys, seededHubKeys } from "../advertise/hub-keys.ts";
 import { KeyStoreCipher } from "../cipher/device-cipher.ts";
+import { FILE_CHUNK_NOT_BUILT } from "../control/file-chunks.ts";
 import { recordJson } from "../control/records.ts";
 import { LockstepLinks } from "../links/lockstep.ts";
 import { LinkRegistry } from "../links/registry.ts";
@@ -198,7 +205,7 @@ export class LockstepHub {
     } = { respond: undefined, publish: undefined, fatal: undefined };
     const loop = new HubLoop(
       options.core ?? makeCore(MODULES),
-      { cipher: new KeyStoreCipher(keys.value), rules },
+      { cipher: new KeyStoreCipher(keys.value), rules, calendar: UNBUILT_CALENDAR },
       {
         clock,
         random,
@@ -412,8 +419,15 @@ export class LockstepHub {
   #command(
     id: number,
     actor: string,
-    command: Extract<LockstepToHub, { readonly type: "control" }>["request"]["command"],
+    parsed: Extract<LockstepToHub, { readonly type: "control" }>["request"]["command"],
   ): void {
+    if (parsed.kind === "fileChunk") {
+      this.#replies.push({ id, reply: FILE_CHUNK_NOT_BUILT });
+      return;
+    }
+    const typed = typedCommand(parsed);
+    if (typed === undefined) return;
+    const command = typed;
     const request = requestId(this.#nextRequest++);
     if (command.kind !== "log") {
       this.#asked.set(request, id);

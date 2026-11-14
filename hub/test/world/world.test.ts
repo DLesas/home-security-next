@@ -47,6 +47,10 @@ function core(handlers: { readonly [K in ModuleName]?: Handler<K> }) {
     links: pick("links"),
     setup: pick("setup"),
     control: pick("control"),
+    people: pick("people"),
+    layout: pick("layout"),
+    app: pick("app"),
+    schedules: pick("schedules"),
     gateways: pick("gateways"),
     intake: pick("intake"),
     alarm: pick("alarm"),
@@ -54,6 +58,9 @@ function core(handlers: { readonly [K in ModuleName]?: Handler<K> }) {
     sensors: pick("sensors"),
     slots: pick("slots"),
     sirens: pick("sirens"),
+    health: pick("health"),
+    notify: pick("notify"),
+    upkeep: pick("upkeep"),
     audit: pick("audit"),
   };
   return makeCore(modules);

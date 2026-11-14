@@ -137,6 +137,10 @@ export function gatewayWorld(options: WorldOptions = {}): GatewayWorld {
     links: keep("links"),
     setup: stub("setup"),
     control: stub("control"),
+    people: stub("people"),
+    layout: stub("layout"),
+    app: stub("app"),
+    schedules: stub("schedules"),
     gateways: keep("gateways"),
     intake: stub("intake"),
     alarm: stub("alarm"),
@@ -144,6 +148,9 @@ export function gatewayWorld(options: WorldOptions = {}): GatewayWorld {
     sensors: { ...stub("sensors"), handle: sensors },
     slots: stub("slots"),
     sirens: stub("sirens"),
+    health: stub("health"),
+    notify: stub("notify"),
+    upkeep: stub("upkeep"),
     audit: { ...stub("audit"), handle: audit },
   };
   const world = new World({

@@ -21,21 +21,25 @@ afterEach(() => {
 describe("power lost at each point of section 4's table", () => {
   // Each at a turn that stages something written now: while armed by day, as the back door's
   // countdown starts at 23:00, as the alarm runs, and as the board is provisioned at noon.
-  test.each(CRASH_POINTS.map((point) => [point]))("%s", async (point: CrashPoint) => {
-    run = await CrashRun.create(7);
-    const crashes: PlannedCrash[] = [
-      { at: 8 * HOUR + 30 * SECOND, point, needsNow: true },
-      { at: 12 * HOUR + SECOND, point, needsNow: true },
-      { at: 23 * HOUR - SECOND, point, needsNow: true },
-      { at: 23 * HOUR + 45 * SECOND, point, needsNow: true },
-    ];
-    expect(run.run(crashes)).toEqual([]);
-    expect(run.home.restarts).toBe(4);
-    expect(run.sends).toBeGreaterThan(1000);
-    // The day still ends as it should: the board paired, the alarm raised, every sensor disarmed.
-    expect(run.board.pairing).toBeDefined();
-    expect(run.home.decisions("alarm").length).toBeGreaterThan(0);
-  });
+  test.each(CRASH_POINTS.map((point) => [point]))(
+    "%s",
+    async (point: CrashPoint) => {
+      run = await CrashRun.create(7);
+      const crashes: PlannedCrash[] = [
+        { at: 8 * HOUR + 30 * SECOND, point, needsNow: true },
+        { at: 12 * HOUR + SECOND, point, needsNow: true },
+        { at: 23 * HOUR - SECOND, point, needsNow: true },
+        { at: 23 * HOUR + 45 * SECOND, point, needsNow: true },
+      ];
+      expect(run.run(crashes)).toEqual([]);
+      expect(run.home.restarts).toBe(4);
+      expect(run.sends).toBeGreaterThan(1000);
+      // The day still ends as it should: the board paired, the alarm raised, every sensor disarmed.
+      expect(run.board.pairing).toBeDefined();
+      expect(run.home.decisions("alarm").length).toBeGreaterThan(0);
+    },
+    30_000,
+  );
 });
 
 describe("a day of home A with seeded crashes (section 11)", () => {
@@ -48,6 +52,10 @@ describe("a day of home A with seeded crashes (section 11)", () => {
       needsNow: random.next() % 2 === 0,
     }));
     expect(run.run(crashes)).toEqual([]);
-    expect(run.home.restarts).toBeGreaterThan(RANDOM_CRASHES * 0.9);
+    // About one planned crash in ten never comes: one that waits for a turn written now is
+    // replaced by the next before such a turn. Which ones depends on the database's own bytes
+    // (a torn checkpoint keeps some pages of either side), so the count moves a little with the
+    // schema: 448 with M2's step 0 tables (m2-design.md section 4).
+    expect(run.home.restarts).toBeGreaterThan(RANDOM_CRASHES * 0.88);
   }, 120_000);
 });

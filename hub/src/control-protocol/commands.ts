@@ -4,6 +4,7 @@
  * misspelt option never passes silently. Names refer to devices by their `name`; the core's control
  * module looks them up.
  */
+import { type AppOp, fileChunkBody, parseAppOp } from "@hsn/protocol/app";
 import { z } from "zod";
 import { dataRate, deviceName, roleName, siteChannel, time, unsigned } from "./values.ts";
 
@@ -161,7 +162,7 @@ const siteWifi = z
   .readonly();
 
 /** The kinds `hsn log --kind` filters on. */
-export const logKind = z.enum(["rx", "tx", "decision", "log", "event", "reject"]);
+export const logKind = z.enum(["rx", "tx", "decision", "log", "event", "reject", "notification"]);
 
 /** `hsn log [--device <name>] [--since <time>] [--kind …] [--follow]`. */
 const log = z
@@ -174,6 +175,88 @@ const log = z
     follow: z.boolean(),
   })
   .readonly();
+
+/**
+ * M2 (m2-design.md section 6): "the hub computer's own commands gain the same operations under
+ * the same names". These are the operations `hsn` and the bench may send as `{kind: "op"}`, with
+ * the body section 6 gives each. Left out: those a session alone has (`subscribe`, `pong`,
+ * `backup.key`, a client's own `notifications.read` and `notifications.prefs`), and those `hsn`
+ * already has under its own names (devices, sensors, sirens, gateways, USB, the site, `hsn log`
+ * for `history.query`). `hsn op <operation> [<json> | -]` sends `{kind: "op", op, body}`. The
+ * three that carry a file (`update.upload`, `restore.start`, `backup.export`) are here for
+ * `hsn update install`, `hsn restore` and `hsn backup export`, which send them on the connection
+ * that carries the file's `fileChunk` requests or lines (section 6, "Commands that carry a file").
+ */
+export const CONTROL_OPS = [
+  "snapshot",
+  "hub.info",
+  "hub.status",
+  "mode.switch",
+  "arm",
+  "disarm",
+  "group.create",
+  "group.update",
+  "group.delete",
+  "mode.create",
+  "mode.update",
+  "mode.delete",
+  "schedule.create",
+  "schedule.update",
+  "schedule.delete",
+  "notifications.list",
+  "people.list",
+  "person.create",
+  "person.rename",
+  "person.remove",
+  "permissions.set",
+  "userManagement.set",
+  "clients.list",
+  "client.rename",
+  "client.remove",
+  "link.create",
+  "link.cancel",
+  "backup.status",
+  "backup.settings",
+  "backup.now",
+  "backup.export",
+  "restore.start",
+  "update.status",
+  "update.upload",
+  "update.approve",
+  "update.cancel",
+] as const;
+
+const controlOps: ReadonlySet<string> = new Set(CONTROL_OPS);
+
+/** `hsn <operation> [<json body>]`: an app operation from the hub computer (m2-design.md section 6). */
+const op = z
+  .strictObject({ kind: z.literal("op"), op: z.string(), body: z.unknown() })
+  .superRefine((value, ctx) => {
+    if (!controlOps.has(value.op)) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["op"],
+        message: "not an operation of the hub computer",
+      });
+      return;
+    }
+    const parsed = parseAppOp(value.op, value.body);
+    if (!parsed.ok)
+      for (const issue of parsed.issues) ctx.addIssue({ code: "custom", message: issue });
+  })
+  .readonly();
+
+/**
+ * One chunk of a file `hsn` uploads on its connection, the app's `fileChunk` body (m2-design.md
+ * section 6): the shell answers it itself, keeping the upload for the operation that names its
+ * `job`. It never reaches the core.
+ */
+const fileChunk = z
+  .strictObject({ kind: z.literal("fileChunk"), ...fileChunkBody.unwrap().shape })
+  .readonly();
+
+/** `hsn open`: a one-time console token for the computer's own browser (section 5, "The console"). */
+const consoleToken = z.strictObject({ kind: z.literal("consoleToken") }).readonly();
 
 export const controlCommand = z.discriminatedUnion("kind", [
   status,
@@ -199,8 +282,38 @@ export const controlCommand = z.discriminatedUnion("kind", [
   siteChangeForce,
   siteWifi,
   log,
+  op,
+  consoleToken,
+  fileChunk,
 ]);
 
-/** One command, as the core receives it. */
-export type ControlCommand = z.infer<typeof controlCommand>;
+/**
+ * One command, as the core receives it. An `op` command arrives checked against its operation's
+ * schema (the refinement above), so the core sees its operation as the `AppOp` it is, without Zod.
+ * A `fileChunk` is the shell's alone and never reaches the core.
+ */
+export type ControlCommand =
+  | Exclude<ParsedControlCommand, { readonly kind: "op" | "fileChunk" }>
+  | { readonly kind: "op"; readonly operation: AppOp };
+
+/** A file chunk `hsn` sends, which the shell answers itself. */
+export type FileChunkCommand = Extract<ParsedControlCommand, { readonly kind: "fileChunk" }>;
+
+/** The longest control line, either way: 64 KiB ‡, above the largest chunk's line (section 6). */
+export const CONTROL_LINE_BYTES = 64 * 1024;
+
+/** A command as the schema gives it back: an `op`'s body not yet typed by its operation. */
+export type ParsedControlCommand = z.infer<typeof controlCommand>;
+
+/**
+ * The command the core receives, from one the schema accepted: an `op` typed as its `AppOp`.
+ * Undefined for a `fileChunk`, which the shell answers before this, and if the schema let through
+ * an operation `parseAppOp` refuses, which its refinement does not.
+ */
+export function typedCommand(parsed: ParsedControlCommand): ControlCommand | undefined {
+  if (parsed.kind === "fileChunk") return undefined;
+  if (parsed.kind !== "op") return parsed;
+  const op = parseAppOp(parsed.op, parsed.body);
+  return op.ok ? { kind: "op", operation: op.value } : undefined;
+}
 export type ControlCommandKind = ControlCommand["kind"];

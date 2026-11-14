@@ -39,6 +39,17 @@ export function recordJson(record: AuditRecord): RecordJson {
       return { kind: "command", row: { ...record.row } };
     case "reject":
       return { kind: "reject", row: { ...record.row, sample: toHex(record.row.sample) } };
+    case "notification":
+      return {
+        kind: "notification",
+        row: {
+          ...record.row,
+          recipients: toHex(record.row.recipients),
+          detail: record.row.detail === null ? null : toHex(record.row.detail),
+        },
+      };
+    case "notificationRead":
+      return { kind: "notificationRead", row: { ...record.row } };
   }
 }
 
@@ -51,6 +62,8 @@ const KIND_OF: Readonly<Record<AuditRecord["kind"], LogQuery["logKind"]>> = {
   hubEvent: "event",
   reject: "reject",
   command: undefined,
+  notification: "notification",
+  notificationRead: "notification",
 };
 
 const MS_PER_MINUTE = 60_000;

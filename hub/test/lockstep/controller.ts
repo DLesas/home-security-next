@@ -23,7 +23,7 @@ import {
   toHex,
 } from "@hsn/protocol";
 import type {
-  ControlCommand,
+  ParsedControlCommand,
   ControlReply,
   LockstepFromHub,
   LockstepIdle,
@@ -187,7 +187,7 @@ export class Controller {
   }
 
   /** An `hsn` command at `at`; its answer comes in the `idle` that covers it. */
-  command(command: ControlCommand, at = this.#now): number {
+  command(command: ParsedControlCommand, at = this.#now): number {
     const id = this.#nextRequest++;
     this.#queue(at, {
       type: "control",

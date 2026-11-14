@@ -10,6 +10,7 @@
  * - while a commit fails, sends that need nothing uncommitted still go;
  * - a refused send, a failing link, a fault, failing random bytes: what each becomes.
  */
+import { UNBUILT_CALENDAR } from "../../../src/shell/calendar/unbuilt.ts";
 import { describe, expect, test } from "bun:test";
 import { err, ok, type Result } from "neverthrow";
 import type { Effect } from "../../../src/core/model/effects.ts";
@@ -185,7 +186,7 @@ function rig(script: Script): Rig {
   };
   const loop = new HubLoop(
     fakeCore(script, seen),
-    { cipher: VectorCipher.fromVectors(), rules: DEFAULT_RULES },
+    { cipher: VectorCipher.fromVectors(), rules: DEFAULT_RULES, calendar: UNBUILT_CALENDAR },
     ports,
   );
   return Object.assign(state, { loop, writer, seen });

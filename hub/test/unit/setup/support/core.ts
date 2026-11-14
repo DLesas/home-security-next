@@ -94,6 +94,10 @@ export function setupCore(sources: ControlSources = VIEW_SOURCES, given: StandIn
     links: standIn("links", given.links ?? links),
     setup: { ...MODULES.setup, handle: handleSetup },
     control: { ...MODULES.control, handle: makeControlHandler(sources) },
+    people: standIn("people", given.people),
+    layout: standIn("layout", given.layout),
+    app: standIn("app", given.app),
+    schedules: standIn("schedules", given.schedules),
     gateways: standIn("gateways", given.gateways),
     intake: standIn("intake", given.intake),
     alarm: standIn("alarm", given.alarm),
@@ -102,6 +106,9 @@ export function setupCore(sources: ControlSources = VIEW_SOURCES, given: StandIn
     sensors: standIn("sensors", given.sensors),
     slots: standIn("slots", given.slots),
     sirens: standIn("sirens", given.sirens),
+    health: standIn("health", given.health),
+    notify: standIn("notify", given.notify),
+    upkeep: standIn("upkeep", given.upkeep),
     audit: standIn("audit", given.audit ?? audit),
   };
   return makeCore(modules);

@@ -1,0 +1,39 @@
+{
+  "name": "@hsn/app",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "The app: one codebase for the web build (M2) and the phone (M3), on Expo (docs/m2-design.md section 8).",
+  "main": "expo-router/entry",
+  "scripts": {
+    "export:web": "expo export --platform web --output-dir dist && bun scripts/csp.ts dist",
+    "e2e": "playwright test --config e2e/playwright.config.ts"
+  },
+  "dependencies": {
+    "@expo/metro-runtime": "58.0.17",
+    "@hookform/resolvers": "7.0.6",
+    "@hsn/protocol": "workspace:*",
+    "@tanstack/react-query": "5.107.1",
+    "expo": "58.0.25",
+    "expo-constants": "58.0.16",
+    "expo-linking": "58.0.17",
+    "expo-router": "58.0.31",
+    "expo-status-bar": "58.0.5",
+    "i18next": "27.1.1",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "react-hook-form": "7.92.0",
+    "react-i18next": "18.0.1",
+    "react-native": "0.88.1",
+    "react-native-safe-area-context": "5.11.1",
+    "react-native-screens": "4.30.1",
+    "react-native-web": "0.21.4",
+    "zustand": "5.1.0"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "4.14.0",
+    "@playwright/test": "1.65.1",
+    "@types/node": "26.6.6",
+    "@types/react": "19.3.0"
+  }
+}

@@ -16,3 +16,8 @@ __pycache__/
 
 # Raw browser reports from the certificate spike; the findings are in docs/spikes
 spikes/o12-cert-warning/results.jsonl
+
+# The app's builds and browser-test output (app/, m2-design.md section 8)
+app/.expo/
+app/test-results/
+app/playwright-report/

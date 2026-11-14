@@ -3,12 +3,17 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Device protocol version 1: packets, message bodies, counters, USB framing and test vectors.",
+  "description": "Device protocol version 1 and app channel version 1: packets, message bodies, counters, USB framing, the app channel's schemas, the audit record as JSON, and test vectors.",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./app": "./src/app/index.ts",
+    "./records": "./src/records.ts"
   },
   "scripts": {
     "test": "bun test",
     "vectors": "bun scripts/generate-vectors.ts"
+  },
+  "dependencies": {
+    "zod": "4.6.7"
   }
 }

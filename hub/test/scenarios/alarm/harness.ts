@@ -797,6 +797,10 @@ export class Home {
       links: pick("links"),
       setup: pick("setup"),
       control: pick("control", control),
+      people: pick("people"),
+      layout: pick("layout"),
+      app: pick("app"),
+      schedules: pick("schedules"),
       gateways: pick("gateways", gateways),
       intake: pick("intake", intake),
       alarm: pick("alarm"),
@@ -804,6 +808,9 @@ export class Home {
       sensors: pick("sensors", sensors),
       slots: pick("slots"),
       sirens: pick("sirens"),
+      health: pick("health"),
+      notify: pick("notify"),
+      upkeep: pick("upkeep"),
       audit: pick("audit", audit),
     };
   }

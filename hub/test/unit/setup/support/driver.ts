@@ -4,6 +4,7 @@
  * each step kept, and noted for the key-leak guard. Also fixtures (the hub's signing key and
  * identity from `pairing-data.json`, site rows) and the committed rows a restart reads back.
  */
+import { UNBUILT_CALENDAR } from "../../../../src/shell/calendar/unbuilt.ts";
 import { expect } from "bun:test";
 import { fromHex, Role, SetupType, encodeSetupMessage, HUB_IDENTITY_LENGTH } from "@hsn/protocol";
 import type { Result } from "neverthrow";
@@ -165,7 +166,12 @@ export class Driver {
 
   constructor(core: Core = setupCore()) {
     this.core = core;
-    this.deps = { cipher: VectorCipher.fromVectors(), rules: DEFAULT_RULES, deepFreeze: true };
+    this.deps = {
+      cipher: VectorCipher.fromVectors(),
+      rules: DEFAULT_RULES,
+      calendar: UNBUILT_CALENDAR,
+      deepFreeze: true,
+    };
     this.state = core.emptyState();
   }
 

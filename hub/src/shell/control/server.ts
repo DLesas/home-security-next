@@ -31,11 +31,13 @@ import {
   requestLine,
   type RequestLine,
   streamLine,
+  typedCommand,
 } from "../../control-protocol/index.ts";
 import type { Control, SubscriberId } from "../../ports/control.ts";
 import type { EventSink } from "../../ports/links.ts";
 import type { LogQuery } from "../../ports/reader.ts";
 import { parseJson } from "../safe/json.ts";
+import { FILE_CHUNK_NOT_BUILT } from "./file-chunks.ts";
 import { LineReader, MAX_REQUEST_LINE_BYTES } from "./lines.ts";
 import { type FollowFilter, matches, recordJson } from "./records.ts";
 import { prepareSocketPath, removeSocket, secureSocket } from "./socket-file.ts";
@@ -318,8 +320,14 @@ export class UnixControlServer implements Control {
       });
       return;
     }
+    if (line.command.kind === "fileChunk") {
+      // The shell's own (m2-design.md section 6), never the core's.
+      this.#reply(connection, line.id, FILE_CHUNK_NOT_BUILT);
+      return;
+    }
+    const command = typedCommand(line.command);
+    if (command === undefined) return;
     const request = requestId(this.#nextRequest++);
-    const command = line.command;
     if (command.kind !== "log") {
       // Waiting before the core sees it, so an answer made at once still finds its client.
       connection.inHand = request;

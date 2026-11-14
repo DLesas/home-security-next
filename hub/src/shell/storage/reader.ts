@@ -14,7 +14,12 @@ import { err, ok, type Result } from "neverthrow";
 import type { AuditRecord } from "../../core/model/audit.ts";
 import type { DurableSnapshot } from "../../core/model/events.ts";
 import { type DeviceId, deviceId } from "../../core/model/ids.ts";
-import { type BootRow, DeviceState, type HubKeysRow } from "../../core/model/rows.ts";
+import {
+  type BootRow,
+  DeviceState,
+  type HubAppKeys,
+  type HubSigningKeys,
+} from "../../core/model/rows.ts";
 import type { AuditTable, StateTable, StateTables } from "../../core/model/store.ts";
 import * as schema from "../../db/schema.ts";
 import type { LogQuery, Reader } from "../../ports/reader.ts";
@@ -75,6 +80,7 @@ const TABLES_BY_KIND: Readonly<Record<NonNullable<LogQuery["logKind"]>, readonly
   log: ["device_log"],
   event: ["hub_events", "commands"],
   reject: ["rejects"],
+  notification: ["notifications", "notification_reads"],
 };
 
 const ALL_AUDIT_TABLES = Object.keys(AUDIT_SPECS) as readonly AuditTable[];
@@ -99,6 +105,10 @@ function recordOf(table: AuditTable, row: Raw): AuditRecord {
       return asRecord({ kind: "command", row });
     case "rejects":
       return asRecord({ kind: "reject", row });
+    case "notifications":
+      return asRecord({ kind: "notification", row });
+    case "notification_reads":
+      return asRecord({ kind: "notificationRead", row });
   }
 }
 
@@ -127,10 +137,12 @@ export class SqliteReader implements Reader {
       const lossDaily = all("loss_daily");
       const lastDay = Math.max(...lossDaily.map((row) => row.day));
       const keys = one("hub_keys");
-      const hubKeys: Omit<HubKeysRow, "signingPrivate"> | undefined =
+      const hubKeys: HubSigningKeys | undefined =
         keys === undefined
           ? undefined
           : { signingPublic: keys.signingPublic, identity: keys.identity };
+      const appKeys: HubAppKeys | undefined =
+        keys?.appStaticPublic == null ? undefined : { appStaticPublic: keys.appStaticPublic };
       return {
         devices: all("devices"),
         sendCounters: all("send_counters"),
@@ -147,6 +159,31 @@ export class SqliteReader implements Reader {
         deviceState: all("device_state"),
         lossDaily: lossDaily.filter((row) => row.day > lastDay - this.#lossDays),
         provisioningKeys: this.#provisioningKeys(),
+        // Every table small and read whole; link tokens without their keys (m2-design.md section 2);
+        // the backup key whole, as `upkeep` keeps it in its slice.
+        m2: {
+          appKeys,
+          modeState: one("mode_state"),
+          peopleSettings: one("people_settings"),
+          scheduleState: one("schedule_state"),
+          backupState: one("backup_state"),
+          backupKey: one("backup_key"),
+          people: all("people"),
+          clients: all("clients"),
+          clientReplies: all("client_replies"),
+          permissions: all("permissions"),
+          personRoles: all("person_roles"),
+          linkTokens: all("link_tokens"),
+          groups: all("groups"),
+          groupMembers: all("group_members"),
+          groupSirens: all("group_sirens"),
+          modes: all("modes"),
+          modeGroups: all("mode_groups"),
+          schedules: all("schedules"),
+          healthState: all("health_state"),
+          notificationPrefs: all("notification_prefs"),
+          updateState: one("update_state"),
+        },
       };
     });
   }

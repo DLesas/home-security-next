@@ -1,7 +1,10 @@
 /**
  * The control socket's lines (hub-design.md section 9): one JSON request per line, one JSON
- * reply per line, and for `hsn log --follow` one line per streamed record.
+ * reply per line, and for `hsn log --follow` one line per streamed record; in M2, a download's
+ * `fileChunk` lines before its reply (m2-design.md section 6). A line is at most
+ * `CONTROL_LINE_BYTES`.
  */
+import { fileChunkBody } from "@hsn/protocol/app";
 import { z } from "zod";
 import { controlCommand } from "./commands.ts";
 import { recordJson } from "./records.ts";
@@ -24,6 +27,10 @@ export const replyLine = z.object({ id: requestNumber, reply: controlReply }).re
 /** A record streamed to a `--follow` request, in the order the core made them. */
 export const streamLine = z.object({ id: requestNumber, record: recordJson }).readonly();
 
+/** One chunk of a download (`hsn backup export`), sent on the request's connection before its reply. */
+export const chunkLine = z.strictObject({ id: requestNumber, fileChunk: fileChunkBody }).readonly();
+
 export type RequestLine = z.infer<typeof requestLine>;
+export type ChunkLine = z.infer<typeof chunkLine>;
 export type ReplyLine = z.infer<typeof replyLine>;
 export type StreamLine = z.infer<typeof streamLine>;
