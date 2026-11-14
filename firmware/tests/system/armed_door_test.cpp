@@ -11,8 +11,10 @@ using host::HubAction;
 using host::HubPath;
 namespace type = protocol::message_type;
 
-TEST_CASE("an armed door opening sounds the siren at the countdown's end; disarming stops it") {
-  Site site(gateway_mode());
+TEST_CASE(
+    "an armed door opening sounds the siren at the countdown's end; disarming stops "
+    "it") {
+  Site site(one_rate_gateway_mode());
   ScriptGatewayLog gateway_log;
   ScriptSensorLog sensor_log;
   ScriptSirenLog siren_log;
@@ -50,12 +52,11 @@ TEST_CASE("an armed door opening sounds the siren at the countdown's end; disarm
   CHECK(commands[1].via == "gateway");
   CHECK(gateway_log.siren_requests >= 1);
   CHECK(site.hub.decisions(HubAction::siren_confirmed, "siren").size() >= 1);
-  // On the air through the gateway: the reply, the siren command, then the siren's settings,
-  // because its first report showed it holding none.
+  // On the air through the gateway, from the opening: the reply, then the siren command.
   CHECK(gateway.records()
             .kind(RecordKind::transmission)
-            .between(at(seconds(0)), at(seconds(31)))
-            .type_names() == "reply, siren_command, siren_settings");
+            .between(at(seconds(10)), at(seconds(31)))
+            .type_names() == "reply, siren_command");
 
   site.hub.disarm();
   site.sim.run_until(at(seconds(45)));

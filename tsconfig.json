@@ -9,7 +9,8 @@
     "hub/cli",
     "hub/drizzle.config.ts",
     "tools/*/src",
-    "tools/*/test"
+    "tools/*/test",
+    "firmware/tests/lockstep"
   ],
   "exclude": ["hub/test/lint-probes", "tools/*/test/fixtures"]
 }

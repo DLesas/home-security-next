@@ -132,7 +132,9 @@ LoadFigures measure(LoadSite& load, std::size_t extra_writes = 0) {
     figures.sent += transmissions.size();
     figures.busiest_sensor_hour =
         std::max(figures.busiest_sensor_hour, busiest_hour_on(*door, kSiteHz));
-    const std::size_t writes = door->records().kind(RecordKind::flash_write).count();
+    // Writes of its own: those of its provisioning over USB on the real hub aside.
+    const std::size_t writes =
+        door->records().kind(RecordKind::flash_write).count() - provisioning_flash_writes(*door);
     flash_total += writes;
     figures.over_flash_budget +=
         writes > transmissions.size() / kResumeStep + kFlashWritesBesideResume + extra_writes ? 1u
@@ -266,24 +268,13 @@ std::string describe(const std::string& name, const LoadFigures& f, std::int64_t
 }
 
 /** D: a disarmed site under everyday load, checked and measured. */
-/** A move during a load run: announced this long after the start, switched once confirmed. */
+/** A move during a load run: announced this long after the start; it switches once confirmed. */
 constexpr Duration kMoveAnnounceAt = seconds(200);
-constexpr Duration kMovePoll = seconds(5);
 /**
  * A move costs each sensor two settings writes: the next settings it is told, kept in flash so a
  * restart does not lose them, and those settings becoming its own (§7, D115; design section 5).
  */
 constexpr std::size_t kFlashWritesPerMove = 2;
-
-/** Switches the announced move as soon as every sensor has confirmed it (§7, D115). */
-void switch_when_confirmed(LoadSite& load) {
-  if (load.site.hub.move_unconfirmed().empty()) {
-    REQUIRE(load.site.hub.switch_move());
-    return;
-  }
-  load.site.sim.schedule(load.site.sim.now() + kMovePoll,
-                         [&load]() { switch_when_confirmed(load); });
-}
 
 /**
  * D: a disarmed site under everyday load, checked and measured. With `move_to`, the site starts
@@ -298,8 +289,8 @@ void everyday_load(std::size_t sensors, std::uint8_t data_rate, std::int64_t spa
     load.site.sim.schedule(host::at(kMoveAnnounceAt), [&]() {
       host::SiteMove move;
       move.send_data_rate = *move_to;
+      // The hub switches by itself once every sensor has confirmed (§7, D115).
       load.site.hub.announce_move(move);
-      switch_when_confirmed(load);
     });
   }
   load.site.run_until(at_s(span_seconds));
@@ -414,9 +405,10 @@ void alarm_burst(std::size_t siren_count) {
   // latency. On LoRa, through the gateway, which may be receiving the longest packet and sending
   // a reply when the commands arrive, then sends every siren's command first (§7 "Reply timing
   // and a busy gateway").
-  const Duration wifi_bound = kLinkLatency;
+  const Duration wifi_bound = kHubActsWithin + kLinkLatency;
   const Duration lora_bound =
-      kLinkLatency + airtime(rate, kLongestRadioBytes) + airtime(rate, kReplyBytes) +
+      kHubActsWithin + kLinkLatency + airtime(rate, kLongestRadioBytes) +
+      airtime(rate, kReplyBytes) +
       Duration{airtime(rate, kSirenCommandBytes).us * static_cast<std::int64_t>(siren_count)};
   std::ostringstream timings;
   timings << std::fixed << std::setprecision(3) << "burst, " << siren_count
@@ -445,7 +437,7 @@ void alarm_burst(std::size_t siren_count) {
     CHECK_FALSE(sounding_at(*siren, end));
     const auto changes = sounder(*siren);
     REQUIRE_FALSE(changes.empty());
-    CHECK(changes.back().first - disarm_at <= kLinkLatency);
+    CHECK(changes.back().first - disarm_at <= kHubActsWithin + kLinkLatency);
   }
   MESSAGE(timings.str());
 
@@ -463,7 +455,7 @@ void alarm_burst(std::size_t siren_count) {
     const auto changes = buzzer(*door);
     REQUIRE_FALSE(changes.empty());
     CHECK(changes.back().second == Sound::off);
-    CHECK(door->state() == host::PowerState::deep_sleep);
+    CHECK(sleeping_between_heartbeats(*door, load.site.sim.now()));
     check_one_deep_sleep_per_wake(*door);
   }
 }
@@ -559,7 +551,8 @@ TEST_CASE(
     level = !level;
     faulty.set_input(Input::door, level, t);
   }
-  site.sim.schedule(arm_at, [&]() { site.hub.arm(); });
+  // Armed whatever the doors: the faulty one is armed when it next closes (D50, D114).
+  site.sim.schedule(arm_at, [&]() { site.hub.arm(host::OpenDoors::arm_when_closed); });
   door.set_input(Input::door, true, open_at);
   site.run_until(end);
   INFO(site.hub.dump());

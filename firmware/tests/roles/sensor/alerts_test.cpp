@@ -315,8 +315,9 @@ TEST_CASE(
   bench.run_to(200);
   CHECK(sound_times(door, Sound::alarm).empty());
   CHECK(sound_times(door, Sound::countdown).size() == 1);
-  // Armed again and back in reach: a reply says so, and the sensor is armed.
-  bench.hub.arm();
+  // Armed again and back in reach: the hub last heard the door open, so it is armed when its
+  // closing is heard (D114); that reply says so, and the sensor is armed.
+  bench.hub.arm(host::OpenDoors::arm_when_closed);
   bench.sim.medium().set_path_loss(door.station(), bench.hub.station(), 100.0);
   door.set_input(Input::door, false, at_s(700));
   bench.run_to(710);
@@ -379,8 +380,9 @@ TEST_CASE("section 6: the second notice does not undo a re-arming that came betw
   bench.hub.arm();
   door.set_input(Input::door, true, at_s(30));
   bench.sim.schedule(at_s(40), [&]() { bench.hub.disarm(); });
-  // Re-armed at once; the closing's reply (at about 41.6 s) tells the sensor so.
-  bench.sim.schedule(at_s(40.2), [&]() { bench.hub.arm(); });
+  // Re-armed at once, the door still open: armed by the closing (D114), whose reply (at about
+  // 41.6 s) tells the sensor so.
+  bench.sim.schedule(at_s(40.2), [&]() { bench.hub.arm(host::OpenDoors::arm_when_closed); });
   door.set_input(Input::door, false, at_s(40.3));
   // A cover report's window is open when the second notice comes at 42 s.
   door.set_input(Input::cover, true, at_s(41.8));

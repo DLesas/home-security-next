@@ -16,6 +16,10 @@
 
 #include "hsn/host/role_box.hpp"
 #include "hsn/protocol/radio.hpp"
+#ifdef HSN_LOCKSTEP
+#include "hsn/host/remote_hub.hpp"
+#include "lockstep_support.hpp"
+#endif
 #include "hsn/roles/gateway/gateway_role.hpp"
 #include "hsn/roles/sensor/sensor_role.hpp"
 #include "hsn/roles/siren/siren_role.hpp"
@@ -35,6 +39,9 @@ using host::HubPath;
 using host::Record;
 using host::RecordKind;
 namespace type = protocol::message_type;
+
+/** The hub the scenarios run against (sim_support.hpp): the test hub, or the real one. */
+using test::SiteHub;
 
 /**
  * Data-rate masks, one bit per index (§2, "Data rates"). A site has one sending rate until O14
@@ -77,6 +84,12 @@ constexpr Duration kNoticeGap = seconds(2);
 constexpr Duration kLoraRepeat = seconds(5);
 /** The bench's link latency, each way (HubOptions::link_latency). */
 constexpr Duration kLinkLatency = milliseconds(25);
+/**
+ * The longest the hub may take from a packet or a timer to the frame it sends: its commit, at most
+ * 30 ms at the 99th percentile, and about 1 ms of processing (hub-design.md section 5's budget).
+ * The test hub takes none; the real hub in lockstep takes RemoteHub::send_delay().
+ */
+constexpr Duration kHubActsWithin = milliseconds(31);
 /** From power, a reset or a deep-sleep wake to the boot event (DeviceSpec::boot_time). */
 constexpr Duration kBootTime = milliseconds(50);
 /** The sensor's own alarm after its countdown, when the hub does not answer (DS6, D88). */
@@ -113,11 +126,19 @@ inline double in_seconds(Duration duration) {
 struct SystemSite {
   explicit SystemSite(host::HubOptions options = one_rate_site(),
                       host::SimulationOptions simulation = {})
-      : sim(simulation), hub(sim, with_link_mode(options)) {}
+#ifdef HSN_LOCKSTEP
+      : sim(simulation),
+        hub(sim, with_link_mode(options), hub_program()){}
+#else
+      : sim(simulation), hub(sim, with_link_mode(options)) {
+  }
+#endif
 
-  /** A GatewayRole on mains, connected to the hub over Wi-Fi unless `config` says otherwise. */
-  host::SimDevice& gateway(const std::string& name, const host::GatewayConfig& config = {},
-                           std::int32_t drift_ppm = 0) {
+            /** A GatewayRole on mains, connected to the hub over Wi-Fi unless `config` says
+               otherwise. */
+            host::SimDevice
+            & gateway(const std::string& name, const host::GatewayConfig& config = {},
+                      std::int32_t drift_ppm = 0) {
     host::DeviceSpec spec;
     spec.name = name;
     spec.role = host::make_role<roles::gateway::GatewayRole>(&host::HostBoard::gateway_io);
@@ -180,7 +201,7 @@ struct SystemSite {
   }
 
   host::Simulation sim;
-  host::TestHub hub;
+  SiteHub hub;
   std::vector<std::string> gateways;
 
 private:
@@ -252,7 +273,7 @@ inline std::vector<Record> heard(const host::SimDevice& device, std::uint8_t of_
 }
 
 /** Every packet the hub had from `from`, accepted or not. */
-inline std::vector<host::HubPacket> hub_got_all(const host::TestHub& hub, const std::string& from) {
+inline std::vector<host::HubPacket> hub_got_all(const SiteHub& hub, const std::string& from) {
   std::vector<host::HubPacket> out;
   for (const host::HubPacket& packet : hub.received()) {
     if (packet.from == from) {
@@ -271,10 +292,35 @@ inline Duration busiest_hour_on(const host::SimDevice& device, std::uint32_t fre
 }
 
 /**
+ * True when, at `now`, the device is in deep sleep, or awake only for the timer of its latest deep
+ * sleep (a heartbeat: booting from it, or booted with nothing else since): asleep between its
+ * heartbeats, wherever the hub placed them. A wake by an input or a reset is not that.
+ */
+inline bool sleeping_between_heartbeats(const host::SimDevice& device, Instant now) {
+  if (device.state() == host::PowerState::deep_sleep) {
+    return true;
+  }
+  const auto records =
+      device.records().kind(RecordKind::deep_sleep).kind(RecordKind::boot).records();
+  if (records.empty()) {
+    return false;
+  }
+  const Record& last = records.back();
+  if (last.kind == RecordKind::deep_sleep) {
+    // Its timer has come and it boots: no input woke it before.
+    return device.state() == host::PowerState::booting && last.until <= now;
+  }
+  return records.size() >= 2 && last.flag &&
+         last.value == static_cast<std::uint32_t>(device::BootKind::deep_sleep_wake) &&
+         records[records.size() - 2].kind == RecordKind::deep_sleep;
+}
+
+/**
  * Checks the sleep discipline of design section 6 from the timeline: every wake ends in exactly
  * one deep sleep, never two, and every boot but the first and those after a power loss or a
- * restart the test scripted comes from a deep sleep. The last boot may still be awake when the
- * run ends. A restart the device asked for itself (a fatal error) fails the check.
+ * restart the test scripted (or provisioning made, kProvisioningResets) comes from a deep sleep.
+ * The last boot may still be awake when the run ends. A restart the device asked for itself (a
+ * fatal error) fails the check.
  */
 inline void check_one_deep_sleep_per_wake(const host::SimDevice& device,
                                           std::size_t scripted_resets = 0) {
@@ -307,7 +353,7 @@ inline void check_one_deep_sleep_per_wake(const host::SimDevice& device,
     }
   }
   CHECK(boots > 0);
-  CHECK(resets == scripted_resets);
+  CHECK(resets == scripted_resets + kProvisioningResets);
 }
 
 /** The device address in a radio packet's clear part (§3). */
@@ -320,9 +366,22 @@ inline std::uint32_t address_in(const host::Bytes& packet) {
   return address;
 }
 
+/**
+ * Packets from `name` the hub counted as duplicates without a record each. The test hub keeps a
+ * record of every copy; the real hub counts duplicates per minute in `rejects` (section 6, D110).
+ */
+inline std::size_t duplicates_without_record(const host::TestHub&, const std::string&) {
+  return 0;
+}
+#ifdef HSN_LOCKSTEP
+inline std::size_t duplicates_without_record(const host::RemoteHub& hub, const std::string& name) {
+  return hub.duplicates_counted(name);
+}
+#endif
+
 /** True when the hub has a record of a packet from `from` carrying `counter`, whatever its verdict.
  */
-inline bool hub_has(const host::TestHub& hub, const std::string& from, std::uint32_t counter) {
+inline bool hub_has(const SiteHub& hub, const std::string& from, std::uint32_t counter) {
   for (const host::HubPacket& packet : hub.received()) {
     if (packet.from == from && packet.counter == counter) {
       return true;
@@ -442,8 +501,7 @@ constexpr Duration kLogAgeResolution = milliseconds(100);
  * True when the hub holds a log entry from `gateway` saying it could not forward a packet heard
  * at `heard_at`: the gateway had no connection yet, or its link refused the forward.
  */
-inline bool hub_told_of_loss(const host::TestHub& hub, const std::string& gateway,
-                             Instant heard_at) {
+inline bool hub_told_of_loss(const SiteHub& hub, const std::string& gateway, Instant heard_at) {
   for (const host::HubLogEntry& entry : hub.log_entries_from(gateway)) {
     if (is_forward_loss(entry.code) && apart(entry.made_at, heard_at) <= kLogAgeResolution) {
       return true;
@@ -471,12 +529,18 @@ inline HubAccount check_hub_recorded_everything(const SystemSite& site) {
   HubAccount account;
   for (const auto& device : site.sim.devices()) {
     const bool is_gateway = site.is_gateway(device->name());
+    // The packets this device sent on a link that the hub has no record of: there must be exactly
+    // as many as the duplicates it counted for the device without a record each (D110).
+    std::size_t unrecorded = 0;
+    std::string which;
     for (const Record& record :
          device->records().kind(RecordKind::link_sent).kind(RecordKind::reception).records()) {
       if (record.kind == RecordKind::link_sent) {
-        INFO(timeline.describe(record));
-        CHECK(hub_has(site.hub, device->name(), record.label.counter));
         account.checked += 1;
+        if (!hub_has(site.hub, device->name(), record.label.counter)) {
+          unrecorded += 1;
+          which += timeline.describe(record) + "\n";
+        }
       } else if (is_gateway && record.frequency_hz == kSiteHz) {
         INFO(timeline.describe(record));
         account.checked += 1;
@@ -486,6 +550,8 @@ inline HubAccount check_hub_recorded_everything(const SystemSite& site) {
         }
       }
     }
+    INFO(device->name() << ": sent on a link with no record of it at the hub:\n" << which);
+    CHECK(unrecorded == duplicates_without_record(site.hub, device->name()));
   }
   return account;
 }

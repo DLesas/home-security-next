@@ -25,8 +25,8 @@ constexpr std::uint8_t kFarChannel = 2;
 constexpr std::uint32_t kFarHz = 868500000;
 /** The announcement starts after every sensor has had its Started answered and a heartbeat. */
 constexpr std::int64_t kAnnounceAfterIntervals = 2;
-/** How often the scenario looks whether every sensor has confirmed. */
-constexpr Duration kPoll = seconds(5);
+/** How finely it looks whether the switch has come (it comes by itself, §7). */
+constexpr Duration kSwitchPoll = milliseconds(250);
 /** An unslotted heartbeat comes at the interval ±10% (§7 "Heartbeat slots"). */
 constexpr std::int64_t kJitterPercent = 10;
 /**
@@ -64,12 +64,22 @@ struct MoveSite {
     return heartbeat_interval(load.rate);
   }
 
-  /** Runs until every sensor has confirmed the announced move, or `limit`; returns when. */
-  Instant run_to_confirmed(Instant limit) {
-    while (!site.hub.move_unconfirmed().empty() && site.sim.now() < limit) {
-      site.sim.run_for(kPoll);
+  /**
+   * Runs until the switch, which comes by itself once every sensor has confirmed (§7), or
+   * `limit`; returns its instant, or never.
+   */
+  Instant run_to_switch(Instant limit) {
+    while (site.hub.move_stage() == MoveStage::announcing && site.sim.now() < limit) {
+      site.sim.run_for(kSwitchPoll);
     }
-    return site.sim.now();
+    return decided(HubAction::move_switched);
+  }
+
+  /** Runs until `count` sensors have confirmed, or `limit`. */
+  void run_to_confirmations(std::size_t count, Instant limit) {
+    while (site.hub.decisions(HubAction::move_confirmed).size() < count && site.sim.now() < limit) {
+      site.sim.run_for(kSwitchPoll);
+    }
   }
 
   /** The instant of the only decision of one kind, or never. */
@@ -141,14 +151,13 @@ TEST_CASE(
   SiteMove move;
   move.send_data_rate = kSlowRate;
   site.hub.announce_move(move);
-  const Instant confirmed = s.run_to_confirmed(announce_at + Duration{s.interval().us * 4});
+  const Instant switch_at = s.run_to_switch(announce_at + Duration{s.interval().us * 4});
   INFO(site.hub.dump());
-  REQUIRE(site.hub.move_unconfirmed().empty());
+  REQUIRE(switch_at != Instant::never());
   CHECK(site.hub.decisions(HubAction::move_confirmed).size() == kSensors);
+  // The switch came by itself, with the last confirmation (§7, step 2).
   const Instant last_confirmation = site.hub.decisions(HubAction::move_confirmed).back().at;
-  static_cast<void>(confirmed);
-  REQUIRE(site.hub.switch_move());
-  const Instant switch_at = site.sim.now();
+  CHECK(switch_at == last_confirmation);
   site.run_until(switch_at + Duration{s.interval().us * kFollowIntervals});
 
   // Every device followed, and the move is done.
@@ -184,7 +193,7 @@ TEST_CASE(
   REQUIRE_FALSE(windows.empty());
   const Duration gateway_after = windows.front().at - switch_at;
   CHECK(windows.front().value == (1u << kSlowRate));
-  CHECK(gateway_after <= kLinkLatency + kLinkLatency);
+  CHECK(gateway_after <= kHubActsWithin + kLinkLatency + kLinkLatency);
   CHECK(busiest_hour_on(s.load.gateway, kHubHz) <= kGatewayLegalHour);
 
   const Duration announced = last_confirmation - announce_at;
@@ -202,11 +211,14 @@ TEST_CASE(
   CHECK(check_hub_recorded_everything(site).checked > 0);
 }
 
-/** Announces `move` at two intervals in, runs until every sensor confirmed; returns when. */
-Instant announce_and_confirm(MoveSite& s, const SiteMove& move) {
+/**
+ * Announces `move` at two intervals in and runs until every sensor has confirmed, or, when one
+ * never does, the limit; returns when the switch came by itself (§7), or never.
+ */
+Instant announce_and_switch(MoveSite& s, const SiteMove& move) {
   s.site.run_until(host::at(Duration{s.interval().us * kAnnounceAfterIntervals}));
   s.site.hub.announce_move(move);
-  return s.run_to_confirmed(s.site.sim.now() + Duration{s.interval().us * kFollowIntervals});
+  return s.run_to_switch(s.site.sim.now() + Duration{s.interval().us * kFollowIntervals});
 }
 
 /** A sensor status packet's airtime at a rate (§2, "Time on air": 25 bytes). */
@@ -226,10 +238,9 @@ TEST_CASE(
   site.hub.arm();
   SiteMove move;
   move.send_data_rate = kSlowRate;
-  announce_and_confirm(s, move);
+  const Instant switch_at = announce_and_switch(s, move);
   INFO(site.hub.dump());
-  REQUIRE(site.hub.switch_move());
-  const Instant switch_at = site.sim.now();
+  REQUIRE(switch_at != Instant::never());
   const Instant open_at = switch_at + seconds(1);
   host::SimDevice& door = *s.load.doors[0];
   door.set_input(Input::door, true, open_at);
@@ -259,7 +270,7 @@ TEST_CASE(
   REQUIRE(alarm.size() == 1);
   for (host::SimDevice* siren : s.siren_devices) {
     INFO(siren->name());
-    CHECK(sounding_from(*siren, alarm[0].at) - alarm[0].at <= kLinkLatency);
+    CHECK(sounding_from(*siren, alarm[0].at) - alarm[0].at <= kHubActsWithin + kLinkLatency);
     const auto commands = site.hub.sent_to(siren->name(), type::siren_command);
     REQUIRE(commands.size() >= 2);
     const std::uint32_t address = address_in(commands[0].packet);
@@ -292,10 +303,9 @@ void small_move(const SiteMove& move, std::uint32_t frequency, std::uint8_t rate
   constexpr std::size_t kFewSensors = 3;
   MoveSite s(kFewSensors, 1);
   SystemSite& site = s.site;
-  announce_and_confirm(s, move);
+  const Instant switch_at = announce_and_switch(s, move);
   INFO(site.hub.dump());
-  REQUIRE(site.hub.switch_move());
-  const Instant switch_at = site.sim.now();
+  REQUIRE(switch_at != Instant::never());
   site.run_until(switch_at + Duration{s.interval().us * kFollowIntervals});
   CHECK(site.hub.decisions(HubAction::move_done).size() == 1);
   CHECK(site.hub.site_channel() == move.site_channel.value_or(1));
@@ -335,10 +345,11 @@ TEST_CASE(
                     [&]() { site.sim.medium().cut(far.station(), s.load.gateway.station()); });
   SiteMove move;
   move.send_data_rate = kSlowRate;
-  announce_and_confirm(s, move);
+  // It never confirms, so the switch does not come by itself.
+  CHECK(announce_and_switch(s, move) == Instant::never());
   INFO(site.hub.dump());
   CHECK(site.hub.move_unconfirmed() == std::vector<std::string>{far.name()});
-  // Refused, naming it; nothing switched.
+  // The user's force without "--yes" names it; nothing switched.
   CHECK_FALSE(site.hub.switch_move());
   CHECK(site.hub.decisions(HubAction::move_unconfirmed, far.name()).size() == 1);
   CHECK(site.hub.decisions(HubAction::move_switched).empty());
@@ -402,24 +413,36 @@ TEST_CASE("D115 §7: a move cancelled before the switch changes nothing and dist
   }
 }
 
-TEST_CASE("D115 §7: a switch asked during a countdown waits for it to end") {
+TEST_CASE("D115 §7: a switch due during a countdown waits for it to end") {
   MoveSite s;
   SystemSite& site = s.site;
   site.hub.arm();
   SiteMove move;
   move.send_data_rate = kSlowRate;
-  announce_and_confirm(s, move);
+  site.run_until(host::at(Duration{s.interval().us * kAnnounceAfterIntervals}));
+  site.hub.announce_move(move);
+  // All but one have confirmed; a door that has opens, and the last confirms during its countdown.
+  s.run_to_confirmations(kSensors - 1, site.sim.now() + Duration{s.interval().us * 3});
   INFO(site.hub.dump());
-  host::SimDevice& door = *s.load.doors[0];
+  const auto confirmed = site.hub.decisions(HubAction::move_confirmed);
+  REQUIRE(confirmed.size() == kSensors - 1);
+  host::SimDevice* door = nullptr;
+  for (host::SimDevice* candidate : s.load.doors) {
+    door = candidate->name() == confirmed.front().device ? candidate : door;
+  }
+  REQUIRE(door != nullptr);
   const Instant open_at = site.sim.now() + seconds(1);
-  door.set_input(Input::door, true, open_at);
-  constexpr std::int64_t kAskAfter = 5;
-  constexpr std::int64_t kDisarmAfter = 15;
-  site.run_until(open_at + seconds(kAskAfter));
-  REQUIRE(site.hub.countdown_running(door.name()));
-  CHECK_FALSE(site.hub.switch_move());
-  CHECK(site.hub.decisions(HubAction::move_switch_waiting).size() == 1);
-  const Instant disarm_at = open_at + seconds(kDisarmAfter);
+  door->set_input(Input::door, true, open_at);
+  s.run_to_confirmations(kSensors, open_at + seconds(kCountdownSeconds - 2));
+  REQUIRE(site.hub.decisions(HubAction::move_confirmed).size() == kSensors);
+  const Instant due_at = site.hub.decisions(HubAction::move_confirmed).back().at;
+  REQUIRE(site.hub.countdown_running(door->name()));
+  // Due, it waits: nothing switched.
+  const auto waiting = site.hub.decisions(HubAction::move_switch_waiting);
+  REQUIRE(waiting.size() == 1);
+  CHECK(waiting[0].at == due_at);
+  CHECK(site.hub.move_stage() == MoveStage::announcing);
+  const Instant disarm_at = site.sim.now() + seconds(1);
   site.sim.schedule(disarm_at, [&]() { site.hub.disarm(); });
   site.run_until(disarm_at + Duration{s.interval().us * kFollowIntervals});
   // The switch went when the countdown ended, at the disarm, and not before.
@@ -432,7 +455,7 @@ TEST_CASE("D115 §7: a switch asked during a countdown waits for it to end") {
             .where([](const Record& r) { return r.value == (1u << kSlowRate); })
             .empty());
   // The disarmed notice reached the buzzing sensor on the old settings, then everyone followed.
-  CHECK(buzzer_times(door, Sound::off).back() < disarm_at + seconds(5));
+  CHECK(buzzer_times(*door, Sound::off).back() < disarm_at + seconds(5));
   CHECK(site.hub.decisions(HubAction::move_done).size() == 1);
   CHECK(site.hub.decisions(HubAction::alarm).empty());
 }
@@ -446,11 +469,10 @@ TEST_CASE(
   move.send_data_rate = kSlowRate;
   const Instant announce_at = host::at(Duration{s.interval().us * kAnnounceAfterIntervals});
   s.load.gateway.restart(announce_at + seconds(60));
-  announce_and_confirm(s, move);
+  const Instant switch_at = announce_and_switch(s, move);
   INFO(site.hub.dump());
+  REQUIRE(switch_at != Instant::never());
   REQUIRE(site.hub.decisions(HubAction::gateway_welcomed, "gateway").size() == 2);
-  REQUIRE(site.hub.switch_move());
-  const Instant switch_at = site.sim.now();
   host::SimDevice& lost = *s.load.doors[3];
   lost.power_loss(switch_at + seconds(1));
   site.run_until(switch_at + Duration{s.interval().us * kFollowIntervals});

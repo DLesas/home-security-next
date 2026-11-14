@@ -24,18 +24,44 @@ device::Duration TestHub::event_listen_time(std::uint8_t data_rate) const {
   return device::milliseconds(options_.event_listen_ms[data_rate]);
 }
 
-void TestHub::arm() {
-  armed_ = true;
-  for (Known& device : known_) {
-    if (device.role == protocol::Role::sensor) {
-      new_sensor_version(device);
+std::vector<std::string> TestHub::arm(OpenDoors open_doors) {
+  std::vector<std::string> open;
+  for (const Known& device : known_) {
+    if (device.role == protocol::Role::sensor && device.door_open) {
+      open.push_back(device.name);
     }
   }
-  decide(HubAction::armed, "");
+  if (!open.empty() && open_doors == OpenDoors::refuse) {
+    // D50: an open door stops the arming, which names it; nothing changes.
+    return open;
+  }
+  for (Known& device : known_) {
+    if (device.role != protocol::Role::sensor) {
+      continue;
+    }
+    if (device.door_open) {
+      device.arm_when_closed = true;
+      continue;
+    }
+    arm_sensor(device);
+  }
+  return open;
+}
+
+void TestHub::arm_sensor(Known& sensor) {
+  sensor.armed = true;
+  sensor.arm_when_closed = false;
+  armed_ = true;
+  new_sensor_version(sensor);
+  decide(HubAction::armed, sensor.name);
 }
 
 void TestHub::disarm() {
   armed_ = false;
+  for (Known& device : known_) {
+    device.armed = false;
+    device.arm_when_closed = false;
+  }
   decide(HubAction::disarmed, "");
   for (std::size_t index = 0; index < known_.size(); ++index) {
     Known& sensor = known_[index];
@@ -147,6 +173,11 @@ void TestHub::on_sensor_packet(std::size_t index, const Opened& opened, const Ar
   }
   held_version = status.settings_version;
   note_confirmation(sensor, held_version);
+  // The door as the packet shows it; a sensor waiting for it to close is armed now (D114).
+  sensor.door_open = status.flags.door_open;
+  if (sensor.arm_when_closed && !sensor.door_open) {
+    arm_sensor(sensor);
+  }
   wanted = status.flags.reply_wanted || held_version != sensor.version;
   // Until a reply goes, a fallen-back sensor listens at its sending rate after any packet.
   sensor.listening_at_send_rate = status.flags.listening_at_send_rate;
@@ -172,7 +203,7 @@ void TestHub::on_sensor_packet(std::size_t index, const Opened& opened, const Ar
 void TestHub::door_opened(std::size_t index, const protocol::SensorStatus& status,
                           std::uint32_t counter, const Arrival& arrival) {
   Known& sensor = known_[index];
-  if (!armed_) {
+  if (!sensor.armed) {
     decide(HubAction::report_while_disarmed, sensor.name);
     return;
   }
@@ -218,7 +249,7 @@ void TestHub::countdown_ended(std::size_t index, std::uint64_t generation) {
     return;
   }
   countdown.active = false;
-  if (!armed_) {
+  if (!sensor.armed) {
     retry_waiting_switch();
     return;
   }
@@ -248,7 +279,7 @@ void TestHub::reply_to_sensor(std::size_t index, const Arrival& arrival, std::ui
       reply_rate(sensor, held_version, arrival.data_rate, at_arrival_rate);
   protocol::Reply reply;
   reply.settings_version = sensor.version;
-  reply.flags.armed = armed_;
+  reply.flags.armed = sensor.armed;
   Countdown& countdown = sensor.countdown;
   if (countdown.active) {
     reply.flags.countdown_started = true;

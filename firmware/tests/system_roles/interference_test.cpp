@@ -90,7 +90,9 @@ TEST_CASE(
 
 TEST_CASE(
     "GW11 D82 DS6 LR4: the same on a site allowing DR5 and DR2: the fall-back comes round to "
-    "the gateway's rate and the report gets through after the jamming") {
+    "the gateway's rate and the report gets through after the jamming" HSN_NOT_ON_REAL_HUB(
+        "the protocol gives a site one data rate until O14 is settled, so the real hub has no "
+        "site allowing DR5 and DR2")) {
   jammed_opening(kTwoRates, Duration{kLateRetryGap.us * kTriesToComeRound});
 }
 

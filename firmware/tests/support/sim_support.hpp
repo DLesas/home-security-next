@@ -19,8 +19,95 @@
 #include "script_gateway.hpp"
 #include "script_sensor.hpp"
 #include "script_siren.hpp"
+#ifdef HSN_LOCKSTEP
+#include "hsn/host/remote_hub.hpp"
+#include "lockstep_support.hpp"
+#endif
 
 namespace hsn::test {
+
+/**
+ * The hub the scenarios run against: the test hub, or, built with HSN_LOCKSTEP (the lockstep
+ * group, hub-design.md section 11), the real hub in lockstep. The scenarios are the same text.
+ */
+#ifdef HSN_LOCKSTEP
+using SiteHub = host::RemoteHub;
+#else
+using SiteHub = host::TestHub;
+#endif
+
+/**
+ * Restarts every board makes before the scenario starts: on the real hub, the one that follows
+ * accepting its Provision over USB (section 11, "Expected differences": one more boot each).
+ */
+#ifdef HSN_LOCKSTEP
+constexpr std::size_t kProvisioningResets = 1;
+#else
+constexpr std::size_t kProvisioningResets = 0;
+#endif
+
+/**
+ * The flash writes a board made while the hub provisioned it over USB (section 11, "Expected
+ * differences"): those up to the restart that follows its Provision. None on the test hub.
+ */
+inline std::size_t provisioning_flash_writes(const host::SimDevice& device) {
+  if (kProvisioningResets == 0) {
+    return 0;
+  }
+  const auto restarts = device.records().kind(host::RecordKind::restart).records();
+  if (restarts.empty()) {
+    return 0;
+  }
+  return device.records()
+      .kind(host::RecordKind::flash_write)
+      .between(device::Instant{}, restarts.front().at + device::microseconds(1))
+      .count();
+}
+
+/**
+ * The first siren command (not settings) a scripted siren got, or null: its Started after every
+ * start-up brings it settings first (protocol section 6).
+ */
+inline const ScriptSirenLog::Command* first_siren_command(const ScriptSirenLog& log) {
+  for (const ScriptSirenLog::Command& command : log.commands) {
+    if (command.type == protocol::message_type::siren_command) {
+      return &command;
+    }
+  }
+  return nullptr;
+}
+
+/** True for a packet, false for a setup message (§10), which the real hub's boards also send. */
+inline bool is_packet(const host::Record& record) {
+  return record.label.has_header;
+}
+
+/**
+ * Marks a case the real hub is known to fail, with why: on the real hub it must fail (doctest's
+ * should_fail), so a fix shows; on the test hub it is an ordinary case.
+ */
+#ifdef HSN_LOCKSTEP
+#define HSN_FAILS_ON_REAL_HUB(why) *doctest::should_fail() * doctest::description(why)
+#else
+#define HSN_FAILS_ON_REAL_HUB(why)
+#endif
+
+/**
+ * Marks a case that does not apply to the real hub, with why (a setting the protocol does not give
+ * a site yet): skipped there, an ordinary case on the test hub.
+ */
+#ifdef HSN_LOCKSTEP
+#define HSN_NOT_ON_REAL_HUB(why) *doctest::skip() * doctest::description(why)
+#else
+#define HSN_NOT_ON_REAL_HUB(why)
+#endif
+
+/** Marks a case blocked on the real hub by a fault there: skipped there, with the evidence. */
+#ifdef HSN_LOCKSTEP
+#define HSN_BLOCKED_ON_REAL_HUB(why) *doctest::skip() * doctest::description("BLOCKED: " why)
+#else
+#define HSN_BLOCKED_ON_REAL_HUB(why)
+#endif
 
 using device::milliseconds;
 using device::seconds;
@@ -70,10 +157,18 @@ inline host::Provisioning sensor_pairing(std::uint32_t address = 0x1A2B3C4D) {
  */
 struct Site {
   explicit Site(host::HubOptions options = {}, host::SimulationOptions simulation = {})
-      : mode(options.mode), sim(simulation), hub(sim, options) {}
+#ifdef HSN_LOCKSTEP
+      : mode(options.mode),
+        sim(simulation),
+        hub(sim, options, hub_program()){}
+#else
+      : mode(options.mode), sim(simulation), hub(sim, options) {
+  }
+#endif
 
-  host::SimDevice& sensor(const std::string& name, const ScriptSensorConfig& config,
-                          ScriptSensorLog& log, const host::SensorConfig& settings = {}) {
+            host::SimDevice
+            & sensor(const std::string& name, const ScriptSensorConfig& config,
+                     ScriptSensorLog& log, const host::SensorConfig& settings = {}) {
     host::DeviceSpec spec;
     spec.name = name;
     spec.role = script_sensor(config, log);
@@ -121,8 +216,12 @@ struct Site {
 
   /** The station that hears devices for the hub: its own radio, or the gateway's. */
   host::StationId hub_ear() {
+#ifdef HSN_LOCKSTEP
+    return sim.device("gateway").station();
+#else
     return hub_mode() == host::HubMode::direct_radio ? hub.station()
                                                      : sim.device("gateway").station();
+#endif
   }
 
   host::HubMode hub_mode() const {
@@ -131,7 +230,7 @@ struct Site {
 
   host::HubMode mode = host::HubMode::direct_radio;
   host::Simulation sim;
-  host::TestHub hub;
+  SiteHub hub;
   ScriptGatewayLog gateway_log;
 };
 
@@ -139,6 +238,17 @@ struct Site {
 inline host::HubOptions gateway_mode() {
   host::HubOptions options;
   options.mode = host::HubMode::gateway_link;
+  return options;
+}
+
+/**
+ * A gateway link mode hub on a site of one sending rate, DR5, as the protocol gives every site
+ * until O14 is settled (§2); the test hub's default site also allows DR2, for the sensor's
+ * fall-back tests. The real hub can only run sites like this.
+ */
+inline host::HubOptions one_rate_gateway_mode() {
+  host::HubOptions options = gateway_mode();
+  options.allowed_data_rate_mask = 1u << protocol::DataRate::dr5;
   return options;
 }
 

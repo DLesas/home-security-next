@@ -48,6 +48,33 @@ void ScriptGateway::send_to_hub(std::size_t size) {
   }
 }
 
+void ScriptGateway::send_started() {
+  const protocol::Started started =
+      services_.health.started(protocol::Role::gateway, log_.settings_version);
+  const auto sealed = services_.channel.seal(
+      started, session_.binding(), protocol::PacketLimit::link, protocol::MutableByteView(out_));
+  if (sealed.ok()) {
+    send_to_hub(sealed.value().size);
+    started_sent_ = true;
+    log_.started += 1;
+  }
+}
+
+void ScriptGateway::send_status(device::Instant now) {
+  status_at_ = now + device::seconds(status_interval_);
+  protocol::GatewayStatus status;
+  status.settings_version = log_.settings_version;
+  status.uptime_seconds = static_cast<std::uint32_t>((now - booted_at_).us / 1000000);
+  status.flags.usb_connected = config_.use_usb;
+  status.flags.on_mains = services_.hal.power.external_power();
+  const auto sealed = services_.channel.seal(
+      status, session_.binding(), protocol::PacketLimit::link, protocol::MutableByteView(out_));
+  if (sealed.ok()) {
+    send_to_hub(sealed.value().size);
+    log_.statuses += 1;
+  }
+}
+
 void ScriptGateway::listen() {
   device::RxParams params;
   params.channel.frequency_hz = device::site_channel_frequency(site_channel_).value_or(868300000u);
@@ -155,6 +182,7 @@ void ScriptGateway::on_link(const device::LinkEvent& event, device::Instant now)
     }
     case device::LinkEventKind::down:
       session_ = device::SessionState{};
+      status_at_ = device::Instant::never();
       break;
     case device::LinkEventKind::packet: {
       const auto opened = services_.channel.open_session(event.packet, session_);
@@ -166,6 +194,7 @@ void ScriptGateway::on_link(const device::LinkEvent& event, device::Instant now)
       switch (opened.value().type) {
         case protocol::message_type::welcome:
           log_.welcomes += 1;
+          status_at_ = now + device::seconds(status_interval_);
           break;
         case protocol::message_type::gateway_settings: {
           protocol::GatewaySettings settings;
@@ -174,6 +203,12 @@ void ScriptGateway::on_link(const device::LinkEvent& event, device::Instant now)
             log_.settings_version = settings.settings_version;
             arrived_ = settings;
             apply_at_ = now + config_.apply_settings_after;
+            if (settings.status_interval_seconds != 0) {
+              status_interval_ = settings.status_interval_seconds;
+            }
+            if (!started_sent_) {
+              send_started();
+            }
           }
           break;
         }
@@ -268,6 +303,7 @@ void ScriptGateway::handle(const device::Event& event) {
   const device::Instant now = event.now;
   switch (event.kind) {
     case device::EventKind::boot:
+      booted_at_ = now;
       site_channel_ = services_.setup.pairing().site_channel;
       listen_rate_ = config_.listen_data_rate;
       if (link() != nullptr) {
@@ -296,6 +332,9 @@ void ScriptGateway::handle(const device::Event& event) {
   if (apply_at_ <= now) {
     apply_settings();
   }
+  if (status_at_ <= now) {
+    send_status(now);
+  }
   logger_.run(services_.log, now);
   send_logs(now);
 }
@@ -304,6 +343,7 @@ device::Wake ScriptGateway::next_wake() const {
   device::Wake wake;
   wake.at = device::earliest(scheduled_ ? at_time_.when : device::Instant::never(), logger_.next());
   wake.at = device::earliest(wake.at, apply_at_);
+  wake.at = device::earliest(wake.at, status_at_);
   wake.deepest = device::SleepDepth::awake;
   return wake;
 }

@@ -19,6 +19,7 @@
     "check:serial-linux": "sh hub/test/linux/serial.sh",
     "m1a": "HSN_M1A=1 bun test --timeout 600000 hub/test/bench/m1a.test.ts",
     "check:firmware": "cd firmware && cmake --workflow --preset host-debug",
+    "check:firmware:lockstep": "cd firmware && cmake --preset host-debug && cmake --build --preset host-debug && ctest --preset host-debug -L lockstep",
     "check:firmware:gcc": "docker run --rm -v \"$PWD\":/src:ro gcc:15 bash -c 'apt-get update -qq && apt-get install -y -qq cmake ninja-build && mkdir -p /work/packages/protocol && cp -r /src/firmware /work/ && cp -r /src/packages/protocol/vectors /work/packages/protocol/ && rm -rf /work/firmware/build && cd /work/firmware && cmake --workflow --preset host-release && cmake --workflow --preset host-debug'",
     "check:role:sensor": "cd firmware && cmake --workflow --preset role-sensor",
     "check:role:siren": "cd firmware && cmake --workflow --preset role-siren",

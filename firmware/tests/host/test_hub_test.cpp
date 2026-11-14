@@ -253,15 +253,14 @@ TEST_CASE("a countdown that ends sounds the sirens on both paths until a report 
     REQUIRE(alarm.size() == 1);
     CHECK(alarm[0].at == report[0].until + seconds(20) + known_late);
     // The same command on Wi-Fi and LoRa: the siren acts on the first copy and drops the second
-    // by its counter. The second is a repeat of the latest, or too old when the settings the hub
-    // sends after the siren's first report (it held none) arrived by Wi-Fi before it.
+    // by its counter, as a repeat of the latest (its settings came after its Started, at boot).
     const auto commands = site.hub.sent_to("siren", type::siren_command);
     REQUIRE(commands.size() == 2);
     CHECK(commands[0].path == HubPath::link);
     CHECK(commands[1].path == radio_path(mode));
     CHECK(commands[0].counter == commands[1].counter);
-    REQUIRE_FALSE(siren_log.commands.empty());
-    const ScriptSirenLog::Command first = siren_log.commands[0];
+    REQUIRE(first_siren_command(siren_log) != nullptr);
+    const ScriptSirenLog::Command first = *first_siren_command(siren_log);
     CHECK(first.by_wifi);
     CHECK(first.verdict == device::CommandVerdict::new_command);
     CHECK(first.action == protocol::SirenAction::sound_alarm);
@@ -337,12 +336,24 @@ TEST_CASE("siren settings go on both paths at the rate the siren holds, until co
     site.sim.run_until(at(seconds(20)));
     CHECK(site.hub.settings_version("siren") == 2);
     CHECK(log.settings_version == 2);
-    const auto sent = site.hub.sent_to("siren", type::siren_settings);
+    // The changed settings (those after its Started, at boot, aside), on both paths.
+    std::vector<host::HubSent> sent;
+    for (const host::HubSent& packet : site.hub.sent_to("siren", type::siren_settings)) {
+      if (packet.at >= at(seconds(5))) {
+        sent.push_back(packet);
+      }
+    }
     REQUIRE(sent.size() == 2);
     // On LoRa at DR5, the rate the siren held, not the DR4 the settings bring.
     CHECK(sent[1].path == radio_path(mode));
     CHECK(sent[1].data_rate == 5);
-    CHECK(site.hub.decisions(HubAction::siren_confirmed, "siren").size() == 1);
+    // Confirmed once, as the settings after its Started were.
+    std::size_t confirmed = 0;
+    for (const host::HubDecision& decision :
+         site.hub.decisions(HubAction::siren_confirmed, "siren")) {
+      confirmed += decision.at >= at(seconds(5)) ? 1u : 0u;
+    }
+    CHECK(confirmed == 1);
   }
 }
 
@@ -490,6 +501,12 @@ TEST_CASE("a replaced or confirmed command arriving late by LoRa is dropped as t
     host::SimDevice& siren = site.siren("siren", slow, log, settings);
     site.sim.schedule(at(seconds(5)),
                       [&]() { site.hub.command_siren("siren", protocol::SirenAction::test, 30); });
+    // New settings while the first command is unconfirmed: they wait for the commands (§7).
+    site.sim.schedule(at(seconds(5)) + milliseconds(5), [&]() {
+      host::SirenConfig changed = settings;
+      changed.max_sound_seconds = 200;
+      site.hub.change_siren("siren", changed);
+    });
     site.sim.schedule(at(seconds(5)) + milliseconds(10),
                       [&]() { site.hub.command_siren("siren", protocol::SirenAction::off, 0); });
     site.sim.run_until(at(seconds(15)));
@@ -523,10 +540,15 @@ TEST_CASE("a replaced or confirmed command arriving late by LoRa is dropped as t
     CHECK(siren.records().kind(RecordKind::flash_write).where(command_counter).count() ==
           log.count(device::CommandVerdict::new_command));
     CHECK(site.hub.decisions(HubAction::siren_unreachable).empty());
-    // The report answering the replaced command came while the newer one waited: the settings
-    // the siren lacked waited too, until the newer command was confirmed.
+    // The report answering the replaced command came while the newer one waited: the changed
+    // settings waited too, until the newer command was confirmed.
     const auto confirmations = site.hub.decisions(HubAction::siren_confirmed, "siren");
-    const auto settings_sent = site.hub.sent_to("siren", type::siren_settings);
+    std::vector<host::HubSent> settings_sent;
+    for (const host::HubSent& packet : site.hub.sent_to("siren", type::siren_settings)) {
+      if (packet.at >= at(seconds(5))) {
+        settings_sent.push_back(packet);
+      }
+    }
     REQUIRE_FALSE(confirmations.empty());
     REQUIRE_FALSE(settings_sent.empty());
     CHECK(settings_sent[0].at >= confirmations[0].at);
@@ -593,8 +615,8 @@ TEST_CASE("late door reports in each of the three ranges of protocol section 7")
         // The sirens sound for what is left of their time, counted from the countdown's end.
         REQUIRE(commands.size() == 1);
         CHECK(commands[0].value == protocol::SirenAction::sound_alarm * 65536 + 110);
-        REQUIRE_FALSE(siren_log.commands.empty());
-        CHECK(siren_log.commands[0].seconds == 110);
+        REQUIRE(first_siren_command(siren_log) != nullptr);
+        CHECK(first_siren_command(siren_log)->seconds == 110);
       } else {
         CHECK(commands.empty());
       }
@@ -651,7 +673,8 @@ TEST_CASE("within one alarm each siren is commanded once, however many countdown
   for (host::SimDevice* siren : sirens) {
     CHECK_FALSE(siren->board().siren_io.output_state);
   }
-  site.hub.arm();
+  // Every door is still open: armed whatever the doors, each when it closes (D114).
+  site.hub.arm(host::OpenDoors::arm_when_closed);
   doors[0]->set_input(device::Input::door, false, at(seconds(72)));
   doors[0]->set_input(device::Input::door, true, at(seconds(75)));
   site.sim.run_until(at(seconds(110)));
@@ -772,7 +795,11 @@ TEST_CASE("a siren waiting on a busy channel to answer still hears a command sen
         return record.flag;
       });
   REQUIRE(busy.count() >= 1);
-  const auto sent = siren.records().kind(RecordKind::transmission).records();
+  // Its answers, after the commands (its Started went at boot).
+  const auto sent = siren.records()
+                        .kind(RecordKind::transmission)
+                        .between(at(seconds(5)), device::Instant::never())
+                        .records();
   REQUIRE_FALSE(sent.empty());
   // The off command was heard by LoRa during the busy wait: after the first busy check, before
   // the answer went on the air.

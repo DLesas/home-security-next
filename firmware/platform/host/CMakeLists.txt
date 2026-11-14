@@ -33,6 +33,9 @@ add_library(hsn_host STATIC
   src/pty_link.cpp
   src/bench_json.cpp
   src/bench_script.cpp
+  src/wire_json.cpp
+  src/lockstep.cpp
+  src/remote_hub.cpp
   src/hub_sirens.cpp
   src/hub_gateways.cpp)
 target_include_directories(hsn_host PUBLIC include)

@@ -38,7 +38,7 @@ TEST_CASE("D80 §7: the gateway restarts during a countdown; the sirens still so
   const auto alarm = site.hub.decisions(HubAction::alarm, "door");
   REQUIRE(alarm.size() == 1);
   CHECK(welcomes[1].at < alarm[0].at);
-  CHECK(sounding_from(on_wifi, alarm[0].at) - alarm[0].at <= kLinkLatency);
+  CHECK(sounding_from(on_wifi, alarm[0].at) - alarm[0].at <= kHubActsWithin + kLinkLatency);
   CHECK(sounding_from(on_lora, alarm[0].at) - alarm[0].at < kLoraCommandBound);
   // The sensor's countdown, started before the restart, ended with the hub's.
   const auto quiet = buzzer_times(door, Sound::off);
@@ -102,7 +102,7 @@ TEST_CASE("D80 SR5: a siren that restarts while sounding resumes for the time le
   const auto changes = sounder(siren);
   REQUIRE(changes.size() == 4);
   CHECK(changes[0].second);
-  CHECK(changes[0].first - alarm[0].at <= kLinkLatency);
+  CHECK(changes[0].first - alarm[0].at <= kHubActsWithin + kLinkLatency);
   CHECK_FALSE(changes[1].second);
   CHECK(changes[1].first == at_s(kRestartAt));
   CHECK(changes[2].second);

@@ -283,7 +283,11 @@ TEST_CASE("a siren's and a gateway's log entries over their links are recorded, 
     }
     CHECK(made_soon_after(entries[0].made_at, at(seconds(5))));
     CHECK(made_soon_after(entries[1].made_at, at(seconds(6))));
-    CHECK(site.hub.sent_to("siren").empty());
+    // Log entries are not answered: nothing went to the siren after them (its settings, sent
+    // after its Started at boot, came before).
+    for (const host::HubSent& packet : site.hub.sent_to("siren")) {
+      CHECK(packet.at < entries[0].at);
+    }
   }
   SUBCASE("a gateway over its link, once welcomed") {
     Site site(gateway_mode());

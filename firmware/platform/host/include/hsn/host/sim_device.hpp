@@ -88,6 +88,11 @@ public:
     return spec_.name;
   }
 
+  /** What the device was added with. */
+  const DeviceSpec& spec() const {
+    return spec_;
+  }
+
   /** This device on the timeline. */
   ActorId actor() const {
     return actor_;

@@ -71,7 +71,8 @@ void past_the_hour(std::uint8_t rate, int changes, double every) {
     door.set_input(Input::door, i % 2 == 0, at_s(first + every * i));
   }
   const double last = first + every * (changes - 1);
-  bench.sim.schedule(at_s(last + 0.5), [&]() { bench.hub.arm(); });
+  // Its last closing may still be waiting for airtime: armed when the hub hears it (D114).
+  bench.sim.schedule(at_s(last + 0.5), [&]() { bench.hub.arm(host::OpenDoors::arm_when_closed); });
   door.set_input(Input::door, true, at_s(last + 1));
   bench.run_to(last + 3 * 3600);
   INFO(bench.hub.dump());

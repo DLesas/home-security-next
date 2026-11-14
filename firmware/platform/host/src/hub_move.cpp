@@ -72,6 +72,10 @@ void TestHub::announce_move(const SiteMove& move) {
       new_sensor_version(device);
     }
   }
+  // With no sensor to wait for, every sensor has confirmed: the switch is due at once.
+  if (move_unconfirmed().empty()) {
+    switch_when_free(false);
+  }
 }
 
 bool TestHub::arrived_on_new(const Arrival& arrival) const {
@@ -88,7 +92,23 @@ void TestHub::note_confirmation(Known& sensor, std::uint8_t held_version) {
   if (found != sensor.version_announces.end() && found->second) {
     sensor.move_confirmed = true;
     decide(HubAction::move_confirmed, sensor.name);
+    if (move_unconfirmed().empty()) {
+      switch_when_free(false);
+    }
   }
+}
+
+void TestHub::switch_when_free(bool forced) {
+  move_.force = forced;
+  if (switch_blocked()) {
+    // Never during a countdown or an alarm: it waits for them to end (protocol section 7).
+    if (!move_.switch_waiting) {
+      move_.switch_waiting = true;
+      decide(HubAction::move_switch_waiting, "");
+    }
+    return;
+  }
+  do_switch(forced && !move_unconfirmed().empty());
 }
 
 std::vector<std::string> TestHub::move_unconfirmed() const {
@@ -113,25 +133,23 @@ bool TestHub::alarm_running() const {
 }
 
 bool TestHub::switch_move(bool force) {
+  if (move_.stage == MoveStage::switched) {
+    // It switched by itself when the last sensor confirmed (protocol section 7, step 2).
+    return true;
+  }
   if (move_.stage != MoveStage::announcing) {
     throw SimulationError("there is no move announced to switch");
   }
   const std::vector<std::string> unconfirmed = move_unconfirmed();
-  if (!unconfirmed.empty() && !force) {
+  if (!force) {
+    // The user's "force" without "--yes": it names who has not confirmed and changes nothing.
     for (const std::string& name : unconfirmed) {
       decide(HubAction::move_unconfirmed, name);
     }
     return false;
   }
-  move_.force = force;
-  if (switch_blocked()) {
-    // Never during a countdown or an alarm: it waits for them to end (protocol section 7).
-    move_.switch_waiting = true;
-    decide(HubAction::move_switch_waiting, "");
-    return false;
-  }
-  do_switch(force && !unconfirmed.empty());
-  return true;
+  switch_when_free(true);
+  return move_.stage == MoveStage::switched;
 }
 
 bool TestHub::switch_blocked() {

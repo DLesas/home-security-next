@@ -25,14 +25,28 @@ std::uint32_t frequency(std::uint8_t channel) {
 
 /** Runs until every sensor has confirmed the announced move; returns when that was. */
 Instant run_to_confirmed(Bench& bench) {
-  for (int step = 0; step < 400; ++step) {
+  for (int step = 0; step < 8000; ++step) {
     if (bench.hub.move_unconfirmed().empty()) {
       return bench.sim.now();
     }
-    bench.sim.run_for(seconds(5));
+    bench.sim.run_for(milliseconds(250));
   }
   FAIL("the move was never confirmed");
   return Instant{};
+}
+
+/** When the last sensor confirmed. */
+Instant confirmed_at(Bench& bench) {
+  const auto confirmed = bench.hub.decisions(HubAction::move_confirmed);
+  REQUIRE_FALSE(confirmed.empty());
+  return confirmed.back().at;
+}
+
+/** When the site switched: by itself, with the last confirmation (§7, step 2). */
+Instant switched_at(Bench& bench) {
+  const auto switched = bench.hub.decisions(HubAction::move_switched);
+  REQUIRE(switched.size() == 1);
+  return switched[0].at;
 }
 
 /** The first packet the hub accepted from a sensor at or after `from`. */
@@ -45,12 +59,11 @@ const host::HubPacket* first_heard(Bench& bench, const std::string& name, Instan
   return nullptr;
 }
 
-/** Announces `move`, waits for the confirmation, switches; returns the switch's instant. */
+/** Announces `move`, waits for the confirmation and so the switch; returns the switch's instant. */
 Instant announce_and_switch(Bench& bench, const SiteMove& move) {
   bench.hub.announce_move(move);
   run_to_confirmed(bench);
-  REQUIRE(bench.hub.switch_move());
-  return bench.sim.now();
+  return switched_at(bench);
 }
 
 struct MoveCase {
@@ -79,8 +92,9 @@ TEST_CASE(
     const roles::sensor::SensorState holding = retained_state(door);
     CHECK(holding.settings.next_site_channel == move_case.channel.value_or(protocol::kStaysAsItIs));
     CHECK(holding.settings.next_send_data_rate == move_case.rate.value_or(protocol::kStaysAsItIs));
-    REQUIRE(bench.hub.switch_move());
-    const Instant switched = bench.sim.now();
+    // The switch came by itself with the confirmation (§7).
+    const Instant switched = switched_at(bench);
+    CHECK(switched == confirmed_at(bench));
     bench.sim.run_until(switched + seconds(3 * 198));
     INFO(door.records().kind(RecordKind::transmission).between(switched, bench.sim.now()).dump());
     const host::HubPacket* heard = first_heard(bench, "door", switched);
@@ -137,7 +151,9 @@ TEST_CASE(
   CHECK(tries[0].data_rate == 5);
   CHECK(tries[1].frequency_hz == frequency(2));
   CHECK(tries[1].data_rate == 2);
-  const host::HubPacket* heard = first_heard(bench, "door", switched);
+  // The first packet the hub had after the opening (the heartbeat that switched the site was
+  // heard at the switch itself).
+  const host::HubPacket* heard = first_heard(bench, "door", opened);
   REQUIRE(heard != nullptr);
   CHECK(heard->type == type::door_changed);
   const device::Duration delay = heard->at - opened;
@@ -192,7 +208,14 @@ TEST_CASE(
     move.site_channel = 2;
     move.send_data_rate = 2;
     bench.hub.announce_move(move);
-    run_to_confirmed(bench);
+    // It holds the next settings from the announcing reply; it resets before its next packet
+    // would confirm them (and so switch the site, §7).
+    for (int step = 0; step < 4000 && retained_state(door).settings.next_site_channel != 2;
+         ++step) {
+      bench.sim.run_for(milliseconds(250));
+    }
+    REQUIRE(retained_state(door).settings.next_site_channel == 2);
+    REQUIRE(bench.hub.decisions(HubAction::move_confirmed).empty());
     const Instant reset = bench.sim.now() + seconds(5);
     if (power) {
       door.power_loss(reset, seconds(1));
@@ -203,8 +226,9 @@ TEST_CASE(
     const roles::sensor::SensorState after = retained_state(door);
     CHECK(after.settings.next_site_channel == 2);
     CHECK(after.settings.next_send_data_rate == 2);
-    REQUIRE(bench.hub.switch_move(true));
-    const Instant switched = bench.sim.now();
+    // Its Started after the reset shows the version it kept, which confirms: the switch follows.
+    run_to_confirmed(bench);
+    const Instant switched = switched_at(bench);
     bench.sim.run_until(switched + seconds(3 * 198));
     CHECK(bench.hub.move_followed("door"));
     CHECK(retained_state(door).settings.site_channel == 2);
@@ -246,12 +270,20 @@ TEST_CASE(
     "unheard, then back; nothing lost, no alarm") {
   Bench bench;
   host::SimDevice& door = bench.add();
-  bench.hub.arm();
+  // A second sensor out of reach through it all never confirms, so the site does not switch and
+  // the door goes on holding the next settings (§7).
+  host::SimDevice& far = bench.add("far");
+  bench.sim.medium().cut(far.station(), bench.hub.station());
+  bench.hub.arm(host::OpenDoors::refuse);
   bench.run_to(10);
   SiteMove move;
   move.site_channel = 2;
   bench.hub.announce_move(move);
-  run_to_confirmed(bench);
+  while (bench.hub.decisions(HubAction::move_confirmed, "door").empty() &&
+         bench.sim.now() < at_s(10 + 3 * 198)) {
+    bench.sim.run_for(milliseconds(250));
+  }
+  REQUIRE(bench.hub.move_unconfirmed() == std::vector<std::string>{"far"});
   // One heartbeat's reply is lost: the window around the next reply moment.
   const Instant due = retained_state(door).timers.at(roles::sensor::SensorTimer::next_heartbeat);
   bench.sim.schedule(due, [&]() {

@@ -130,6 +130,34 @@ void ScriptSiren::send_lora(device::Instant now) {
   }
 }
 
+void ScriptSiren::send_started(device::Instant now) {
+  // It keeps no settings across a reset, so it holds none after one.
+  const protocol::Started started = services_.health.started(
+      protocol::Role::siren, settings_held_ ? log_.settings_version : std::uint8_t{0});
+  device::Link* network = services_.hal.network;
+  if (wifi_up_ && network != nullptr) {
+    const auto sealed =
+        services_.channel.seal(started, protocol::Binding::none(), protocol::PacketLimit::link,
+                               protocol::MutableByteView(wifi_packet_));
+    if (sealed.ok() && network->send(protocol::ByteView(wifi_packet_).first(sealed.value().size)) ==
+                           device::HalError::none) {
+      started_sent_ = true;
+      log_.started_by_wifi += 1;
+    }
+    return;
+  }
+  const auto sealed =
+      services_.channel.seal(started, protocol::Binding::none(), protocol::PacketLimit::radio,
+                             protocol::MutableByteView(lora_packet_));
+  if (sealed.ok()) {
+    started_sent_ = true;
+    lora_size_ = sealed.value().size;
+    lora_waiting_ = true;
+    log_.started_by_lora += 1;
+    send_lora(now);
+  }
+}
+
 void ScriptSiren::send_logs(device::Instant now) {
   device::Link* network = services_.hal.network;
   protocol::LogEntries entries;
@@ -153,6 +181,9 @@ void ScriptSiren::handle(const device::Event& event) {
     case device::EventKind::boot:
       if (config_.wifi && services_.hal.network != nullptr) {
         static_cast<void>(services_.hal.network->connect(services_.setup.pairing().link_target()));
+      } else {
+        // No Wi-Fi to wait for: Started goes on LoRa.
+        send_started(now);
       }
       listen(now);
       break;
@@ -161,6 +192,9 @@ void ScriptSiren::handle(const device::Event& event) {
         on_command(event.link.packet, true, protocol::PacketLimit::link, now);
       } else {
         wifi_up_ = event.link.kind == device::LinkEventKind::up;
+        if (wifi_up_ && !started_sent_) {
+          send_started(now);
+        }
       }
       break;
     case device::EventKind::radio: {

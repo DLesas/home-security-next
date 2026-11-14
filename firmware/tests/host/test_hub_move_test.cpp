@@ -1,8 +1,9 @@
 // Moving the site to another channel or sending rate over the air (protocol section 7, "Changing
 // the site's channel or rate", D115), in both hub modes, with the scripted sensor, siren and
 // gateway following it: announce, confirm, switch, follow; a door report straight after the
-// switch; a sensor that missed the announcement, with and without force; a cancel; a switch asked
-// during a countdown or an alarm; only the channel, or only the rate, changing.
+// switch, which comes by itself once every sensor has confirmed; a sensor that missed the
+// announcement, with and without force; a cancel; a switch due during a countdown or an alarm;
+// only the channel, or only the rate, changing.
 
 #include <string>
 
@@ -20,6 +21,8 @@ namespace type = protocol::message_type;
 
 constexpr std::uint8_t kSlow = protocol::DataRate::dr2;
 constexpr std::uint8_t kChannel868_5 = 2;
+/** How finely the scenarios look whether the move has moved on. */
+constexpr device::Duration kPoll = device::milliseconds(250);
 
 /** A sensor that sends a heartbeat about every minute; two such sensors must not collide. */
 ScriptSensorConfig every_minute(std::int64_t heartbeat_seconds = 60) {
@@ -38,12 +41,32 @@ struct MoveSite {
     siren = &site.siren("siren", ScriptSirenConfig{}, siren_log);
   }
 
-  /** Every sensor confirms within two heartbeats of the announcement (protocol section 7). */
-  void announce_and_confirm(const SiteMove& move, device::Instant at_time) {
+  /**
+   * Announces at `at_time` and runs until the switch, which comes by itself with the last
+   * confirmation, within two heartbeats (protocol section 7); returns its instant.
+   */
+  device::Instant announce_and_switch(const SiteMove& move, device::Instant at_time) {
     site.sim.schedule(at_time, [this, move]() { site.hub.announce_move(move); });
-    site.sim.run_until(at_time + seconds(125));
+    site.sim.run_until(at_time);
+    while (site.hub.move_stage() != MoveStage::switched &&
+           site.sim.now() < at_time + seconds(125)) {
+      site.sim.run_for(kPoll);
+    }
     INFO(site.hub.dump());
     REQUIRE(site.hub.move_unconfirmed().empty());
+    REQUIRE(site.hub.move_stage() == MoveStage::switched);
+    const auto confirmed = site.hub.decisions(HubAction::move_confirmed);
+    REQUIRE_FALSE(confirmed.empty());
+    const device::Instant switched = only(HubAction::move_switched).at;
+    CHECK(switched == confirmed.back().at);
+    return switched;
+  }
+
+  /** Runs until `count` sensors have confirmed, or `limit`. */
+  void run_to_confirmations(std::size_t count, device::Instant limit) {
+    while (site.hub.decisions(HubAction::move_confirmed).size() < count && site.sim.now() < limit) {
+      site.sim.run_for(kPoll);
+    }
   }
 
   host::HubDecision only(HubAction action, const std::string& device = "") const {
@@ -77,18 +100,15 @@ TEST_CASE("a move with every device in touch: announce, confirm, switch, follow"
     MoveSite s(mode);
     SiteMove move;
     move.send_data_rate = kSlow;
-    s.announce_and_confirm(move, at(seconds(10)));
-    // The announcement: each sensor's version changed, its replies name the next rate only.
+    // The switch comes by itself with the last confirmation.
+    const device::Instant switch_at = s.announce_and_switch(move, at(seconds(10)));
+    // The announcement: each sensor's version changed, its replies named the next rate only.
     CHECK(s.only(HubAction::move_requested).value == 0xFF * 256 + kSlow);
     CHECK(s.site.hub.decisions(HubAction::move_confirmed).size() == 2);
     CHECK(s.front_log.next_send_data_rate == kSlow);
     CHECK(s.front_log.next_site_channel == protocol::kStaysAsItIs);
-    CHECK(s.site.hub.move_stage() == MoveStage::announcing);
-
-    const device::Instant switch_at = s.site.sim.now();
-    REQUIRE(s.site.hub.switch_move());
-    CHECK(s.site.hub.move_stage() == MoveStage::switched);
     CHECK(s.only(HubAction::move_switched).value == 0);
+    CHECK(s.site.hub.switch_move());
     s.site.sim.run_until(switch_at + seconds(200));
     INFO(s.site.hub.dump());
 
@@ -140,9 +160,7 @@ TEST_CASE("a door report straight after the switch: its retry goes on the new se
     s.site.hub.arm();
     SiteMove move;
     move.send_data_rate = kSlow;
-    s.announce_and_confirm(move, at(seconds(10)));
-    const device::Instant switch_at = s.site.sim.now();
-    REQUIRE(s.site.hub.switch_move());
+    const device::Instant switch_at = s.announce_and_switch(move, at(seconds(10)));
     s.front->set_input(device::Input::door, true, switch_at + seconds(1));
     s.site.sim.run_until(switch_at + seconds(8));
     INFO(s.site.hub.dump());
@@ -199,7 +217,11 @@ TEST_CASE("a cancel before the switch clears the next settings; there is nothing
   MoveSite s(HubMode::direct_radio);
   SiteMove move;
   move.send_data_rate = kSlow;
-  s.announce_and_confirm(move, at(seconds(10)));
+  // Cancelled while announcing: after the sensors have heard the next settings, before both have
+  // confirmed them (the switch would then have come by itself).
+  s.site.sim.schedule(at(seconds(10)), [&]() { s.site.hub.announce_move(move); });
+  s.site.sim.run_until(at(seconds(75)));
+  REQUIRE(s.site.hub.move_stage() == MoveStage::announcing);
   CHECK(s.front_log.next_send_data_rate == kSlow);
   const std::uint8_t announcing = s.site.hub.settings_version("front");
   s.site.hub.cancel_move();
@@ -220,21 +242,29 @@ TEST_CASE("a cancel before the switch clears the next settings; there is nothing
         protocol::DataRate::dr5);
 }
 
-TEST_CASE("a switch asked during a countdown or an alarm waits for it to end") {
+TEST_CASE("a switch due during a countdown or an alarm waits for it to end") {
   for (const bool let_alarm_sound : {false, true}) {
     INFO("alarm: " << let_alarm_sound);
     MoveSite s(HubMode::direct_radio);
     s.site.hub.arm();
     SiteMove move;
     move.send_data_rate = kSlow;
-    s.announce_and_confirm(move, at(seconds(10)));
-    // A countdown runs: the switch is put off.
+    s.site.sim.schedule(at(seconds(10)), [&]() { s.site.hub.announce_move(move); });
+    // One sensor has confirmed; its door opens, and the other confirms during the countdown.
+    s.run_to_confirmations(1, at(seconds(135)));
+    REQUIRE(s.site.hub.decisions(HubAction::move_confirmed).size() == 1);
+    host::SimDevice* door =
+        s.site.hub.decisions(HubAction::move_confirmed)[0].device == "front" ? s.front : s.back;
     const device::Instant opened = s.site.sim.now() + seconds(1);
-    s.back->set_input(device::Input::door, true, opened);
-    s.site.sim.run_until(opened + seconds(3));
-    REQUIRE(s.site.hub.countdown_running("back"));
-    CHECK_FALSE(s.site.hub.switch_move());
-    CHECK(s.only(HubAction::move_switch_waiting).at == s.site.sim.now());
+    door->set_input(device::Input::door, true, opened);
+    s.run_to_confirmations(2, opened + seconds(25));
+    INFO(s.site.hub.dump());
+    REQUIRE(s.site.hub.decisions(HubAction::move_confirmed).size() == 2);
+    REQUIRE(s.site.hub.countdown_running(door->name()));
+    // Due, it is put off.
+    CHECK(s.only(HubAction::move_switch_waiting).at ==
+          s.site.hub.decisions(HubAction::move_confirmed).back().at);
+    CHECK(s.site.hub.move_stage() == MoveStage::announcing);
     if (let_alarm_sound) {
       // The countdown ends in an alarm, which also puts it off.
       s.site.sim.run_until(opened + seconds(40));
@@ -255,11 +285,9 @@ TEST_CASE("only the channel moves: the next rate stays, the sensors follow to 86
     MoveSite s(mode);
     SiteMove move;
     move.site_channel = kChannel868_5;
-    s.announce_and_confirm(move, at(seconds(10)));
+    const device::Instant switch_at = s.announce_and_switch(move, at(seconds(10)));
     CHECK(s.front_log.next_site_channel == kChannel868_5);
     CHECK(s.front_log.next_send_data_rate == protocol::kStaysAsItIs);
-    const device::Instant switch_at = s.site.sim.now();
-    REQUIRE(s.site.hub.switch_move());
     CHECK(s.site.hub.site_channel() == kChannel868_5);
     s.site.sim.run_until(switch_at + seconds(200));
     INFO(s.site.hub.dump());
@@ -289,9 +317,11 @@ TEST_CASE("a packet still heard on the old settings after the switch is answered
   site.sim.schedule(at(seconds(10)), [&]() { site.hub.announce_move(move); });
   site.sim.run_until(at(seconds(130)));
   REQUIRE(site.hub.move_unconfirmed().empty());
+  // It switched by itself with the confirmation.
+  const auto switched = site.hub.decisions(HubAction::move_switched);
+  REQUIRE(switched.size() == 1);
+  const device::Instant switch_at = switched[0].at;
   const std::uint8_t announcing = front_log.heard.back().reply.settings_version;
-  const device::Instant switch_at = site.sim.now();
-  REQUIRE(site.hub.switch_move());
   site.sim.run_until(switch_at + seconds(110));
   INFO(site.hub.dump());
   // Heard on the old rate after the switch: the reply goes on announcing, with the old version

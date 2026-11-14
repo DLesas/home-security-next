@@ -49,6 +49,9 @@ struct ScriptSirenLog {
   std::vector<Command> commands;
   std::uint32_t reports_by_wifi = 0;
   std::uint32_t reports_by_lora = 0;
+  /** Started packets sent (once a start-up, protocol section 6). */
+  std::uint32_t started_by_wifi = 0;
+  std::uint32_t started_by_lora = 0;
   /** The settings version it holds. */
   std::uint8_t settings_version = 0;
   /** Log entries packets its network link took. */
@@ -79,6 +82,7 @@ private:
   void report(bool by_wifi, device::Instant now);
   void send_lora(device::Instant now);
   void send_logs(device::Instant now);
+  void send_started(device::Instant now);
 
   device::Services& services_;
   device::SirenIo& io_;
@@ -92,6 +96,8 @@ private:
   device::Instant output_until_ = device::Instant::never();
   bool lora_waiting_ = false;
   bool wifi_up_ = false;
+  /** Started goes once after every start-up (protocol section 6), on Wi-Fi or, without, LoRa. */
+  bool started_sent_ = false;
   ScriptLogger logger_;
   std::array<std::uint8_t, protocol::kMaxLinkPacketSize> log_packet_{};
   std::size_t lora_size_ = 0;

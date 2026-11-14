@@ -24,10 +24,10 @@ constexpr Duration kEventListen = milliseconds(1500);
  */
 constexpr Duration kWholeSecond = seconds(1);
 /**
- * From a command leaving the hub to the siren switching: one link latency on Wi-Fi; the siren
- * acts on the first copy at once (§7 "Siren command", step 2).
+ * From the hub deciding a command to the siren switching: the hub's own time to send it, then one
+ * link latency on Wi-Fi; the siren acts on the first copy at once (§7 "Siren command", step 2).
  */
-constexpr Duration kWifiCommandBound = kLinkLatency;
+constexpr Duration kWifiCommandBound = kHubActsWithin + kLinkLatency;
 
 /** A gateway, one sensor with the default countdown, and two sirens on Wi-Fi. */
 struct ChainSite {
@@ -44,7 +44,8 @@ struct ChainSite {
 
 TEST_CASE(
     "M1a done when, AL3 D24 D73: an armed door buzzes, every siren sounds on both paths "
-    "at the countdown's end, a disarm stops them, the sensor sleeps deep again") {
+    "at the countdown's end, a disarm stops them, the sensor sleeps deep "
+    "again") {
   ChainSite chain;
   SystemSite& site = chain.site;
   site.hub.arm();
@@ -124,7 +125,7 @@ TEST_CASE(
   }
 
   // The sensor is back in deep sleep, and kept the discipline (design section 6).
-  CHECK(chain.door.state() == host::PowerState::deep_sleep);
+  CHECK(sleeping_between_heartbeats(chain.door, site.sim.now()));
   const auto sleeps = chain.door.records().kind(RecordKind::deep_sleep).records();
   REQUIRE_FALSE(sleeps.empty());
   CHECK(sleeps.back().at >= quiet.back());
@@ -166,7 +167,7 @@ TEST_CASE(
     CHECK(sounder(*siren).empty());
     CHECK(site.hub.sent_to(siren->name(), type::siren_command).empty());
   }
-  CHECK(chain.door.state() == host::PowerState::deep_sleep);
+  CHECK(sleeping_between_heartbeats(chain.door, site.sim.now()));
   check_one_deep_sleep_per_wake(chain.door);
   CHECK(check_hub_recorded_everything(site).checked > 0);
 }

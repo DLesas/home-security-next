@@ -74,7 +74,7 @@ void gateway_off_during_opening(std::uint8_t allowed_mask, Duration heard_again_
   CHECK(sounder(siren).empty());
   // Answered, the sensor stopped retrying and went back to deep sleep.
   CHECK(sent(door, type::door_changed).back().at < reports[0].at);
-  CHECK(door.state() == host::PowerState::deep_sleep);
+  CHECK(sleeping_between_heartbeats(door, site.sim.now()));
   check_one_deep_sleep_per_wake(door);
 }
 
@@ -88,7 +88,9 @@ TEST_CASE(
 
 TEST_CASE(
     "DS6 D88 D106 LR4: the same on a site allowing DR5 and DR2: the sensor's fall-back comes "
-    "round to the gateway's rate and the report gets through") {
+    "round to the gateway's rate and the report gets through" HSN_NOT_ON_REAL_HUB(
+        "the protocol gives a site one data rate until O14 is settled, so the real hub has no "
+        "site allowing DR5 and DR2")) {
   // After four unanswered tries the sensor alternates two tries at DR2 and two at DR5 (§7
   // "Data rate": slower every two misses, from the slowest back to the fastest). At the return
   // it may have up to two tries left at DR2 before its next at DR5, so the hub hears it within
@@ -177,7 +179,7 @@ TEST_CASE(
   const auto alarm = site.hub.decisions(HubAction::alarm, "door");
   REQUIRE(alarm.size() == 1);
   CHECK(welcomes[1].at < alarm[0].at);
-  CHECK(sounding_from(on_wifi, alarm[0].at) - alarm[0].at <= kLinkLatency);
+  CHECK(sounding_from(on_wifi, alarm[0].at) - alarm[0].at <= kHubActsWithin + kLinkLatency);
   CHECK(sounding_from(on_lora, alarm[0].at) - alarm[0].at < kLoraCommandBound);
   CHECK(sounding_at(on_wifi, at_s(kOpenAt + 3 * kCountdownSeconds)));
   CHECK(sounding_at(on_lora, at_s(kOpenAt + 3 * kCountdownSeconds)));

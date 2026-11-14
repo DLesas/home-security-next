@@ -83,6 +83,14 @@ struct HubOptions {
   std::uint64_t seed = 7;
 };
 
+/** What arming does with a sensor whose door is open (D50, D114). */
+enum class OpenDoors : std::uint8_t {
+  /** Nothing is armed; the open doors are named (`hsn arm`). */
+  refuse,
+  /** The rest are armed now, each open one when its door closes (`hsn arm --continue`). */
+  arm_when_closed,
+};
+
 /** A sensor's settings as the hub holds them (protocol section 6, reply). */
 struct SensorConfig {
   /** 0: the hub picks one. */
@@ -178,13 +186,18 @@ public:
   /** Pairs a board as a gateway and registers it; attaches its links as config says. */
   void add_gateway(SimDevice& device, const GatewayConfig& config = {});
 
-  /** Arms the system: every sensor's settings version changes. */
-  void arm();
+  /**
+   * Arms every sensor, each getting a new settings version. A sensor whose door the hub last
+   * heard open is armed only as `open_doors` says: by default nothing is armed and they are
+   * named (D50); with OpenDoors::arm_when_closed it is armed when a packet shows it closed.
+   * Returns the sensors whose doors were open.
+   */
+  std::vector<std::string> arm(OpenDoors open_doors = OpenDoors::refuse);
 
   /** Disarms: running countdowns end with two disarmed notices, sounding sirens are stopped. */
   void disarm();
 
-  /** True while armed. */
+  /** True while any sensor is armed. */
   bool armed() const {
     return armed_;
   }
@@ -215,11 +228,13 @@ public:
   void announce_move(const SiteMove& move);
 
   /**
-   * Step 2, "Switch": gateways get their new settings (in direct radio mode, the hub's radio
-   * retunes), then each siren its settings with the new channel and rate on both paths. Refused,
-   * naming each sensor that has not confirmed, unless `force`; forced, it names each such
-   * sensor as left behind. During a countdown or an alarm it waits for them to end. Returns true
-   * when it switched now.
+   * Step 2, "Switch", comes by itself once every sensor has confirmed (protocol section 7):
+   * gateways get their new settings (in direct radio mode, the hub's radio retunes), then each
+   * siren its settings with the new channel and rate on both paths; during a countdown or an
+   * alarm it waits for them to end (`move_switch_waiting`). This call is the user's: with
+   * `force`, the switch goes now (or when a countdown or alarm ends), naming each sensor that
+   * has not confirmed as left behind; without, it only names them (`move_unconfirmed`) and
+   * changes nothing. Returns true once the site has switched.
    */
   bool switch_move(bool force = false);
 
@@ -351,6 +366,10 @@ private:
     SimDevice* device = nullptr;
     std::unique_ptr<psa::PsaPacketCipher> cipher;
     std::uint8_t version = 1;
+    /** Armed; or to be armed when its door closes (D114); and its door as last heard. */
+    bool armed = false;
+    bool arm_when_closed = false;
+    bool door_open = false;
     /** The hub's send counter for this key; it starts at 1 (protocol section 4). */
     std::uint32_t next_counter = 1;
     ReplayWindow window;
@@ -482,6 +501,7 @@ private:
   void on_sensor_packet(std::size_t index, const Opened& opened, const Arrival& arrival);
   void reply_to_sensor(std::size_t index, const Arrival& arrival, std::uint8_t held_version,
                        std::uint32_t answered, bool heartbeat, bool at_arrival_rate);
+  void arm_sensor(Known& sensor);
   void door_opened(std::size_t index, const protocol::SensorStatus& status, std::uint32_t counter,
                    const Arrival& arrival);
   void countdown_ended(std::size_t index, std::uint64_t generation);
@@ -508,6 +528,7 @@ private:
   void note_followed(Known& device);
   bool alarm_running() const;
   bool switch_blocked();
+  void switch_when_free(bool forced);
   void retry_waiting_switch();
   void do_switch(bool forced);
   void note_followed_all_done();

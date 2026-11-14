@@ -40,6 +40,9 @@ struct ScriptGatewayConfig {
 
 /** What a ScriptGateway did, kept by the test. */
 struct ScriptGatewayLog {
+  /** Started packets and statuses sent (protocol sections 6 and 7). */
+  std::uint32_t started = 0;
+  std::uint32_t statuses = 0;
   struct Result {
     std::uint32_t request = 0;
     std::uint8_t outcome = 0;
@@ -98,6 +101,8 @@ private:
   void result(std::uint32_t counter, std::uint8_t outcome, device::Instant now);
   void serve_queue(device::Instant now);
   void send_logs(device::Instant now);
+  void send_started();
+  void send_status(device::Instant now);
   void apply_settings();
 
   device::Services& services_;
@@ -111,6 +116,14 @@ private:
   /** Settings received and not yet applied, and when they will be. */
   protocol::GatewaySettings arrived_;
   device::Instant apply_at_ = device::Instant::never();
+  /**
+   * Started once a start-up, after the first settings on a session (protocol section 6; the
+   * gateway role's order); a status every status interval while welcomed (section 7).
+   */
+  bool started_sent_ = false;
+  device::Instant status_at_ = device::Instant::never();
+  device::Instant booted_at_;
+  std::uint8_t status_interval_ = 30;
   bool transmitting_ = false;
   bool receiving_ = false;
   bool scheduled_ = false;

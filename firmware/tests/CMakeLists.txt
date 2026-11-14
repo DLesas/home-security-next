@@ -62,6 +62,7 @@ hsn_test_executable(hsn_tests
   host/bench_json_test.cpp
   host/bench_script_test.cpp
   host/restart_links_test.cpp
+  host/wire_json_test.cpp
   system/armed_door_test.cpp)
 target_compile_definitions(hsn_tests PRIVATE
   HSN_VECTORS_DIR="${PROJECT_SOURCE_DIR}/../packages/protocol/vectors")
@@ -97,6 +98,64 @@ if(hsn_system_role_sources)
   target_link_libraries(hsn_system_tests PRIVATE hsn_role_sensor hsn_role_siren hsn_role_gateway
     hsn_host)
   target_compile_options(hsn_system_tests PRIVATE -fno-rtti)
+endif()
+
+# Lockstep against the real hub (hub-design.md section 11, "Lockstep"): the recorded sessions
+# replayed from C++, and the system tests run on the real hub. They need Bun and the hub's
+# sources with their packages installed, so they are their own group (label "lockstep", run alone
+# with `bun run check:firmware:lockstep` at the repository's root); without them the group is one
+# test that is skipped and says why.
+find_program(HSN_BUN bun)
+set(HSN_HUB_MAIN ${PROJECT_SOURCE_DIR}/../hub/src/shell/main.ts)
+set(HSN_LOCKSTEP_SESSIONS ${PROJECT_SOURCE_DIR}/../hub/test/lockstep)
+set(hsn_lockstep_missing "")
+if(NOT HSN_BUN)
+  set(hsn_lockstep_missing "Bun was not found")
+elseif(NOT EXISTS ${HSN_HUB_MAIN} OR NOT EXISTS ${HSN_LOCKSTEP_SESSIONS})
+  set(hsn_lockstep_missing "the hub's sources are not beside the firmware (../hub)")
+elseif(NOT EXISTS ${PROJECT_SOURCE_DIR}/../node_modules)
+  set(hsn_lockstep_missing "the hub's packages are not installed (bun install at the root)")
+endif()
+if(hsn_lockstep_missing STREQUAL "")
+  hsn_test_executable(hsn_lockstep_tests lockstep/session_replay_test.cpp
+    lockstep/socket_test.cpp)
+  target_include_directories(hsn_lockstep_tests PRIVATE lockstep)
+  target_compile_definitions(hsn_lockstep_tests PRIVATE HSN_BUN="${HSN_BUN}"
+    HSN_HUB_MAIN="${HSN_HUB_MAIN}" HSN_LOCKSTEP_SESSIONS="${HSN_LOCKSTEP_SESSIONS}"
+    HSN_FAKE_HUB="${CMAKE_CURRENT_SOURCE_DIR}/lockstep/fake_hub.ts")
+  set_tests_properties(hsn_lockstep_tests PROPERTIES LABELS lockstep)
+  # The system tests section 11 lists, on the real hub: the same sources as hsn_system_tests.
+  hsn_test_executable(hsn_system_lockstep_tests system_roles/chain_test.cpp
+    system_roles/restarts_test.cpp system_roles/lost_path_test.cpp
+    system_roles/two_gateways_test.cpp system_roles/sirens_test.cpp
+    system_roles/interference_test.cpp system_roles/heartbeat_reply_test.cpp
+    system_roles/load_test.cpp system_roles/site_move_test.cpp lockstep/real_hub_test.cpp)
+  target_include_directories(hsn_system_lockstep_tests PRIVATE lockstep system_roles)
+  target_compile_definitions(hsn_system_lockstep_tests PRIVATE HSN_LOCKSTEP=1 HSN_BUN="${HSN_BUN}"
+    HSN_HUB_MAIN="${HSN_HUB_MAIN}")
+  target_link_libraries(hsn_system_lockstep_tests PRIVATE hsn_role_sensor hsn_role_siren
+    hsn_role_gateway hsn_host)
+  target_compile_options(hsn_system_lockstep_tests PRIVATE -fno-rtti)
+  set_tests_properties(hsn_system_lockstep_tests PROPERTIES LABELS lockstep)
+  # The scripted devices' scenarios section 11 lists, on the real hub.
+  hsn_test_executable(hsn_lockstep_scripted_tests system/armed_door_test.cpp
+    host/test_hub_gateway_test.cpp)
+  target_include_directories(hsn_lockstep_scripted_tests PRIVATE lockstep)
+  target_compile_definitions(hsn_lockstep_scripted_tests PRIVATE HSN_LOCKSTEP=1
+    HSN_BUN="${HSN_BUN}" HSN_HUB_MAIN="${HSN_HUB_MAIN}")
+  target_compile_options(hsn_lockstep_scripted_tests PRIVATE -fno-rtti)
+  set_tests_properties(hsn_lockstep_scripted_tests PROPERTIES LABELS lockstep)
+  # The same cases (the day-long ones aside) with the hub taking 30 ms, the budget's commit
+  # time, before each frame leaves it (RemoteHub::send_delay; 10 ms otherwise).
+  add_test(NAME hsn_system_lockstep_tests_30ms COMMAND hsn_system_lockstep_tests -tse=long)
+  set_tests_properties(hsn_system_lockstep_tests_30ms PROPERTIES LABELS lockstep
+    ENVIRONMENT HSN_HUB_DELAY_MS=30)
+else()
+  message(STATUS "Lockstep tests against the real hub skipped: ${hsn_lockstep_missing}")
+  add_test(NAME hsn_lockstep_tests
+    COMMAND ${CMAKE_COMMAND} -E echo "lockstep tests skipped: ${hsn_lockstep_missing}")
+  set_tests_properties(hsn_lockstep_tests PROPERTIES LABELS lockstep
+    SKIP_REGULAR_EXPRESSION "lockstep tests skipped")
 endif()
 
 # hsn_core must not reference the heap, exceptions or abort.
