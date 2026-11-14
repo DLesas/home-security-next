@@ -29,6 +29,8 @@ const rxRow = z
     snrQ: nullableInteger,
     rate: nullableInteger,
     body: hexBytes,
+    /** The counter of the gateway's forwarded packet that carried it; null for none (D110). */
+    gwCounter: nullableInteger,
   })
   .readonly();
 
@@ -46,6 +48,8 @@ const txRow = z
     outcome: integer,
     gwSentUs: nullableInteger,
     body: hexBytes,
+    /** The counter of the gateway's transmit result that reported it; null for none (D110). */
+    resultCounter: nullableInteger,
   })
   .readonly();
 

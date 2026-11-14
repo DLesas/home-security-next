@@ -3,6 +3,7 @@
  * name, which is `decisions.kind`. The first group is the firmware bench's `HubAction`
  * (firmware/platform/host/include/hsn/host/hub_log.hpp), name for name, so the bench's system
  * tests can ask the real hub the same questions (section 11); a test checks it stays a superset.
+ * Each kind's `value` and `detail` are laid out exactly in section 6.
  */
 export const DECISION_KINDS = [
   // The bench's HubAction, in its order.
@@ -22,7 +23,7 @@ export const DECISION_KINDS = [
   "countdown_continued",
   /** A late report: the countdown had ended; sirens sound for what is left. value: seconds (D106). */
   "late_report_sirens",
-  /** A report so late even the sirens' time has passed. value: the opening's wall time, seconds. */
+  /** A report so late even the sirens' time has passed. value: the opening's wall time, whole seconds since 1970 UTC. */
   "late_report_notification",
   /** A door report while disarmed or waiting: recorded only (AL2b). */
   "report_while_disarmed",
@@ -32,11 +33,11 @@ export const DECISION_KINDS = [
   "disarmed_notice",
   /** A sensor said its local alarm sounded (flag bit 5, DS6, D88). */
   "local_alarm_reported",
-  /** A siren command was issued. value: action × 65,536 + seconds. */
+  /** A siren command was issued. value: the action; detail: the command body (action, seconds u16 LE). */
   "siren_command",
   /** Siren settings were issued. value: the settings version. */
   "siren_settings",
-  /** A siren report confirmed the command or settings in flight. value: the path (`PacketPath`). */
+  /** A siren report confirmed the command or settings in flight. value: its path (`rx.path`: 0 LoRa, 1 Wi-Fi, 2 USB). */
   "siren_confirmed",
   /** A minute passed without confirmation (§7): a warning. */
   "siren_unreachable",
@@ -49,7 +50,7 @@ export const DECISION_KINDS = [
   /** A packet had no gateway to go through (section 8, "Which gateway a packet goes through"). */
   "no_path",
   // The bench's site move (D115).
-  /** A move was asked for, with the actor. value: target channel × 256 + rate, 0xFF for "stays". */
+  /** A move was asked for. value: the move id; detail: target channel, then rate, 0xFF for "stays". */
   "move_requested",
   /** A sensor's packets show a version that carries the move. */
   "move_confirmed",
@@ -107,7 +108,11 @@ export const DECISION_KINDS = [
   "interference_learned_as_normal",
   /** Over half of a gateway's received packets failed the radio's CRC (section 8): a warning. */
   "damaged_packets",
-  /** A device sent Started: its reset cause and last fatal error (FW5, section 10). */
+  /** A gateway's new session was proven (section 8). value: the proving packet's counter. */
+  "gateway_session_proven",
+  /** The hub closed a gateway's link (section 8). value: 0 replaced by a newer session, 1 not proven. */
+  "gateway_link_closed",
+  /** A device sent Started. value: its reset cause; the last fatal error is in the cause's `rx` row (FW5). */
   "device_started",
 
   // The site move, beyond the bench.

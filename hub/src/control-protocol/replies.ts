@@ -225,13 +225,23 @@ export const commandResult = z.discriminatedUnion("kind", [
     })
     .readonly(),
   z
-    .object({ kind: z.literal("usbAdd"), name: deviceName, role: roleName, address: unsigned(32) })
+    .object({
+      kind: z.literal("usbAdd"),
+      /** The device's number (`devices.id`), as every record of it names it. */
+      device: z.int().min(1),
+      name: deviceName,
+      role: roleName,
+      address: unsigned(32),
+      /** Its chip identifier, lowercase hex. */
+      chip: hexBytes,
+    })
     .readonly(),
   z.object({ kind: z.literal("usbErase"), port: z.string() }).readonly(),
   z.object({ kind: z.literal("deviceRename"), name: deviceName }).readonly(),
   z.object({ kind: z.literal("deviceRemove"), name: deviceName }).readonly(),
   z.object({ kind: z.literal("sensorSet"), name: deviceName, version: unsigned(8) }).readonly(),
   z.object({ kind: z.literal("sirenSet"), name: deviceName, version: unsigned(8) }).readonly(),
+  z.object({ kind: z.literal("gatewaySet"), name: deviceName, version: unsigned(8) }).readonly(),
   z.object({ kind: z.literal("sirenTest"), name: deviceName, seconds: unsigned(16) }).readonly(),
   z.object({ kind: z.literal("siteShow"), site: siteShown }).readonly(),
   z

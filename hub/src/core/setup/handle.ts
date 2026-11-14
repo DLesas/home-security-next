@@ -42,6 +42,7 @@ import {
   addressFree,
   deviceById,
   devicesByChip,
+  deviceFields,
   firmwareNumber,
   firmwareText,
   gatewayName,
@@ -158,8 +159,33 @@ function more(acc: Acc, ...out: readonly Out[]): Acc {
   return { slice: acc.slice, out: [...acc.out, ...out] };
 }
 
-function record(acc: Acc, ctx: Context, spec: Omit<HubEventSpec, "origin">): Step {
-  return hubEventRecord(ctx, { ...spec, origin: ORIGIN }).map((item) => more(acc, item));
+/** A setup record's fields (section 6, the setup events of `hub_events.detail`). */
+type Fields = Readonly<Record<string, string | number | boolean | null>>;
+
+/**
+ * Records a setup event with its fields as JSON in `detail`, so a program never reads the text:
+ * every setup event names its `link`, and the rest as its code says (section 6).
+ */
+function record(
+  acc: Acc,
+  ctx: Context,
+  spec: Omit<HubEventSpec, "origin" | "detail">,
+  fields: Fields,
+): Step {
+  return hubEventRecord(ctx, { ...spec, origin: ORIGIN, detail: JSON.stringify(fields) }).map(
+    (item) => more(acc, item),
+  );
+}
+
+/** The result code of a Provision as records name it. */
+function resultName(result: number): string {
+  return result === ProvisionResultCode.Accepted
+    ? "accepted"
+    : result === ProvisionResultCode.Refused
+      ? "refused"
+      : result === ProvisionResultCode.NotValid
+        ? "notValid"
+        : `unknown:${result}`;
 }
 
 function sendFrame(link: LinkId, bytes: Uint8Array): Effect {
@@ -177,13 +203,23 @@ function send(
 ): Step {
   return setupBytes(ctx, message).andThen((bytes) =>
     setupBytes(ctx, recorded ?? message).andThen((shown) =>
-      record(more(acc, sendFrame(board.link, bytes)), ctx, {
-        level: "info",
-        code: "usb_sent",
-        message: `${SETUP_TYPE_NAMES[message.type] ?? "setup message"} to ${board.label}`,
-        detail: toHex(shown),
-        ...(durability === undefined ? {} : { durability }),
-      }),
+      record(
+        more(acc, sendFrame(board.link, bytes)),
+        ctx,
+        {
+          level: "info",
+          code: "usb_sent",
+          message: `${SETUP_TYPE_NAMES[message.type] ?? "setup message"} to ${board.label}`,
+          ...(durability === undefined ? {} : { durability }),
+        },
+        {
+          link: board.label,
+          message: SETUP_TYPE_NAMES[message.type] ?? `type ${message.type}`,
+          // The setup message as sent, its key bytes zeroed (section 9: a key is never recorded).
+          bytes: toHex(shown),
+          ...(message.type === SetupType.Provision ? { address: message.pairing.address } : {}),
+        },
+      ),
     ),
   );
 }
@@ -191,7 +227,12 @@ function send(
 /** Tells whoever asked that it did not work: the CLI's answer, or a warning for an automatic add. */
 function fail(acc: Acc, ctx: Context, asker: Asker, code: ControlErrorCode, message: string): Step {
   if (asker.kind === "command") return ok(more(acc, answerError(asker.request, code, message)));
-  return record(acc, ctx, { level: "warning", code: "automatic_add_failed", message });
+  return record(
+    acc,
+    ctx,
+    { level: "warning", code: "automatic_add_failed", message },
+    { error: code },
+  );
 }
 
 function exchangeDeadline(ctx: Context): Mono {
@@ -445,17 +486,32 @@ function identityArrived(acc: Acc, ctx: Context, board: UsbBoard, identity: Iden
   const updated: UsbBoard = { ...board, identity };
   const kept: Acc = { slice: withBoard(acc.slice, updated), out: acc.out };
   const role = roleName(identity.role) ?? `role ${identity.role}`;
-  return record(kept, ctx, {
-    level: "info",
-    code: "usb_identity",
-    message: `${board.label}: ${role}, chip ${toHex(identity.chipId)}, firmware ${firmwareText(firmwareNumber(identity.firmwareVersion))}, ${
-      belongs === "unpaired"
-        ? "not paired"
-        : belongs === "ours"
-          ? "paired to this hub"
-          : "paired to another hub"
-    }, ${identity.developmentBuild ? "development" : "release"} build`,
-  }).andThen((done) => {
+  return record(
+    kept,
+    ctx,
+    {
+      level: "info",
+      code: "usb_identity",
+      message: `${board.label}: ${role}, chip ${toHex(identity.chipId)}, firmware ${firmwareText(firmwareNumber(identity.firmwareVersion))}, ${
+        belongs === "unpaired"
+          ? "not paired"
+          : belongs === "ours"
+            ? "paired to this hub"
+            : "paired to another hub"
+      }, ${identity.developmentBuild ? "development" : "release"} build`,
+    },
+    {
+      link: board.label,
+      role: roleName(identity.role) ?? String(identity.role),
+      chip: toHex(identity.chipId),
+      // As `devices.firmware`: major × 65,536 + minor × 256 + patch.
+      firmware: firmwareNumber(identity.firmwareVersion),
+      // `unpaired`, `ours` or `other`: whether it is paired, and to this hub.
+      paired: belongs,
+      hubIdentity: identity.paired ? toHex(identity.hubIdentity) : null,
+      development: identity.developmentBuild,
+    },
+  ).andThen((done) => {
     const exchange = board.exchange;
     if (exchange?.kind === "setRole") {
       const cleared: UsbBoard = { ...updated, exchange: undefined };
@@ -481,11 +537,16 @@ function identityArrived(acc: Acc, ctx: Context, board: UsbBoard, identity: Iden
 function resultArrived(acc: Acc, ctx: Context, board: UsbBoard, result: number): Step {
   const exchange = board.exchange;
   if (exchange?.kind !== "provision") {
-    return record(acc, ctx, {
-      level: "warning",
-      code: "usb_unexpected",
-      message: `${board.label}: a Provision result with no Provision waiting (${result})`,
-    });
+    return record(
+      acc,
+      ctx,
+      {
+        level: "warning",
+        code: "usb_unexpected",
+        message: `${board.label}: a Provision result with no Provision waiting (${result})`,
+      },
+      { link: board.label, result: resultName(result) },
+    );
   }
   const told = exchange.deadline === undefined;
   const cleared: Acc = {
@@ -493,9 +554,17 @@ function resultArrived(acc: Acc, ctx: Context, board: UsbBoard, result: number):
     out: acc.out,
   };
   /** Records what happened, then tells the asker, unless the timeout already did. */
-  const settle = (from: Acc, spec: Omit<HubEventSpec, "origin">, tell: (done: Acc) => Step): Step =>
-    record(from, ctx, spec).andThen((done) => (told ? ok(done) : tell(done)));
   const row = deviceById(ctx.view, exchange.device);
+  const fields: Fields = {
+    link: board.label,
+    result: resultName(result),
+    ...(row === undefined ? { device: exchange.device } : deviceFields(row)),
+  };
+  const settle = (
+    from: Acc,
+    spec: Omit<HubEventSpec, "origin" | "detail">,
+    tell: (done: Acc) => Step,
+  ): Step => record(from, ctx, spec, fields).andThen((done) => (told ? ok(done) : tell(done)));
   if (row?.state !== DeviceState.Provisioning) {
     return settle(
       cleared,
@@ -533,9 +602,11 @@ function resultArrived(acc: Acc, ctx: Context, board: UsbBoard, result: number):
                 done,
                 answerOk(exchange.asker.request, {
                   kind: "usbAdd",
+                  device: row.id,
                   name: row.name,
                   role,
                   address: row.address,
+                  chip: toHex(row.chipId),
                 }),
               )
             : done,

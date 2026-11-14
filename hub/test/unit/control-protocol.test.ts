@@ -42,6 +42,16 @@ const COMMANDS: readonly ControlCommand[] = [
   { kind: "sirenSet", name: "hall", max: 300 },
   { kind: "sirenTest", name: "hall" },
   { kind: "sirenTest", name: "hall", seconds: 3 },
+  {
+    kind: "gatewaySet",
+    name: "gw1",
+    statusS: 20,
+    interferenceDb: 12,
+    interferenceS: 40,
+    powerDbm: 22,
+    sirenPowerDbm: -9,
+  },
+  { kind: "gatewaySet", name: "gw1", powerDbm: 14 },
   { kind: "siteShow" },
   { kind: "siteSurvey" },
   { kind: "siteSet", channel: 1, rate: 5, countdown: 30, autoStop: 300 },
@@ -67,6 +77,12 @@ const INVALID_COMMANDS: readonly (readonly [string, unknown])[] = [
   ["reply rate DR6", { kind: "sensorSet", name: "a", replyRate: 6 }],
   ["a correction past 16 bits", { kind: "sensorSet", name: "a", correction: 40_000 }],
   ["a siren max of 0, not valid (§6)", { kind: "sirenSet", name: "hall", max: 0 }],
+  ["a gateway status of 0 s", { kind: "gatewaySet", name: "gw1", statusS: 0 }],
+  ["a gateway interference over a byte", { kind: "gatewaySet", name: "gw1", interferenceDb: 256 }],
+  ["a gateway power over 22 dBm", { kind: "gatewaySet", name: "gw1", powerDbm: 23 }],
+  ["a siren power under -9 dBm", { kind: "gatewaySet", name: "gw1", sirenPowerDbm: -10 }],
+  ["a default power under -9 dBm", { kind: "gatewaySet", name: "gw1", powerDbm: -10 }],
+  ["a siren power over 22 dBm", { kind: "gatewaySet", name: "gw1", sirenPowerDbm: 23 }],
   ["channel 3", { kind: "siteSet", channel: 3 }],
   ["a fractional rate", { kind: "siteSet", rate: 2.5 }],
   ["a site change to DR6", { kind: "siteChange", rate: 6 }],
@@ -192,7 +208,14 @@ const RESULTS: readonly unknown[] = [
       { port: "/dev/ttyACM1", identity: null },
     ],
   },
-  { kind: "usbAdd", name: "gateway-a1a2a3a4a5a6", role: "gateway", address: 0x12345678 },
+  {
+    kind: "usbAdd",
+    device: 2,
+    name: "gateway-a1a2a3a4a5a6",
+    role: "gateway",
+    address: 0x12345678,
+    chip: "a1a2a3a4a5a6",
+  },
   { kind: "siteSurvey", channel: 2, noise: [{ channel: 0, medianDbm: -101.5 }] },
   { kind: "siteSet", site },
   { kind: "siteChange", channel: 1, rate: 2, sensors: 30 },
@@ -243,7 +266,17 @@ describe("replies", () => {
     ],
     [
       "an address past 32 bits",
-      { ok: true, result: { kind: "usbAdd", name: "x", role: "sensor", address: 2 ** 32 } },
+      {
+        ok: true,
+        result: {
+          kind: "usbAdd",
+          device: 1,
+          name: "x",
+          role: "sensor",
+          address: 2 ** 32,
+          chip: "01",
+        },
+      },
     ],
     ["uppercase hex", { ok: true, result: { ...asObject(RESULTS[4]), reading: "FF" } }],
     ["odd-length hex", { ok: true, result: { ...asObject(RESULTS[4]), reading: "abc" } }],
@@ -275,6 +308,7 @@ const RECORDS: readonly unknown[] = [
       path: 0,
       gatewayId: 2,
       gwUs: 500_000_000,
+      gwCounter: null,
       rssi: -95,
       snrQ: 32,
       rate: 5,
@@ -294,6 +328,7 @@ const RECORDS: readonly unknown[] = [
       path: 0,
       gatewayId: 2,
       requestCounter: 61441,
+      resultCounter: null,
       rate: 5,
       power: 22,
       outcome: 0,
@@ -395,44 +430,65 @@ describe("records", () => {
 });
 
 describe("lockstep (section 11)", () => {
+  const seed = "00".repeat(32);
   const valid: readonly unknown[] = [
+    { type: "start", version: 2, at: 1_000_000, wall: 1_794_528_000_000, trusted: true, seed },
     { type: "advance", to: 30_000_000 },
     { type: "frame", link: "gw1:usb", at: 29_999_000, bytes: "0102" },
     { type: "linkUp", link: "gw1:usb", kind: "usb", at: 0 },
     { type: "linkDown", link: "hall:network", at: 5 },
     {
       type: "control",
+      at: 7,
       request: { id: 1, actor: "bench", command: { kind: "disarm", sensors: "all" } },
     },
+    { type: "clock", at: 9, wall: 1_794_528_000_000, trusted: false },
+    { type: "stop", at: 40_000_000 },
   ];
-  test.each(valid.map((m, i) => [i, m] as const))("bench to hub %i parses", (_, message) => {
+  test.each(valid.map((m, i) => [i, m] as const))("controller to hub %i parses", (_, message) => {
     expectParses(lockstepToHub, message);
   });
 
   test.each([
     ["advance without a time", { type: "advance" }],
     ["a frame with text for bytes", { type: "frame", link: "gw1:usb", at: 1, bytes: "hello" }],
+    ["an empty frame", { type: "frame", link: "gw1:usb", at: 1, bytes: "" }],
     ["a link of no known kind", { type: "linkUp", link: "x", kind: "radio", at: 0 }],
     ["an unknown type", { type: "quit" }],
+    ["an unknown field", { type: "advance", to: 1, extra: true }],
+    [
+      "a control command without its time",
+      { type: "control", request: { id: 1, actor: "b", command: { kind: "status" } } },
+    ],
+    [
+      "version 1, which has no `idle.closed`",
+      { type: "start", version: 1, at: 0, wall: 0, trusted: true, seed },
+    ],
+    ["another version", { type: "start", version: 3, at: 0, wall: 0, trusted: true, seed }],
+    ["a short seed", { type: "start", version: 2, at: 0, wall: 0, trusted: true, seed: "00" }],
+    ["a time that is not a whole number", { type: "advance", to: 1.5 }],
   ])("refuses %s", (_, message) => {
     expect(lockstepToHub.safeParse(message).success).toBe(false);
   });
 
-  test("idle carries frames, records and the next wake", () => {
+  test("idle carries the frames, the links the hub closed, records and answers, and the next wake", () => {
     const idle = {
       type: "idle",
+      to: 30_000_000,
+      boot: 1,
       frames: [{ link: "gw1:usb", at: 30_000_000, bytes: "18" }],
+      closed: [{ link: "gw1:network", at: 30_000_000, reason: "gateway session replaced" }],
       records: [RECORDS[2]],
+      replies: [{ id: 1, reply: { ok: true, result: { kind: "siteWifi" } } }],
       wake: 32_000_000,
     };
     expectParses(lockstepFromHub, idle);
     expectParses(lockstepFromHub, { ...idle, wake: null });
     expect(lockstepFromHub.safeParse({ ...idle, wake: undefined }).success).toBe(false);
-    const reply = {
-      type: "reply",
-      reply: { id: 1, reply: { ok: true, result: { kind: "siteWifi" } } },
-    };
-    expectParses(lockstepFromHub, reply);
+    // Version 2: `closed` is always there, empty when the hub closed nothing.
+    expect(lockstepFromHub.safeParse({ ...idle, closed: undefined }).success).toBe(false);
+    expectParses(lockstepFromHub, { type: "stopped", at: 40_000_000 });
+    expectParses(lockstepFromHub, { type: "error", message: "not JSON", line: "x" });
   });
 });
 

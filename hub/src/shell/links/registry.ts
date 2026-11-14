@@ -21,8 +21,8 @@ export interface LinkHandle {
   close(reason: string): Result<void, LinkError>;
 }
 
-/** A frame an adapter could not pass on (section 10): not COBS, or too long. */
-export type FrameRejection = "badFrame" | "tooLong";
+/** A frame an adapter could not pass on (section 10): not COBS, too long, or after a close. */
+export type FrameRejection = "badFrame" | "tooLong" | "closedLink";
 
 /** Where the links adapters' errors say they arose (section 10). */
 export const ORIGIN = "shell/links";
@@ -54,6 +54,17 @@ export class LinkRegistry implements Links {
   reject(link: LinkId, reason: FrameRejection): void {
     if (!this.#handles.has(link)) return;
     this.#sink?.({ kind: "inputRejected", rejection: { source: "frame", link, reason } });
+  }
+
+  /**
+   * A frame on a link the hub closed, which only lockstep's controller can still send on
+   * (section 11): counted by the core as a rejection, so nothing arriving is lost unrecorded.
+   */
+  frameAfterClose(link: LinkId): void {
+    this.#sink?.({
+      kind: "inputRejected",
+      rejection: { source: "frame", link, reason: "closedLink" },
+    });
   }
 
   /** A send that failed after `send` returned: `sendFailed` to the core with its reference. */

@@ -29,7 +29,7 @@ import type { Internal } from "../model/messages.ts";
 import { type DeviceRow, DeviceState } from "../model/rows.ts";
 import { belonging, identityIn, provisionedIdentity } from "../setup/view.ts";
 import { retiredName } from "./names.ts";
-import { hubEventRecord } from "./records.ts";
+import { DEVICE_STATE_NAMES, deviceFields, hubEventRecord } from "./records.ts";
 import type { RegistrySlice } from "./state.ts";
 import {
   deviceById,
@@ -79,6 +79,50 @@ function withoutRow(slice: RegistrySlice, id: DeviceId): RegistrySlice {
   const devices = new Map(slice.devices);
   devices.delete(id);
   return { ...slice, devices };
+}
+
+/**
+ * A device row written, with the record of the change (section 6, the `device_*` hub events):
+ * the device's fields as they are now, and what they were where they changed.
+ */
+function change(
+  ctx: Context,
+  code: "device_added" | "device_renamed" | "device_state" | "device_not_added",
+  row: DeviceRow,
+  previous: DeviceRow | undefined,
+  message: string,
+): Result<Internal, CoreFault> {
+  const before = {
+    ...(previous !== undefined && previous.name !== row.name
+      ? { previousName: previous.name }
+      : {}),
+    ...(previous !== undefined && previous.state !== row.state
+      ? { previousState: DEVICE_STATE_NAMES[previous.state] ?? String(previous.state) }
+      : {}),
+  };
+  return hubEventRecord(ctx, {
+    level: "info",
+    origin: ORIGIN,
+    code,
+    message,
+    detail: JSON.stringify({ ...deviceFields(row), ...before }),
+  });
+}
+
+/** The row written and its record, as a step's output. */
+function written(
+  slice: RegistrySlice,
+  ctx: Context,
+  code: "device_added" | "device_renamed" | "device_state",
+  row: DeviceRow,
+  previous: DeviceRow | undefined,
+  message: string,
+  more: readonly Out[] = [],
+): Step {
+  return change(ctx, code, row, previous, message).map((record) => ({
+    slice: withRow(slice, row),
+    out: [writeRow(row), record, ...more],
+  }));
 }
 
 function writeRow(row: DeviceRow): Effect {
@@ -138,6 +182,11 @@ function retire(
     origin: ORIGIN,
     code: reset ? "device_reset_by_owner" : "device_removed",
     message: `${row.name}: ${why}; its key is deleted, its history kept, and it is now ${retired.name}`,
+    detail: JSON.stringify({
+      ...deviceFields(retired),
+      previousName: row.name,
+      previousState: DEVICE_STATE_NAMES[row.state] ?? String(row.state),
+    }),
     durability: "now",
   }).map((record) => ({
     slice: withRow(slice, retired),
@@ -208,21 +257,28 @@ function added(
     addedMs: ctx.now.wall,
     removedMs: null,
   };
-  return ok({ slice: withRow(slice, row), out: [writeRow(row)] });
+  return written(slice, ctx, "device_added", row, undefined, `${row.name} added, provisioning`);
 }
 
 function answered(
   slice: RegistrySlice,
   message: Extract<Internal, { readonly kind: "provisionAnswered" }>,
   accepted: boolean,
+  ctx: Context,
 ): Step {
   const row = slice.devices.get(message.device);
   if (row?.state !== DeviceState.Provisioning) return unchanged(slice);
   if (accepted) {
     const paired: DeviceRow = { ...row, state: DeviceState.Paired };
-    return ok({ slice: withRow(slice, paired), out: [writeRow(paired)] });
+    return written(slice, ctx, "device_state", paired, row, `${row.name} paired`);
   }
-  return ok({
+  return change(
+    ctx,
+    "device_not_added",
+    row,
+    undefined,
+    `${row.name} not added: the board refused its Provision`,
+  ).map((record) => ({
     slice: withoutRow(slice, row.id),
     out: [
       {
@@ -232,8 +288,9 @@ function answered(
       },
       ...deleteKey(row.id),
       { kind: "deviceRemoved", device: row.id },
+      record,
     ],
-  });
+  }));
 }
 
 function rename(
@@ -260,7 +317,9 @@ function rename(
   const answer = answerOk(request, { kind: "deviceRename", name });
   if (row.name === name) return ok({ slice, out: [answer] });
   const renamed: DeviceRow = { ...row, name };
-  return ok({ slice: withRow(slice, renamed), out: [writeRow(renamed), answer] });
+  return written(slice, ctx, "device_renamed", renamed, row, `${row.name} renamed ${name}`, [
+    answer,
+  ]);
 }
 
 function remove(slice: RegistrySlice, request: RequestId, device: DeviceId, ctx: Context): Step {
@@ -291,9 +350,18 @@ function heard(
     next = { ...next, firmware: firmwareNumber(packet.firmwareVersion) };
   }
   const changed = next.state !== row.state || next.firmware !== row.firmware;
-  const updated: Step = changed
-    ? ok({ slice: withRow(slice, next), out: [writeRow(next)] })
-    : unchanged(slice);
+  const updated: Step = !changed
+    ? unchanged(slice)
+    : next.state !== row.state
+      ? written(
+          slice,
+          ctx,
+          "device_state",
+          next,
+          row,
+          `${row.name} ${DEVICE_STATE_NAMES[next.state] ?? ""}`,
+        )
+      : ok({ slice: withRow(slice, next), out: [writeRow(next)] });
   const reset =
     message.newest &&
     packet.type === MessageType.Button &&
@@ -312,18 +380,25 @@ function heard(
 }
 
 /** A forced site move left this sensor behind: state 5, to be paired again (D115, section 8). */
-function leftBehind(slice: RegistrySlice, device: DeviceId): Step {
+function leftBehind(slice: RegistrySlice, device: DeviceId, ctx: Context): Step {
   const row = slice.devices.get(device);
   if (row === undefined || row.state === DeviceState.LeftBehind) return unchanged(slice);
   const behind: DeviceRow = { ...row, state: DeviceState.LeftBehind };
-  return ok({ slice: withRow(slice, behind), out: [writeRow(behind)] });
+  return written(
+    slice,
+    ctx,
+    "device_state",
+    behind,
+    row,
+    `${row.name} left behind by a forced move`,
+  );
 }
 
-function gatewayUp(slice: RegistrySlice, gateway: DeviceId): Step {
+function gatewayUp(slice: RegistrySlice, gateway: DeviceId, ctx: Context): Step {
   const row = slice.devices.get(gateway);
   if (row === undefined || !AWAITING_CONTACT.has(row.state)) return unchanged(slice);
   const contacted: DeviceRow = { ...row, state: DeviceState.Contacted };
-  return ok({ slice: withRow(slice, contacted), out: [writeRow(contacted)] });
+  return written(slice, ctx, "device_state", contacted, row, `${row.name} contacted`);
 }
 
 export const handleRegistry: Handler<"registry"> = (slice, message, ctx) => {
@@ -335,7 +410,7 @@ export const handleRegistry: Handler<"registry"> = (slice, message, ctx) => {
     case "deviceAdded":
       return added(slice, message, ctx);
     case "provisionAnswered":
-      return answered(slice, message, message.result === ProvisionResultCode.Accepted);
+      return answered(slice, message, message.result === ProvisionResultCode.Accepted, ctx);
     case "deviceRenameRequest":
       return rename(slice, message.request, message.device, message.name, ctx);
     case "deviceRemoveRequest":
@@ -343,9 +418,9 @@ export const handleRegistry: Handler<"registry"> = (slice, message, ctx) => {
     case "accepted":
       return heard(slice, message, ctx);
     case "gatewayUp":
-      return gatewayUp(slice, message.gateway);
+      return gatewayUp(slice, message.gateway, ctx);
     case "deviceLeftBehind":
-      return leftBehind(slice, message.device);
+      return leftBehind(slice, message.device, ctx);
     default:
       return unchanged(slice);
   }

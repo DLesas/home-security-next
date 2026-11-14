@@ -70,7 +70,12 @@ export type LinkErrorCode =
 
 /** A flush failed, or flushing works again after a failure (section 5, "A failed flush"). */
 export type CommitOutcome =
-  | { readonly kind: "failed"; readonly message: string }
+  | {
+      readonly kind: "failed";
+      readonly message: string;
+      /** Refused at the size guard's hard stop: the database is full (section 6). */
+      readonly full?: boolean;
+    }
   | { readonly kind: "recovered" }
   /** A routine commit that also trimmed history (section 6, "The size guard"). */
   | { readonly kind: "trimmed"; readonly report: TrimReport }
@@ -166,8 +171,15 @@ export type InputRejection =
       /** Zod's paths and codes for a `badShape`, without the values. */
       readonly issues: readonly string[];
     }
-  /** A USB frame that failed COBS decoding, or was too long (section 10). */
-  | { readonly source: "frame"; readonly link: LinkId; readonly reason: "badFrame" | "tooLong" }
+  /**
+   * A USB frame that failed COBS decoding, or was too long (section 10); or, in lockstep, a frame
+   * on a link the hub had closed.
+   */
+  | {
+      readonly source: "frame";
+      readonly link: LinkId;
+      readonly reason: "badFrame" | "tooLong" | "closedLink";
+    }
   /**
    * An input the core faulted on (section 10): its state stayed as it was. The loop hands it
    * back as the next input, so its record takes the next number like any other and `seq` stays

@@ -6,6 +6,8 @@
  * (section 5). Records at warning level or above are written now, the rest are routine, unless
  * the caller says otherwise.
  */
+import { toHex } from "@hsn/protocol";
+import type { DeviceRow } from "../model/rows.ts";
 import type { Result } from "neverthrow";
 import type { CoreFault } from "../model/errors.ts";
 import type { Context } from "../model/handler.ts";
@@ -48,4 +50,33 @@ export function hubEventRecord(ctx: Context, spec: HubEventSpec): Result<Interna
       },
     },
   }));
+}
+
+/** A device state's name in records: `provisioning`, `paired`, `contacted`, `reset_by_owner`, `removed`, `left_behind`. */
+export const DEVICE_STATE_NAMES: Readonly<Record<number, string>> = {
+  0: "provisioning",
+  1: "paired",
+  2: "contacted",
+  3: "reset_by_owner",
+  4: "removed",
+  5: "left_behind",
+};
+
+const ROLE_NAMES: Readonly<Record<number, string>> = { 1: "sensor", 2: "siren", 3: "gateway" };
+
+/**
+ * A device as the records name it (section 6, `hub_events.detail` of the `device_*` events): its
+ * number, name, address, role, chip identifier (lowercase hex), firmware and state.
+ */
+export function deviceFields(row: DeviceRow): Readonly<Record<string, string | number | boolean>> {
+  return {
+    device: row.id,
+    name: row.name,
+    address: row.address,
+    role: ROLE_NAMES[row.role] ?? String(row.role),
+    chip: toHex(row.chipId),
+    firmware: row.firmware,
+    development: row.development,
+    state: DEVICE_STATE_NAMES[row.state] ?? String(row.state),
+  };
 }

@@ -238,6 +238,15 @@ function fields(
         correction: ["correction", learnOr((t) => integer(t, "correction"))],
       }).map((f) => ({ kind: "sensorSet", name, ...f }));
     }
+    case "gateway": {
+      const what = sub();
+      const [name, ...rest] = words.rest();
+      if (what !== "set" || name === undefined)
+        return usage(
+          "gateway set <name> status=<s> interference=<dB>/<s> power=<dBm> siren-power=<dBm>",
+        );
+      return gatewaySettings(name, rest);
+    }
     case "siren": {
       const what = sub();
       const [name, ...rest] = words.rest();
@@ -376,4 +385,40 @@ export function parseArgs(argv: readonly string[], nowMs: number): Result<Parsed
       passwordFromStdin: passwordFromStdin === true,
     });
   });
+}
+
+/** `gateway set <name> …`'s words into the command (section 9). */
+function gatewaySettings(name: string, words: readonly string[]): Result<Fields, string> {
+  const out: Record<string, number> = {};
+  for (const word of words) {
+    const at = word.indexOf("=");
+    const key = at < 0 ? word : word.slice(0, at);
+    const value = at < 0 ? "" : word.slice(at + 1);
+    const number = (text: string, what: string): Result<number, string> =>
+      /^-?\d+$/u.test(text)
+        ? ok(Number(text))
+        : usage(`${what} must be a whole number, not "${text}"`);
+    if (key === "status") {
+      const n = number(value, "status");
+      if (n.isErr()) return err(n.error);
+      out.statusS = n.value;
+    } else if (key === "interference") {
+      const [db, seconds, ...more] = value.split("/");
+      if (db === undefined || seconds === undefined || more.length > 0)
+        return usage("interference takes <dB>/<s>, as interference=10/30");
+      const d = number(db, "the interference level");
+      const s = number(seconds, "the interference duration");
+      if (d.isErr()) return err(d.error);
+      if (s.isErr()) return err(s.error);
+      out.interferenceDb = d.value;
+      out.interferenceS = s.value;
+    } else if (key === "power" || key === "siren-power") {
+      const n = number(value, key);
+      if (n.isErr()) return err(n.error);
+      out[key === "power" ? "powerDbm" : "sirenPowerDbm"] = n.value;
+    } else {
+      return usage(`unknown gateway setting "${key}": status, interference, power or siren-power`);
+    }
+  }
+  return ok({ kind: "gatewaySet", name, ...out });
 }

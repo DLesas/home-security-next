@@ -190,6 +190,7 @@ export function loraArrival(at: Mono, snrQuarterDb = 20, gateway: DeviceId = GAT
     gateway,
     link: linkId(90 + gateway),
     gatewayCounter: 1,
+    gatewayLink: "network",
     gatewayMicros: at,
     endedAt: at,
     rssiDbm: -90,

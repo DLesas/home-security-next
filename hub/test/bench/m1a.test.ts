@@ -26,6 +26,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { benchManifest } from "../../src/control-protocol/manifest.ts";
+import { endProcesses, spawnTracked } from "../world/processes.ts";
 import { BenchBridge, networkLinks } from "../../../tools/bench-bridge/src/bridge.ts";
 
 const ROOT = join(import.meta.dir, "..", "..", "..");
@@ -53,7 +54,8 @@ interface TimelineLine {
 }
 
 const work = mkdtempSync("/tmp/hsn-m1a-");
-afterAll(() => {
+afterAll(async () => {
+  await endProcesses();
   if (process.env.HSN_M1A_KEEP !== "1") rmSync(work, { recursive: true, force: true });
 });
 
@@ -70,7 +72,7 @@ class Run {
 
   constructor(port: number) {
     this.port = port;
-    const bench = Bun.spawn(
+    const bench = spawnTracked(
       [
         BENCH,
         "--sensors",
@@ -117,7 +119,7 @@ class Run {
     const usb = this.manifest().devices.flatMap((d) =>
       d.links.filter((l) => l.kind === "usb").map((l) => l.path),
     );
-    this.#hub = Bun.spawn(
+    this.#hub = spawnTracked(
       [
         "bun",
         HUB_MAIN,
@@ -158,7 +160,7 @@ class Run {
 
   /** `hsn …` with the run's data folder: exit code and output. */
   async hsn(...args: string[]): Promise<{ code: number; out: string }> {
-    const proc = Bun.spawn(["bun", HSN, "--data", this.data, ...args], {
+    const proc = spawnTracked(["bun", HSN, "--data", this.data, ...args], {
       stdout: "pipe",
       stderr: "pipe",
     });

@@ -29,6 +29,7 @@ function tx(
       path,
       gatewayId: deviceId(1),
       requestCounter: 7,
+      resultCounter: null,
       rate: 5,
       power: 14,
       outcome,

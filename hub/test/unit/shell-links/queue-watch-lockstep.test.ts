@@ -190,6 +190,25 @@ describe("the bench's lockstep link", () => {
     expect(registry.close(linkId(2), "test").isOk()).toBe(true);
     expect(events.at(-1)).toEqual({ kind: "linkClosed", link: linkId(2), reason: "closedByHub" });
   });
+
+  test("a frame on a link the hub closed is counted as closedLink, never lost (D110)", () => {
+    const { registry, events, lockstep } = setup();
+    lockstep.accept({ type: "linkUp", link: "gw/usb", kind: "usb", at: 0 });
+    lockstep.release(0);
+    expect(registry.close(linkId(1), "gateway session not proven").isOk()).toBe(true);
+    lockstep.accept({ type: "frame", link: "gw/usb", at: 5, bytes: "0102" });
+    lockstep.release(5);
+    expect(events.at(-1)).toEqual({
+      kind: "inputRejected",
+      rejection: { source: "frame", link: linkId(1), reason: "closedLink" },
+    });
+    // The controller's linkDown ends it: later frames are for a link that is gone on both ends.
+    lockstep.accept({ type: "linkDown", link: "gw/usb", at: 6 });
+    lockstep.accept({ type: "frame", link: "gw/usb", at: 7, bytes: "03" });
+    const before = events.length;
+    lockstep.release(7);
+    expect(events).toHaveLength(before);
+  });
 });
 
 describe("the link registry", () => {

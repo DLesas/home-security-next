@@ -59,8 +59,6 @@ type Step = Result<Handled<"site">, CoreFault>;
 /** Routine readings are kept 30 days, events a year (D57; section 6, "Retention"). */
 const RETENTION_ROUTINE_DAYS = 30;
 const RETENTION_EVENT_DAYS = 365;
-/** `move_requested`'s value: target channel × 256 + rate (model/decisions.ts). */
-const CHANNEL_SHIFT = 256;
 /** A protocol `Role` (§6). */
 const ROLE_SENSOR = 1;
 const ROLE_SIREN = 2;
@@ -385,7 +383,10 @@ function startMove(
       kind: "move_requested",
       device: null,
       cause: request.record,
-      value: moveChannel * CHANNEL_SHIFT + moveRate,
+      // The move's number; its target as a reply's next settings carry it (§6): the channel, then
+      // the rate, one byte each, 0xFF for one that stays.
+      value: nextRow.moveId,
+      detail: new Uint8Array([moveChannel, moveRate]),
     },
     "now",
   ).map((recorded) => ({

@@ -413,6 +413,7 @@ function onRadioResult(
         power: flight.power,
         outcome: message.outcome,
         gwSentUs: message.sentGatewayMicros ?? null,
+        resultCounter: message.resultCounter ?? null,
         body: flight.body,
       },
     });

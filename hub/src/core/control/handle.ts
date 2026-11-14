@@ -124,6 +124,7 @@ function answered(
       origin: ORIGIN,
       code: "answer_not_waited_for",
       message: `an answer to request ${request}, which is not waiting: a second answer, or one from before a restart`,
+      detail: JSON.stringify({ request }),
     }).map((record) => ({ slice, out: [record] }));
   }
   return ok({

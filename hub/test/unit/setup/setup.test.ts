@@ -117,6 +117,19 @@ describe("Identify and Identity (§10)", () => {
       expect(recorded?.durability).toBe(
         identity.role === Role.Gateway && !identity.paired ? "routine" : "routine",
       );
+      // Every field a field (section 6): the link, the board's identity, nothing to parse.
+      const v = identity.firmwareVersion;
+      expect(JSON.parse(recorded?.row.detail ?? "{}")).toEqual({
+        link: PORT,
+        role: ["sensor", "siren", "gateway"][identity.role - 1] ?? String(identity.role),
+        chip: toHex(identity.chipId),
+        firmware: v.major * 65_536 + v.minor * 256 + v.patch,
+        paired: identity.paired
+          ? (expect.stringMatching(/^(ours|elsewhere)$/) as unknown)
+          : "unpaired",
+        hubIdentity: identity.paired ? toHex(identity.hubIdentity) : null,
+        development: identity.developmentBuild,
+      });
       const reply = onlyReply(hub.command({ kind: "usbList" }).effects);
       expect(reply).toEqual({
         ok: true,
@@ -370,7 +383,14 @@ describe("provisioning (section 9, PR2, PR5, HB17)", () => {
         wifiPassword: new Uint8Array(pairing.wifiPassword.length),
       },
     });
-    expect(recorded?.row.detail).toBe(toHex(zeroed));
+    // The record's fields: the link, the message, its bytes as sent with the secrets zeroed.
+    const fields = JSON.parse(recorded?.row.detail ?? "{}") as Record<string, unknown>;
+    expect(fields).toEqual({
+      link: "/dev/cu.usbmodem1",
+      message: "Provision",
+      bytes: toHex(zeroed),
+      address: pairing.address,
+    });
     expect(recorded?.row.detail?.includes(toHex(KEY_ONE))).toBe(false);
   });
 
@@ -382,7 +402,14 @@ describe("provisioning (section 9, PR2, PR5, HB17)", () => {
     expect(nowWrites(effects).filter((op) => op.table === "devices")).toHaveLength(1);
     expect(onlyReply(effects)).toEqual({
       ok: true,
-      result: { kind: "usbAdd", name: "front", role: "sensor", address: ADDRESS },
+      result: {
+        kind: "usbAdd",
+        device: deviceNamed(hub.state, "front")?.id ?? 0,
+        name: "front",
+        role: "sensor",
+        address: ADDRESS,
+        chip: toHex(deviceNamed(hub.state, "front")?.chipId ?? new Uint8Array()),
+      },
     });
     expect(hub.state.setup.retryKeys.size).toBe(0);
   });

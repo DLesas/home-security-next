@@ -176,6 +176,7 @@ describe("the cap on warnings written now (section 5)", () => {
         path: 0,
         gatewayId: null,
         gwUs: null,
+        gwCounter: null,
         rssi: null,
         snrQ: null,
         rate: null,

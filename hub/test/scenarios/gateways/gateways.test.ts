@@ -75,7 +75,11 @@ describe("connecting", () => {
     expect(gateway.session).toBeDefined();
     expect(gateway.settings?.settingsVersion).toBe(1);
     expect(seenOf(seen, "gatewayUp")).toEqual([{ kind: "gatewayUp", gateway: G1, link }]);
-    expect(decisions(seen).map(([k]) => k)).toEqual(["gateway_welcomed", "gateway_settings"]);
+    expect(decisions(seen).map(([k]) => k)).toEqual([
+      "gateway_welcomed",
+      "gateway_settings",
+      "gateway_session_proven",
+    ]);
     // The hello's counter was committed before the welcome left (section 4's rule).
     expect(world.writer.commits.length).toBeGreaterThan(0);
     expect(world.faults).toEqual([]);
@@ -108,7 +112,7 @@ describe("connecting", () => {
 });
 
 describe("hellos that must not take over", () => {
-  test("a hello recorded but never delivered, replayed on another socket: answered, never proven, closed after 10 s; the gateway is undisturbed", () => {
+  test("a hello recorded but never delivered, replayed on another socket: answered, never proven, closed after the status interval and 10 s; the gateway is undisturbed", () => {
     const { world, seen } = gatewayWorld({ reply: true });
     must(world.boot(snapshotWith()));
     const gateway = scriptedGateway(GATEWAY_ADDRESS);
@@ -141,7 +145,7 @@ describe("hellos that must not take over", () => {
         }) ?? new Uint8Array(),
       ),
     );
-    must(world.advanceByMs(10_000));
+    must(world.advanceByMs(40_000));
     expect(world.links.get(stranger)?.open).toBe(false);
     expect(world.links.get(real)?.open).toBe(true);
     expect(gateway.transmissions).toHaveLength(1);

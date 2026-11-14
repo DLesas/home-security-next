@@ -39,7 +39,13 @@ import { toHub, withSample } from "./clock.ts";
 import { judgeStatus } from "./noise.ts";
 import { deviceStateWrite } from "./persist.ts";
 import { bodyOf, decision, logEntries, received } from "./records.ts";
-import { acceptedMessage, handleHello, prove, sendSettings } from "./sessions.ts";
+import {
+  acceptedMessage,
+  handleHello,
+  LINK_CLOSED_REPLACED,
+  prove,
+  sendSettings,
+} from "./sessions.ts";
 import { surveyStatus } from "./survey.ts";
 import type { GatewayEntry, GatewaysSlice, Session, StatusReading } from "./state.ts";
 import { handleTransmitResult } from "./transmit.ts";
@@ -176,6 +182,30 @@ function onSession(
     next = proven.slice;
     now = proven.entry;
     out.push(...proven.out);
+    // Recorded (D110, section 8): the proof, by this packet's counter, and each link it closed.
+    const closes = proven.out.filter((o) => o.kind === "close").length;
+    const records = Result.combine([
+      decision(ctx, {
+        kind: "gateway_session_proven",
+        device: now.device,
+        cause: null,
+        value: header.counter,
+        detail: null,
+        durability: "routine",
+      }),
+      ...Array.from({ length: closes }, () =>
+        decision(ctx, {
+          kind: "gateway_link_closed",
+          device: now.device,
+          cause: null,
+          value: LINK_CLOSED_REPLACED,
+          detail: null,
+          durability: "routine",
+        }),
+      ),
+    ]);
+    if (records.isErr()) return err(records.error);
+    out.push(...records.value);
   } else if (wasHeard.back) {
     out.push({ kind: "gatewayUp", gateway: now.device, link: current.link });
   }
@@ -194,7 +224,11 @@ function onMessage(
     case MessageType.ForwardedPacket:
       return onForwarded(slice, entry, session, header, message, ctx);
     case MessageType.TransmitResult:
-      return handleTransmitResult(slice, entry, message);
+      return handleTransmitResult(slice, entry, message, header.counter, () =>
+        received(ctx, entry.device, message, header.counter, session.linkKind, "routine").andThen(
+          ({ record }) => done(slice, [record]),
+        ),
+      );
     case MessageType.GatewayStatus:
       return onStatus(slice, entry, session, header, message, ctx);
     case MessageType.Interference:
@@ -267,6 +301,7 @@ function onForwarded(
         snrQuarterDb: message.snrQuarterDb,
         dataRate: message.dataRate,
         siteChannel: message.siteChannel,
+        gatewayLink: session.linkKind,
       },
     },
   ]);

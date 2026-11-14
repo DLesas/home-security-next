@@ -27,7 +27,7 @@ import { handleLinkClosed, handleUnproven } from "./sessions.ts";
 import { handleRadioOut, handleSendFailed, handleTransmitTimeout } from "./transmit.ts";
 
 /** The handler of module 6 (section 2). */
-import { siteSet, startSurvey } from "./survey.ts";
+import { setGateway, siteSet, startSurvey } from "./survey.ts";
 
 export const handleGateways: Handler<"gateways"> = (slice, message, ctx) => {
   switch (message.kind) {
@@ -41,6 +41,8 @@ export const handleGateways: Handler<"gateways"> = (slice, message, ctx) => {
       return handleSiteMove(slice, message, ctx);
     case "siteSurveyRequest":
       return startSurvey(slice, message, ctx);
+    case "gatewaySettingsRequest":
+      return setGateway(slice, message, ctx);
     case "answer":
       return message.reply.ok && message.reply.result.kind === "siteSet"
         ? siteSet(slice, message.reply.result, ctx)
@@ -65,7 +67,7 @@ export const handleGateways: Handler<"gateways"> = (slice, message, ctx) => {
         case "offline":
           return handleOffline(slice, message.key.gateway, ctx);
         case "unprovenSession":
-          return handleUnproven(slice, message.key.link);
+          return handleUnproven(slice, message.key.link, ctx);
         case "transmitResult":
           return handleTransmitTimeout(slice, message.key);
       }

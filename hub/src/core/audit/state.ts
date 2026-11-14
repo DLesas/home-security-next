@@ -44,6 +44,8 @@ export interface AuditSlice {
   readonly rejects: ReadonlyMap<string, RejectRow>;
   /** Each open link's label, for `rejects.via` when no device is known (section 6). */
   readonly links: ReadonlyMap<LinkId, string>;
+  /** The links closed most recently, oldest first, whose labels `links` still keeps. */
+  readonly closedLinks: readonly LinkId[];
   readonly retention: Retention;
   /** Whether the size guard is shortening history, as the writer's outcomes said (section 6). */
   readonly history: HistoryTrim;
@@ -73,6 +75,7 @@ export const EMPTY_AUDIT_SLICE: AuditSlice = {
   rejectMinute: undefined,
   rejects: new Map(),
   links: new Map(),
+  closedLinks: [],
   retention: { routineDays: D57_ROUTINE_DAYS, eventDays: D57_EVENT_DAYS },
   history: NOT_TRIMMING,
 };

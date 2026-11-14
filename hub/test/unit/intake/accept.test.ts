@@ -209,6 +209,7 @@ describe("rejected-packets.json, case by case", () => {
         gateway: deviceId(90),
         link: linkId(1),
         gatewayCounter: 0,
+        gatewayLink: "network",
         gatewayMicros: 0,
         endedAt: mono(0),
         rssiDbm: 0,
@@ -302,6 +303,17 @@ describe("the order of checks and the hub's own reasons (section 8)", () => {
       ["unknownAddress", 0x04030201],
     ]);
     expect(opened).toBe(0);
+    // The gateway's forwarded packet is a row of its own, its inside refused, so it is found by
+    // the gateway and its counter (D110); its body is the forwarded packet, the refused one inside.
+    const carriers = b
+      .records()
+      .flatMap((r) => (r.kind === "rx" && r.row.type === MessageType.ForwardedPacket ? [r] : []));
+    expect(carriers.map((r) => [r.table, r.row.gatewayId, r.row.gwCounter])).toEqual([
+      ["routine", null, null],
+    ]);
+    const carrier = carriers[0]?.row;
+    expect(carrier?.deviceId).not.toBeNull();
+    expect(toHex(carrier?.body.slice(-packet.length) ?? new Uint8Array())).toBe(toHex(packet));
   });
 
   test("a copy heard by a second gateway is a duplicate counted for that gateway; one copy is accepted", () => {
@@ -353,6 +365,7 @@ describe("the order of checks and the hub's own reasons (section 8)", () => {
     b.hear(packet, mono(20 * SECOND), 5);
     expect(b.messages("rejected").map((r) => r.reason)).toEqual(["unknownType", "duplicate"]);
     const rx = b.records().flatMap((r) => (r.kind === "rx" ? [[r.table, r.row.type]] : []));
+    // The replay is a duplicate: no row of its own, counted in `rejects` for its gateway (D110).
     expect(rx).toEqual([["event", 0x7f]]);
   });
 });
@@ -472,7 +485,8 @@ describe("log entries and readings (section 8)", () => {
       settingsVersion: 1,
     };
     b.hear(b.seal(0, started, 64), mono(10 * SECOND), 5);
-    expect(b.decisions("device_started").map((d) => d.value)).toEqual([4 * 0x10000 + 0xbeef]);
+    // The reset cause; the last fatal error is in the Started body of the rx row it names (FW5).
+    expect(b.decisions("device_started").map((d) => d.value)).toEqual([4]);
     expect(lastOut(b).length).toBeGreaterThan(0);
   });
 });

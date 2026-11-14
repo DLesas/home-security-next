@@ -102,9 +102,21 @@ export class ScriptedGateway implements ScriptedDevice {
     return mono(Math.ceil((micros - clockOffsetMicros) / (1 + drift)));
   }
 
+  /** The counter of the last packet it sealed: it has sent the hub every one up to it. */
+  get lastCounter(): number {
+    return this.#counter - 1;
+  }
+
   get session(): Uint8Array | undefined {
     return this.#session;
   }
+
+  /**
+   * Whether every connection's settings are answered with Started, as the bench's test gateway
+   * does; false: only the first, as the firmware does (once per start-up).
+   */
+  startedOnEveryConnection = true;
+  #startedSent = false;
 
   /** A hello on a new connection, with a fresh random (§7, "Gateway connection"). */
   hello(): Uint8Array | undefined {
@@ -173,6 +185,10 @@ export class ScriptedGateway implements ScriptedDevice {
       case MessageType.GatewaySettings: {
         const settings: Fields<typeof MessageType.GatewaySettings> = message;
         this.settings = settings;
+        // The firmware sends Started once per start-up (firmware-design.md section 7): a
+        // gateway that only reconnected proves its session with its next status or forward.
+        if (!this.startedOnEveryConnection && this.#startedSent) return [];
+        this.#startedSent = true;
         const started = this.#sealOnSession({
           type: MessageType.Started,
           role: 3,

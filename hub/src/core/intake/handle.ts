@@ -140,11 +140,60 @@ function rxRow(
           : PacketPath.Usb,
     gatewayId: lora?.gateway ?? null,
     gwUs: lora?.gatewayMicros ?? null,
+    gwCounter: lora?.gatewayCounter ?? null,
     rssi: lora?.rssiDbm ?? null,
     snrQ: lora?.snrQuarterDb ?? null,
     rate: lora?.dataRate ?? null,
     body,
   };
+}
+
+/**
+ * The gateway's own forwarded packet, as a row of its own, when what it carried made none: its
+ * inside was refused (a bad tag, an unknown address, a replay…), a duplicate copy apart. Every packet a gateway
+ * sends the hub is then found by gateway and counter (D110): a carried packet's row by
+ * `gateway_id` and `gw_counter`, this row by `device_id` and `counter`. Its body is the forwarded
+ * packet's plaintext after the type byte, the refused packet inside it as received.
+ */
+function carrierRecord(
+  ctx: Context,
+  arrival: Arrival,
+  bytes: Uint8Array,
+): Result<Internal[], CoreFault> {
+  if (arrival.path !== "lora") return ok([]);
+  const forwarded: Message = {
+    type: MessageType.ForwardedPacket,
+    receivedAtMicros: arrival.gatewayMicros,
+    rssiDbm: arrival.rssiDbm,
+    snrQuarterDb: arrival.snrQuarterDb,
+    dataRate: arrival.dataRate,
+    siteChannel: arrival.siteChannel,
+    packet: bytes,
+  };
+  return orFault(ctx, safeEncodeMessage(forwarded)).andThen((plaintext) =>
+    ctx.records.take().map((seq): Internal[] => [
+      recordMessage("routine", {
+        kind: "rx",
+        table: "routine",
+        row: {
+          seq,
+          atMs: ctx.now.wall,
+          clockOk: ctx.now.wallTrusted,
+          deviceId: arrival.gateway,
+          type: MessageType.ForwardedPacket,
+          counter: arrival.gatewayCounter,
+          path: arrival.gatewayLink === "usb" ? PacketPath.Usb : PacketPath.Wifi,
+          gatewayId: null,
+          gwUs: arrival.gatewayMicros,
+          gwCounter: null,
+          rssi: arrival.rssiDbm,
+          snrQ: arrival.snrQuarterDb,
+          rate: arrival.dataRate,
+          body: plaintext.slice(1),
+        },
+      }),
+    ]),
+  );
 }
 
 /** When the packet ended on the hub's clock: the gateway's mapped time, or now on a link. */
@@ -299,8 +348,9 @@ function onAccepted(
                   kind: "device_started",
                   device: known.device,
                   cause: seq,
-                  // FW5: the reset cause and the last fatal error, in one value.
-                  value: message.resetCause * 0x10000 + message.lastFatalError,
+                  // FW5: the reset cause; the last fatal error is in the Started body of the
+                  // `rx` row the decision names as its cause, as the protocol encodes it.
+                  value: message.resetCause,
                 },
                 "now",
               ).map((m): readonly Out[] => [m])
@@ -355,7 +405,10 @@ function onAuthenticInvalid(
   const type = unknownTypeOf(verdict.error);
   const view = { ...ctx.view, intake: next };
   if (type === undefined) {
-    return ok({ slice: next, out: [counted, ...stateWrite(view, known.device, "routine")] });
+    return carrierRecord(ctx, arrival, bytes).map((carrier) => ({
+      slice: next,
+      out: [counted, ...carrier, ...stateWrite(view, known.device, "routine")],
+    }));
   }
   return ctx.records.take().map((seq) => ({
     slice: next,
@@ -405,10 +458,18 @@ function onPacket(slice: IntakeSlice, bytes: Uint8Array, arrival: Arrival, ctx: 
                   at: ctx.now.mono,
                 }
               : undefined;
-          return ok({
+          // A duplicate makes no row: its packet is the first copy's row, and the copy is counted
+          // in `rejects` for its gateway and minute (section 6); a row each would double the
+          // records of a home whose gateways all hear every sensor.
+          const carried =
+            verdict.reason === "duplicate" ? ok([]) : carrierRecord(ctx, arrival, bytes);
+          return carried.map((carrier) => ({
             slice: duplicate ? withCopy(ctx, slice, copier, arrival) : slice,
-            out: [rejectedMessage(arrival, bytes, verdict.reason, verdict.address, copy)],
-          });
+            out: [
+              rejectedMessage(arrival, bytes, verdict.reason, verdict.address, copy),
+              ...carrier,
+            ],
+          }));
         }
         case "authenticInvalid":
           return onAuthenticInvalid(slice, verdict, arrival, bytes, ctx);

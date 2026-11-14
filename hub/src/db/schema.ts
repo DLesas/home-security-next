@@ -210,6 +210,8 @@ const rxColumns = () => ({
   snrQ: integer("snr_q"),
   rate: integer("rate"),
   body: bytes("body").notNull(),
+  // Added by migration 1, so last (D110: the carrying gateway packet's counter).
+  gwCounter: integer("gw_counter"),
 });
 
 const txColumns = () => ({
@@ -225,6 +227,8 @@ const txColumns = () => ({
   outcome: integer("outcome").notNull(),
   gwSentUs: integer("gw_sent_us"),
   body: bytes("body").notNull(),
+  // Added by migration 1, so last (D110: the reporting transmit result's counter).
+  resultCounter: integer("result_counter"),
 });
 
 export const rxRoutine = sqliteTable("rx_routine", rxColumns());

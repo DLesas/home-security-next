@@ -8,6 +8,13 @@
       "when": 1794584719219,
       "tag": "0000_initial",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1794610680339,
+      "tag": "0001_gateway_counters",
+      "breakpoints": true
     }
   ]
 }

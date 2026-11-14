@@ -12,6 +12,15 @@ import type { DurableSnapshot } from "../../../src/core/model/events.ts";
 import { sensorConfig } from "../../scenarios/alarm/harness.ts";
 import { decisionsIn, Direct, report, SECOND, SIREN, sirenSnapshot } from "../sirens/direct.ts";
 
+/** A `siren_command` decision as action and seconds: its value, and its detail's body (§6). */
+function commandOf(row: {
+  readonly value: number | null;
+  readonly detail: Uint8Array | null;
+}): [number, number] {
+  const detail = row.detail ?? new Uint8Array(3);
+  return [row.value ?? -1, new DataView(detail.buffer, detail.byteOffset).getUint16(1, true)];
+}
+
 const FRONT = deviceId(100);
 
 /** A snapshot of boot 1 whose last commit was at 50 s, with a countdown and maybe an alarm. */
@@ -149,7 +158,7 @@ describe("a saved alarm at boot (D80, D113)", () => {
     d.at = mono(10 * SECOND);
     const out = d.send({ kind: "downtimeKnown", downtimeMs: 30_000, source: "wallClock" });
     // Until 260 − 30 = 230 s, from 10 s.
-    expect(decisionsIn(out, "siren_command").map((r) => r.value)).toEqual([65_536 + 220]);
+    expect(decisionsIn(out, "siren_command").map(commandOf)).toEqual([[1, 220]]);
   });
 
   test("a siren never seen sounding for the saved alarm is sounded by the correction rule", () => {
@@ -157,7 +166,7 @@ describe("a saved alarm at boot (D80, D113)", () => {
     d.boot(saved({ alarm: true, commanded: false }), 2);
     const out = d.send(report({ state: 0 }, undefined, 9000));
     expect(decisionsIn(out, "alarm_may_be_cut_short")).toEqual([]);
-    expect(decisionsIn(out, "siren_command").map((r) => r.value)).toEqual([65_536 + 260]);
+    expect(decisionsIn(out, "siren_command").map(commandOf)).toEqual([[1, 260]]);
   });
 
   test("D80: a siren reporting sounding is adopted, and its time becomes the alarm's (unknown downtime)", () => {

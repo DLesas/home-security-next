@@ -199,6 +199,7 @@ export function rxRow(s: Seq, device: number, atMs: number, body = new Uint8Arra
     path: 0,
     gatewayId: deviceId(2),
     gwUs: 500_000_000,
+    gwCounter: null,
     rssi: -95,
     snrQ: 32,
     rate: 5,

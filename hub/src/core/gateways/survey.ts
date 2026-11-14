@@ -24,7 +24,7 @@ import type { DomainMessage } from "../model/messages.ts";
 import { answerError, answerOk } from "../control/view.ts";
 import { isNamed, registeredDevices } from "../registry/view.ts";
 import { done, type Outcome, then, withGateway } from "./common.ts";
-import { sendSettings } from "./sessions.ts";
+import { sendSettingsNow } from "./sessions.ts";
 import { configWrite, nextSettingsVersion, rateMask } from "./settings.ts";
 import type { GatewaysSlice, SiteRadio, Survey } from "./state.ts";
 
@@ -54,10 +54,7 @@ export function resettle(slice: GatewaysSlice, site: SiteRadio, ctx: Context): O
         const config = { ...entry.config, version: nextSettingsVersion(entry.config.version) };
         const bumped = { ...entry, config };
         const written = done(withGateway(s, bumped), [configWrite(device, config)]);
-        const session = bumped.live;
-        return session === undefined
-          ? written
-          : then(written, (w) => sendSettings(w, bumped, session, ctx));
+        return then(written, (w) => sendSettingsNow(w, device, ctx));
       }),
     done({ ...slice, site }),
   );
@@ -66,6 +63,40 @@ export function resettle(slice: GatewaysSlice, site: SiteRadio, ctx: Context): O
 function anyPaired(ctx: Context): boolean {
   return registeredDevices(ctx.view).some(
     (row) => (row.role === 1 || row.role === 2) && isNamed(row.state),
+  );
+}
+
+type GatewaySetRequest = Extract<DomainMessage, { readonly kind: "gatewaySettingsRequest" }>;
+
+/**
+ * `hsn gateway set` (section 9): the gateway's own settings changed, a new settings version
+ * written now and sent at once on a live session (section 8, "Gateway sessions"), and the answer.
+ */
+export function setGateway(
+  slice: GatewaysSlice,
+  request: GatewaySetRequest,
+  ctx: Context,
+): Outcome {
+  const entry = slice.gateways.get(request.gateway);
+  if (entry === undefined) {
+    return done(slice, [answerError(request.request, "unknownDevice", "no such gateway")]);
+  }
+  const config = {
+    ...entry.config,
+    ...request.change,
+    version: nextSettingsVersion(entry.config.version),
+  };
+  const changed = { ...entry, config };
+  const written = done(withGateway(slice, changed), [configWrite(entry.device, config)]);
+  const sent = then(written, (s) => sendSettingsNow(s, entry.device, ctx));
+  return then(sent, (s) =>
+    done(s, [
+      answerOk(request.request, {
+        kind: "gatewaySet",
+        name: request.name,
+        version: config.version,
+      }),
+    ]),
   );
 }
 

@@ -44,7 +44,14 @@ import type { InFlight, SentPacket, SirenEntry, SirensSlice } from "./state.ts";
 const COUNTER_LOW_MASK = 0xffff;
 
 /** What `siren_command`'s value packs: action × 65,536 + seconds (`DECISION_KINDS`). */
-const ACTION_SHIFT = 65_536;
+/** A siren command's body as §6 lays it out: the action (1 byte), the seconds (2 bytes, LE). */
+function commandBody(action: number, seconds: number): Uint8Array {
+  const body = new Uint8Array(3);
+  const view = new DataView(body.buffer);
+  view.setUint8(0, action);
+  view.setUint16(1, seconds, true);
+  return body;
+}
 
 /** The low 16 bits of a counter, as a report names it (§6). */
 export function counterLow(counter: number): number {
@@ -170,6 +177,7 @@ export function transmit(
         path: PacketPath.Wifi,
         gatewayId: null,
         requestCounter: null,
+        resultCounter: null,
         rate: null,
         power: null,
         outcome: TxOutcome.HandedToLink,
@@ -290,12 +298,13 @@ export function issue(
               }),
             ];
       const kind = packet.purpose === "sirenCommand" ? "siren_command" : "siren_settings";
-      const value =
-        packet.purpose === "sirenCommand"
-          ? packet.action * ACTION_SHIFT + packet.seconds
-          : entry.settings.version;
+      // A command: its action, and its body as the protocol lays it out (action, then the
+      // seconds, 2 bytes little-endian, §6); settings: their version.
+      const value = packet.purpose === "sirenCommand" ? packet.action : entry.settings.version;
+      const detail =
+        packet.purpose === "sirenCommand" ? commandBody(packet.action, packet.seconds) : undefined;
       const placed: SirensSlice = { ...slice, sirens: new Map(slice.sirens).set(siren, next) };
-      return decide(ctx, "routine", kind, siren, cause, value).andThen((decision) =>
+      return decide(ctx, "routine", kind, siren, cause, value, detail).andThen((decision) =>
         then(ok({ slice: placed, out: [...saved, decision] }), (s) =>
           then(transmit(s, ctx, siren, { wifi: true, lora: true }), (sent) =>
             noPathRecorded(sent, ctx, siren, cause),

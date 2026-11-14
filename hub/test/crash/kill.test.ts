@@ -20,6 +20,7 @@ import { DEVICE_PATH } from "../../src/shell/links/websocket.ts";
 import { openStore } from "../../src/shell/storage/store.ts";
 import { siteRowAt } from "../scenarios/sensors/bench.ts";
 import { SeededBytes } from "../world/entropy.ts";
+import { endProcesses, spawnTracked } from "../world/processes.ts";
 import { ScriptedGateway } from "../world/scripted-gateway.ts";
 
 const RUNS = Number(process.env.HSN_KILL9_RUNS ?? 8);
@@ -34,7 +35,8 @@ const POLL_MS = 20;
 
 // Short, so the control socket's path stays under 104 bytes (section 9).
 const dataDir = mkdtempSync("/tmp/hsn-k9-");
-afterAll(() => {
+afterAll(async () => {
+  await endProcesses();
   rmSync(dataDir, { recursive: true, force: true });
 });
 
@@ -112,7 +114,7 @@ async function oneRun(
   counters: Map<number, number>,
   run: number,
 ): Promise<string | undefined> {
-  const hub = Bun.spawn(
+  const hub = spawnTracked(
     ["bun", MAIN, "--data", dataDir, "--port", String(port), "--no-usb-watch"],
     {
       stdout: "ignore",

@@ -35,6 +35,8 @@ export interface StoreOptions {
   readonly platform: NodeJS.Platform;
   /** The key store's `applyCommitted` (section 3). */
   readonly onCommitted?: (ops: readonly StoreOp[]) => void;
+  /** The writer's stopwatch, for commit durations (lockstep: one that reads no host clock). */
+  readonly stopwatch?: () => number;
 }
 
 export interface OpenedStore {
@@ -117,6 +119,7 @@ function start(
     rules: options.rules.persistence,
     durable: committedResumePoints(snapshot.value),
     ...(options.onCommitted === undefined ? {} : { onCommitted: options.onCommitted }),
+    ...(options.stopwatch === undefined ? {} : { stopwatch: options.stopwatch }),
     onFailed: (error) => {
       const now = options.clock.now();
       // Best effort: a disk that cannot commit may not append either; the core records it too.

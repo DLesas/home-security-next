@@ -43,6 +43,7 @@ usage: hsn [--data <folder>] [--socket <path>] [--json] [--timeout <s>] <command
   sensor set <name> countdown=<s> heartbeat=<units> link-check=<n> reply-rate=<DRn|learn> correction=<units|learn>
   siren set <name> max=<s>
   siren test <name> [<s>]
+  gateway set <name> status=<s> interference=<dB>/<s> power=<dBm> siren-power=<dBm>
   site show | site survey
   site set channel=<868.1|868.3|868.5> rate=<DRn> countdown=<s> auto-stop=<s>
   site wifi --name <name> --password <password|->   (- reads the password from standard input)

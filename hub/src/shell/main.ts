@@ -1,7 +1,8 @@
 #!/usr/bin/env bun
 /**
  * The hub's process (hub-design.md sections 4, 7 and 10): `bun hub/src/shell/main.ts [--data
- * <folder>] [--port <n>] [--serial <path>]… [--no-usb-watch]`.
+ * <folder>] [--port <n>] [--serial <path>]… [--no-usb-watch]`, or with `--bench-lockstep
+ * <socket>` the bench's lockstep mode (section 11, `lockstep/wire.ts`).
  *
  * At start, in order (section 7, "Hub restart"): the data folder and the storage (migrations,
  * section 5's settings, the snapshot, how the last run ended); the hub's signing keys, made and
@@ -37,6 +38,7 @@ import {
 } from "./clock/time-trust.ts";
 import { UnixControlServer } from "./control/server.ts";
 import { HubLoop } from "./loop.ts";
+import { runLockstep } from "./lockstep/wire.ts";
 import { LinkRegistry } from "./links/registry.ts";
 import { SerialLinks } from "./links/serial.ts";
 import { UsbWatch } from "./links/usb-watch.ts";
@@ -60,6 +62,8 @@ export interface MainOptions {
   readonly port: number;
   readonly serial: readonly string[];
   readonly watchUsb: boolean;
+  /** `--bench-lockstep <socket>`: the controller's socket (section 11); undefined otherwise. */
+  readonly lockstep: string | undefined;
 }
 
 /** The command line, as `MainOptions`, or the problem with it. */
@@ -71,6 +75,7 @@ export function parseMainArgs(
   let port = DEFAULT_PORT;
   const serial: string[] = [];
   let watchUsb = true;
+  let lockstep: string | undefined;
   for (let i = 0; i < argv.length; i++) {
     const word = argv[i];
     const value = argv[i + 1];
@@ -93,13 +98,18 @@ export function parseMainArgs(
       case "--no-usb-watch":
         watchUsb = false;
         break;
+      case "--bench-lockstep":
+        if (value === undefined) return "--bench-lockstep needs a socket path";
+        lockstep = value;
+        i++;
+        break;
       default:
         return `unknown option ${word ?? ""}`;
     }
   }
   const dataDir = dataFolder(data, env);
   if (dataDir === undefined) return "no data folder: give --data or set HSN_DATA_DIR";
-  return { dataDir, port, serial, watchUsb };
+  return { dataDir, port, serial, watchUsb, lockstep };
 }
 
 function say(message: string): void {
@@ -320,5 +330,10 @@ if (import.meta.main) {
     say(options);
     process.exit(2);
   }
-  process.exit(await runHub(options));
+  // In lockstep the controller is the clock, the links and the control socket (section 11).
+  process.exit(
+    options.lockstep === undefined
+      ? await runHub(options)
+      : await runLockstep({ socketPath: options.lockstep, dataDir: options.dataDir, say }),
+  );
 }

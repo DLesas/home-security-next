@@ -176,7 +176,7 @@ export function formatResult(result: CommandResult): readonly string[] {
           );
     case "usbAdd":
       return [
-        `added ${printable(result.name)}: ${result.role}, address ${hex32(result.address)}; it restarts, and is contacted at its first packet`,
+        `added ${printable(result.name)}: ${result.role}, device ${result.device}, address ${hex32(result.address)}, chip ${result.chip}; it restarts, and is contacted at its first packet`,
       ];
     case "usbErase":
       return [`Erase sent to ${printable(result.port)}; the board restarts unpaired`];
@@ -185,6 +185,7 @@ export function formatResult(result: CommandResult): readonly string[] {
     case "deviceRemove":
       return [`removed ${printable(result.name)}: its key is deleted, its history kept`];
     case "sensorSet":
+    case "gatewaySet":
     case "sirenSet":
       return [`${printable(result.name)}: settings version ${result.version}`];
     case "sirenTest":

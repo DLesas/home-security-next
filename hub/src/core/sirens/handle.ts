@@ -45,6 +45,7 @@ function onRadioResult(slice: SirensSlice, ctx: Context, result: Message<"radioR
     result.outcome,
     result.sentGatewayMicros,
     result.requestCounter,
+    result.resultCounter,
   );
 }
 
@@ -59,6 +60,7 @@ function recordOutcome(
   outcome: TxOutcome,
   sentGatewayMicros: number | undefined,
   requestCounter: number | undefined,
+  resultCounter: number | undefined,
 ): Changing {
   const packet = slice.sent.get(ref);
   if (packet === undefined) return unchanged(slice);
@@ -71,6 +73,7 @@ function recordOutcome(
     path: packet.path,
     gatewayId: packet.gateway ?? null,
     requestCounter: requestCounter ?? null,
+    resultCounter: resultCounter ?? null,
     rate: packet.rate ?? null,
     power: packet.power ?? null,
     outcome,
@@ -133,6 +136,7 @@ function route(slice: SirensSlice, message: Internal, ctx: Context): Changing {
         ctx,
         message.ref,
         message.error === "notDurable" ? TxOutcome.HeldBack : TxOutcome.SendFailed,
+        undefined,
         undefined,
         undefined,
       );

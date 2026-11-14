@@ -43,6 +43,7 @@ export function radioResult(
   gateway: DeviceId | undefined,
   outcome: TxOutcome,
   sentGatewayMicros?: number,
+  resultCounter?: number,
 ): Internal {
   return {
     kind: "radioResult",
@@ -50,6 +51,7 @@ export function radioResult(
     device: out.device,
     gateway,
     requestCounter: out.requestCounter,
+    resultCounter,
     outcome,
     sentGatewayMicros,
   };
@@ -207,16 +209,19 @@ export function handleTransmitResult(
   slice: GatewaysSlice,
   entry: GatewayEntry,
   result: TransmitResultMessage,
+  resultCounter: number,
+  late: () => Outcome,
 ): Outcome {
   const request = entry.requests.find((r) => r.requestCounter === result.requestCounter);
-  // A result for a request already given up on (or never made) changes nothing.
-  if (request === undefined) return done(slice);
+  // A result for a request already given up on (or never made) changes nothing, but is the
+  // gateway's packet: `late` records it as a row of its own, so it can be found (D110).
+  if (request === undefined) return late();
   const outcome = outcomeOf(result.result);
   const resolved = resolveRequests(slice, entry, (r) => r === request, outcome);
   const sentAt = outcome === TxOutcome.Sent ? result.sentAtMicros : undefined;
   // The outcome is recorded once, on the packet's `tx` row its module writes from this result
   // (section 6), kept as long as the packet it answers: no decision row of its own.
-  return done(resolved.slice, [radioResult(request, entry.device, outcome, sentAt)]);
+  return done(resolved.slice, [radioResult(request, entry.device, outcome, sentAt, resultCounter)]);
 }
 
 /** A request's time ran out with no result (section 7): "no result", handled as not sent. */

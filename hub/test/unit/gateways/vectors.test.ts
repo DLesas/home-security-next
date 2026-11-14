@@ -147,6 +147,8 @@ describe("packets from the gateway, opened into their fields", () => {
           device: deviceOf(SENSOR_ADDRESS),
           gateway: GATEWAY,
           requestCounter: c.fields.requestCounter,
+          // The result packet's own counter, for the tx row (D110).
+          resultCounter: c.counter,
           outcome,
           sentGatewayMicros: outcome === TxOutcome.Sent ? c.fields.sentAtMicros : undefined,
         },

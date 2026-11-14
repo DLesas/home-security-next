@@ -20,9 +20,9 @@ const MB = 1024 * 1024;
 export interface SizeGuardRules {
   /** `max_page_count` in bytes: SQLite refuses to grow the file past it (240 MB ‡). */
   readonly hardStopBytes: number;
-  /** Trimming starts when the pages in use pass this (220 MB ‡) ... */
+  /** Trimming starts when the pages in use pass this (225 MB ‡) ... */
   readonly startBytes: number;
-  /** ... and goes on until they are back under this (205 MB ‡). */
+  /** ... and goes on until they are back under this (210 MB ‡). */
   readonly stopBytes: number;
   /** Rows deleted from each table a trimming commit (5,000 ‡). */
   readonly rowsPerCommit: number;
@@ -195,7 +195,7 @@ export interface HubRules {
   };
   /** Gateways and transmit requests (sections 7 and 8). */
   readonly gateways: {
-    /** A second session unproven after 10 s ‡ is closed. */
+    /** A second session unproven after the status interval and 10 s ‡ more is closed. */
     readonly unprovenSessionMs: number;
     /** No transmit result by the latest moment + 5 s ‡ is "no result" ... */
     readonly resultGraceMs: number;
@@ -351,8 +351,8 @@ export const DEFAULT_RULES: HubRules = {
     flushBytes: 512 * 1024,
     sizeGuard: {
       hardStopBytes: 240 * MB,
-      startBytes: 220 * MB,
-      stopBytes: 205 * MB,
+      startBytes: 225 * MB,
+      stopBytes: 210 * MB,
       rowsPerCommit: 5_000,
       routineProtectedMs: 24 * HOUR,
       eventProtectedMs: 30 * DAY,

@@ -111,6 +111,26 @@ describe("every command of section 9 is routed (translate)", () => {
       { kind: "sirenSettingsRequest", siren: deviceId(5), maxSoundS: 120, ...asked },
     ],
     [
+      { kind: "gatewaySet", name: "gw1", statusS: 20, interferenceDb: 12, interferenceS: 40 },
+      {
+        kind: "gatewaySettingsRequest",
+        gateway: deviceId(2),
+        name: "gw1",
+        change: { statusIntervalS: 20, interferenceDb: 12, interferenceS: 40 },
+        ...asked,
+      },
+    ],
+    [
+      { kind: "gatewaySet", name: "gw1", powerDbm: 20, sirenPowerDbm: -3 },
+      {
+        kind: "gatewaySettingsRequest",
+        gateway: deviceId(2),
+        name: "gw1",
+        change: { defaultPowerDbm: 20, sirenPowerDbm: -3 },
+        ...asked,
+      },
+    ],
+    [
       { kind: "sirenTest", name: "hall" },
       { kind: "sirenTestRequest", siren: deviceId(5), seconds: undefined, ...asked },
     ],
@@ -228,6 +248,12 @@ describe("refusals control can see itself", () => {
     ],
     ["a sensor named as a siren", { kind: "sirenSet", name: "front", max: 3 }, "unknownDevice"],
     ["a sensor set with nothing to set", { kind: "sensorSet", name: "front" }, "badRequest"],
+    [
+      "a sensor named as a gateway",
+      { kind: "gatewaySet", name: "front", powerDbm: 3 },
+      "unknownDevice",
+    ],
+    ["a gateway set with nothing to set", { kind: "gatewaySet", name: "gw1" }, "badRequest"],
     ["a site set with nothing to set", { kind: "siteSet" }, "badRequest"],
     ["renaming nobody", { kind: "deviceRename", from: "nobody", to: "x" }, "unknownDevice"],
     ["an unknown port", { kind: "usbAdd", port: "/dev/none", name: "x" }, "unknownPort"],

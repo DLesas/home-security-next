@@ -2,7 +2,8 @@
  * Gateway sessions (hub-design.md section 8, "Gateway sessions"; section 7, "Gateway
  * connection"; protocol.md §4): the hello's counter rule and its write-now, the welcome with the
  * input's entropy and the settings after it, keeping the live session until the new one is
- * proven, closing an unproven one after 10 s ‡, and the session counter rule.
+ * proven, closing an unproven one while another is live (after the status interval and 10 s ‡),
+ * keeping one when none is, and the session counter rule.
  */
 import { describe, expect, test } from "bun:test";
 import {
@@ -13,7 +14,7 @@ import {
   toHex,
   TransmitPriority,
 } from "@hsn/protocol";
-import { linkId, sendRef } from "../../../src/core/model/ids.ts";
+import { linkId, requestId, sendRef, seq } from "../../../src/core/model/ids.ts";
 import { TxOutcome } from "../../../src/core/model/rows.ts";
 import { DEFAULT_RULES } from "../../../src/core/model/rules.ts";
 import {
@@ -37,7 +38,8 @@ import {
 
 const GATEWAY = deviceOf(GATEWAY_ADDRESS);
 const SESSION = sessionBinding(GATEWAY_RANDOM, HUB_RANDOM);
-const UNPROVEN_MS = DEFAULT_RULES.gateways.unprovenSessionMs;
+/** A second session's time to prove itself: the status interval (30 s, §6) and 10 s ‡. */
+const UNPROVEN_MS = 30_000 + DEFAULT_RULES.gateways.unprovenSessionMs;
 
 /** A hello from the vectors' gateway with its own random and counter. */
 function hello(counter: number, random: number): Uint8Array {
@@ -210,16 +212,34 @@ describe("proving a session", () => {
     expect(h.state.gateways.gateways.get(GATEWAY)?.live?.binding).toEqual(SESSION);
   });
 
-  test("unproven, the new link is closed after 10 s ‡, not before", () => {
+  test("while another session is live, an unproven one is closed after the status interval and 10 s ‡, not before", () => {
+    const h = new Harness();
+    connectVectors(h, linkId(1));
+    const link = h.open(2);
+    h.frame(link, hello(5000, 0x33));
+    expect(effectsOf(h.advance(UNPROVEN_MS - 1).effects, "close")).toEqual([]);
+    const closing = h.advance(1);
+    expect(effectsOf(closing.effects, "close")).toEqual([
+      { kind: "close", link, reason: "gateway session not proven" },
+    ]);
+    // Recorded: the close and why (section 6, `gateway_link_closed` 1).
+    expect(decisionsIn(closing.messages)).toEqual(["gateway_link_closed"]);
+    expect(h.state.gateways.gateways.get(GATEWAY)?.candidates).toEqual([]);
+  });
+
+  test("with none live, an unproven one waits (a reconnected gateway sends no Started) until its first status proves it", () => {
     const h = new Harness();
     h.boot();
     const link = h.open(1);
+    h.entropy = new Uint8Array(8).fill(0x34);
     h.frame(link, hello(5000, 0x33));
-    expect(effectsOf(h.advance(UNPROVEN_MS - 1).effects, "close")).toEqual([]);
-    expect(effectsOf(h.advance(1).effects, "close")).toEqual([
-      { kind: "close", link, reason: "gateway session not proven" },
+    expect(effectsOf(h.advance(10 * UNPROVEN_MS).effects, "close")).toEqual([]);
+    expect(h.state.gateways.gateways.get(GATEWAY)?.candidates).toHaveLength(1);
+    const proof = h.frame(link, status(5001, session(0x33, new Uint8Array(8).fill(0x34))));
+    expect(ofKind(proof.messages, "gatewayUp")).toEqual([
+      { kind: "gatewayUp", gateway: GATEWAY, link },
     ]);
-    expect(h.state.gateways.gateways.get(GATEWAY)?.candidates).toEqual([]);
+    expect(h.state.gateways.gateways.get(GATEWAY)?.live?.link).toBe(link);
   });
 
   test("a live session is kept for everything until the new one is proven, then its link is closed", () => {
@@ -249,6 +269,11 @@ describe("proving a session", () => {
     const proof = h.frame(second, started(3001, newSession));
     expect(effectsOf(proof.effects, "close")).toEqual([
       { kind: "close", link: linkId(1), reason: "gateway session replaced" },
+    ]);
+    // Recorded: the proof by the Started's counter, and the old link's close (section 6).
+    expect(decisionsIn(proof.messages).slice(0, 2)).toEqual([
+      "gateway_session_proven",
+      "gateway_link_closed",
     ]);
     expect(ofKind(proof.messages, "radioResult").map((r) => [r.ref, r.outcome])).toEqual([
       [sendRef(7), TxOutcome.NoResult],
@@ -416,5 +441,121 @@ describe("a closed link", () => {
     ]);
     expect(h.state.gateways.gateways.get(GATEWAY)?.live).toBeUndefined();
     expect(h.state.gateways.timers.filter((t) => t.key.kind === "transmitResult")).toEqual([]);
+  });
+});
+
+describe("hsn gateway set (section 9)", () => {
+  const asked = { request: requestId(4), actor: "dimitri", record: seq(50) };
+  const change = {
+    statusIntervalS: 20,
+    interferenceDb: 12,
+    interferenceS: 40,
+    defaultPowerDbm: 20,
+  };
+
+  test("writes a new settings version now, sends it on the live session, and answers with the version", () => {
+    const h = new Harness();
+    connectVectors(h, linkId(1));
+    const out = h.input({
+      kind: "gatewaySettingsRequest",
+      gateway: GATEWAY,
+      name: "gw1",
+      change,
+      ...asked,
+    });
+    const writes = effectsOf(out.effects, "write").filter((w) => w.op.table === "gateway_config");
+    expect(writes.map((w) => w.durability)).toEqual(["now"]);
+    expect(writes[0]?.op.op === "upsert" ? writes[0].op.row : undefined).toMatchObject({
+      ...change,
+      sirenPowerDbm: 22,
+      version: 2,
+    });
+    const sends = effectsOf(out.effects, "send");
+    expect(sends.map((s) => s.link)).toEqual([linkId(1)]);
+    expect(decisionsIn(out.messages)).toEqual(["gateway_settings"]);
+    expect(ofKind(out.messages, "answer").map((a) => a.reply)).toEqual([
+      {
+        ok: true,
+        result: { kind: "gatewaySet", name: "gw1", version: 2 },
+      },
+    ]);
+  });
+
+  test("with no live session the version is written and waits for the next one", () => {
+    const h = new Harness();
+    h.boot(snapshotWith({ site: vectorSite() }));
+    const out = h.input({
+      kind: "gatewaySettingsRequest",
+      gateway: GATEWAY,
+      name: "gw1",
+      change: { sirenPowerDbm: -3 },
+      ...asked,
+    });
+    expect(effectsOf(out.effects, "send")).toEqual([]);
+    expect(
+      effectsOf(out.effects, "write").map((w) =>
+        w.op.op === "upsert" && w.op.table === "gateway_config"
+          ? w.op.row.sirenPowerDbm
+          : undefined,
+      ),
+    ).toEqual([-3]);
+    expect(ofKind(out.messages, "answer").map((a) => a.reply.ok)).toEqual([true]);
+  });
+});
+
+describe("hsn gateway set reaches the gateway (section 9: sent at once)", () => {
+  const asked = { request: requestId(5), actor: "dimitri", record: seq(51) };
+
+  test("a gateway that has sent only its hello gets the new version on that session at once", () => {
+    const h = new Harness();
+    h.boot(
+      snapshotWith({
+        sendCounters: [],
+        site: vectorSite(),
+        gatewayConfig: [configRow(GATEWAY_ADDRESS, 1, { defaultPowerDbm: 14, sirenPowerDbm: 22 })],
+      }),
+    );
+    const link = h.open(1);
+    h.entropy = HUB_RANDOM;
+    h.frame(link, fieldCase("hello.json", "gateway hello").packet);
+    expect(h.state.gateways.gateways.get(GATEWAY)?.live).toBeUndefined();
+    const out = h.input({
+      kind: "gatewaySettingsRequest",
+      gateway: GATEWAY,
+      name: "gw1",
+      change: { defaultPowerDbm: 20 },
+      ...asked,
+    });
+    expect(effectsOf(out.effects, "send").map((s) => s.link)).toEqual([link]);
+    expect(decisionsIn(out.messages)).toEqual(["gateway_settings"]);
+  });
+
+  test("an offline gateway gets it with the welcome of its next session", () => {
+    const h = new Harness();
+    h.boot(
+      snapshotWith({
+        sendCounters: [],
+        site: vectorSite(),
+        gatewayConfig: [configRow(GATEWAY_ADDRESS, 1, { defaultPowerDbm: 14, sirenPowerDbm: 22 })],
+      }),
+    );
+    const set = h.input({
+      kind: "gatewaySettingsRequest",
+      gateway: GATEWAY,
+      name: "gw1",
+      change: { defaultPowerDbm: 20 },
+      ...asked,
+    });
+    expect(effectsOf(set.effects, "send")).toEqual([]);
+    const link = h.open(1);
+    h.entropy = HUB_RANDOM;
+    const out = h.frame(link, fieldCase("hello.json", "gateway hello").packet);
+    expect(effectsOf(out.effects, "send")).toHaveLength(2);
+    const settings = ofKind(out.messages, "auditRecord").flatMap((m) =>
+      m.record.kind === "decision" && m.record.row.kind === "gateway_settings"
+        ? [m.record.row.value]
+        : [],
+    );
+    expect(settings).toEqual([2]);
   });
 });

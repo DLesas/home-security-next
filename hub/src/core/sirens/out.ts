@@ -82,10 +82,15 @@ export function decide(
   device: DeviceId,
   cause: Seq | undefined,
   value?: number,
+  detail?: Uint8Array,
 ): Result<Internal, CoreFault> {
-  return decision(ctx, durability, { kind, device, cause, value: value ?? null }).map(
-    (decided) => decided.message,
-  );
+  return decision(ctx, durability, {
+    kind,
+    device,
+    cause,
+    value: value ?? null,
+    ...(detail === undefined ? {} : { detail }),
+  }).map((decided) => decided.message);
 }
 
 /** A packet sent to a siren, one row per transmission, in `tx_event` (section 6), routine. */

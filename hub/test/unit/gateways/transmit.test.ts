@@ -266,6 +266,7 @@ describe("results", () => {
           device: SENSOR,
           gateway: GATEWAY,
           requestCounter: 3,
+          resultCounter: 10,
           outcome,
           sentGatewayMicros: outcome === TxOutcome.Sent ? 4242 : undefined,
         },

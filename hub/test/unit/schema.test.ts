@@ -71,23 +71,25 @@ const EXPECTED: Readonly<Record<string, { columns: string; key: string; rowid?: 
   },
   loss_daily: { columns: "device_id day received expected", key: "device_id day", rowid: false },
   rx_routine: {
-    columns: "seq at_ms clock_ok device_id type counter path gateway_id gw_us rssi snr_q rate body",
+    columns:
+      "seq at_ms clock_ok device_id type counter path gateway_id gw_us rssi snr_q rate body gw_counter",
     key: "seq",
   },
   rx_event: {
-    columns: "seq at_ms clock_ok device_id type counter path gateway_id gw_us rssi snr_q rate body",
+    columns:
+      "seq at_ms clock_ok device_id type counter path gateway_id gw_us rssi snr_q rate body gw_counter",
     key: "seq",
   },
   tx_routine: {
     columns:
       "seq at_ms clock_ok device_id type counter path gateway_id request_counter rate power " +
-      "outcome gw_sent_us body",
+      "outcome gw_sent_us body result_counter",
     key: "seq",
   },
   tx_event: {
     columns:
       "seq at_ms clock_ok device_id type counter path gateway_id request_counter rate power " +
-      "outcome gw_sent_us body",
+      "outcome gw_sent_us body result_counter",
     key: "seq",
   },
   decisions: {

@@ -222,6 +222,26 @@ export function route(
         return refuse("badRequest", "nothing to set: give at least one setting");
       return requested({ kind: "sensorSettingsRequest", sensor: row.id, change, ...asked });
     }
+    case "gatewaySet": {
+      const row = working(view, command.name, Role.Gateway);
+      if (row === undefined) return noSuch(command.name, "gateway");
+      const change = {
+        ...(command.statusS === undefined ? {} : { statusIntervalS: command.statusS }),
+        ...(command.interferenceDb === undefined ? {} : { interferenceDb: command.interferenceDb }),
+        ...(command.interferenceS === undefined ? {} : { interferenceS: command.interferenceS }),
+        ...(command.powerDbm === undefined ? {} : { defaultPowerDbm: command.powerDbm }),
+        ...(command.sirenPowerDbm === undefined ? {} : { sirenPowerDbm: command.sirenPowerDbm }),
+      };
+      if (Object.keys(change).length === 0)
+        return refuse("badRequest", "nothing to set: give at least one setting");
+      return requested({
+        kind: "gatewaySettingsRequest",
+        gateway: row.id,
+        name: row.name,
+        change,
+        ...asked,
+      });
+    }
     case "sirenSet":
     case "sirenTest": {
       const row = working(view, command.name, Role.Siren);

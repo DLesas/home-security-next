@@ -29,8 +29,10 @@ export {
   type StreamLine,
 } from "./envelope.ts";
 export {
+  LOCKSTEP_VERSION,
   lockstepFromHub,
   type LockstepFromHub,
+  type LockstepIdle,
   lockstepToHub,
   type LockstepToHub,
 } from "./lockstep.ts";

@@ -22,12 +22,22 @@ export interface SentFrame {
 }
 
 /** The lockstep link's adapter: the bench's link messages in, the hub's frames out. */
+/** A link the hub closed, as `idle.closed` gives it. */
+export interface ClosedLink {
+  readonly link: string;
+  readonly at: number;
+  readonly reason: string;
+}
+
 export class LockstepLinks {
   readonly #registry: LinkRegistry;
   readonly #now: () => number;
   /** The bench's messages not yet released, in the order they came. */
   readonly #waiting: FromBench[] = [];
   readonly #byName = new Map<string, LinkId>();
+  /** Links the hub closed, by name, while the controller has not said they are down. */
+  readonly #closedByHub = new Map<string, LinkId>();
+  readonly #closed: ClosedLink[] = [];
   readonly #sent: SentFrame[] = [];
 
   /** `now` is the bench's time the loop runs at, in microseconds. */
@@ -59,6 +69,11 @@ export class LockstepLinks {
     return due.map(({ message }) => message.at);
   }
 
+  /** The links the hub closed since the last call, for the `idle` answer (version 2). */
+  drainClosed(): readonly ClosedLink[] {
+    return this.#closed.splice(0);
+  }
+
   /** The frames sent since the last call, for the `idle` answer. */
   drainSent(): readonly SentFrame[] {
     return this.#sent.splice(0);
@@ -71,15 +86,21 @@ export class LockstepLinks {
         const name = message.link;
         const id = this.#registry.open(message.kind, name, {
           send: (bytes) => this.#send(name, bytes),
-          close: () => {
+          close: (reason) => {
+            // The hub closed it: told to the controller in the next `idle` (section 11); a frame
+            // it sends on the link before its `linkDown` or `linkUp` is counted, not lost.
             this.#byName.delete(name);
+            this.#closedByHub.set(name, id);
+            this.#closed.push({ link: name, at: this.#now(), reason });
             return ok(undefined);
           },
         });
         this.#byName.set(name, id);
+        this.#closedByHub.delete(name);
         return;
       }
       case "linkDown": {
+        this.#closedByHub.delete(message.link);
         const id = this.#byName.get(message.link);
         if (id === undefined) return;
         this.#byName.delete(message.link);
@@ -89,6 +110,10 @@ export class LockstepLinks {
       case "frame": {
         const id = this.#byName.get(message.link);
         if (id !== undefined) this.#registry.frame(id, fromHex(message.bytes));
+        else {
+          const closed = this.#closedByHub.get(message.link);
+          if (closed !== undefined) this.#registry.frameAfterClose(closed);
+        }
         return;
       }
     }

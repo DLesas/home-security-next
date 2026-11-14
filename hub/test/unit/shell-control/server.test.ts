@@ -70,6 +70,7 @@ function rx(device: number, atMs: number): AuditRecord {
       path: 0,
       gatewayId: deviceId(2),
       gwUs: 5,
+      gwCounter: null,
       rssi: -90,
       snrQ: 20,
       rate: 5,

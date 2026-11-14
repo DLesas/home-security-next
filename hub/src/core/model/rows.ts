@@ -287,6 +287,11 @@ export interface RxRow {
   readonly gatewayId: DeviceId | null;
   /** The gateway's microsecond clock when the packet finished arriving. */
   readonly gwUs: number | null;
+  /**
+   * The counter of the gateway's forwarded packet that carried it (D110): with `gatewayId`, every
+   * packet a gateway sent the hub is found by gateway and counter. Null when no gateway was.
+   */
+  readonly gwCounter: number | null;
   readonly rssi: number | null;
   readonly snrQ: number | null;
   readonly rate: number | null;
@@ -306,6 +311,8 @@ export interface TxRow {
   readonly gatewayId: DeviceId | null;
   /** The transmit request's gateway counter, for packets sent through a gateway. */
   readonly requestCounter: number | null;
+  /** The counter of the gateway's transmit result that reported the outcome; null for none. */
+  readonly resultCounter: number | null;
   readonly rate: number | null;
   readonly power: number | null;
   readonly outcome: TxOutcome;

@@ -74,6 +74,30 @@ const sensorSet = z
   })
   .readonly();
 
+/**
+ * A gateway's transmit power: the SX1262's range, −9 to +22 dBm (§6, Transmit request: the
+ * gateway clamps, the hub accepts only values inside it).
+ */
+const gatewayPower = z.int().min(-9).max(22);
+/** A status interval, alert level or alert duration: one byte, and 0 is not valid (§6). */
+const gatewayByte = z.int().min(1).max(255);
+
+/**
+ * `hsn gateway set <name> status=<s> interference=<dB>/<s> power=<dBm> siren-power=<dBm>`: the
+ * gateway's own settings (§6, `gateway_config`); each given changes, the rest stay.
+ */
+const gatewaySet = z
+  .strictObject({
+    kind: z.literal("gatewaySet"),
+    name: deviceName,
+    statusS: gatewayByte.optional(),
+    interferenceDb: gatewayByte.optional(),
+    interferenceS: gatewayByte.optional(),
+    powerDbm: gatewayPower.optional(),
+    sirenPowerDbm: gatewayPower.optional(),
+  })
+  .readonly();
+
 /** `hsn siren set <name> max=<s>` (§6, siren settings: 0 is not valid). */
 const sirenSet = z
   .strictObject({ kind: z.literal("sirenSet"), name: deviceName, max: z.int().min(1).max(0xffff) })
@@ -163,6 +187,7 @@ export const controlCommand = z.discriminatedUnion("kind", [
   deviceRename,
   deviceRemove,
   sensorSet,
+  gatewaySet,
   sirenSet,
   sirenTest,
   siteShow,

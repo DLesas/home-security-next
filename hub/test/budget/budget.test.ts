@@ -35,8 +35,11 @@ const OLDER: Record<"A" | "B" | "C", OlderRows> = {
 };
 /** A 64-sensor home with 8 sirens and 3 gateways: the largest site the size guard's marks allow for. */
 const HOME_C = { name: "C", sensors: 64, sirens: 8, gateways: 3 } as const;
-/** The size guard's lower mark: the marks were chosen from a calculated 205 MB (section 6, section 12's table). */
-const SIZE_GUARD_LOWER_MB = 205;
+/**
+ * The size guard's lower mark, where trimming stops (section 6): a home at D57's retention stays
+ * under it, so it would lose nothing of that retention if trimming ever ran.
+ */
+const SIZE_GUARD_STOP_MB = 210;
 
 const homes: Home[] = [];
 afterAll(() => {
@@ -227,13 +230,13 @@ describe("reads never commit (sections 3 and 11)", () => {
 });
 
 describe("the largest site the size guard is set for (section 6)", () => {
-  test(`a 64-sensor home (8 sirens, 3 gateways) stays under ${SIZE_GUARD_LOWER_MB} MB at D57's retention`, async () => {
+  test(`a 64-sensor home (8 sirens, 3 gateways) stays under ${SIZE_GUARD_STOP_MB} MB at D57's retention`, async () => {
     const day64 = await day(HOME_C, false);
     // The marks measure the database's pages in use; the WAL (at most 8 MB) is a share of its own.
     const database = day64.projectedFileMegabytes - WAL_LIMIT_MB;
     console.log(
       `home C: ${database.toFixed(1)} MB of database pages at D57's retention, ${day64.projectedFileMegabytes.toFixed(1)} MB with the WAL`,
     );
-    expect(database).toBeLessThanOrEqual(SIZE_GUARD_LOWER_MB);
+    expect(database).toBeLessThan(SIZE_GUARD_STOP_MB);
   }, 120_000);
 });

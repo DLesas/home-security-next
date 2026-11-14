@@ -7,8 +7,11 @@
  * - The hub answers with a welcome bound to the hello's random and carrying its own, 8 bytes of
  *   the input's entropy, then with the settings, bound to the new session.
  * - A live session is kept for everything until the new one is proven by its first
- *   session-bound packet; the old link is then closed. Unproven after 10 s ‡, the new link is
- *   closed. With no live session, several may wait, and the first proven wins.
+ *   session-bound packet; the old link is then closed. A gateway sends Started only once per
+ *   start-up, so one that reconnects (after a Wi-Fi drop or a hub restart) proves its session
+ *   with its first status or forwarded packet: while another session is live, an unproven one
+ *   is closed after the gateway's status interval and 10 s ‡; with none live, it is kept until
+ *   it is proven or its link closes, and several may wait; the first proven wins.
  */
 import { err, Result } from "neverthrow";
 import {
@@ -21,12 +24,14 @@ import {
 import type { Effect } from "../model/effects.ts";
 import type { LinkKind } from "../model/events.ts";
 import type { Context } from "../model/handler.ts";
-import { type LinkId, type SendRef, moduleSendRef } from "../model/ids.ts";
+import { type DeviceId, type LinkId, type SendRef, moduleSendRef } from "../model/ids.ts";
 import type { Internal } from "../model/messages.ts";
 import { TxOutcome } from "../model/rows.ts";
 import { monoAfterMs } from "../model/time.ts";
+
+const MS_PER_SECOND = 1000;
 import { rejection } from "../links/view.ts";
-import { asFault, clearTimer, done, type Outcome, setTimer, withGateway } from "./common.ts";
+import { asFault, clearTimer, done, type Outcome, setTimer, then, withGateway } from "./common.ts";
 import { EMPTY_CLOCK } from "./clock.ts";
 import { deviceStateWrite } from "./persist.ts";
 import { decision, received, sent } from "./records.ts";
@@ -48,6 +53,30 @@ function ownRef(slice: GatewaysSlice): {
     slice: { ...slice, nextOwnRef: slice.nextOwnRef + 1 },
     ref: moduleSendRef("gateways", slice.nextOwnRef),
   };
+}
+
+/**
+ * A changed version sent at once (section 8, "Gateway sessions": on every change) on every
+ * session the gateway may be using: the live one, and each welcomed but not yet proven. A
+ * gateway that has sent only its hello is on one of those; one with no session gets the version
+ * with its next welcome, and a status naming another version brings it again.
+ */
+export function sendSettingsNow(slice: GatewaysSlice, device: DeviceId, ctx: Context): Outcome {
+  const entry = slice.gateways.get(device);
+  if (entry === undefined) return done(slice);
+  const live = entry.live;
+  const sessions = [
+    ...(live === undefined ? [] : [live]),
+    ...entry.candidates.filter((c) => c.link !== live?.link),
+  ];
+  return sessions.reduce<Outcome>(
+    (result, session) =>
+      then(result, (s) => {
+        const current = s.gateways.get(device);
+        return current === undefined ? done(s) : sendSettings(s, current, session, ctx);
+      }),
+    done(slice),
+  );
 }
 
 /**
@@ -152,7 +181,10 @@ export function handleHello(
   return sealToGateway(ctx, heard, welcome, welcomeBinding).andThen((sealed) => {
     const { slice: refd, ref } = ownRef(withGateway(slice, sealed.entry));
     const timed = setTimer(refd, {
-      at: monoAfterMs(ctx.now.mono, ctx.deps.rules.gateways.unprovenSessionMs),
+      at: monoAfterMs(
+        ctx.now.mono,
+        entry.config.statusIntervalS * MS_PER_SECOND + ctx.deps.rules.gateways.unprovenSessionMs,
+      ),
       key: { module: "gateways", kind: "unprovenSession", link },
     });
     const hello_rx = received(ctx, entry.device, hello, header.counter, kind, "event");
@@ -260,15 +292,35 @@ export function handleLinkClosed(slice: GatewaysSlice, link: LinkId): Outcome {
   return done(next, out);
 }
 
-/** A new session was not proven within 10 s ‡ (section 8): it is dropped and its link closed. */
-export function handleUnproven(slice: GatewaysSlice, link: LinkId): Outcome {
+/** `gateway_link_closed`'s value: why the hub closed a gateway's link (section 6). */
+export const LINK_CLOSED_REPLACED = 0;
+export const LINK_CLOSED_NOT_PROVEN = 1;
+
+/**
+ * A new session not proven while another is live, by the status interval and 10 s ‡ (section
+ * 8): it is dropped and its link closed, and the close recorded.
+ */
+export function handleUnproven(slice: GatewaysSlice, link: LinkId, ctx: Context): Outcome {
   let next = clearTimer(slice, { module: "gateways", kind: "unprovenSession", link });
-  let dropped = false;
+  let dropped: GatewayEntry | undefined;
   for (const entry of slice.gateways.values()) {
+    // With no live session nothing competes: the candidate waits for its first status or
+    // forwarded packet, which is all a reconnected gateway sends (no Started, FD 7).
+    if (entry.live === undefined) continue;
     const candidates = entry.candidates.filter((c) => c.link !== link);
     if (candidates.length === entry.candidates.length) continue;
-    dropped = true;
+    dropped = entry;
     next = withGateway(next, { ...entry, candidates });
   }
-  return done(next, dropped ? closeUnlessLive(next, link, "gateway session not proven") : []);
+  if (dropped === undefined) return done(next);
+  const closes = closeUnlessLive(next, link, "gateway session not proven");
+  if (closes.length === 0) return done(next);
+  return decision(ctx, {
+    kind: "gateway_link_closed",
+    device: dropped.device,
+    cause: null,
+    value: LINK_CLOSED_NOT_PROVEN,
+    detail: null,
+    durability: "routine",
+  }).andThen((record) => done(next, [...closes, record]));
 }

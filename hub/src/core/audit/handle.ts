@@ -130,13 +130,16 @@ function onRecord(
       ORIGIN,
       "warning_cap_reached",
       `more than ${ctx.deps.rules.persistence.warningsPerHourPerSource} warnings within an hour from ${source}; the rest of the hour's go with the routine batch`,
-      { source },
+      { source, perHour: ctx.deps.rules.persistence.warningsPerHourPerSource },
     );
     if (notice.isErr()) return err(notice.error);
     out.push(recordEffect("now", notice.value));
   }
   return ok({ slice: { ...slice, warnings }, out });
 }
+
+/** Closed links whose labels are kept for `rejects.via`. */
+const CLOSED_LABELS_KEPT = 64;
 
 /** `rejects.via`: the gateway, or the link by its label when no device is known (section 6). */
 function viaOf(slice: AuditSlice, source: RejectSource): string {
@@ -393,7 +396,8 @@ function onCommit(slice: AuditSlice, outcome: CommitOutcome, ctx: Context): Step
           WRITER_ORIGIN,
           "commit_failed",
           `a commit failed: ${outcome.message}`,
-          null,
+          // `full`: refused at the size guard's hard stop (section 6).
+          { error: outcome.message, full: outcome.full === true },
         )
       : hubEvent(ctx, "info", WRITER_ORIGIN, "commit_recovered", "commits work again", null);
   if (event.isErr()) return err(event.error);
@@ -454,9 +458,16 @@ function handle(slice: AuditSlice, message: Internal, ctx: Context): Step {
       return ok({ slice: { ...slice, links }, out: [] });
     }
     case "linkClosed": {
+      // A closed link's label is kept a while (the newest 64 ‡): a frame that still arrives on
+      // it in lockstep (`closedLink`) is counted under its name.
       const links = new Map(slice.links);
+      const label = links.get(message.link);
       links.delete(message.link);
-      return ok({ slice: { ...slice, links }, out: [] });
+      if (label !== undefined) links.set(message.link, label);
+      const closed = [...slice.closedLinks.filter((l) => l !== message.link), message.link];
+      const kept = closed.slice(-CLOSED_LABELS_KEPT);
+      for (const gone of closed.slice(0, -CLOSED_LABELS_KEPT)) links.delete(gone);
+      return ok({ slice: { ...slice, links, closedLinks: kept }, out: [] });
     }
     case "timer":
       return message.key.module === "audit" ? onRetention(slice, ctx) : ok({ slice, out: [] });

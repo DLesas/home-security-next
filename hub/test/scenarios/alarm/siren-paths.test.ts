@@ -9,6 +9,15 @@ import { SirenAction, SirenState } from "@hsn/protocol";
 import { ArmState } from "../../../src/core/model/rows.ts";
 import { actedCommands, Home, SECOND } from "./harness.ts";
 
+/** A `siren_command` decision as action and seconds: its value, and its detail's body (§6). */
+function commandOf(row: {
+  readonly value: number | null;
+  readonly detail: Uint8Array | null;
+}): [number, number] {
+  const detail = row.detail ?? new Uint8Array(3);
+  return [row.value ?? -1, new DataView(detail.buffer, detail.byteOffset).getUint16(1, true)];
+}
+
 const armedFront = [{ name: "front", arm: ArmState.Armed }] as const;
 
 describe("a siren on one path", () => {
@@ -104,7 +113,10 @@ describe("a command never confirmed (SR4, §7 step 4)", () => {
     h.door("front", true);
     h.advance(30_500);
     const command = h.decisions("siren_command").at(-1);
-    expect(command?.value).toBe(SirenAction.SoundAlarm * 65_536 + 300);
+    expect(command === undefined ? undefined : commandOf(command)).toEqual([
+      SirenAction.SoundAlarm,
+      300,
+    ]);
     const device = h.sirenDevice("hall");
     const counter = h.sends((s) => s.counters.some((c) => c.device === device)).at(-1)
       ?.counters[0]?.counter;

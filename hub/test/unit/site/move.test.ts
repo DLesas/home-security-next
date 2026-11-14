@@ -94,7 +94,10 @@ describe("the request", () => {
       moveChannel: NEXT_SETTING_STAYS,
       moveActor: "test",
     });
-    expect(b.decisions("move_requested").map((d) => d.value)).toEqual([0xff * 256 + 2]);
+    // The move's number, and its target as a reply's next settings: channel (0xFF stays), rate.
+    expect(b.decisions("move_requested").map((d) => [d.value, [...(d.detail ?? [])]])).toEqual([
+      [1, [0xff, 2]],
+    ]);
   });
 
   test("is refused while a move is in progress, and when nothing would change", () => {

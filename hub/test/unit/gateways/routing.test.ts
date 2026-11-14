@@ -166,6 +166,7 @@ function accepted(
       gateway,
       link: linkId(1),
       gatewayCounter: 1,
+      gatewayLink: "network",
       gatewayMicros: 0,
       endedAt: mono(0),
       rssiDbm: -90,

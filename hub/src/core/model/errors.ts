@@ -47,4 +47,9 @@ export type RejectReason =
   /** A session-bound gateway packet with no session on its link. */
   | "noSession"
   /** A text message on a WebSocket link, which closes it with code 1003 (section 3). */
-  | "textFrame";
+  | "textFrame"
+  /**
+   * A frame on a link the hub had closed. Only in lockstep, whose controller is not told of the
+   * hub's closes (section 11) and may go on sending: such a frame is counted, never lost.
+   */
+  | "closedLink";

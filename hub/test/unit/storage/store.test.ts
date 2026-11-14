@@ -467,6 +467,13 @@ describe("retention's deletes (section 6)", () => {
 
 describe("migrations (section 6)", () => {
   /** A copy of the migrations with one more, that changes `devices`. */
+  /** The code's own migrations: a test's added one is the next after them. */
+  const CODE_MIGRATIONS = (
+    JSON.parse(readFileSync(join(MIGRATIONS, "meta", "_journal.json"), "utf8")) as {
+      entries: unknown[];
+    }
+  ).entries.length;
+
   function withMigration(sql: string): string {
     const folder = join(dir.path, "migrations");
     cpSync(MIGRATIONS, folder, { recursive: true });
@@ -531,8 +538,13 @@ describe("migrations (section 6)", () => {
         const columns = db
           .query<{ name: string; type: string }, []>(`PRAGMA table_info("${table}")`)
           .all();
+        // SQLite reports the declared types in capitals.
         const values = columns.map((c) =>
-          c.type === "blob" ? "x'00'" : c.type === "text" ? "'clean'" : "1",
+          c.type.toLowerCase() === "blob"
+            ? "x'00'"
+            : c.type.toLowerCase() === "text"
+              ? "'clean'"
+              : "1",
         );
         db.run(`INSERT INTO "${table}" VALUES (${values.join(", ")})`);
       }
@@ -557,8 +569,10 @@ describe("migrations (section 6)", () => {
     store.db.close();
     const folder = withMigration("ALTER TABLE `devices` ADD `note` text;");
     store = openTestStore(dir.path, clock, { migrations: folder });
-    expect(store.migrations.ran).toEqual([1]);
-    expect(store.migrations.backup).toBe(backupPath(join(dir.path, DATABASE_FILE), 1));
+    expect(store.migrations.ran).toEqual([CODE_MIGRATIONS]);
+    expect(store.migrations.backup).toBe(
+      backupPath(join(dir.path, DATABASE_FILE), CODE_MIGRATIONS),
+    );
     expect(store.snapshot.devices).toEqual([deviceRow(3)]);
     expect(store.db.query("SELECT note FROM devices").all()).toEqual([{ note: null }]);
     const copy = new Database(store.migrations.backup ?? "", { readonly: true });
@@ -574,9 +588,9 @@ describe("migrations (section 6)", () => {
     store.db.close();
     const folder = withMigration("ALTER TABLE `devices` ADD `note` text;");
     store = openTestStore(dir.path, clock, { migrations: folder });
-    expect(store.migrations.backup).toBe(backupPath(db, 1));
+    expect(store.migrations.backup).toBe(backupPath(db, CODE_MIGRATIONS));
     expect(readdirSync(dir.path).filter((name) => name.includes(".before-"))).toEqual([
-      `${DATABASE_FILE}.before-1`,
+      `${DATABASE_FILE}.before-${CODE_MIGRATIONS}`,
     ]);
   });
 
@@ -584,7 +598,7 @@ describe("migrations (section 6)", () => {
     store.db.close();
     const folder = withMigration("CREATE TABLE `extra` (`x` integer);");
     store = openTestStore(dir.path, clock, { migrations: folder });
-    expect(store.migrations.ran).toEqual([1]);
+    expect(store.migrations.ran).toEqual([CODE_MIGRATIONS]);
     expect(store.migrations.backup).toBeUndefined();
   });
 

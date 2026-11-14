@@ -98,6 +98,8 @@ export interface WriterOptions {
   readonly onCommitted?: (ops: readonly StoreOp[]) => void;
   /** Told every failed commit at once, for `fatal.log` (section 5, "A failed flush"). */
   readonly onFailed?: (error: StorageError) => void;
+  /** Milliseconds, for a commit's duration only; lockstep gives one that reads no host clock. */
+  readonly stopwatch?: () => number;
 }
 
 /** The commit mark: device 0's row of `device_state`, written in every commit (section 5). */
@@ -253,11 +255,12 @@ export class SqliteWriter implements Writer {
       return ok({ items: 0, durationMs: 0, committed: false, reason, walFrames: 0 });
     }
     const now = this.#options.clock.now();
-    const started = performance.now();
+    const stopwatch = this.#options.stopwatch ?? (() => performance.now());
+    const started = stopwatch();
     // Routine commits trim while trimming is on, inside their own transaction (section 6).
     const routine = reason === "due" || reason === "size" || reason === "cadence";
     const applied = this.#commit(items, now, reason === "stop", routine && this.#trimming);
-    const durationMs = performance.now() - started;
+    const durationMs = stopwatch() - started;
     if (applied.isErr()) return err(this.#failed(applied.error, now.mono));
     const frames = this.#committed(items, now.mono, reason);
     this.#guarded(applied.value);
@@ -399,7 +402,7 @@ export class SqliteWriter implements Writer {
     // One failure waiting to be told is enough: the newest replaces it.
     this.#outcomes = [
       ...this.#outcomes.filter((o) => o.kind !== "failed"),
-      { kind: "failed", message },
+      { kind: "failed", message, full },
     ];
     this.#options.onFailed?.(error);
     return error;

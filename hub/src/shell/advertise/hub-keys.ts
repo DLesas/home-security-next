@@ -7,6 +7,7 @@
  *
  * Every call into Web Crypto goes through `shell/safe/crypto.ts` (section 10).
  */
+import { createECDH } from "node:crypto";
 import { HUB_IDENTITY_LENGTH, hubIdentity, SIGNING_KEY_LENGTH } from "@hsn/protocol";
 import type { Result } from "neverthrow";
 import { err, errAsync, ok, okAsync, ResultAsync } from "neverthrow";
@@ -77,6 +78,60 @@ export function makeHubKeys(
   );
 }
 
+/** Base64url without padding, as JWK writes key material. */
+function base64url(bytes: Uint8Array): string {
+  return Buffer.from(bytes).toString("base64url");
+}
+
+/**
+ * A key pair made from a 32-byte private scalar, with no random source: the lockstep hub's keys
+ * (section 11), so the same seed gives the same keys, signatures aside, on every run. The scalar
+ * must be below the curve's order, which a hash of the seed is but for a chance of 2^-32.
+ */
+export function seededHubKeys(
+  scalar: Uint8Array,
+  subtle: SubtleCrypto = crypto.subtle,
+): ResultAsync<HubKeysRow, HubError> {
+  const point = cryptoCall(ORIGIN, "the public key could not be computed", () => {
+    const ecdh = createECDH("prime256v1");
+    ecdh.setPrivateKey(scalar);
+    return new Uint8Array(ecdh.getPublicKey());
+  });
+  if (point.isErr()) return errAsync(point.error);
+  const raw = point.value;
+  return publicXY(raw).asyncAndThen((signingPublic) => {
+    const jwk = {
+      kty: "EC",
+      crv: "P-256",
+      d: base64url(scalar),
+      x: base64url(signingPublic.subarray(0, 32)),
+      y: base64url(signingPublic.subarray(32)),
+      ext: true,
+    };
+    return safeSubtle(
+      ORIGIN,
+      "the private key could not be imported",
+      (s) => s.importKey("jwk", jwk, ALGORITHM, true, ["sign"]),
+      subtle,
+    )
+      .andThen((key) =>
+        safeSubtle(
+          ORIGIN,
+          "the private key could not be exported",
+          (s) => s.exportKey("pkcs8", key),
+          subtle,
+        ),
+      )
+      .andThen((pkcs8) =>
+        identityOf(signingPublic).map((identity): HubKeysRow => ({
+          signingPrivate: new Uint8Array(pkcs8),
+          signingPublic,
+          identity,
+        })),
+      );
+  });
+}
+
 /** The public half and identity, checked: the identity must be the hash of the key (§9). */
 export function checkHubKeys(keys: HubPublicKeys): Result<HubPublicKeys, HubError> {
   if (
@@ -109,12 +164,13 @@ export function ensureHubKeys(
   stored: HubPublicKeys | undefined,
   writer: Pick<Writer, "stage" | "flush">,
   subtle: SubtleCrypto = crypto.subtle,
+  make: () => ResultAsync<HubKeysRow, HubError> = () => makeHubKeys(subtle),
 ): ResultAsync<HubPublicKeys, HubError> {
   if (stored !== undefined) {
     const checked = checkHubKeys(stored);
     return checked.isOk() ? okAsync(checked.value) : errAsync(checked.error);
   }
-  return makeHubKeys(subtle).andThen((row) => {
+  return make().andThen((row) => {
     writer.stage([
       { kind: "write", durability: "now", op: { table: "hub_keys", op: "upsert", row } },
     ]);

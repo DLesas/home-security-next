@@ -31,6 +31,8 @@ export type Arrival =
       readonly snrQuarterDb: number;
       readonly dataRate: number;
       readonly siteChannel: number;
+      /** The gateway's own link, as its packets' `path` (section 6). */
+      readonly gatewayLink: "usb" | "network";
     }
   | { readonly path: "wifi"; readonly link: LinkId }
   | { readonly path: "usb"; readonly link: LinkId };
@@ -166,6 +168,8 @@ export type DomainMessage =
       readonly gateway: DeviceId | undefined;
       /** The transmit request's gateway counter (`tx_*.request_counter`), when one was sent. */
       readonly requestCounter: number | undefined;
+      /** The counter of the transmit result packet that reported it (`tx_*.result_counter`). */
+      readonly resultCounter: number | undefined;
       readonly outcome: TxOutcome;
       readonly sentGatewayMicros: number | undefined;
     }
@@ -255,6 +259,20 @@ export type DomainMessage =
       readonly kind: "sensorSettingsRequest";
       readonly sensor: DeviceId;
       readonly change: SensorSettingsChange;
+    } & Requested)
+  | ({
+      readonly kind: "gatewaySettingsRequest";
+      readonly gateway: DeviceId;
+      /** The gateway's name, for the answer. */
+      readonly name: string;
+      /** The settings that change; the others stay (`hsn gateway set`). */
+      readonly change: {
+        readonly statusIntervalS?: number;
+        readonly interferenceDb?: number;
+        readonly interferenceS?: number;
+        readonly defaultPowerDbm?: number;
+        readonly sirenPowerDbm?: number;
+      };
     } & Requested)
   | ({
       readonly kind: "sirenSettingsRequest";

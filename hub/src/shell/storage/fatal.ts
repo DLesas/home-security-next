@@ -193,7 +193,8 @@ export function recordUncaught(
     origin,
     code: "uncaught",
     message,
-    detail,
+    // Fields as JSON, as every `hub_events.detail` (section 6): the stack is one of them.
+    detail: JSON.stringify({ origin, stack: detail }),
   };
   const committed = commitFatal(context, row);
   if (committed.isErr()) failures.push(committed.error);

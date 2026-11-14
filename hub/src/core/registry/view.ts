@@ -19,7 +19,7 @@ export {
   nameProblem,
   RETIRED_NAME_PREFIX,
 } from "./names.ts";
-export { type HubEventSpec, hubEventRecord } from "./records.ts";
+export { DEVICE_STATE_NAMES, deviceFields, type HubEventSpec, hubEventRecord } from "./records.ts";
 export type { HubSigningIdentity } from "./state.ts";
 
 /** States whose row still holds its name and address in use for a device that is there. */

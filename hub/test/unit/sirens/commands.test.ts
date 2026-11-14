@@ -22,6 +22,15 @@ import {
   WIFI,
 } from "./direct.ts";
 
+/** A `siren_command` decision as action and seconds: its value, and its detail's body (§6). */
+function commandOf(row: {
+  readonly value: number | null;
+  readonly detail: Uint8Array | null;
+}): [number, number] {
+  const detail = row.detail ?? new Uint8Array(3);
+  return [row.value ?? -1, new DataView(detail.buffer, detail.byteOffset).getUint16(1, true)];
+}
+
 function hub(counter = 1024): Direct {
   const d = new Direct();
   d.boot(sirenSnapshot({}, counter));
@@ -47,8 +56,8 @@ describe("commands (§7 steps 1 to 5)", () => {
   test("SR5: the seconds are what is left, capped by the siren's longest sound", () => {
     const d = hub();
     const out = d.send(sound(1_000 * SECOND));
-    expect(decisionsIn(out, "siren_command").map((r) => r.value)).toEqual([
-      SirenAction.SoundAlarm * 65_536 + 900,
+    expect(decisionsIn(out, "siren_command").map(commandOf)).toEqual([
+      [SirenAction.SoundAlarm, 900],
     ]);
   });
 
@@ -207,8 +216,8 @@ describe("correcting a siren (section 8)", () => {
     const d = alarmed(100 * SECOND);
     d.at = mono(90 * SECOND);
     const out = d.send(report({ state: SirenState.Off }, undefined, 6000));
-    expect(decisionsIn(out, "siren_command").map((r) => r.value)).toEqual([
-      SirenAction.SoundAlarm * 65_536 + 10,
+    expect(decisionsIn(out, "siren_command").map(commandOf)).toEqual([
+      [SirenAction.SoundAlarm, 10],
     ]);
   });
 
@@ -296,9 +305,7 @@ describe("report now after a start (§7 'Hub restart', D80)", () => {
     d.boot(sirenSnapshot());
     d.at = mono(119 * SECOND);
     const out = d.send({ kind: "gatewayUp", gateway: GATEWAY, link: linkId(94) });
-    expect(decisionsIn(out, "siren_command").map((r) => r.value)).toEqual([
-      SirenAction.ReportNow * 65_536,
-    ]);
+    expect(decisionsIn(out, "siren_command").map(commandOf)).toEqual([[SirenAction.ReportNow, 0]]);
     const late = new Direct();
     late.boot(sirenSnapshot());
     late.advanceTo(120 * SECOND);
@@ -380,6 +387,7 @@ describe("outcomes and records (section 6, D110)", () => {
       device: SIREN,
       gateway: GATEWAY,
       requestCounter: 61_440,
+      resultCounter: undefined,
       outcome: 3,
       sentGatewayMicros: undefined,
     });
