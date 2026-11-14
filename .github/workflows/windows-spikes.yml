@@ -21,9 +21,9 @@ jobs:
     timeout-minutes: 30
     env:
       WINSW_VERSION: v2.12.0
-      # WinSW publishes no checksums. The first run prints the file's SHA-256 in W3's
-      # "environment" line; review it and set it here, and later runs refuse any other file.
-      WINSW_SHA256: ""
+      # WinSW publishes no checksums: this is v2.12.0's WinSW-x64.exe as the first hosted run
+      # (43628502580) fetched it. Any other file is refused.
+      WINSW_SHA256: 05b82d46ad331cc16bdc00de5c6332c1ef818df8ceefcd49c726553209b3a0da
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

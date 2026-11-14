@@ -23,7 +23,9 @@ The design's recommendation: (a) if the spike shows Bun reaching `AF_UNIX` on Wi
 
 ## What the scripts test
 
-`w2.ts` runs as the runner's own account, which is both the "installing user" and an administrator. It makes a second local account (`hsnspike2`, an ordinary member of Users, with a password made in the run and never printed) and runs `client.ts` as that account through `Start-Process -Credential`, or, if that cannot start a process from the runner's session, through a scheduled task. The first result line says which worked; without either, every second-account line is "inconclusive".
+`w2.ts` runs as the runner's own account, which is both the "installing user" and an administrator. It makes a second local account (`hsnspike2`, an ordinary member of Users, with a 14-character password made in the run and never printed) with `net user … /add`, which needs no PowerShell module, and runs `client.ts` as that account by the first of three ways that works: `CreateProcessWithLogonW` through `bun:ffi` (`logon.ts`, no PowerShell at all); `Start-Process -Credential` in Windows PowerShell started with no `PSModulePath`; a scheduled task run once as the account. The "second account" line says which worked. A second-account test that could not run is "inconclusive", never "pass".
+
+Why: in the first hosted run the account was never made. Windows PowerShell 5, started from a step running under PowerShell 7, inherited 7's `PSModulePath` and could not load `Microsoft.PowerShell.Security` (`ConvertTo-SecureString`), a known clash on these runners. Every PowerShell the scripts start now gets no `PSModulePath`, so it rebuilds its own; and the account and the first way of running as it no longer use PowerShell. (`net user` takes the password on its command line, visible to the runner's other processes for that moment; it is a throwaway account on a throwaway machine.)
 
 - **(a) AF_UNIX**, with both `node:net` and `Bun.listen`, in four folders: the user's temp folder, an ordinary folder (inherited access list, so every user may connect), a folder locked to the user, Administrators and SYSTEM (`icacls /inheritance:r`), and `%ProgramData%`. For each: does it listen; is there a socket file at the path (a path mapped to a named pipe leaves none); does the same user connect with `node:net` and with `Bun.connect`; does the second account connect. In the ordinary folder, the socket file's own access list is then set to the three accounts and the second account tried again.
 - **(b) named pipe made by `node:net`** (and by `Bun.listen` on a pipe path): does the second account connect. The design expects yes (open to everyone), which is why the hub refuses it today; that line's "fail" is expected.
@@ -46,10 +48,20 @@ The scripts are outside the root check: `spikes/` is in ESLint's ignores and `.p
 
 ## Results
 
-_To be filled from the first hosted run: the job's summary table and its `windows-spikes` artifact._
+### Run 1 (43628502580, Bun 1.4.2, `windows-latest`)
 
-| Test | Result | Observed |
-| --- | --- | --- |
-| | | |
+| What | Result |
+| --- | --- |
+| AF_UNIX listens and leaves a file at the path, `node:net` and `Bun.listen`, in all four folders | pass |
+| The same user connects to it with `node:net` and with `Bun.connect` | pass |
+| The second account: AF_UNIX, the named pipes, the secret file | not run: the account was not made (above); fixed for run 2 |
+| Loopback TCP: the user with the secret answered, a wrong secret refused, a `fetch` request refused | pass |
+| A real browser's request (headless Edge) | inconclusive: Edge ran with the spike's server blocked (a synchronous spawn held the event loop) and its result was not checked; fixed for run 2, which tells "the page never ran" from "the browser blocked it" and "the port refused it" |
+
+**`stat` of a socket file fails on Windows.** `fs.statSync` (and so `lstat`) of an AF_UNIX socket file fails with `EACCES` for its own creator (`C:\ProgramData\HSN Spike\unix-node.sock`, and every other folder), though `icacls` reads its access list and connecting works: Windows makes the socket a reparse point that `stat` cannot open. So code that checks a socket file's kind (`isSocket()`) or owner (`uid`), as the hub's `shell/control/socket-file.ts` does after `listen`, cannot run on Windows: it would refuse its own socket. On Windows the checks must be on the access list instead: the folder's (and the file's) DACL read with `GetNamedSecurityInfoW` through `bun:ffi`, or set by the installer and trusted. Existence (`existsSync`) works.
+
+### Run 2
+
+_Pending: the second account (and how it ran), the AF_UNIX access lists, the named pipes, the secret file, and the browser._
 
 Verdict: _pending._

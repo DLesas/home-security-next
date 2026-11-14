@@ -94,13 +94,48 @@ export async function runAsync(
   }
 }
 
-export function psAsync(script: string, env: Record<string, string> = {}, timeoutMs = 60_000): Promise<Ran> {
-  return runAsync(["powershell", "-NoProfile", "-NonInteractive", "-Command", script], env, timeoutMs);
+/**
+ * Windows PowerShell 5 (`powershell.exe`), with values passed through the environment, never on
+ * the command line. The runner's steps run under PowerShell 7, whose `PSModulePath` a child
+ * inherits; Windows PowerShell 5 then loads 7's copy of Microsoft.PowerShell.Security and fails
+ * ("the module could not be loaded", the first hosted run). So the child gets no `PSModulePath`
+ * and rebuilds its own default.
+ */
+function powershell(script: string): string[] {
+  return ["powershell", "-NoProfile", "-NonInteractive", "-Command", script];
 }
 
-/** A PowerShell script, values passed through the environment, never on the command line. */
+function cleanEnv(env: Record<string, string>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(process.env))
+    if (v !== undefined && k.toUpperCase() !== "PSMODULEPATH") out[k] = v;
+  return { ...out, ...env };
+}
+
+function runClean(cmd: readonly string[], env: Record<string, string>, timeoutMs: number): Ran {
+  try {
+    const p = Bun.spawnSync([...cmd], { env: cleanEnv(env), stdout: "pipe", stderr: "pipe", timeout: timeoutMs });
+    return { code: p.exitCode, out: p.stdout.toString().trim(), err: p.stderr.toString().trim() };
+  } catch (e) {
+    return { code: null, out: "", err: String(e) };
+  }
+}
+
+export async function psAsync(script: string, env: Record<string, string> = {}, timeoutMs = 60_000): Promise<Ran> {
+  try {
+    const p = Bun.spawn(powershell(script), { env: cleanEnv(env), stdout: "pipe", stderr: "pipe" });
+    const timer = setTimeout(() => p.kill(), timeoutMs);
+    const [out, err] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text()]);
+    const code = await p.exited;
+    clearTimeout(timer);
+    return { code, out: out.trim(), err: err.trim() };
+  } catch (e) {
+    return { code: null, out: "", err: String(e) };
+  }
+}
+
 export function ps(script: string, env: Record<string, string> = {}, timeoutMs = 60_000): Ran {
-  return run(["powershell", "-NoProfile", "-NonInteractive", "-Command", script], env, timeoutMs);
+  return runClean(powershell(script), env, timeoutMs);
 }
 
 export function icacls(path: string, ...args: string[]): Ran {
@@ -163,29 +198,34 @@ export function prepareShared(): { bun: string; client: string; log: Ran[] } {
   return { bun, client, log };
 }
 
-/** A fresh password for the second account, made in the run and never printed. */
+/**
+ * A fresh password for the second account, made in the run and never printed: 14 characters, the
+ * most `net user` takes without asking about older systems, with every class the policy wants.
+ */
 export function newPassword(): string {
-  return `Hs1!${randomBytes(12).toString("base64url")}`;
+  return `Hs1!${randomBytes(8).toString("base64url").slice(0, 10)}`;
 }
 
-/** Creates the second local account (or resets its password). Windows only. */
+/**
+ * Creates the second local account, or resets its password, with `net user` (no PowerShell
+ * module needed), and reads its SID through .NET (no module either). New accounts are members of
+ * Users. Windows only. `out` is the SID when it worked.
+ */
 export function ensureOtherUser(password: string): Ran {
-  return ps(
-    `$ErrorActionPreference = 'Stop'
-     $p = ConvertTo-SecureString $env:HSN_PW -AsPlainText -Force
-     if (Get-LocalUser -Name $env:HSN_USER -ErrorAction SilentlyContinue) {
-       Set-LocalUser -Name $env:HSN_USER -Password $p
-     } else {
-       New-LocalUser -Name $env:HSN_USER -Password $p -PasswordNeverExpires -AccountNeverExpires | Out-Null
-       Add-LocalGroupMember -SID 'S-1-5-32-545' -Member $env:HSN_USER
-     }
-     (Get-LocalUser -Name $env:HSN_USER).SID.Value`,
-    { HSN_USER: OTHER_USER, HSN_PW: password },
+  const exists = run(["net", "user", OTHER_USER]).code === 0;
+  const made = exists
+    ? run(["net", "user", OTHER_USER, password])
+    : run(["net", "user", OTHER_USER, password, "/add", "/expires:never", "/passwordchg:no"]);
+  if (made.code !== 0) return made;
+  const sid = ps(
+    "(New-Object System.Security.Principal.NTAccount($env:HSN_USER)).Translate([System.Security.Principal.SecurityIdentifier]).Value",
+    { HSN_USER: OTHER_USER },
   );
+  return { code: sid.code, out: sid.out, err: sid.err };
 }
 
 export interface AsOther {
-  readonly method: "Start-Process" | "schtasks" | "none";
+  readonly method: "CreateProcessWithLogonW" | "Start-Process" | "schtasks" | "none";
   readonly outcome: Record<string, unknown> | undefined;
   readonly errors: string[];
 }
@@ -193,10 +233,13 @@ export interface AsOther {
 let workingMethod: AsOther["method"] | undefined;
 
 /**
- * Runs the client as the second account and returns what it wrote. First `Start-Process
- * -Credential` (CreateProcessWithLogonW); if that cannot start a process from the runner's
- * session, a scheduled task run once as that account (a batch logon, for which the account is
- * put in Performance Log Users, which holds that right by default and nothing else of note).
+ * Runs the client as the second account and returns what it wrote. Three ways, the first that
+ * works is kept for the rest of the run: `CreateProcessWithLogonW` through `bun:ffi` (no
+ * PowerShell at all); `Start-Process -Credential` in Windows PowerShell with a clean module
+ * path (the same call underneath); a scheduled task run once as that account (a batch logon, for
+ * which the account is put in Performance Log Users, which holds that right by default and
+ * nothing else of note). If none runs, the result is undefined and every test that needed it is
+ * "inconclusive", never "pass".
  */
 export async function asOtherUser(
   password: string,
@@ -220,7 +263,20 @@ export async function asOtherUser(
   const argList = [client, ...args, resultFile].map((a) => `"${a}"`).join(" ");
   const env = { HSN_USER: OTHER_USER, HSN_PW: password, HSN_BUN: bun, HSN_ARGS: argList, HSN_DIR: f.bin };
 
-  if (workingMethod !== "schtasks") {
+  if (workingMethod === undefined || workingMethod === "CreateProcessWithLogonW") {
+    const { runAs } = await import("./logon.ts");
+    const r = await runAs(OTHER_USER, password, bun, [client, ...args, resultFile], f.bin).catch(
+      (e: unknown) => ({ started: false, error: String(e) }),
+    );
+    const got = read();
+    if (got !== undefined) {
+      workingMethod = "CreateProcessWithLogonW";
+      return { method: "CreateProcessWithLogonW", outcome: got, errors };
+    }
+    errors.push(`CreateProcessWithLogonW: ${JSON.stringify(r)}`);
+  }
+
+  if (workingMethod === undefined || workingMethod === "Start-Process") {
     const r = await psAsync(
       `$ErrorActionPreference = 'Stop'
        $p = ConvertTo-SecureString $env:HSN_PW -AsPlainText -Force
@@ -238,11 +294,17 @@ export async function asOtherUser(
     errors.push(`Start-Process: code ${r.code}: ${(r.err || r.out).slice(0, 400)}`);
   }
 
+  if (workingMethod !== undefined && workingMethod !== "schtasks")
+    return { method: "none", outcome: undefined, errors };
   const task = `hsnspike-${label}`.slice(0, 200);
   // A task's command is at most 261 characters: it runs a script that holds the real one.
   const script = join(f.bin, `${label}.cmd`);
   writeFileSync(script, `@"${bun}" ${argList}\r\n`);
-  ps(`Add-LocalGroupMember -SID 'S-1-5-32-559' -Member $env:HSN_USER -ErrorAction SilentlyContinue`, env);
+  // Performance Log Users (S-1-5-32-559), by its name as the SID gives it on this system.
+  ps(
+    "$g = (New-Object System.Security.Principal.SecurityIdentifier('S-1-5-32-559')).Translate([System.Security.Principal.NTAccount]).Value.Split('\\')[-1]; net localgroup $g $env:HSN_USER /add",
+    env,
+  );
   const create = run([
     "schtasks",
     "/Create",

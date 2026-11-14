@@ -26,6 +26,7 @@ import {
   prepareShared,
   report,
   run,
+  runAsync,
   SID,
   type Verdict,
 } from "./lib.ts";
@@ -223,24 +224,61 @@ if (isWindows) {
     reply: pageReply,
     firstLinesSeen: server.seen.slice(before, before + 3),
   });
-  // A real browser, when there is one: headless Edge loading a page that posts to the port.
-  const edge = isWindows ? findEdge() : undefined;
-  if (edge !== undefined) {
-    const page = join(f.out, "page.html");
-    writeFileSync(
-      page,
-      `<!doctype html><script>fetch("http://127.0.0.1:${port}/",{method:"POST",mode:"no-cors",body:"ping\\n"}).finally(()=>{document.title="sent"})</script>`,
-    );
-    const seenBefore = server.seen.length;
-    const r = run([edge, "--headless=new", "--disable-gpu", "--no-first-run", "--virtual-time-budget=5000", "--dump-dom", `file:///${page.replaceAll("\\", "/")}`], {}, 30_000);
-    const seen = server.seen.slice(seenBefore);
-    line("(c) loopback TCP: a real browser page's request (headless Edge) is refused", seen.some((l) => l === "ping") && seen[0] !== secret ? "pass" : seen.length === 0 ? "inconclusive" : "pass", {
-      browser: edge,
-      exit: r.code,
-      linesSeen: seen.slice(0, 4),
-      note: "the server answers nothing but 'refused' to a first line that is not the secret",
+  // A real browser, when there is one: headless Edge loading a page that posts to the port. The
+  // page is served by a second local server, which it also tells when it has run, so a page that
+  // never ran is told apart from a request the browser itself blocked.
+  const edge = isWindows ? findEdge() : process.env["HSN_EDGE"];
+  if (edge !== undefined && existsSync(edge)) {
+    const ran: string[] = [];
+    const pages = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      fetch(request) {
+        const url = new URL(request.url);
+        if (url.pathname === "/ran") {
+          ran.push(url.searchParams.get("r") ?? "");
+          return new Response("ok");
+        }
+        return new Response(
+          `<!doctype html><title>start</title><script>
+fetch("http://127.0.0.1:${port}/",{method:"POST",mode:"no-cors",headers:{"content-type":"text/plain"},body:"ping\\n"})
+  .then(()=>"sent",(e)=>"failed: "+e)
+  .then((r)=>{document.title=r;return fetch("/ran?r="+encodeURIComponent(r))});
+</script>`,
+          { headers: { "content-type": "text/html" } },
+        );
+      },
     });
-  } else line("(c) loopback TCP: a real browser page's request (headless Edge) is refused", "skip", isWindows ? "no Edge found" : "not Windows");
+    const seenBefore = server.seen.length;
+    const profile = join(f.out, "edge-profile");
+    const r = await runAsync(
+      [edge, "--headless=new", "--disable-gpu", "--no-first-run", "--no-default-browser-check", `--user-data-dir=${profile}`, "--virtual-time-budget=10000", "--dump-dom", `http://127.0.0.1:${pages.port}/`],
+      {},
+      45_000,
+    );
+    await Bun.sleep(500);
+    void pages.stop(true);
+    const seen = server.seen.slice(seenBefore);
+    const pageRan = ran.length > 0 || r.out.includes("<title>sent") || r.out.includes("<title>failed");
+    const answered = seen.length > 0 && seen[0] === secret;
+    line(
+      "(c) loopback TCP: a real browser page's request (headless Edge) is refused",
+      !pageRan ? "inconclusive" : answered ? "fail" : "pass",
+      {
+        browser: edge,
+        exit: r.code,
+        pageRan,
+        pageSays: ran,
+        linesSeen: seen.slice(0, 4),
+        meaning: !pageRan
+          ? "the page never ran: nothing is shown either way"
+          : seen.length === 0
+            ? "the browser itself did not deliver the request (Private Network Access or the like)"
+            : "the request reached the port and was refused: its first line is not the secret",
+        stderr: pageRan ? undefined : r.err.slice(-600),
+      },
+    );
+  } else line("(c) loopback TCP: a real browser page's request (headless Edge) is refused", "skip", isWindows ? "no Edge found" : "not Windows (HSN_EDGE names a Chromium to try it)");
   await server.close();
 }
 

@@ -19,7 +19,7 @@
  * it writes the WinSW configurations and runs the stand-in once, and skips the rest.
  */
 import { Database } from "bun:sqlite";
-import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { userInfo } from "node:os";
 import { join } from "node:path";
 import {
@@ -330,7 +330,8 @@ uninstall(hubService);
         grants: grants.map((g) => g.code),
         start: started.code,
         ready: info,
-        socketFile: kind === "unix-node" ? existsSync(socket) && statSync(socket).size >= 0 : undefined,
+        // `stat` of an AF_UNIX socket file fails with EACCES on Windows (the first run): existence only.
+        socketFile: kind === "unix-node" ? existsSync(socket) : undefined,
         folderAcl: aclOf(folder),
         self,
         other,
