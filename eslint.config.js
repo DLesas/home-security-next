@@ -2,6 +2,7 @@
 import eslint from "@eslint/js";
 import { defineConfig } from "eslint/config";
 import tseslint from "typescript-eslint";
+import reactHooks from "eslint-plugin-react-hooks";
 import hsn from "./tools/eslint-plugin-hsn/src/index.ts";
 
 // The hub's layer rules (docs/hub-design.md section 1, and section 10 for `throw` and `try`).
@@ -69,7 +70,7 @@ const onlyFrom = (tag, message, allowed) => ({
 // Allowed sources, as regular expressions. "No `..` after" keeps a path from climbing back out.
 // `@hsn/protocol/app` is the app channel of M2 (m2-design.md section 5): pure, as the device
 // protocol is.
-const PROTOCOL = "@hsn/protocol(?:/app)?$";
+const PROTOCOL = "@hsn/protocol(?:/app|/records)?$";
 const NEVERTHROW = "neverthrow$";
 const OWN_FOLDER = "\\./(?!.*\\.\\.)";
 const CORE_MODEL_OR_UTIL = "\\.\\./(?:model|util)/(?!.*\\.\\.)";
@@ -129,7 +130,17 @@ const FORBIDDEN_IN_CORE = /** @type {const} */ ([
   ["Bun", "the core does not depend on the runtime (section 1)"],
   ["crypto", "randomness comes from the input's entropy, ciphers from deps (section 2)"],
   ["console", "the core records through effects (section 10)"],
+  ["Temporal", "calendar arithmetic is `deps.calendar` (m2-design.md section 2)"],
+  ["Intl", "the core formats nothing for people and reads no locale (m2-design.md section 2)"],
 ]);
+
+/** Locale-dependent methods, which read the host's locale: none in the core (m2-design.md section 2). */
+const LOCALE_METHODS = [
+  "toLocaleString",
+  "toLocaleDateString",
+  "toLocaleTimeString",
+  "localeCompare",
+];
 
 const throwAndTry = [
   {
@@ -187,6 +198,17 @@ export default defineConfig(
     rules: { "hsn/no-literal-text": "error" },
   },
 
+  // React's hooks, for all of the app (section 11, "Step 1, wave 2"): `eslint-plugin-react-hooks`
+  // 7.1.1, pinned, the first release whose peer range takes ESLint 10.
+  {
+    files: ["app/**/*.{ts,tsx}"],
+    plugins: { "react-hooks": reactHooks },
+    rules: {
+      "react-hooks/rules-of-hooks": "error",
+      "react-hooks/exhaustive-deps": "error",
+    },
+  },
+
   // Every Result is used (section 10).
   {
     files: ["hub/**/*.ts", "tools/**/*.ts"],
@@ -219,6 +241,10 @@ export default defineConfig(
           property: "random",
           message: "[core-random] Randomness comes from the input's entropy (section 2).",
         },
+        ...LOCALE_METHODS.map((property) => ({
+          property,
+          message: `[core-locale] ${property} reads the host's locale: the core's output is the same on every computer (m2-design.md section 2).`,
+        })),
       ],
       "no-restricted-syntax": ["error", ...throwAndTry, dynamicImport],
     },

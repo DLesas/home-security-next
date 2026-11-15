@@ -271,7 +271,17 @@ describe.skipIf(python === null)("the bench bridge, against the real hub", () =>
     const port = server.port ?? 0;
     await server.stop(true);
     const hub = Bun.spawn(
-      ["bun", HUB_MAIN, "--data", dataDir, "--port", String(port), "--no-usb-watch"],
+      [
+        "bun",
+        HUB_MAIN,
+        "--data",
+        dataDir,
+        "--port",
+        String(port),
+        "--no-usb-watch",
+        "--app-ports",
+        "0,0",
+      ],
       { stdout: "ignore", stderr: "ignore" },
     );
     running.push(() => {

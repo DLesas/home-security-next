@@ -7,6 +7,8 @@
     "hub/src",
     "hub/test",
     "hub/cli",
+    "hub/launcher",
+    "hub/packaging",
     "hub/drizzle.config.ts",
     "tools/*/src",
     "tools/*/test",
