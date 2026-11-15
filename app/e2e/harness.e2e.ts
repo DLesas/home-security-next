@@ -15,7 +15,7 @@ test.afterAll(async () => {
   await harness.close();
 });
 
-test("the home screen loads under the policy, with its text from the locale, and axe finds nothing", async ({
+test("an unlinked browser is asked to link, under the policy, with its text from the locale, and axe finds nothing", async ({
   page,
 }) => {
   const violations: string[] = [];
@@ -25,8 +25,8 @@ test("the home screen loads under the policy, with its text from the locale, and
     }
   });
   await page.goto(harness.url);
-  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Home");
-  await expect(page.getByTestId("screen-status")).toHaveText("This screen is not built yet.");
+  // The screens are built (A7): a browser that holds no key for this hub is asked to link first.
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Link this browser");
   const axe = await new AxeBuilder({ page }).analyze();
   expect(axe.violations.map((v) => v.id)).toEqual([]);
   // The policy refuses nothing, a style as a script (section 5): the build's hashes cover

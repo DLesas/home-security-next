@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "description": "The app: one codebase for the web build (M2) and the phone (M3), on Expo (docs/m2-design.md section 8).",
-  "main": "expo-router/entry",
+  "main": "src/entry.ts",
   "scripts": {
     "export:web": "expo export --platform web --output-dir dist && bun scripts/csp.ts dist",
     "e2e": "playwright test --config e2e/playwright.config.ts"
@@ -22,6 +22,7 @@
     "i18next": "27.1.1",
     "react": "19.3.0",
     "react-dom": "19.3.0",
+    "toqr": "0.1.1",
     "react-hook-form": "7.92.0",
     "react-i18next": "18.0.1",
     "react-native": "0.88.1",

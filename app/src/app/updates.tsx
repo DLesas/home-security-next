@@ -1,6 +1,16 @@
-/** The updates screen (m2-design.md section 8, "Screens"): a stub until owner A7 builds it. */
-import { StubScreen } from "../ui/screen";
+/** The updates screen (m2-design.md section 8): see `ui/updates.tsx`. */
+import { View } from "react-native";
+import { useTranslation } from "react-i18next";
+import { UpdatesScreen } from "../ui/updates";
+import { Heading } from "../ui/parts";
+import { styles } from "../ui/theme";
 
 export default function Screen() {
-  return <StubScreen titleKey="screens.updates.title" />;
+  const { t } = useTranslation();
+  return (
+    <View role="main" style={styles.main}>
+      <Heading level={1}>{t("screens.updates.title")}</Heading>
+      <UpdatesScreen />
+    </View>
+  );
 }

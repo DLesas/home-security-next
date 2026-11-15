@@ -72,9 +72,13 @@ function serve(): Promise<{ server: Server; url: string }> {
 }
 
 async function startHub(dataDir: string): Promise<ChildProcess> {
-  const hub = spawn("bun", [HUB_MAIN, "--data", dataDir, "--port", "0", "--no-usb-watch"], {
-    stdio: "ignore",
-  });
+  const hub = spawn(
+    "bun",
+    [HUB_MAIN, "--data", dataDir, "--port", "0", "--no-usb-watch", "--app-ports", "0,0"],
+    {
+      stdio: "ignore",
+    },
+  );
   const socket = join(dataDir, "control.sock");
   for (let i = 0; i < 200 && !existsSync(socket); i++) await new Promise((r) => setTimeout(r, 50));
   if (!existsSync(socket)) {
