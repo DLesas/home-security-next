@@ -141,6 +141,8 @@ export class ScriptedSensor {
   listenAtSendRate = false;
   slotted = false;
   localAlarmSounded = false;
+  /** The battery byte its packets carry (§3: 2,500 + 10 × the byte mV); a test may lower it. */
+  batteryCode = 120;
   #counter = SENSOR_STEP;
   #started = false;
   #planned: Mono;
@@ -285,7 +287,7 @@ export class ScriptedSensor {
         buzzing: this.buzzing,
         listeningAtSendRate: this.#atSendRate() || this.#useNext,
       },
-      batteryCode: 120,
+      batteryCode: this.batteryCode,
       temperatureCelsius: 20,
       doorChangeCount: this.changeCount,
       eventAgeSeconds: age,

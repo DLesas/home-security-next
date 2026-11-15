@@ -437,6 +437,10 @@ export type TokenKind = (typeof TokenKind)[keyof typeof TokenKind];
 export const ModeFixed = { No: 0, Away: 1, Disarmed: 2 } as const;
 export type ModeFixed = (typeof ModeFixed)[keyof typeof ModeFixed];
 
+/** `schedules.missed_why` (section 7, D116). */
+export const MissedWhy = { HubOff: 0, ClockNotSet: 1, ClockStepped: 2 } as const;
+export type MissedWhy = (typeof MissedWhy)[keyof typeof MissedWhy];
+
 /** `schedules.action`. */
 export const ScheduleAction = { SwitchMode: 0, Arm: 1, Disarm: 2 } as const;
 export type ScheduleAction = (typeof ScheduleAction)[keyof typeof ScheduleAction];
@@ -494,6 +498,8 @@ export interface LinkTokenRow {
   readonly lookup: Uint8Array;
   readonly kind: TokenKind;
   readonly personId: PersonId | null;
+  /** The name given in `link.create`'s `newPerson {name?}`; null when none was. */
+  readonly personName: string | null;
   readonly createdByClient: ClientId | null;
   readonly createdBoot: BootId;
   readonly createdMono: Mono;
@@ -556,6 +562,12 @@ export interface ScheduleRow {
   readonly lastRunMs: number | null;
   /** Days since 1970-01-01, local: an entry runs at most once per local date. */
   readonly lastRunLocalDate: number | null;
+  /** The first occurrence missed since the entry last ran (D116), kept across a restart; null for none. */
+  readonly missedDueMs: number | null;
+  /** Why it was missed; null for none. */
+  readonly missedWhy: MissedWhy | null;
+  /** How many occurrences were missed in that gap; 0 for none. */
+  readonly missedCount: number;
   readonly revision: number;
 }
 
@@ -656,7 +668,14 @@ export interface UpdateStateRow {
   readonly approvedMs: number | null;
   readonly switchingMs: number | null;
   readonly previousVersion: string | null;
+  /** The last update's end: 0 none, 1 healthy, 2 rolled back (section 9). */
+  readonly lastResult: UpdateResult;
+  readonly lastResultMs: number | null;
 }
+
+/** `update_state.last_result`. */
+export const UpdateResult = { None: 0, Healthy: 1, RolledBack: 2 } as const;
+export type UpdateResult = (typeof UpdateResult)[keyof typeof UpdateResult];
 
 /** One notification raised (section 7), 1 year. */
 export interface NotificationRow {

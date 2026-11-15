@@ -137,6 +137,8 @@ function hub(dataDir: string, port: number, serial: readonly string[] = []) {
       "--port",
       String(port),
       "--no-usb-watch",
+      "--app-ports",
+      "0,0",
       ...serial.flatMap((p) => ["--serial", p]),
     ],
     { stdout: "ignore", stderr: "ignore" },

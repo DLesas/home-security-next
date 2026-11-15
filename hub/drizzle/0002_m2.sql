@@ -75,6 +75,7 @@ CREATE TABLE `link_tokens` (
 	`lookup` blob NOT NULL,
 	`kind` integer NOT NULL,
 	`person_id` integer,
+	`person_name` text,
 	`created_by_client` integer,
 	`created_boot` integer NOT NULL,
 	`created_mono` integer NOT NULL,
@@ -177,6 +178,9 @@ CREATE TABLE `schedules` (
 	`created_by` text NOT NULL,
 	`last_run_ms` integer,
 	`last_run_local_date` integer,
+	`missed_due_ms` integer,
+	`missed_why` integer,
+	`missed_count` integer DEFAULT 0 NOT NULL,
 	`revision` integer NOT NULL
 );
 --> statement-breakpoint
@@ -186,7 +190,9 @@ CREATE TABLE `update_state` (
 	`approved_by` text,
 	`approved_ms` integer,
 	`switching_ms` integer,
-	`previous_version` text
+	`previous_version` text,
+	`last_result` integer DEFAULT 0 NOT NULL,
+	`last_result_ms` integer
 );
 --> statement-breakpoint
 ALTER TABLE `hub_keys` ADD `app_static_private` blob;--> statement-breakpoint

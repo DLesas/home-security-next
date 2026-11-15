@@ -45,9 +45,33 @@ describe("LinkSecrets", () => {
   test("a token is found by its lookup while given, and not once withdrawn", () => {
     const secrets = new MemoryLinkSecrets();
     const psk = new Uint8Array(32).fill(7);
-    secrets.apply(tokenId(4), "link", "0a1b2c3d", psk);
-    expect(secrets.find("0a1b2c3d")).toEqual({ token: tokenId(4), purpose: "link", psk });
-    secrets.apply(tokenId(4), "link", "0a1b2c3d", null);
+    secrets.apply(tokenId(4), "link", false, "0a1b2c3d", psk);
+    expect(secrets.find("0a1b2c3d")).toEqual({
+      token: tokenId(4),
+      purpose: "link",
+      askName: false,
+      psk,
+    });
+    secrets.apply(tokenId(4), "link", false, "0a1b2c3d", null);
     expect(secrets.find("0a1b2c3d")).toBeUndefined();
+  });
+});
+
+describe("LinkSecrets' keys", () => {
+  test("are copies, overwritten with zeros when withdrawn or replaced", () => {
+    const secrets = new MemoryLinkSecrets();
+    const given = new Uint8Array(32).fill(9);
+    secrets.apply(tokenId(4), "link", false, "0a1b2c3d", given);
+    const held = secrets.find("0a1b2c3d")?.psk;
+    given.fill(1);
+    expect(held).toEqual(new Uint8Array(32).fill(9));
+    secrets.apply(tokenId(4), "link", false, "0a1b2c3d", null);
+    expect(held).toEqual(new Uint8Array(32));
+    secrets.apply(tokenId(5), "restore", false, "11111111", new Uint8Array(32).fill(3));
+    const first = secrets.find("11111111")?.psk;
+    secrets.apply(tokenId(5), "restore", false, "22222222", new Uint8Array(32).fill(4));
+    expect(first).toEqual(new Uint8Array(32));
+    expect(secrets.find("11111111")).toBeUndefined();
+    expect(secrets.held).toBe(1);
   });
 });

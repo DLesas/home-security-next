@@ -239,9 +239,14 @@ export function formatResult(result: CommandResult): readonly string[] {
     case "op":
       return [JSON.stringify(result.body)];
     case "consoleToken":
-      return [`open ${result.url} within ${Math.round(result.expiresInMs / 1000)} s`];
+      // Its address is a link secret: `hsn open` opens it and never prints it (main.ts).
+      return [
+        `a console link was made; it works once, within ${Math.round(result.expiresInMs / 1000)} s`,
+      ];
     case "fileChunk":
       return [];
+    case "consoleTokenWait":
+      return [result.used ? "the console token was used" : "the console token expired unused"];
   }
 }
 

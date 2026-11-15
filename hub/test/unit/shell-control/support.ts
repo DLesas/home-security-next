@@ -18,6 +18,7 @@ import {
   UnixControlServer,
 } from "../../../src/shell/control/server.ts";
 import { noteOutput } from "../setup/support/leak-guard.ts";
+import { isWindows, lockFolder } from "./windows-folders.ts";
 
 export interface TestFolder {
   readonly folder: string;
@@ -25,9 +26,14 @@ export interface TestFolder {
   remove(): void;
 }
 
+/**
+ * A data folder in a fresh temporary folder. On Windows it is made and locked as the installer
+ * locks it (the hub refuses any other, `windows.ts`); elsewhere it is left for the hub to make.
+ */
 export function testFolder(): TestFolder {
   const base = mkdtempSync(join(tmpdir(), "hsn-"));
   const folder = join(base, "data");
+  if (isWindows) lockFolder(folder);
   return {
     folder,
     socket: join(folder, "control.sock"),

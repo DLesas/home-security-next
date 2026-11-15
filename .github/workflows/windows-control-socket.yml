@@ -1,0 +1,107 @@
+# The hub's command socket on Windows (M2, A11; docs/m2-design.md section 9, W2; D118), on a
+# hosted Windows runner: the hub's own command-socket tests, its Win32 calls checked against the
+# system's tools, real access lists (a folder the hub closes itself, links it refuses), and the
+# real hub reached by the real `hsn` (section 9, "To try on the hosted runner"): an administrator
+# from an elevated prompt answered and from a normal one refused; an ordinary account made in the
+# job refused by the socket and unable to read hub.db; a data folder made open before the hub's
+# first start closed by it, with the warning. Results go to the job summary. (The .msi's test is
+# the installer's, A8.)
+#
+# What a hosted runner cannot show: a real UAC prompt (its logons are elevated; a normal prompt is
+# made as a restricted token), a real restart, a FAT or network data folder or an owner the hub
+# may not be (shown as data only, in windows-steps.test.ts), more than one Windows version.
+name: Windows command socket (A11)
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "hub/src/shell/control/**"
+      - "hub/src/shell/safe/control-socket*.ts"
+      - "hub/test/unit/shell-control/**"
+      - "hub/test/unit/safe/control-socket*.ts"
+      - "hub/cli/**"
+      - ".github/workflows/windows-control-socket.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  control-socket:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.2
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      # The second account runs `hsn` from the checkout, so ordinary accounts may read it (spike
+      # W3 did the same for the service's account). The hub's data folders are made by the tests.
+      - name: Let ordinary accounts read the checkout
+        shell: pwsh
+        run: icacls "$env:GITHUB_WORKSPACE" /grant "*S-1-5-32-545:(OI)(CI)RX" /Q
+
+      - name: The command-socket tests
+        shell: bash
+        env:
+          HSN_RESULTS: ${{ github.workspace }}/results/tests.md
+        run: |
+          mkdir -p results
+          bun test hub/test/unit/shell-control hub/test/unit/safe/control-socket-windows.test.ts 2>&1 | tee results/tests.txt
+          exit "${PIPESTATUS[0]}"
+
+      - name: The real hub, from elevated and normal prompts and as a second account
+        if: always()
+        shell: bash
+        env:
+          HSN_WINDOWS_SECOND_ACCOUNT: "1"
+          HSN_RESULTS: ${{ github.workspace }}/results/hub.md
+        run: |
+          mkdir -p results
+          bun test --timeout 300000 hub/test/unit/shell-control/windows-hub.test.ts 2>&1 | tee results/hub.txt
+          exit "${PIPESTATUS[0]}"
+
+      - name: Summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "# Windows command socket (A11)"
+            echo
+            echo "Bun $(bun --version), $(cmd.exe //d //c ver | tr -d '\r' | grep -v '^$')"
+            echo
+            echo "## Real access lists, read by the hub"
+            echo
+            echo "| Case | Observed |"
+            echo "| --- | --- |"
+            cat results/tests.md 2>/dev/null || echo "| (no rows: the tests did not run) | |"
+            echo
+            echo "## The real hub and hsn: elevated, normal prompt, second account"
+            echo
+            echo "| Step | Expected | Observed |"
+            echo "| --- | --- | --- |"
+            cat results/hub.md 2>/dev/null || echo "| (no rows: the test did not run) | | |"
+            for name in tests hub; do
+              echo
+              echo "## bun test: $name"
+              echo
+              echo '```'
+              grep -E '^\s*\(fail\)|^\s*[0-9]+ (pass|fail|skip)$|^Ran ' "results/$name.txt" 2>/dev/null || echo "(no output)"
+              echo '```'
+              echo
+              echo "<details><summary>The last 80 lines</summary>"
+              echo
+              echo '```'
+              tail -n 80 "results/$name.txt" 2>/dev/null
+              echo '```'
+              echo
+              echo "</details>"
+            done
+          } >> "$GITHUB_STEP_SUMMARY"

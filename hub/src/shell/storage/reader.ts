@@ -13,12 +13,15 @@ import type { SQLiteTable } from "drizzle-orm/sqlite-core";
 import { err, ok, type Result } from "neverthrow";
 import type { AuditRecord } from "../../core/model/audit.ts";
 import type { DurableSnapshot } from "../../core/model/events.ts";
-import { type DeviceId, deviceId } from "../../core/model/ids.ts";
+import { type DeviceId, deviceId, HUB_DEVICE } from "../../core/model/ids.ts";
 import {
   type BootRow,
   DeviceState,
+  type DeviceStateRow,
   type HubAppKeys,
   type HubSigningKeys,
+  type NotificationReadRow,
+  type NotificationRow,
 } from "../../core/model/rows.ts";
 import type { AuditTable, StateTable, StateTables } from "../../core/model/store.ts";
 import * as schema from "../../db/schema.ts";
@@ -121,12 +124,18 @@ export class SqliteReader implements Reader {
   readonly #db: Database;
   readonly #drizzle;
   readonly #lossDays: number;
+  readonly #unreadWindowMs: number;
 
-  /** `lossDays`: how many days of `loss_daily` the snapshot carries, for D107's n. */
-  constructor(db: Database, lossDays: number) {
+  /**
+   * `lossDays`: how many days of `loss_daily` the snapshot carries, for D107's n;
+   * `unreadWindowMs`: how far before the last commit's wall time it carries notifications and their
+   * reads (7 days ‡, m2-design.md section 7), so what is unread survives a restart.
+   */
+  constructor(db: Database, lossDays: number, unreadWindowMs = 0) {
     this.#db = db;
     this.#drizzle = drizzle(db);
     this.#lossDays = lossDays;
+    this.#unreadWindowMs = unreadWindowMs;
   }
 
   snapshot(): Result<DurableSnapshot, StorageError> {
@@ -135,6 +144,7 @@ export class SqliteReader implements Reader {
         this.#rows(STATE_TABLES[table], STATE_SPECS[table]).map((row) => asRow(table, row));
       const one = <T extends StateTable>(table: T): StateTables[T] | undefined => all(table)[0];
       const lossDaily = all("loss_daily");
+      const deviceState = all("device_state");
       const lastDay = Math.max(...lossDaily.map((row) => row.day));
       const keys = one("hub_keys");
       const hubKeys: HubSigningKeys | undefined =
@@ -156,7 +166,7 @@ export class SqliteReader implements Reader {
         alarmTriggers: all("alarm_triggers"),
         alarmSirens: all("alarm_sirens"),
         previousBoot: this.#latestBoot(),
-        deviceState: all("device_state"),
+        deviceState,
         lossDaily: lossDaily.filter((row) => row.day > lastDay - this.#lossDays),
         provisioningKeys: this.#provisioningKeys(),
         // Every table small and read whole; link tokens without their keys (m2-design.md section 2);
@@ -183,6 +193,7 @@ export class SqliteReader implements Reader {
           healthState: all("health_state"),
           notificationPrefs: all("notification_prefs"),
           updateState: one("update_state"),
+          ...this.#recentNotifications(deviceState),
         },
       };
     });
@@ -201,6 +212,49 @@ export class SqliteReader implements Reader {
       records.push(...rows.value.map((row) => recordOf(table, row)));
     }
     return ok(records.toSorted((a, b) => orderOf(a) - orderOf(b)).slice(-LOG_LIMIT));
+  }
+
+  /**
+   * The newest committed records of `tables` for a history page (m2-design.md section 7): at most
+   * `scan` rows of each table, newest first, with `seq` below `before` and `at_ms` within
+   * `since` and `until` when given. `rejects`, which have no `seq` (a minute's count), come only on
+   * a first page (no `before`), by their minute. The caller merges, filters and cuts the page.
+   */
+  historyRows(page: {
+    readonly tables: readonly AuditTable[];
+    readonly since: number | undefined;
+    readonly until: number | undefined;
+    readonly before: number | undefined;
+    readonly scan: number;
+  }): Result<readonly AuditRecord[], StorageError> {
+    const records: AuditRecord[] = [];
+    for (const table of page.tables) {
+      const rows = sqlite(ORIGIN, `read a page of ${table}`, (): readonly Raw[] => {
+        if (table === "rejects") {
+          if (page.before !== undefined) return [];
+          return this.#db
+            .query<Raw, [number, number]>(
+              `SELECT * FROM "rejects" WHERE "minute" >= ? AND "minute" <= ? ORDER BY "minute" DESC LIMIT ${page.scan}`,
+            )
+            .all(
+              page.since === undefined ? 0 : Math.floor(page.since / MINUTE_MS),
+              page.until === undefined
+                ? Number.MAX_SAFE_INTEGER
+                : Math.floor(page.until / MINUTE_MS),
+            );
+        }
+        const from = page.since === undefined ? 0 : this.#firstSeqAt(table, page.since);
+        return this.#db
+          .query<Raw, [number, number, number]>(
+            `SELECT * FROM "${table}" WHERE "seq" >= ? AND "seq" < ? AND "at_ms" <= ? ORDER BY "seq" DESC LIMIT ${page.scan}`,
+          )
+          .all(from, page.before ?? Number.MAX_SAFE_INTEGER, page.until ?? Number.MAX_SAFE_INTEGER);
+      });
+      if (rows.isErr()) return err(rows.error);
+      const spec = AUDIT_SPECS[table];
+      records.push(...rows.value.map((row) => recordOf(table, normalize(spec, row))));
+    }
+    return ok(records);
   }
 
   /** Every row of a state table, through Drizzle. */
@@ -241,6 +295,32 @@ export class SqliteReader implements Reader {
         .get(name);
       return row?.id;
     });
+  }
+
+  /**
+   * The notifications and reads stamped within the unread window before the last commit's wall
+   * time (device 0's row, the commit mark); none before any commit. Inside the snapshot's read.
+   */
+  #recentNotifications(deviceState: readonly DeviceStateRow[]): {
+    readonly notifications: readonly NotificationRow[];
+    readonly notificationReads: readonly NotificationReadRow[];
+  } {
+    const mark = deviceState.find((row) => row.deviceId === HUB_DEVICE);
+    if (mark === undefined || this.#unreadWindowMs <= 0)
+      return { notifications: [], notificationReads: [] };
+    const from = mark.lastSeenMs - this.#unreadWindowMs;
+    const since = (table: "notifications" | "notification_reads"): readonly Raw[] =>
+      this.#db
+        .query<Raw, [number]>(`SELECT * FROM "${table}" WHERE "seq" >= ? ORDER BY "seq"`)
+        .all(this.#firstSeqAt(table, from))
+        .map((row) => normalize(AUDIT_SPECS[table], row));
+    // By the same reasoning as `asRow`: `normalize` gave each its table's exact columns.
+    return {
+      notifications: since("notifications").map((row) => row as unknown as NotificationRow),
+      notificationReads: since("notification_reads").map(
+        (row) => row as unknown as NotificationReadRow,
+      ),
+    };
   }
 
   /** The newest `LOG_LIMIT` rows of a table from `since`, of one device if given. */

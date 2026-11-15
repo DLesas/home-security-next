@@ -326,6 +326,8 @@ function siteFields(
         rate: ["rate", rate],
         countdown: ["countdown", (t) => integer(t, "countdown")],
         "auto-stop": ["autoStop", (t) => integer(t, "auto-stop")],
+        "retention-routine": ["retentionRoutineDays", (t) => integer(t, "retention-routine")],
+        "retention-event": ["retentionEventDays", (t) => integer(t, "retention-event")],
       }).map((f) => ({ kind: "siteSet", ...f }));
     case "wifi":
       return options(rest, ["--name", "--password"], []).andThen(({ values, rest: extra }) =>

@@ -36,8 +36,12 @@ const CALLER = { kind: "storage", origin: ORIGIN } as const;
 /** The file in the data folder that outlives a database that does not work (section 10). */
 export const FATAL_LOG = "fatal.log";
 
-/** The exit code after an uncaught error, for the service manager to restart the hub (HB20). */
-export const FATAL_EXIT_CODE = 70;
+/**
+ * The exit code after an uncaught error or a fatal one, for the launcher or the service manager to
+ * restart the hub (HB20): 71, so that 70 means only "restart me" (m2-design.md section 11, "Step 1,
+ * wave 2": a hub that crashes at every start).
+ */
+export const FATAL_EXIT_CODE = 71;
 
 /**
  * One line of `fatal.log`: an uncaught error (`uncaught`), a failed commit (`commitFailed`), or

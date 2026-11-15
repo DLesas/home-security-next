@@ -115,7 +115,17 @@ async function oneRun(
   run: number,
 ): Promise<string | undefined> {
   const hub = spawnTracked(
-    ["bun", MAIN, "--data", dataDir, "--port", String(port), "--no-usb-watch"],
+    [
+      "bun",
+      MAIN,
+      "--data",
+      dataDir,
+      "--port",
+      String(port),
+      "--no-usb-watch",
+      "--app-ports",
+      "0,0",
+    ],
     {
       stdout: "ignore",
       stderr: "pipe",

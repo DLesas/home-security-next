@@ -19,6 +19,7 @@
  *
  * Every loop here is bounded: a run that stops making progress fails with a message.
  */
+import { nodeSha256 } from "@hsn/protocol";
 import { UNBUILT_CALENDAR } from "../../src/shell/calendar/unbuilt.ts";
 import { copyFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -44,6 +45,7 @@ import {
   type RequestId,
   requestId,
   type SendRef,
+  connId,
 } from "../../src/core/model/ids.ts";
 import { coreFault } from "../../src/core/model/errors.ts";
 import { DEFAULT_RULES, type HubRules } from "../../src/core/model/rules.ts";
@@ -62,7 +64,12 @@ import type { LinkError, Links } from "../../src/ports/links.ts";
 import type { StagedEffect } from "../../src/ports/writer.ts";
 import { ensureHubKeys } from "../../src/shell/advertise/hub-keys.ts";
 import { KeyStoreCipher } from "../../src/shell/cipher/device-cipher.ts";
-import { HubLoop, type LoopWriter, type TurnSummary } from "../../src/shell/loop.ts";
+import {
+  type ChannelEffect,
+  HubLoop,
+  type LoopWriter,
+  type TurnSummary,
+} from "../../src/shell/loop.ts";
 import { MemoryKeyStore } from "../../src/shell/storage/keys.ts";
 import { PAGE_SIZE } from "../../src/shell/storage/settings.ts";
 import { DATABASE_FILE, openStore, type OpenedStore } from "../../src/shell/storage/store.ts";
@@ -258,6 +265,8 @@ export class Home {
   readonly records: AuditRecord[] = [];
   /** Every answer `hsn` got. */
   readonly told: Told[] = [];
+  /** Every effect the loop handed the app side (sessions' replies and events), over all runs. */
+  readonly app: ChannelEffect[] = [];
   /** Every send that left the hub, over all runs. */
   readonly left: LeftHub[] = [];
   /** Every turn's summary, this run. */
@@ -538,7 +547,12 @@ export class Home {
     };
     this.#loop = new HubLoop(
       this.#core,
-      { cipher: new KeyStoreCipher(keys), rules: this.rules, calendar: UNBUILT_CALENDAR },
+      {
+        cipher: new KeyStoreCipher(keys),
+        rules: this.rules,
+        calendar: UNBUILT_CALENDAR,
+        sha256: nodeSha256,
+      },
       {
         clock: this.clock,
         random: { bytes: (length) => ok(this.#random.bytes(length)) },
@@ -559,6 +573,11 @@ export class Home {
         report: () => undefined,
         fatal: (error) => {
           this.#stalled = { kind: "stalled", message: `the hub stopped: ${error.message}` };
+        },
+        channel: {
+          perform: (effect) => {
+            if (!this.#dead) this.app.push(effect);
+          },
         },
       },
     );
@@ -688,10 +707,16 @@ export class Home {
   // ----- Control -----
 
   /** An `hsn` command, as the control socket gives it (section 9); runs it at once. */
+  /** An input as the app channel gives it (a session, a request), and the turns it makes. */
+  input(event: HubEvent): void {
+    this.#loop?.enqueue(event);
+    this.#drain();
+  }
+
   command(command: ControlCommand, actor = "dimi"): RequestId {
     const request = requestId(this.#nextRequest++);
     this.#requests.set(request, { command, at: this.now });
-    this.#loop?.enqueue({ kind: "command", request, actor, command });
+    this.#loop?.enqueue({ kind: "command", conn: connId(0), request, actor, command });
     this.#drain();
     return request;
   }

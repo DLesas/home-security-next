@@ -4,6 +4,7 @@
  * must set a counter or a message no input could. The view is the state with the handled slices
  * put back, as the dispatcher keeps it.
  */
+import { nodeSha256 } from "@hsn/protocol";
 import { UNBUILT_CALENDAR } from "../../../src/shell/calendar/unbuilt.ts";
 import { expect } from "bun:test";
 import { ok } from "neverthrow";
@@ -60,7 +61,7 @@ export class Direct {
         wallTrusted: true,
       },
       view: this.state,
-      deps: { cipher, rules: this.rules, calendar: UNBUILT_CALENDAR },
+      deps: { cipher, rules: this.rules, calendar: UNBUILT_CALENDAR, sha256: nodeSha256 },
       entropy: entropyCursor(new Uint8Array(32), "tick"),
       records: { take: () => ok(seq(this.#seq++)) },
       event: "tick",

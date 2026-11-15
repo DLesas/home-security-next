@@ -14,17 +14,35 @@
  *    gate. A send refused, at the gate or by its link, comes back as `sendFailed`. While the
  *    turn's "now" commit failed, nothing it justified leaves: its sends are held back and its
  *    answers wait for a commit that succeeds.
- * 5. The writer's own upkeep, then the one system timer for the earliest of the core's wake and
+ * 5. The turn's file jobs (m2-design.md section 9), only after the commit that justifies them
+ *    succeeded and after the turn's answers, so a backup holds every change of its step and an
+ *    export's reply leaves before its chunks; each outcome is the core's next `fileReady`. A job
+ *    that switches (`switchUpdate`, `switchRestore`) ends the hub: a clean stop and exit 70.
+ *    Then one piece of each job still open, in the order they started (m2-design.md section 3,
+ *    "Jobs in pieces, the loop's contract"), and another turn soon while any is: the inputs that
+ *    came meanwhile are the next turn's, never kept waiting for a job's end. A stop aborts every
+ *    open job, which gives no `fileReady`; every job's end, however it ends, is told to the file
+ *    jobs (`ended`), which free its upload.
+ * 6. The writer's own upkeep, then the one system timer for the earliest of the core's wake and
  *    the writer's flush deadline.
+ *
+ * M2's channel effects (`appSend`, `closeClient`, `closeConn`, `linkSecret`, `hubStatusRead`) and
+ * `historyRead` go to the app side in step 4, held after a failed "now" commit exactly as
+ * `respond` is.
  */
 import type { Result } from "neverthrow";
 import type { AuditRecord } from "../core/model/audit.ts";
 import type { ControlReply } from "../core/model/control.ts";
-import type { Effect } from "../core/model/effects.ts";
+import type { Effect, FileWork } from "../core/model/effects.ts";
 import type { CoreFault, HubError } from "../core/model/errors.ts";
-import { type CommitOutcome, type HubEvent, INPUT_ENTROPY_BYTES } from "../core/model/events.ts";
+import {
+  type CommitOutcome,
+  type FileOutcome,
+  type HubEvent,
+  INPUT_ENTROPY_BYTES,
+} from "../core/model/events.ts";
 import type { CoreDeps } from "../core/model/handler.ts";
-import type { RequestId } from "../core/model/ids.ts";
+import type { JobId, RequestId } from "../core/model/ids.ts";
 import type { HubState } from "../core/model/state.ts";
 import { type Mono, monoAfterMs } from "../core/model/time.ts";
 import type { Core } from "../core/step.ts";
@@ -39,7 +57,42 @@ import type {
   StorageError,
   Writer,
 } from "../ports/writer.ts";
+import type { JobDone } from "./backup/jobs.ts";
+import { jobCall } from "./safe/job.ts";
 import { admitSend } from "./storage/send-gate.ts";
+
+const ORIGIN = "shell/loop";
+
+/**
+ * A file job that cannot finish within section 3's limit (20 ms ‡ a turn on a Pi 4), as the loop
+ * drives it (m2-design.md section 3, "Jobs in pieces, the loop's contract"): one `next()` a turn,
+ * each within the limit, `done` becoming the job's `fileReady`; `abort()` on a stop deletes its
+ * temporary files and gives no `fileReady`.
+ */
+export interface JobPieces {
+  next(): { readonly done: false } | { readonly done: true; readonly outcome: FileOutcome };
+  abort(): void;
+}
+
+/** What starting a file job gives the loop: done at once, a switch, or pieces to continue. */
+export type JobStarted = JobDone | { readonly kind: "pieces"; readonly pieces: JobPieces };
+
+/** A job that threw, as the core is told it: a failed job, like any other. */
+function thrownOutcome(error: HubError): FileOutcome {
+  return { kind: "failed", reason: "io", message: error.message };
+}
+
+/**
+ * M2's effects the app side performs (`AppSide.perform`): the channel's, and `historyRead`, the
+ * history page the shell reads and answers on the session (m2-design.md section 7).
+ */
+export type ChannelEffect = Extract<
+  Effect,
+  {
+    readonly kind:
+      "appSend" | "closeClient" | "closeConn" | "linkSecret" | "hubStatusRead" | "historyRead";
+  }
+>;
 
 /** Commit outcomes one turn hands the core; any more wait for the next turn. */
 const MAX_OUTCOMES_PER_TURN = 4;
@@ -79,6 +132,21 @@ export interface LoopPorts {
   readonly report: (error: HubError) => void;
   /** The hub must stop: random bytes failed, or too many faults (section 10). */
   readonly fatal: (error: HubError) => void;
+  /** The app channel (m2-design.md section 5); without it, its effects are reported. */
+  readonly channel?: { perform(effect: ChannelEffect): void };
+  /** The file jobs (section 9); without them, `fileJob` is reported. */
+  readonly files?: {
+    perform(job: JobId, work: FileWork): JobStarted;
+    /** A job has ended, done, failed, thrown or aborted: its upload is freed (section 3). */
+    ended?(job: JobId, work: FileWork, outcome: FileOutcome | undefined): void;
+  };
+  /**
+   * A switching job's end: stop cleanly, run `afterStop` once the database is closed, and exit
+   * 70 for the launcher (section 9).
+   */
+  readonly restart?: (afterStop: () => Result<void, string>) => void;
+  /** Each commit's records, once committed: the healthy mark watches for `update_healthy`. */
+  readonly committed?: (records: readonly AuditRecord[]) => void;
 }
 
 /** What one turn did, for tests and the budget. */
@@ -95,11 +163,20 @@ export class HubLoop {
   readonly #ports: LoopPorts;
   #state: HubState;
   readonly #queue: HubEvent[] = [];
-  /** Answers a failed "now" commit holds back, until a commit succeeds (section 4). */
-  #held: { readonly request: RequestId; readonly reply: ControlReply }[] = [];
+  /**
+   * What a failed "now" commit holds back, in order, until a commit succeeds (section 4): answers,
+   * the channel's effects and file jobs.
+   */
+  #held: (
+    | { readonly kind: "respond"; readonly request: RequestId; readonly reply: ControlReply }
+    | { readonly kind: "channel"; readonly effect: ChannelEffect }
+    | { readonly kind: "fileJob"; readonly job: JobId; readonly work: FileWork }
+  )[] = [];
   #failing = false;
   #faultTimes: Mono[] = [];
   #stopped = false;
+  /** The jobs in pieces still open, in the order they started. */
+  #open: { readonly job: JobId; readonly work: FileWork; readonly pieces: JobPieces }[] = [];
 
   constructor(core: Core, deps: CoreDeps, ports: LoopPorts, state: HubState = core.emptyState()) {
     this.#core = core;
@@ -124,9 +201,23 @@ export class HubLoop {
     this.#ports.soon();
   }
 
-  /** The loop takes nothing more (a clean stop or a fatal error). */
+  /** Jobs in pieces still open. */
+  get openJobs(): number {
+    return this.#open.length;
+  }
+
+  /** The loop takes nothing more (a clean stop or a fatal error); every open job is aborted. */
   stop(): void {
     this.#stopped = true;
+    const open = this.#open;
+    this.#open = [];
+    for (const { job, work, pieces } of open) {
+      const aborted = jobCall(ORIGIN, `abort file job ${String(job)}`, () => {
+        pieces.abort();
+      });
+      if (aborted.isErr()) this.#ports.report(aborted.error);
+      this.#ended(job, work, undefined);
+    }
   }
 
   /** One turn (section 4). */
@@ -191,6 +282,9 @@ export class HubLoop {
       this.#ports.report(flushed.error);
     } else if (flushed.value?.committed === true) {
       this.#failing = false;
+      this.#ports.committed?.(
+        staged.flatMap((item) => (item.kind === "record" ? [item.record] : [])),
+      );
     }
     const committed = !(needsNow && flushed.isErr());
     // Each outcome the commit had (a failure or recovery, what the size guard trimmed): bounded.
@@ -201,14 +295,24 @@ export class HubLoop {
     }
 
     // Step 4: the turn's sends, closes, answers and advertisements, in order.
-    if (!this.#failing) this.#releaseHeld();
-    for (const effect of effects) this.#perform(effect, committed);
+    const jobs: { readonly job: JobId; readonly work: FileWork }[] = [];
+    if (!this.#failing) this.#releaseHeld(jobs);
+    for (const effect of effects) {
+      if (effect.kind === "fileJob") {
+        if (committed && !this.#failing) jobs.push({ job: effect.job, work: effect.work });
+        else this.#held.push({ kind: "fileJob", job: effect.job, work: effect.work });
+      } else this.#perform(effect, committed);
+    }
 
-    // Step 5: upkeep, then the one timer.
+    // Step 5: the file jobs, after the commit and the answers; then a piece of each open one.
+    for (const { job, work } of jobs) this.#runJob(job, work);
+    this.#runPieces();
+
+    // Step 6: upkeep, then the one timer.
     const upkeep = writer.maintain();
     if (upkeep.isErr()) this.#ports.report(upkeep.error);
     this.#arm();
-    if (this.#queue.length > 0) this.#ports.soon();
+    if (this.#queue.length > 0 || this.#open.length > 0) this.#ports.soon();
     return { inputs: inputs.length, faults, effects, committed };
   }
 
@@ -225,10 +329,82 @@ export class HubLoop {
     this.#ports.wakeAt(this.nextWake());
   }
 
-  #releaseHeld(): void {
+  #releaseHeld(jobs: { readonly job: JobId; readonly work: FileWork }[]): void {
     const held = this.#held;
     this.#held = [];
-    for (const { request, reply } of held) this.#ports.control.respond(request, reply);
+    for (const item of held) {
+      if (item.kind === "respond") this.#ports.control.respond(item.request, item.reply);
+      else if (item.kind === "channel") this.#ports.channel?.perform(item.effect);
+      else jobs.push({ job: item.job, work: item.work });
+    }
+  }
+
+  #runJob(job: JobId, work: FileWork): void {
+    const files = this.#ports.files;
+    if (files === undefined) {
+      this.#ports.report({
+        kind: "internal",
+        origin: ORIGIN,
+        message: "the fileJob effect has no file jobs to run it",
+      });
+      return;
+    }
+    // A job after a switch in the same turn is not started: the hub is stopping.
+    if (this.#stopped) {
+      this.#ended(job, work, undefined);
+      return;
+    }
+    const started = jobCall(ORIGIN, `start file job ${String(job)}`, () =>
+      files.perform(job, work),
+    );
+    if (started.isErr()) {
+      this.#ports.report(started.error);
+      this.#ready(job, work, thrownOutcome(started.error));
+      return;
+    }
+    const done = started.value;
+    if (done.kind === "ready") {
+      this.#ready(job, work, done.outcome);
+      return;
+    }
+    if (done.kind === "pieces") {
+      this.#open.push({ job, work, pieces: done.pieces });
+      return;
+    }
+    // A switch ends the hub: nothing more is taken, and the caller stops cleanly and exits 70.
+    this.#ended(job, work, undefined);
+    this.stop();
+    this.#ports.restart?.(done.afterStop);
+  }
+
+  /** One piece of each open job, in the order they started (section 3). */
+  #runPieces(): void {
+    for (const open of [...this.#open]) {
+      if (this.#stopped) return;
+      const piece = jobCall(ORIGIN, `continue file job ${String(open.job)}`, () =>
+        open.pieces.next(),
+      );
+      let outcome: FileOutcome;
+      if (piece.isErr()) {
+        this.#ports.report(piece.error);
+        outcome = thrownOutcome(piece.error);
+      } else if (piece.value.done) outcome = piece.value.outcome;
+      else continue;
+      this.#open = this.#open.filter((o) => o !== open);
+      this.#ready(open.job, open.work, outcome);
+    }
+  }
+
+  #ready(job: JobId, work: FileWork, outcome: FileOutcome): void {
+    this.#queue.push({ kind: "fileReady", job, outcome });
+    this.#ended(job, work, outcome);
+  }
+
+  #ended(job: JobId, work: FileWork, outcome: FileOutcome | undefined): void {
+    const ended = jobCall(ORIGIN, `end file job ${String(job)}`, () => {
+      this.#ports.files?.ended?.(job, work, outcome);
+    });
+    if (ended.isErr()) this.#ports.report(ended.error);
   }
 
   #perform(effect: Effect, committed: boolean): void {
@@ -267,27 +443,39 @@ export class HubLoop {
       }
       case "respond":
         if (committed && !this.#failing) control.respond(effect.request, effect.reply);
-        else this.#held.push({ request: effect.request, reply: effect.reply });
+        else this.#held.push({ kind: "respond", request: effect.request, reply: effect.reply });
         return;
       case "advertise": {
         const advertised = advertiser.advertise(effect.identity, effect.port);
         if (advertised.isErr()) this.#ports.report(advertised.error);
         return;
       }
-      // M2's effects (m2-design.md section 2) are performed by the app listeners and the file
-      // jobs, joined in step 2; step 0's stubs never emit them, so one here is reported.
+      // M2's channel effects (m2-design.md section 5), held after a failed commit as answers are.
       case "appSend":
       case "closeClient":
+      case "closeConn":
       case "linkSecret":
-      case "fileJob":
+      case "hubStatusRead":
       case "historyRead":
-        this.#ports.report({
-          kind: "internal",
-          origin: "shell/loop",
-          message: `the ${effect.kind} effect is not built yet (m2-design.md section 11, step 2)`,
-        });
+        // `historyRead`, `history.query`'s page (section 7), is read and answered by the app side.
+        if (this.#ports.channel === undefined) {
+          this.#notBuilt(effect.kind);
+          return;
+        }
+        if (committed && !this.#failing) this.#ports.channel.perform(effect);
+        else this.#held.push({ kind: "channel", effect });
+        return;
+      case "fileJob":
         return;
     }
+  }
+
+  #notBuilt(kind: string): void {
+    this.#ports.report({
+      kind: "internal",
+      origin: "shell/loop",
+      message: `the ${kind} effect is not built yet (m2-design.md section 11, step 2)`,
+    });
   }
 
   #countFault(at: Mono): void {

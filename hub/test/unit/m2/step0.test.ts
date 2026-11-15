@@ -4,8 +4,9 @@
  * answered `notBuilt`, which a test can tell from every real refusal; the new events reach the
  * core without a fault; and the frozen model types are used by the stubs.
  */
+import { nodeSha256 } from "@hsn/protocol";
 import { describe, expect, test } from "bun:test";
-import { APP_OP_NAMES, APP_OPS, type AppOpName } from "@hsn/protocol/app";
+import { APP_OP_NAMES, APP_OPS, type AppOpName, LINKING } from "@hsn/protocol/app";
 import { CONTROL_OPS, controlCommand, typedCommand } from "../../../src/control-protocol/index.ts";
 import type { ControlCommand } from "../../../src/core/model/control.ts";
 import { DECISION_KINDS, M2_HUB_EVENTS } from "../../../src/core/model/decisions.ts";
@@ -41,7 +42,7 @@ import { UNBUILT_CALENDAR } from "../../../src/shell/calendar/unbuilt.ts";
 import { VectorCipher } from "../../world/vector-cipher.ts";
 import { ok } from "neverthrow";
 import { seq } from "../../../src/core/model/ids.ts";
-import { Driver, errorCode, onlyReply, snapshot } from "../setup/support/driver.ts";
+import { Driver, errorCode, onlyReply, replies, snapshot } from "../setup/support/driver.ts";
 
 function hub(): Driver {
   const driver = new Driver(makeCore(MODULES));
@@ -144,19 +145,31 @@ describe("the module order (m2-design.md section 2)", () => {
   });
 });
 
-describe("the stubs change nothing (m2-design.md section 11, step 0)", () => {
-  test("a boot leaves every M2 slice as it was, with no timers", () => {
-    const driver = hub();
-    const empty = makeCore(MODULES).emptyState();
-    for (const module of M2_MODULES) {
-      expect([module, driver.state[module]]).toEqual([module, empty[module]]);
-    }
+/**
+ * What is still not built (m2-design.md section 11): nothing, since `layout` built its groups and
+ * modes in wave 2. `every-operation.test.ts` is the check that fails on any `notBuilt` or silence.
+ */
+const NOT_BUILT_OPS: ReadonlySet<string> = new Set<string>();
+
+describe("every M2 module is built and takes M2's events (section 11)", () => {
+  test("no module is a stub, and a boot of an empty hub sends nothing to apps", () => {
+    const driver = new Driver(makeCore(MODULES));
+    const effects = driver.boot(snapshot());
+    expect(M2_MODULES.length).toBe(7);
+    expect(effects.filter((e) => e.kind === "appSend" || e.kind === "closeConn")).toEqual([]);
   });
 
-  test("the new events reach the core without a fault and change no M2 slice", () => {
+  test("every new event reaches the core without a fault", () => {
     const driver = hub();
-    const before = M2_MODULES.map((m) => driver.state[m]);
     const events: readonly HubEvent[] = [
+      {
+        kind: "hubFacts",
+        version: "0.1.0",
+        addresses: ["192.168.1.20"],
+        appsPort: 8444,
+        consolePort: 8445,
+        certificateSha256: new Uint8Array(32),
+      },
       { kind: "timeZone", zone: "Europe/London" },
       {
         kind: "clientConnected",
@@ -180,11 +193,18 @@ describe("the stubs change nothing (m2-design.md section 11, step 0)", () => {
         listener: "lan",
         link: { name: "Ben's laptop", kind: "web" },
       },
-      { kind: "linkFailed", token: tokenId(4), reason: "badPsk" },
+      { kind: "linkFailed", token: tokenId(4), reason: "badPsk", address: "192.168.1.30" },
       {
         kind: "fileReady",
         job: jobId(1),
         outcome: { kind: "failed", reason: "unreachable", message: "no folder" },
+      },
+      { kind: "clientRefused", address: "192.168.1.31", reason: "unknownToken", count: 2 },
+      {
+        kind: "shellWarning",
+        code: "data_folder_was_open",
+        message: "the data folder was open",
+        detail: null,
       },
       { kind: "restoreOpened", conn: connId(5), token: tokenId(6) },
       { kind: "restoreKey", conn: connId(5), token: tokenId(6), key: new Uint8Array(32), epoch: 1 },
@@ -194,30 +214,51 @@ describe("the stubs change nothing (m2-design.md section 11, step 0)", () => {
         rejection: { source: "app", conn: connId(1), reason: "badShape", bytes: 40, issues: [] },
       },
     ];
+    // `driver.input` fails the test on a `CoreFault`; a shell warning is recorded as a hub event.
+    let recorded = false;
     for (const event of events) {
       const effects = driver.input(event);
-      // No M2 effect leaves a stub.
-      expect(
-        effects.filter((e) =>
-          ["appSend", "closeClient", "linkSecret", "fileJob", "historyRead"].includes(e.kind),
-        ),
-      ).toEqual([]);
+      if (event.kind === "shellWarning")
+        recorded = effects.some(
+          (e) =>
+            e.kind === "record" &&
+            e.record.kind === "hubEvent" &&
+            e.record.row.origin === "shell" &&
+            e.record.row.code === "data_folder_was_open",
+        );
     }
-    expect(M2_MODULES.map((m) => driver.state[m])).toEqual(before);
+    expect(recorded).toBe(true);
   });
 });
 
 describe("the hub computer's operations (m2-design.md section 6)", () => {
   test.each([...CONTROL_OPS])(
-    "%s is answered notBuilt by its owner, or by control when it has none",
+    "%s is answered once by its owner: done, refused for one of section 5's reasons, or notBuilt",
     (name) => {
       const driver = hub();
       const { effects } = driver.command(opCommand(name));
-      const reply = onlyReply(effects);
-      expect(errorCode(reply)).toBe("notBuilt");
-      expect(reply.ok ? undefined : (reply.error.app?.code ?? "control")).toBe(
-        m2OwnerOf(name) === undefined ? "control" : "notBuilt",
+      // An operation on an upload (`restore.start`, `update.upload`) is answered when its file
+      // job ends (section 6): the job's end, here a failed read, gives the one answer.
+      const job = effects.find((e) => e.kind === "fileJob");
+      const reply = onlyReply(
+        job?.kind === "fileJob" && replies(effects).length === 0
+          ? driver.input({
+              kind: "fileReady",
+              job: job.job,
+              outcome: { kind: "failed", reason: "io", message: "the upload could not be read" },
+            })
+          : effects,
       );
+      const owner = m2OwnerOf(name);
+      expect(owner).toBeDefined();
+      // An answer is the owner's: done, an app error carried in `app`, or notBuilt, which is
+      // distinguishable from every real refusal (section 11).
+      if (!reply.ok) {
+        expect(["opRefused", "notBuilt"]).toContain(reply.error.code);
+        expect(reply.error.app?.code === "notBuilt").toBe(reply.error.code === "notBuilt");
+      }
+      // Not built: exactly the operations still waiting for their owner.
+      expect([name, errorCode(reply) === "notBuilt"]).toEqual([name, NOT_BUILT_OPS.has(name)]);
     },
   );
 
@@ -227,9 +268,30 @@ describe("the hub computer's operations (m2-design.md section 6)", () => {
     expect(errorCode(refusal)).toBe("unknownDevice");
   });
 
-  test("hsn open's console token is answered notBuilt by people", () => {
+  test("hsn open's console token is made by people: a console address, good for 2 minutes", () => {
     const driver = hub();
-    expect(errorCode(onlyReply(driver.command({ kind: "consoleToken" }).effects))).toBe("notBuilt");
+    // The facts come before any client, `hsn` included (`AppSide.open`, section 2): the console's
+    // address names its listener's real port.
+    driver.input({
+      kind: "hubFacts",
+      version: "0.1.0",
+      addresses: ["192.168.1.20"],
+      appsPort: 8444,
+      consolePort: 8445,
+      certificateSha256: new Uint8Array(32),
+    });
+    const effects = driver.command({ kind: "consoleToken" }).effects;
+    const reply = onlyReply(effects);
+    const result = reply.ok ? reply.result : undefined;
+    expect(result).toMatchObject({
+      kind: "consoleToken",
+      expiresInMs: LINKING.consoleTokenExpiryMs,
+    });
+    expect(result?.kind === "consoleToken" ? result.url : "").toMatch(
+      /^http:\/\/127\.0\.0\.1:8445\/#console=[A-Za-z0-9_-]{22}$/u,
+    );
+    // The shell is told the token's key with its purpose, before the address is shown (section 5).
+    expect(effects.filter((e) => e.kind === "linkSecret")).toMatchObject([{ purpose: "link" }]);
   });
 
   test("an operation the hub computer does not send, or a body its schema refuses, is not a command", () => {
@@ -264,6 +326,8 @@ describe("the hub computer's operations (m2-design.md section 6)", () => {
       kind: "linkSecret",
       token: tokenId(2 ** 31),
       purpose: "restore",
+      askName: false,
+      lookup: null,
       psk: null,
     };
     expect(secret.kind).toBe("linkSecret");
@@ -281,6 +345,7 @@ describe("the hub computer's operations (m2-design.md section 6)", () => {
         cipher: VectorCipher.fromVectors(),
         rules: DEFAULT_RULES,
         calendar: UNBUILT_CALENDAR,
+        sha256: nodeSha256,
       },
       entropy: entropyCursor(new Uint8Array(32), "tick"),
       records: { take: () => ok(seq(0)) },

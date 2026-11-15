@@ -12,7 +12,14 @@ import { type ControlSources, VIEW_SOURCES } from "../../../src/core/control/sou
 import { OUTCOME_OK, OUTCOME_SHELL } from "../../../src/core/control/handle.ts";
 import type { ControlCommand } from "../../../src/core/model/control.ts";
 import type { Handler } from "../../../src/core/model/handler.ts";
-import { deviceId, requestId, seq } from "../../../src/core/model/ids.ts";
+import {
+  AWAY_MODE,
+  connId,
+  DISARMED_MODE,
+  deviceId,
+  requestId,
+  seq,
+} from "../../../src/core/model/ids.ts";
 import { type DeviceRow, DeviceState } from "../../../src/core/model/rows.ts";
 import { setupCore } from "../setup/support/core.ts";
 import {
@@ -69,17 +76,57 @@ function hubWith(core = setupCore()): Driver {
 }
 
 const NOW = { mono: 0 as never, wall: 0, wallTrusted: true };
+/** The control connection the commands come on. */
+const CONN = connId(4);
 
 function routed(command: ControlCommand, hub = hubWith()) {
-  return route(hub.state, NOW, VIEW_SOURCES, requestId(9), "dimitri", seq(77), command);
+  return route(hub.state, NOW, VIEW_SOURCES, requestId(9), CONN, "dimitri", seq(77), command);
 }
 
 describe("every command of section 9 is routed (translate)", () => {
   const asked = { request: requestId(9), actor: "dimitri", record: seq(77) };
   const forwarded: readonly [ControlCommand, unknown][] = [
+    // M2 (m2-design.md section 1): `--all` is a switch to the fixed modes, sent to layout as
+    // `hsn op mode.switch` is; `--continue` confirms open doors, and a battery is never asked of
+    // the hub computer.
     [
       { kind: "arm", sensors: "all", continue: false },
-      { kind: "armRequest", sensors: "all", continueOpen: false, ...asked },
+      {
+        kind: "opRequest",
+        owner: "layout",
+        op: {
+          op: "mode.switch",
+          body: { mode: AWAY_MODE, confirm: { openDoors: false, lowBattery: true } },
+        },
+        actor: { kind: "computer", name: "dimitri" },
+        answerTo: { kind: "control", request: requestId(9), conn: CONN },
+        record: seq(77),
+      },
+    ],
+    [
+      { kind: "arm", sensors: "all", continue: true },
+      {
+        kind: "opRequest",
+        owner: "layout",
+        op: {
+          op: "mode.switch",
+          body: { mode: AWAY_MODE, confirm: { openDoors: true, lowBattery: true } },
+        },
+        actor: { kind: "computer", name: "dimitri" },
+        answerTo: { kind: "control", request: requestId(9), conn: CONN },
+        record: seq(77),
+      },
+    ],
+    [
+      { kind: "disarm", sensors: "all" },
+      {
+        kind: "opRequest",
+        owner: "layout",
+        op: { op: "mode.switch", body: { mode: DISARMED_MODE } },
+        actor: { kind: "computer", name: "dimitri" },
+        answerTo: { kind: "control", request: requestId(9), conn: CONN },
+        record: seq(77),
+      },
     ],
     [
       { kind: "arm", sensors: ["front", "back", "front"], continue: true },
@@ -494,5 +541,34 @@ describe("one answer per command, recorded (AL8)", () => {
     const effects = hub.advance(1);
     expect(replies(effects)).toEqual([]);
     expect(hubEvents(effects).map((e) => e.row.code)).toEqual(["answer_not_waited_for"]);
+  });
+});
+
+describe("the control connection reaches upkeep (m2-design.md section 6, step 1, wave 2)", () => {
+  /** The operation the `hsn` file commands send, as routed, with where its answer goes. */
+  function forwardedOp(operation: Extract<ControlCommand, { readonly kind: "op" }>["operation"]) {
+    const result = routed({ kind: "op", operation });
+    const message = result.kind === "forward" ? result.message : undefined;
+    return message?.kind === "opRequest" ? message : undefined;
+  }
+
+  test.each([
+    ["hsn restore", { op: "restore.start", body: { job: 1 } }],
+    ["hsn backup export", { op: "backup.export", body: { history: true } }],
+    ["hsn update install", { op: "update.upload", body: { job: 1 } }],
+  ] as const)("%s goes to upkeep with the connection it came on", (_, operation) => {
+    const request = forwardedOp(operation);
+    expect(request?.owner).toBe("upkeep");
+    expect(request?.answerTo).toEqual({ kind: "control", request: requestId(9), conn: CONN });
+  });
+
+  test("an operation with no upload is routed as before: the same owner, operation and actor", () => {
+    const request = forwardedOp({ op: "backup.status", body: {} });
+    expect(request).toMatchObject({
+      owner: "upkeep",
+      op: { op: "backup.status", body: {} },
+      actor: { kind: "computer", name: "dimitri" },
+      answerTo: { kind: "control", request: requestId(9), conn: CONN },
+    });
   });
 });

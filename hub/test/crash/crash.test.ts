@@ -7,6 +7,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { SeededBytes } from "../world/entropy.ts";
 import { DAY, HOUR, MINUTE, SECOND } from "../world/home.ts";
+import { DAY_TEST_TIMEOUT_MS, DAYS_TEST_TIMEOUT_MS } from "../world/timeouts.ts";
 import { CRASH_POINTS, type CrashPoint, CrashRun, type PlannedCrash } from "./harness.ts";
 
 /** Section 11: 500 ‡ seeded crash points a run. */
@@ -38,24 +39,28 @@ describe("power lost at each point of section 4's table", () => {
       expect(run.board.pairing).toBeDefined();
       expect(run.home.decisions("alarm").length).toBeGreaterThan(0);
     },
-    30_000,
+    DAY_TEST_TIMEOUT_MS,
   );
 });
 
 describe("a day of home A with seeded crashes (section 11)", () => {
-  test(`${RANDOM_CRASHES} ‡ random points: the seven conditions hold after every restart`, async () => {
-    run = await CrashRun.create(2026);
-    const random = new SeededBytes(2026);
-    const crashes: PlannedCrash[] = Array.from({ length: RANDOM_CRASHES }, () => ({
-      at: Math.floor((random.next() / 2 ** 32) * (DAY - MINUTE)),
-      point: CRASH_POINTS[random.next() % CRASH_POINTS.length] ?? "afterSends",
-      needsNow: random.next() % 2 === 0,
-    }));
-    expect(run.run(crashes)).toEqual([]);
-    // About one planned crash in ten never comes: one that waits for a turn written now is
-    // replaced by the next before such a turn. Which ones depends on the database's own bytes
-    // (a torn checkpoint keeps some pages of either side), so the count moves a little with the
-    // schema: 448 with M2's step 0 tables (m2-design.md section 4).
-    expect(run.home.restarts).toBeGreaterThan(RANDOM_CRASHES * 0.88);
-  }, 120_000);
+  test(
+    `${RANDOM_CRASHES} ‡ random points: the seven conditions hold after every restart`,
+    async () => {
+      run = await CrashRun.create(2026);
+      const random = new SeededBytes(2026);
+      const crashes: PlannedCrash[] = Array.from({ length: RANDOM_CRASHES }, () => ({
+        at: Math.floor((random.next() / 2 ** 32) * (DAY - MINUTE)),
+        point: CRASH_POINTS[random.next() % CRASH_POINTS.length] ?? "afterSends",
+        needsNow: random.next() % 2 === 0,
+      }));
+      expect(run.run(crashes)).toEqual([]);
+      // About one planned crash in ten never comes: one that waits for a turn written now is
+      // replaced by the next before such a turn. Which ones depends on the database's own bytes
+      // (a torn checkpoint keeps some pages of either side), so the count moves a little with the
+      // schema: 448 with M2's step 0 tables (m2-design.md section 4).
+      expect(run.home.restarts).toBeGreaterThan(RANDOM_CRASHES * 0.88);
+    },
+    DAYS_TEST_TIMEOUT_MS,
+  );
 });

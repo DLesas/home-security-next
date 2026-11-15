@@ -7,7 +7,7 @@ import { ok, type Result } from "neverthrow";
 import type { Context } from "../model/handler.ts";
 import type { Effect } from "../model/effects.ts";
 import type { CoreFault } from "../model/errors.ts";
-import type { Internal } from "../model/messages.ts";
+import type { Actor, Internal } from "../model/messages.ts";
 import type { Durability, StoreOp } from "../model/store.ts";
 import { type Decided, type DecisionFields, decision } from "../util/records.ts";
 import type { AlarmSlice } from "./state.ts";
@@ -48,6 +48,26 @@ export function each<T>(
 }
 
 export { actorDetail, type Decided, type DecisionFields } from "../util/records.ts";
+
+/** The console's text in records: it acts as the hub computer (m2-design.md section 7). */
+export const CONSOLE_ACTOR = "hub computer";
+
+/**
+ * Who or what asked, as the decisions it causes name it (AL8): the hub computer's user name, the
+ * console as the hub computer, a person as `commands.actor` holds them (`"Anna (client 7)"`,
+ * m2-design.md section 4), a schedule entry as "schedule <name>" (section 7, "Running").
+ */
+export function actorText(actor: Actor): string {
+  switch (actor.kind) {
+    case "computer":
+    case "person":
+      return actor.name;
+    case "console":
+      return CONSOLE_ACTOR;
+    case "schedule":
+      return `schedule ${actor.name}`;
+  }
+}
 
 /** A decision record (D110), through the core's one builder (core/util/records.ts). */
 export function decide(

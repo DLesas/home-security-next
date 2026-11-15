@@ -4,6 +4,7 @@
  * it was, the deep freeze, and the same inputs giving the same outputs. Test modules replace
  * the stubs one at a time; the rest stay the real stubs.
  */
+import { nodeSha256 } from "@hsn/protocol";
 import { describe, expect, test } from "bun:test";
 import { EMPTY_ALARM_SLICE } from "../../src/core/alarm/state.ts";
 import { EMPTY_AUDIT_SLICE } from "../../src/core/audit/state.ts";
@@ -23,6 +24,7 @@ import {
   seq,
   type Seq,
   sendRef,
+  connId,
 } from "../../src/core/model/ids.ts";
 import type { Internal } from "../../src/core/model/messages.ts";
 import { MODULE_ORDER, type ModuleName } from "../../src/core/model/modules.ts";
@@ -47,6 +49,7 @@ const deps: CoreDeps = {
   cipher: VectorCipher.fromVectors(),
   rules: DEFAULT_RULES,
   calendar: UNBUILT_CALENDAR,
+  sha256: nodeSha256,
   deepFreeze: true,
 };
 
@@ -141,7 +144,13 @@ describe("the whole core", () => {
       { kind: "linkClosed", link: linkId(1), reason: "remote" },
       { kind: "commit", outcome: { kind: "failed", message: "disk full" } },
       { kind: "commit", outcome: { kind: "recovered" } },
-      { kind: "command", request: requestId(1), actor: "a", command: { kind: "status" } },
+      {
+        kind: "command",
+        conn: connId(0),
+        request: requestId(1),
+        actor: "a",
+        command: { kind: "status" },
+      },
       {
         kind: "inputRejected",
         rejection: { source: "control", reason: "notJson", bytes: 12, issues: [] },
@@ -166,7 +175,13 @@ describe("the whole core", () => {
     const asked = step(
       booted.value.state,
       input(
-        { kind: "command", request: requestId(5), actor: "a", command: { kind: "devices" } },
+        {
+          kind: "command",
+          conn: connId(0),
+          request: requestId(5),
+          actor: "a",
+          command: { kind: "devices" },
+        },
         2_000_000,
       ),
       deps,

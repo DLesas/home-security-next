@@ -16,7 +16,15 @@ import {
 } from "@hsn/protocol";
 import { err, ok, type Result } from "neverthrow";
 import type { CommandResult, ControlCommand, ControlReply } from "../model/control.ts";
-import { HUB_DEVICE, type RequestId, type Seq } from "../model/ids.ts";
+import {
+  AWAY_MODE,
+  type ConnId,
+  DISARMED_MODE,
+  HUB_DEVICE,
+  type RequestId,
+  type Seq,
+  tokenId,
+} from "../model/ids.ts";
 import type { DomainMessage, SensorSelection } from "../model/messages.ts";
 import type { DeviceRow } from "../model/rows.ts";
 import type { HubState } from "../model/state.ts";
@@ -32,6 +40,7 @@ import {
   roleNumber,
   stateName,
 } from "../registry/view.ts";
+import { schedulesNaming } from "../schedules/view.ts";
 import { belonging, boardByLabel, usbBoards } from "../setup/view.ts";
 import { type ControlSources, WAITING_TEXT } from "./sources.ts";
 import type { ControlErrorCode } from "./view.ts";
@@ -133,12 +142,42 @@ function requested(message: DomainMessage): Routed {
   return { kind: "forward", message };
 }
 
+/**
+ * `hsn arm --all` and `hsn disarm --all` are switches to the fixed modes Away and Disarmed
+ * (m2-design.md section 1, D90), sent to layout as `hsn op mode.switch` is, with the hub computer
+ * as actor. The sensors end as `hsn arm --all` and `hsn disarm --all` left them, and the command
+ * keeps its answer (control turns the alarm's into `hsn arm`'s or `hsn disarm`'s, `m1-replies.ts`).
+ * `--continue` confirms open doors (D50); the hub computer is never asked about a battery, since
+ * `hsn arm` cannot confirm one and never asked.
+ */
+function switchTo(
+  command: Command<"arm"> | Command<"disarm">,
+  request: RequestId,
+  conn: ConnId,
+  actor: string,
+  record: Seq,
+): Routed {
+  const body =
+    command.kind === "arm"
+      ? { mode: AWAY_MODE, confirm: { openDoors: command.continue, lowBattery: true } }
+      : { mode: DISARMED_MODE };
+  return requested({
+    kind: "opRequest",
+    owner: "layout",
+    op: { op: "mode.switch", body },
+    actor: { kind: "computer", name: actor },
+    answerTo: { kind: "control", request, conn },
+    record,
+  });
+}
+
 /** Routes one command (section 9). */
 export function route(
   view: HubState,
   now: Now,
   sources: ControlSources,
   request: RequestId,
+  conn: ConnId,
   actor: string,
   record: Seq,
   command: ControlCommand,
@@ -159,6 +198,7 @@ export function route(
           sensors.error,
         );
       }
+      if (sensors.value === "all") return switchTo(command, request, conn, actor, record);
       return command.kind === "arm"
         ? requested({
             kind: "armRequest",
@@ -211,9 +251,31 @@ export function route(
       const row = deviceByName(view, name);
       if (row === undefined || row.id === HUB_DEVICE)
         return refuse("unknownDevice", `no device is called ${name}`, [name]);
-      return command.kind === "deviceRename"
-        ? requested({ kind: "deviceRenameRequest", device: row.id, name: command.to, ...asked })
-        : requested({ kind: "deviceRemoveRequest", device: row.id, ...asked });
+      if (command.kind === "deviceRename") {
+        return requested({
+          kind: "deviceRenameRequest",
+          device: row.id,
+          name: command.to,
+          ...asked,
+        });
+      }
+      // A sensor a schedule entry names cannot be removed: the entries are named (m2-design.md
+      // section 7; section 11, "Step 1's questions, settled").
+      const named = schedulesNaming(view, { sensor: row.id });
+      if (named.length > 0) {
+        return {
+          kind: "answer",
+          reply: {
+            ok: false,
+            error: {
+              code: "opRefused",
+              message: `named by schedules ${named.join(", ")}`,
+              app: { code: "invalid", detail: { field: "device", reason: "inUse", refs: named } },
+            },
+          },
+        };
+      }
+      return requested({ kind: "deviceRemoveRequest", device: row.id, ...asked });
     }
     case "sensorSet": {
       const row = working(view, command.name, Role.Sensor);
@@ -318,12 +380,18 @@ export function route(
         owner,
         op,
         actor: { kind: "computer", name: actor },
-        answerTo: { kind: "control", request },
+        answerTo: { kind: "control", request, conn },
         record,
       });
     }
     case "consoleToken":
-      return requested({ kind: "consoleTokenRequest", ...asked });
+      return requested({ kind: "consoleTokenRequest", for: command.for ?? "open", ...asked });
+    case "consoleTokenWait":
+      return requested({
+        kind: "consoleTokenWaitRequest",
+        token: tokenId(command.token),
+        ...asked,
+      });
   }
 }
 

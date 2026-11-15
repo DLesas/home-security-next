@@ -14,6 +14,8 @@ export type TokenPurpose = "link" | "restore";
 export interface AcceptedToken {
   readonly token: TokenId;
   readonly purpose: TokenPurpose;
+  /** Linking a new person whose name was not given: message 2 asks for one; false for a restore. */
+  readonly askName: boolean;
   readonly psk: Uint8Array;
 }
 
@@ -21,5 +23,11 @@ export interface LinkSecrets {
   /** The token `LinkHello.find` names, with its key, or undefined: the socket closes. */
   find(lookup: string): AcceptedToken | undefined;
   /** A `linkSecret` effect: accept the token from now (`psk`), or no longer (null). */
-  apply(token: TokenId, purpose: TokenPurpose, lookup: string, psk: Uint8Array | null): void;
+  apply(
+    token: TokenId,
+    purpose: TokenPurpose,
+    askName: boolean,
+    lookup: string,
+    psk: Uint8Array | null,
+  ): void;
 }

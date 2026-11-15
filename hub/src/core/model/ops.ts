@@ -17,7 +17,8 @@ export const OP_OWNERS: Readonly<Record<AppOpName, ModuleName | "shell">> = {
   subscribe: "app",
   "hub.info": "app",
   "hub.status": "app",
-  pong: "app",
+  // The keepalive is the shell's (section 5): the channel sends `ping` and answers `pong`.
+  pong: "shell",
   fileChunk: "shell",
   "device.list": "app",
   "device.show": "app",

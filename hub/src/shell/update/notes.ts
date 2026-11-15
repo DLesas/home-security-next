@@ -1,0 +1,74 @@
+/**
+ * The hub's side of the notes it leaves the launcher (m2-design.md section 9, "Hub updates"; the
+ * contract is `hub/launcher/src/layout.ts`):
+ *
+ * - **The switch** (`switchUpdate`): `switch.json` naming the staged version, written durably;
+ *   then the hub stops cleanly and exits 70, and the launcher puts the new version on trial. The
+ *   shell asks the core's view first (`switchBlockedBy`): a countdown, an alarm, a site move, a
+ *   provisioning or a restore that started in the same turn holds the switch back, and the job is
+ *   answered `failed`, so upkeep waits again (`core/upkeep/update.ts`).
+ * - **Health**: once a commit holds the `update_healthy` decision, `healthy.json` naming the
+ *   version, which ends the launcher's trial.
+ *
+ * The install's prefix comes from the launcher, in `HSN_PREFIX`; a hub run by hand has none and
+ * cannot switch.
+ */
+import { join } from "node:path";
+import { err, ok, type Result } from "neverthrow";
+import { installPaths, isVersionName } from "../../../launcher/src/layout.ts";
+import { PREFIX_VARIABLE } from "../../../launcher/src/launcher.ts";
+import type { AuditRecord } from "../../core/model/audit.ts";
+import type { FileOutcome } from "../../core/model/events.ts";
+import { exists, writeDurably } from "../backup/files.ts";
+
+/** The install's prefix, from the launcher; undefined when the hub was not started by one. */
+export function prefixFrom(env: Readonly<Record<string, string | undefined>>): string | undefined {
+  const prefix = env[PREFIX_VARIABLE];
+  return prefix === undefined || prefix === "" ? undefined : prefix;
+}
+
+/**
+ * `switchUpdate`: the note for the launcher, unless something holds the switch back. On success
+ * the caller stops the hub cleanly and exits 70; on a failure the job's outcome goes to the core.
+ */
+export function requestSwitch(
+  prefix: string | undefined,
+  version: string,
+  blockedBy: string | undefined,
+): Result<void, FileOutcome> {
+  if (blockedBy !== undefined)
+    return err({ kind: "failed", reason: "io", message: `held back: a ${blockedBy} started` });
+  if (prefix === undefined)
+    return err({
+      kind: "failed",
+      reason: "io",
+      message: "not started by the launcher: no install to switch",
+    });
+  const paths = installPaths(prefix);
+  if (!isVersionName(version) || !exists(join(paths.versions, version)))
+    return err({ kind: "failed", reason: "io", message: `${version} is not installed` });
+  const note = new TextEncoder().encode(`${JSON.stringify({ to: version })}\n`);
+  const written = writeDurably(paths.switchFile, `${paths.switchFile}.new`, note);
+  return written.isErr() ? err({ kind: "failed", ...written.error }) : ok(undefined);
+}
+
+/** The version a committed `update_healthy` names, if these records hold one. */
+export function healthyIn(records: readonly AuditRecord[]): string | undefined {
+  for (const record of records) {
+    if (
+      record.kind === "decision" &&
+      record.row.kind === "update_healthy" &&
+      record.row.detail !== null
+    )
+      return new TextDecoder().decode(record.row.detail);
+  }
+  return undefined;
+}
+
+/** `healthy.json`, after the commit that holds `update_healthy` (section 9, step 4). */
+export function markHealthy(prefix: string | undefined, version: string): Result<void, string> {
+  if (prefix === undefined) return ok(undefined);
+  const paths = installPaths(prefix);
+  const note = new TextEncoder().encode(`${JSON.stringify({ version })}\n`);
+  return writeDurably(paths.healthyFile, `${paths.healthyFile}.new`, note).mapErr((e) => e.message);
+}

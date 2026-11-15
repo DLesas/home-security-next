@@ -1,0 +1,26 @@
+# The hub's systemd unit (m2-design.md section 9, Linux and Raspberry Pi OS 64-bit).
+# The launcher starts the hub and restarts it (section 9, "Starts at boot"); systemd restarts the
+# launcher on any exit but a clean stop. systemd-inhibit holds sleep off while it runs (HB28).
+[Unit]
+Description=HSN home security hub
+Wants=network-online.target time-sync.target
+After=network-online.target time-sync.target
+
+[Service]
+Type=simple
+User=hsn
+Group=hsn
+SupplementaryGroups=dialout
+ExecStart=/usr/bin/systemd-inhibit --what=sleep:idle --who=hsn-hub "--why=the alarm must keep running" --mode=block /usr/lib/hsn-hub/hsn-launcher --prefix /opt/hsn-hub --data /var/lib/hsn-hub
+Restart=on-failure
+RestartSec=5
+# SIGTERM reaches the launcher and the hub alike; the hub stops cleanly, the launcher exits 0.
+KillMode=control-group
+TimeoutStopSec=30
+UMask=0077
+NoNewPrivileges=yes
+ProtectHome=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

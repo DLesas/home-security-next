@@ -18,15 +18,20 @@
  * - The `status` reply gets the writer's part, last commit and staged items, which only the
  *   shell knows (control-protocol replies.ts).
  */
+import type { AppOpBody } from "@hsn/protocol/app";
 import { createServer, type Server, type Socket } from "node:net";
 import type { Result } from "neverthrow";
-import { err, ok, ResultAsync } from "neverthrow";
+import { err, errAsync, ok, okAsync, ResultAsync } from "neverthrow";
 import type { AuditRecord } from "../../core/model/audit.ts";
 import type { ControlReply } from "../../core/model/control.ts";
 import type { HubError } from "../../core/model/errors.ts";
 import type { ControlLineRejection } from "../../core/model/events.ts";
-import { type RequestId, requestId } from "../../core/model/ids.ts";
+import { type ConnId, type RequestId, requestId } from "../../core/model/ids.ts";
+import { ConnIds } from "../app/channel.ts";
+import { controlChunkReply, type UploadStore } from "../app/uploads.ts";
 import {
+  chunkLine,
+  fileFailedLine,
   replyLine,
   requestLine,
   type RequestLine,
@@ -40,7 +45,11 @@ import { parseJson } from "../safe/json.ts";
 import { FILE_CHUNK_NOT_BUILT } from "./file-chunks.ts";
 import { LineReader, MAX_REQUEST_LINE_BYTES } from "./lines.ts";
 import { type FollowFilter, matches, recordJson } from "./records.ts";
-import { prepareSocketPath, removeSocket, secureSocket } from "./socket-file.ts";
+import { type SocketSteps, socketStepsFor } from "./socket-steps.ts";
+import type { WarningSink } from "./windows.ts";
+
+/** A download's chunk, as the app's `fileChunk` body carries it. */
+type FileChunkCommandBody = AppOpBody<"fileChunk">;
 
 const ORIGIN = "shell/control/server";
 
@@ -85,6 +94,23 @@ export interface ControlServerOptions {
   readonly writerStatus: () => WriterStatus;
   /** Also told of each rejected line, after it reached the core (tests watch it). */
   readonly onRejected?: (rejection: Rejection) => void;
+  /**
+   * How the socket's place is checked: the system's own by default (`socket-steps.ts`); tests
+   * give Windows' steps with access lists as data.
+   */
+  readonly steps?: SocketSteps;
+  /**
+   * Told `data_folder_was_open` when the Windows steps find the data folder open (m2-design.md
+   * section 9); standard error when not given.
+   */
+  readonly onWarning?: WarningSink;
+  /**
+   * The shell's one counter of connections, shared with the app listeners (m2-design.md section
+   * 6): each control connection is a `ConnId`, so an upload on it is `UploadRef {conn, job}`.
+   */
+  readonly connIds?: ConnIds;
+  /** The uploads `fileChunk` requests go to; without it each chunk is answered not built. */
+  readonly uploads?: UploadStore;
 }
 
 interface Follower {
@@ -94,11 +120,14 @@ interface Follower {
 }
 
 interface Connection {
+  readonly conn: ConnId;
   readonly socket: Socket;
   readonly reader: LineReader;
   readonly waiting: string[];
   /** The request in hand, until its reply is written. */
   inHand: RequestId | undefined;
+  /** The client's id of the last reply written: a download's lines follow its reply. */
+  lastReplied: number | undefined;
   follower: Follower | undefined;
 }
 
@@ -115,6 +144,8 @@ function refusal(message: string): ControlReply {
 
 export class UnixControlServer implements Control {
   readonly #options: ControlServerOptions;
+  readonly #steps: SocketSteps;
+  readonly #connIds: ConnIds;
   readonly #server: Server;
   readonly #connections = new Set<Connection>();
   readonly #requests = new Map<
@@ -126,19 +157,26 @@ export class UnixControlServer implements Control {
   #nextRequest = 1;
   #nextSubscriber = 1;
 
-  private constructor(options: ControlServerOptions, server: Server) {
+  private constructor(options: ControlServerOptions, steps: SocketSteps, server: Server) {
     this.#options = options;
+    this.#steps = steps;
+    this.#connIds = options.connIds ?? new ConnIds();
     this.#server = server;
     server.on("connection", (socket) => {
       this.#accept(socket);
     });
   }
 
-  /** Opens the socket: the folder secured, an old socket removed, listening, then 0600. */
+  /**
+   * Opens the socket: the folder secured, an old socket removed, listening, then the socket file
+   * checked (0600 on macOS and Linux, its access list on Windows). When that last check fails,
+   * the listener is closed again, so a socket that failed its check never serves.
+   */
   static open(options: ControlServerOptions): ResultAsync<UnixControlServer, HubError> {
-    return prepareSocketPath(options.socketPath).andThen(() => {
+    const steps = options.steps ?? socketStepsFor(process.platform, options.onWarning);
+    return steps.prepare(options.socketPath).andThen(() => {
       const server = createServer();
-      const instance = new UnixControlServer(options, server);
+      const instance = new UnixControlServer(options, steps, server);
       const listening = new Promise<Result<void, HubError>>((resolve) => {
         server.once("error", (error) => {
           resolve(
@@ -151,8 +189,12 @@ export class UnixControlServer implements Control {
       });
       return ResultAsync.fromSafePromise(listening)
         .andThen((listened) => listened)
-        .andThen(() => secureSocket(options.socketPath))
-        .map(() => instance);
+        .andThen(() =>
+          steps
+            .secure(options.socketPath)
+            .asyncAndThen(() => okAsync(instance))
+            .orElse((error) => instance.#stopListening().andThen(() => errAsync(error))),
+        );
     });
   }
 
@@ -177,6 +219,38 @@ export class UnixControlServer implements Control {
     connection.inHand = undefined;
     this.#reply(connection, clientId, this.#withWriterStatus(reply));
     this.#next(connection);
+  }
+
+  /** Whether `conn` is one of this server's connections (the shell's one counter, section 6). */
+  has(conn: ConnId): boolean {
+    return this.#find(conn) !== undefined;
+  }
+
+  /**
+   * A download's chunk, or its failure, on the connection that asked: after the reply `{job}`,
+   * with that reply's id (m2-design.md section 6). False when the connection is gone.
+   */
+  download(
+    conn: ConnId,
+    line:
+      | { readonly fileChunk: FileChunkCommandBody }
+      | { readonly fileFailed: { readonly job: number; readonly reason: "io" | "stopping" } },
+  ): boolean {
+    const connection = this.#find(conn);
+    const id = connection?.lastReplied;
+    if (connection === undefined || id === undefined) return false;
+    const checked =
+      "fileChunk" in line
+        ? chunkLine.safeParse({ id, fileChunk: line.fileChunk })
+        : fileFailedLine.safeParse({ id, kind: "fileFailed", ...line.fileFailed });
+    if (!checked.success) return false;
+    this.#write(connection, checked.data);
+    return true;
+  }
+
+  #find(conn: ConnId): Connection | undefined {
+    for (const connection of this.#connections) if (connection.conn === conn) return connection;
+    return undefined;
   }
 
   stream(subscriber: SubscriberId, record: AuditRecord): void {
@@ -204,23 +278,27 @@ export class UnixControlServer implements Control {
 
   /** Closes every connection and the socket, and removes the socket file. */
   close(): ResultAsync<void, HubError> {
+    return this.#stopListening().andThen(() => this.#steps.remove(this.#options.socketPath));
+  }
+
+  #stopListening(): ResultAsync<void, HubError> {
     for (const connection of this.#connections) connection.socket.destroy();
     const closed = new Promise<void>((resolve) => {
       this.#server.close(() => {
         resolve();
       });
     });
-    return ResultAsync.fromSafePromise(closed).andThen(() =>
-      removeSocket(this.#options.socketPath),
-    );
+    return ResultAsync.fromSafePromise(closed);
   }
 
   #accept(socket: Socket): void {
     const connection: Connection = {
+      conn: this.#connIds.next(),
       socket,
       reader: new LineReader(MAX_REQUEST_LINE_BYTES),
       waiting: [],
       inHand: undefined,
+      lastReplied: undefined,
       follower: undefined,
     };
     this.#connections.add(connection);
@@ -242,6 +320,7 @@ export class UnixControlServer implements Control {
 
   #forget(connection: Connection): void {
     this.#connections.delete(connection);
+    this.#options.uploads?.closed(connection.conn);
     if (connection.follower !== undefined) this.#followers.delete(connection.follower.id);
     for (const [request, waiting] of this.#requests) {
       if (waiting.connection === connection) this.#requests.delete(request);
@@ -321,8 +400,17 @@ export class UnixControlServer implements Control {
       return;
     }
     if (line.command.kind === "fileChunk") {
-      // The shell's own (m2-design.md section 6), never the core's.
-      this.#reply(connection, line.id, FILE_CHUNK_NOT_BUILT);
+      // The shell's own (m2-design.md section 6), never the core's: kept per connection.
+      const { job, n, data, end } = line.command;
+      const chunk = end === undefined ? { job, n, data } : { job, n, data, end };
+      const uploads = this.#options.uploads;
+      this.#reply(
+        connection,
+        line.id,
+        uploads === undefined
+          ? FILE_CHUNK_NOT_BUILT
+          : controlChunkReply(uploads.chunk(connection.conn, chunk)),
+      );
       return;
     }
     const command = typedCommand(line.command);
@@ -332,10 +420,10 @@ export class UnixControlServer implements Control {
       // Waiting before the core sees it, so an answer made at once still finds its client.
       connection.inHand = request;
       this.#requests.set(request, { connection, clientId: line.id });
-      sink({ kind: "command", request, actor: line.actor, command });
+      sink({ kind: "command", request, conn: connection.conn, actor: line.actor, command });
       return;
     }
-    sink({ kind: "command", request, actor: line.actor, command });
+    sink({ kind: "command", request, conn: connection.conn, actor: line.actor, command });
     const query: LogQuery = {
       ...(command.device === undefined ? {} : { device: command.device }),
       ...(command.since === undefined ? {} : { since: command.since }),
@@ -393,6 +481,7 @@ export class UnixControlServer implements Control {
   }
 
   #reply(connection: Connection, clientId: number, reply: ControlReply): void {
+    connection.lastReplied = clientId;
     const line = replyLine.safeParse({ id: clientId, reply });
     if (line.success) {
       this.#write(connection, line.data);

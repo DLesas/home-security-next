@@ -6,6 +6,8 @@
  * through the send gate, the closes and the answers. The world jumps from deadline to deadline
  * (the core's wake, the writer's, each device's); nothing sleeps.
  */
+import type { Calendar } from "../../src/core/model/calendar.ts";
+import { nodeSha256 } from "@hsn/protocol";
 import { UNBUILT_CALENDAR } from "../../src/shell/calendar/unbuilt.ts";
 import { EMPTY_M2_SNAPSHOT } from "../../src/core/model/events.ts";
 import { err, ok, type Result } from "neverthrow";
@@ -63,6 +65,8 @@ export interface WorldOptions {
   readonly core?: Core;
   /** The cipher to key devices with; the vector files' devices by default. */
   readonly cipher?: DeviceCipher;
+  /** Calendar arithmetic; none by default, so no schedule entry has a next time. */
+  readonly calendar?: Calendar;
 }
 
 /** A snapshot of an empty database: what the first start of a new hub reads. */
@@ -133,7 +137,13 @@ export class World {
     this.core = options.core ?? makeCore(MODULES);
     const rules = options.rules ?? DEFAULT_RULES;
     this.cipher = options.cipher ?? VectorCipher.fromVectors();
-    this.deps = { cipher: this.cipher, rules, calendar: UNBUILT_CALENDAR, deepFreeze: true };
+    this.deps = {
+      cipher: this.cipher,
+      rules,
+      calendar: options.calendar ?? UNBUILT_CALENDAR,
+      sha256: nodeSha256,
+      deepFreeze: true,
+    };
     this.writer = new RecordingWriter(rules.persistence.routineBatchMs);
     this.state = this.core.emptyState();
     this.#entropy = new SeededBytes(options.seed ?? DEFAULT_SEED);

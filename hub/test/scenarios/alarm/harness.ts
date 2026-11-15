@@ -9,7 +9,12 @@
  *   frame on a radio link counts as forwarded by that link's gateway;
  * - gateways: a radio link is a gateway (`gatewayUp` on open), `radioOut` is sent on its link;
  * - sensors: `sensor_config` written now on `armedChanged`, with the arming from the alarm's view;
- * - audit: `auditRecord` into `record` effects, and every message kept for the tests.
+ * - audit: `auditRecord` into `record` effects, and every message kept for the tests;
+ * - app (M2): the messages a test queues (`request`, `inject`), sent on the next tick, as app and
+ *   schedules will send their requests (m2-design.md section 2).
+ * The layout module is real, so groups and modes (`HomeOptions.layout`) choose the sensors and
+ * sirens as the hub does; with `realControl`, so is control, and `hsn arm --all` is the switch to
+ * Away it is in M2 (section 1).
  * Sensors here have keys of their own, opened by the harness; sirens are vector devices, sealed by
  * the World's cipher.
  */
@@ -36,19 +41,29 @@ import type { DurableSnapshot } from "../../../src/core/model/events.ts";
 import type { Handler } from "../../../src/core/model/handler.ts";
 import {
   bootId,
+  clientId,
+  connId,
   type DeviceId,
   deviceId,
+  groupId,
   HUB_DEVICE,
   type LinkId,
+  modeId,
+  personId,
   requestId,
+  scheduleId,
   seq,
 } from "../../../src/core/model/ids.ts";
-import type { Internal } from "../../../src/core/model/messages.ts";
+import type { Actor, AnswerTo, Internal, OpOutcome } from "../../../src/core/model/messages.ts";
+import type { AppOp } from "@hsn/protocol/app";
 import type { DecisionKind } from "../../../src/core/model/decisions.ts";
 import {
   ArmState,
   type DecisionRow,
   DeviceState,
+  ModeFixed,
+  type ModeStateRow,
+  ScheduleAction,
   TxOutcome,
 } from "../../../src/core/model/rows.ts";
 import { DEFAULT_RULES, type HubRules } from "../../../src/core/model/rules.ts";
@@ -56,6 +71,7 @@ import type { StateTable } from "../../../src/core/model/store.ts";
 import { type Mono, mono } from "../../../src/core/model/time.ts";
 import { makeCore, type ModuleDefinition, type Modules, MODULES } from "../../../src/core/step.ts";
 import { ScriptedSiren } from "../../world/scripted-siren.ts";
+import { makeCalendar } from "../../../src/shell/calendar/calendar.ts";
 import { VectorCipher } from "../../world/vector-cipher.ts";
 import { emptySnapshot, World } from "../../world/world.ts";
 
@@ -85,13 +101,63 @@ export interface SirenSpec {
   readonly sendRate?: number;
 }
 
+/** A stored group, its sensors and sirens by name (m2-design.md section 4). */
+export interface GroupSpec {
+  readonly id: number;
+  readonly name: string;
+  readonly sensors: readonly string[];
+  /** Every siren, the default (AL2a), or these. */
+  readonly sirens?: "all" | readonly string[];
+}
+
+/** A stored mode made by a person, its groups by id. */
+export interface ModeSpec {
+  readonly id: number;
+  readonly name: string;
+  readonly groups: readonly number[];
+}
+
 export interface HomeOptions {
   readonly sensors: readonly SensorSpec[];
   readonly sirens: readonly SirenSpec[];
   readonly rules?: HubRules;
   readonly wallTrusted?: boolean;
   readonly autoStopS?: number;
+  /** M2's layout as stored; without it the snapshot has none of migration 2's rows. */
+  readonly layout?: {
+    readonly groups?: readonly GroupSpec[];
+    readonly modes?: readonly ModeSpec[];
+    readonly modeState?: ModeStateRow;
+  };
+  /** The real control module in place of the stand-in (M2's `hsn arm --all`, `hsn op`). */
+  readonly realControl?: boolean;
+  /**
+   * Anna (`ANNA`), a live person, with layout's rows; with user management on, she may manage
+   * only these sensors (D13, D33).
+   */
+  readonly anna?: { readonly userManagement: boolean; readonly manages: readonly string[] };
+  /**
+   * Schedule entries, each naming a mode or group by id or a sensor by name: turned off unless
+   * `enabled`, every day at `at` (minutes after midnight, UTC; 22:00 by default). With one turned
+   * on, the World computes next times with the real calendar, in UTC.
+   */
+  readonly schedules?: readonly ((
+    | { readonly id: number; readonly mode: number }
+    | { readonly id: number; readonly group: number }
+    | { readonly id: number; readonly sensor: string }
+  ) & { readonly enabled?: boolean; readonly at?: number })[];
 }
+
+/** A person's request through their client, as app will send it (m2-design.md section 2). */
+export const ANNA: Actor = {
+  kind: "person",
+  person: personId(1),
+  client: clientId(7),
+  name: "Anna (client 7)",
+};
+
+/** A schedule entry's request (section 7, "Schedules"): never asks, answered nowhere. */
+export const NIGHT: Actor = { kind: "schedule", schedule: scheduleId(1), name: "Night" };
 
 interface SensorKey {
   readonly device: DeviceId;
@@ -99,6 +165,8 @@ interface SensorKey {
   readonly key: Uint8Array;
   counter: number;
   changeCount: number;
+  /** The battery byte its packets carry (§3: 2,500 + 10 × the byte mV). */
+  batteryCode: number;
 }
 
 /** What the stand-ins remember across steps: one per run of the hub. */
@@ -134,6 +202,8 @@ export class Home {
   #state: StandInState;
   #snapshot: DurableSnapshot;
   #nextRequest = 1;
+  /** Messages a test queued for the app stand-in to send on the next tick. */
+  #queued: Internal[] = [];
   /** Sirens whose Wi-Fi comes back on the restarted hub. */
   readonly #reconnect = new Map<ScriptedSiren, boolean>();
   #boot = 1;
@@ -149,6 +219,7 @@ export class Home {
         key,
         counter: 64,
         changeCount: 0,
+        batteryCode: 150,
       };
       this.sensors.set(spec.name, entry);
       this.names.set(spec.name, entry.device);
@@ -230,8 +301,10 @@ export class Home {
       spec: this.options.sirens[i],
     }));
     const autoStopS = this.options.autoStopS ?? 300;
+    const empty = emptySnapshot();
     return {
-      ...emptySnapshot(),
+      ...empty,
+      m2: this.#layoutSnapshot(empty.m2),
       devices: [
         ...sensors.map(({ name, s }) => device(s.device, s.address, Role.Sensor, name)),
         ...sirens.map(({ name, s }) =>
@@ -277,16 +350,86 @@ export class Home {
     };
   }
 
+  /** Migration 2's layout rows as `HomeOptions.layout` gives them, by name. */
+  #layoutSnapshot(empty: DurableSnapshot["m2"]): DurableSnapshot["m2"] {
+    const layout = this.options.layout;
+    if (layout === undefined) return empty;
+    const groups = layout.groups ?? [];
+    const modes = layout.modes ?? [];
+    const anna = this.options.anna ?? { userManagement: false, manages: [] };
+    const person = personId(1);
+    const scheduled = (this.options.schedules ?? []).some((entry) => entry.enabled === true);
+    return {
+      ...empty,
+      ...(scheduled ? { scheduleState: { timeZone: "UTC" } } : {}),
+      people: [
+        { id: person, name: "Anna", createdMs: START_WALL_MS, removedMs: null, revision: 0 },
+      ],
+      schedules: (this.options.schedules ?? []).map((entry) => ({
+        id: scheduleId(entry.id),
+        name: `entry ${entry.id}`,
+        action: "mode" in entry ? ScheduleAction.SwitchMode : ScheduleAction.Arm,
+        modeId: "mode" in entry ? modeId(entry.mode) : null,
+        groupId: "group" in entry ? groupId(entry.group) : null,
+        sensorId: "sensor" in entry ? this.sensor(entry.sensor) : null,
+        localTime: entry.at ?? 22 * 60,
+        days: 0x7f,
+        date: null,
+        enabled: entry.enabled ?? false,
+        createdBy: "anna",
+        lastRunMs: null,
+        lastRunLocalDate: null,
+        missedDueMs: null,
+        missedWhy: null,
+        missedCount: 0,
+        revision: 0,
+      })),
+      personRoles: [{ personId: person, manageUsers: true, manageSystem: true, revision: 0 }],
+      peopleSettings: { userManagement: anna.userManagement },
+      permissions: anna.manages.map((name) => ({
+        personId: person,
+        deviceId: this.sensor(name),
+        manage: true,
+        view: true,
+      })),
+      modeState: layout.modeState,
+      groups: groups.map((g) => ({
+        id: groupId(g.id),
+        name: g.name,
+        allSirens: (g.sirens ?? "all") === "all",
+        revision: 0,
+      })),
+      groupMembers: groups.flatMap((g) =>
+        g.sensors.map((name) => ({ groupId: groupId(g.id), sensorId: this.sensor(name) })),
+      ),
+      groupSirens: groups.flatMap((g) =>
+        g.sirens === undefined || g.sirens === "all"
+          ? []
+          : g.sirens.map((name) => ({ groupId: groupId(g.id), sirenId: this.sensor(name) })),
+      ),
+      modes: [
+        { id: modeId(1), name: "Away", fixed: ModeFixed.Away, revision: 0 },
+        { id: modeId(2), name: "Disarmed", fixed: ModeFixed.Disarmed, revision: 0 },
+        ...modes.map((m) => ({ id: modeId(m.id), name: m.name, fixed: ModeFixed.No, revision: 0 })),
+      ],
+      modeGroups: modes.flatMap((m) =>
+        m.groups.map((g) => ({ modeId: modeId(m.id), groupId: groupId(g) })),
+      ),
+    };
+  }
+
   #vectorAddress(id: DeviceId): number {
     return this.cipher.devices.find((d) => d.device === id)?.address ?? 0;
   }
 
   #newWorld(wallAtStartMs: number, wallTrusted: boolean): World {
+    const scheduled = (this.options.schedules ?? []).some((entry) => entry.enabled === true);
     return new World({
       core: makeCore(this.#modules()),
       rules: this.options.rules ?? DEFAULT_RULES,
       wallAtStartMs,
       wallTrusted,
+      ...(scheduled ? { calendar: makeCalendar()._unsafeUnwrap() } : {}),
     });
   }
 
@@ -398,6 +541,7 @@ export class Home {
         key: new Uint8Array(16),
         counter: 1,
         changeCount: 0,
+        batteryCode: 150,
       }
     );
   }
@@ -428,7 +572,7 @@ export class Home {
           buzzing: false,
           listeningAtSendRate: false,
         },
-        batteryCode: 150,
+        batteryCode: key.batteryCode,
         temperatureCelsius: 20,
         doorChangeCount: changeCount,
         eventAgeSeconds: ageS,
@@ -448,8 +592,55 @@ export class Home {
   /** A control command, as the CLI sends it; returns the reply. */
   command(command: ControlCommand, actor = "anna"): unknown {
     const request = requestId(this.#nextRequest++);
-    must(this.world.input({ kind: "command", request, actor, command }));
+    must(this.world.input({ kind: "command", conn: connId(0), request, actor, command }));
     return this.world.replies.find((r) => r.request === request)?.reply;
+  }
+
+  /**
+   * An app operation as app (a person's) or schedules (an entry's) will send it to its owner,
+   * on the next tick; returns the owner's answer, to whoever asked.
+   */
+  request(op: AppOp, actor: Actor = ANNA): OpOutcome | undefined {
+    const answerTo: AnswerTo =
+      actor.kind === "schedule"
+        ? { kind: "schedule", schedule: actor.schedule, record: STAND_IN_RECORD }
+        : {
+            kind: "app",
+            conn: connId(1),
+            client: clientId(7),
+            id: this.#nextRequest++,
+            seq: undefined,
+          };
+    const before = this.seen.length;
+    this.inject({
+      kind: "opRequest",
+      owner: "layout",
+      op,
+      actor,
+      answerTo,
+      record: STAND_IN_RECORD,
+    });
+    const answers = this.seen
+      .slice(before)
+      .flatMap((s) =>
+        s.message.kind === "opAnswer" &&
+        JSON.stringify(s.message.answerTo) === JSON.stringify(answerTo)
+          ? [s.message.outcome]
+          : [],
+      );
+    expect(answers.length).toBeLessThanOrEqual(1);
+    return answers[0];
+  }
+
+  /** A message any module could send, sent by the app stand-in on a tick of its own. */
+  inject(message: Internal): void {
+    this.#queued.push(message);
+    must(this.world.input({ kind: "tick" }));
+  }
+
+  /** The battery byte of `sensor`'s next packets. */
+  setBattery(sensor: string, code: number): void {
+    this.#sensorKey(sensor).batteryCode = code;
   }
 
   advance(ms: number): void {
@@ -551,8 +742,14 @@ export class Home {
       }
     }
     const rows = <T>(table: StateTable): T[] => [...(tables.get(table)?.values() ?? [])] as T[];
+    const modeStates = this.world.writer.commits.flatMap((c) =>
+      c.items.flatMap((i) =>
+        i.kind === "write" && i.op.op === "upsert" && i.op.table === "mode_state" ? [i.op.row] : [],
+      ),
+    );
     return {
       ...base,
+      m2: { ...base.m2, modeState: modeStates.at(-1) ?? base.m2.modeState },
       countdowns: rows("countdowns"),
       alarm: rows<DurableSnapshot["alarm"]>("alarm")[0],
       alarmTriggers: rows("alarm_triggers"),
@@ -791,15 +988,21 @@ export class Home {
             : [],
       });
     };
+    const app: Handler<"app"> = (slice, message) => {
+      if (message.kind !== "tick" || this.#queued.length === 0) return ok({ slice, out: [] });
+      const out = this.#queued;
+      this.#queued = [];
+      return ok({ slice, out });
+    };
     return {
       clock: pick("clock", clock),
       registry: pick("registry"),
       links: pick("links"),
       setup: pick("setup"),
-      control: pick("control", control),
+      control: this.options.realControl === true ? pick("control") : pick("control", control),
       people: pick("people"),
       layout: pick("layout"),
-      app: pick("app"),
+      app: pick("app", app),
       schedules: pick("schedules"),
       gateways: pick("gateways", gateways),
       intake: pick("intake", intake),

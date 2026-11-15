@@ -1,0 +1,54 @@
+#!/bin/sh
+# The .pkg's postinstall, as root (m2-design.md section 9, macOS): the hub's user, the data
+# folder's access (at install and at every upgrade), the program selected, the daemon loaded, and
+# on a fresh install the setup page in the logged-in user's browser, unelevated.
+set -eu
+here=$(cd "$(dirname "$0")" && pwd)
+VERSION=$(cat "$here/hsn-version")
+PREFIX=/usr/local/hsn-hub
+DATA="/Library/Application Support/HSN Hub"
+LAUNCHER=/usr/local/libexec/hsn-hub/hsn-launcher
+USER_NAME=_hsnhub
+PLIST=/Library/LaunchDaemons/com.hsn.hub.plist
+
+fresh=yes
+[ -e "$DATA/hub.db" ] && fresh=no
+
+# A hidden system user and group of its own, with an id below 500 not in use.
+if ! dscl . -read "/Users/$USER_NAME" >/dev/null 2>&1; then
+  id=400
+  while dscl . -list /Users UniqueID | awk '{print $2}' | grep -qx "$id" || dscl . -list /Groups PrimaryGroupID | awk '{print $2}' | grep -qx "$id"; do
+    id=$((id + 1))
+  done
+  dscl . -create "/Groups/$USER_NAME"
+  dscl . -create "/Groups/$USER_NAME" PrimaryGroupID "$id"
+  dscl . -create "/Users/$USER_NAME"
+  dscl . -create "/Users/$USER_NAME" UniqueID "$id"
+  dscl . -create "/Users/$USER_NAME" PrimaryGroupID "$id"
+  dscl . -create "/Users/$USER_NAME" UserShell /usr/bin/false
+  dscl . -create "/Users/$USER_NAME" NFSHomeDirectory /var/empty
+  dscl . -create "/Users/$USER_NAME" RealName "HSN Hub"
+  dscl . -create "/Users/$USER_NAME" IsHidden 1
+fi
+
+"$here/secure-data-folder.sh" "$DATA" "$USER_NAME" "$USER_NAME"
+mkdir -p "/Library/Logs/HSN Hub" "$PREFIX/state"
+chown "$USER_NAME:$USER_NAME" "/Library/Logs/HSN Hub"
+chown -R "$USER_NAME:$USER_NAME" "$PREFIX"
+chmod 0755 "$PREFIX"
+chown -R root:wheel /usr/local/libexec/hsn-hub
+"$LAUNCHER" --prefix "$PREFIX" --select "$VERSION"
+chown -h "$USER_NAME:$USER_NAME" "$PREFIX/current"
+chown root:wheel "$PLIST"
+chmod 0644 "$PLIST"
+
+launchctl bootstrap system "$PLIST"
+launchctl enable system/com.hsn.hub
+
+[ "$fresh" = yes ] || exit 0
+# The logged-in user's browser, in their own session, unelevated (HB19).
+console=$(stat -f %Su /dev/console)
+if [ -n "$console" ] && [ "$console" != root ]; then
+  "$here/open-setup-page.sh" "$PREFIX/current/bin/hsn-hub" "$DATA" "$console" || true
+fi
+exit 0

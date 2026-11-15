@@ -740,6 +740,9 @@ function setSite(
     rateMask: change.rate === undefined ? slice.row.rateMask : oneRateMask(change.rate),
     countdownDefaultS: change.countdown ?? slice.row.countdownDefaultS,
     autoStopS: change.autoStop ?? slice.row.autoStopS,
+    // HB24: retention by age; the size guard still trims by size whatever these say (HD 6).
+    retentionRoutineDays: change.retentionRoutineDays ?? slice.row.retentionRoutineDays,
+    retentionEventDays: change.retentionEventDays ?? slice.row.retentionEventDays,
   };
   const next = { ...slice, row };
   return ok({

@@ -103,7 +103,11 @@ function start(
   if (migrations.isErr()) return err(migrations.error);
   const statements = prepareStatements(db);
   if (statements.isErr()) return err(statements.error);
-  const reader = new SqliteReader(db, options.rules.silence.lossDays);
+  const reader = new SqliteReader(
+    db,
+    options.rules.silence.lossDays,
+    options.rules.notify.unreadWindowMs,
+  );
   const snapshot = reader.snapshot();
   if (snapshot.isErr()) return err(snapshot.error);
   const last = lastUncaught(options.dataDir);

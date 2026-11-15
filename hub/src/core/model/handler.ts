@@ -2,6 +2,7 @@
  * The core's function and its handlers (hub-design.md section 2, "The function" and "Modules
  * and the dispatcher").
  */
+import type { Sha256 } from "@hsn/protocol";
 import type { Result } from "neverthrow";
 import type { Calendar } from "./calendar.ts";
 import type { DeviceCipher } from "./cipher.ts";
@@ -20,6 +21,12 @@ export interface CoreDeps {
   readonly rules: HubRules;
   /** Calendar arithmetic over a fixed time-zone database (m2-design.md section 2). */
   readonly calendar: Calendar;
+  /**
+   * SHA-256, a pure function as `cipher` is, the shell passing `@noble/hashes`' (m2-design.md
+   * section 2): the core hashes a token's secret for its pre-shared key and lookup, and the app key
+   * for the hub's identity (section 5), so no secret need travel in an input as well as an effect.
+   */
+  readonly sha256: Sha256;
   /**
    * True in test builds: the state is deep-frozen after every step, so a mutation fails at once
    * (section 2). SPEC-QUESTION: the core may not read `process`, so `step` cannot tell a test

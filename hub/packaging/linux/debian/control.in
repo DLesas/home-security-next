@@ -1,0 +1,9 @@
+Package: hsn-hub
+Version: @VERSION@
+Section: misc
+Priority: optional
+Architecture: @ARCH@
+Maintainer: HSN <hsn@localhost>
+Depends: systemd, adduser
+Description: HSN home security hub
+ The hub of a self-hosted home security system: the service, the hsn command and the web app.

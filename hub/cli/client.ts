@@ -9,6 +9,8 @@ import { err, ok, Result } from "neverthrow";
 import {
   type ChunkLine,
   chunkLine,
+  type FileFailedLine,
+  fileFailedLine,
   type RecordJson,
   replyLine,
   type ReplyLine,
@@ -147,8 +149,15 @@ export function exchange(
  * One connection that carries several requests in turn (m2-design.md section 6, "Commands that
  * carry a file"): an upload's `fileChunk` requests and then the operation that names its `job`
  * must share a connection, since the shell keeps an upload per connection (`UploadRef`). A
- * download's `fileChunk` lines come before its request's reply.
+ * download's lines come after its request's reply `{job}`: its `fileChunk` lines in order, the last
+ * with its end mark, or a `fileFailed` line (m2-design.md section 6).
  */
+/** What a download's lines are given to. */
+export interface Download {
+  readonly onChunk: (chunk: ChunkLine["fileChunk"]) => void;
+  readonly onFailed: (reason: FileFailedLine["reason"]) => void;
+}
+
 export class Session {
   readonly #socket: Socket;
   readonly #path: string;
@@ -157,8 +166,10 @@ export class Session {
   #waiting:
     | {
         readonly id: number;
-        readonly onChunk: ((chunk: ChunkLine["fileChunk"]) => void) | undefined;
+        readonly download: Download | undefined;
         readonly done: (result: Result<ReplyLine, ClientError>) => void;
+        /** A download's reply, once it came: its lines follow. */
+        reply: ReplyLine | undefined;
       }
     | undefined;
   #closed: ClientError | undefined;
@@ -205,14 +216,15 @@ export class Session {
   }
 
   /**
-   * Sends one request and waits for its reply, passing on each `fileChunk` line before it.
-   * `timeoutMs` undefined waits as long as it takes.
+   * Sends one request and waits for its reply; with `download`, then for the download's lines,
+   * passing on each chunk until the end mark or `fileFailed`. `timeoutMs` undefined waits as long
+   * as it takes.
    */
   request(
     actor: string,
     command: RequestLine["command"],
     timeoutMs: number | undefined,
-    onChunk?: (chunk: ChunkLine["fileChunk"]) => void,
+    download?: Download,
   ): Promise<Result<ReplyLine, ClientError>> {
     if (this.#closed !== undefined) return Promise.resolve(err(this.#closed));
     const id = this.#nextId++;
@@ -230,7 +242,8 @@ export class Session {
             }, timeoutMs);
       this.#waiting = {
         id,
-        onChunk,
+        download,
+        reply: undefined,
         done: (result) => {
           clearTimeout(timer);
           resolve(result);
@@ -266,17 +279,33 @@ export class Session {
       const value = json.isOk() ? json.value : undefined;
       const waiting = this.#waiting;
       if (waiting === undefined) continue;
-      const chunk = chunkLine.safeParse(value);
-      if (chunk.success && chunk.data.id === waiting.id && waiting.onChunk !== undefined) {
-        waiting.onChunk(chunk.data.fileChunk);
+      const answered = waiting.reply;
+      if (answered !== undefined && waiting.download !== undefined) {
+        // The download's lines, after its reply.
+        const chunk = chunkLine.safeParse(value);
+        const failed = fileFailedLine.safeParse(value);
+        if (chunk.success && chunk.data.id === waiting.id) {
+          waiting.download.onChunk(chunk.data.fileChunk);
+          if (chunk.data.fileChunk.end !== undefined) this.#settle(ok(answered));
+        } else if (failed.success && failed.data.id === waiting.id) {
+          waiting.download.onFailed(failed.data.reason);
+          this.#settle(ok(answered));
+        } else {
+          this.#settle(
+            err({ kind: "badReply", message: "the hub sent a line that is not the download's" }),
+          );
+        }
         continue;
       }
       const reply = replyLine.safeParse(value);
-      this.#settle(
-        reply.success && reply.data.id === waiting.id
-          ? ok(reply.data)
-          : err({ kind: "badReply", message: "the hub's answer is not a reply to this request" }),
-      );
+      if (!reply.success || reply.data.id !== waiting.id) {
+        this.#settle(
+          err({ kind: "badReply", message: "the hub's answer is not a reply to this request" }),
+        );
+        continue;
+      }
+      if (waiting.download !== undefined && reply.data.reply.ok) waiting.reply = reply.data;
+      else this.#settle(ok(reply.data));
     }
   }
 

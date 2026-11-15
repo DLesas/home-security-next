@@ -1,0 +1,51 @@
+#!/bin/sh
+# The .deb's postinst (m2-design.md section 9, Linux): the hub's account, the data folder's access
+# (at install and at every upgrade), the program selected, the service enabled and started, the
+# firewall, and on a fresh install the setup page or, with no desktop session, the first code.
+set -eu
+PREFIX=/opt/hsn-hub
+DATA=/var/lib/hsn-hub
+LAUNCHER=/usr/lib/hsn-hub/hsn-launcher
+VERSION=$(cat /usr/lib/hsn-hub/version)
+[ "$1" = "configure" ] || exit 0
+
+fresh=yes
+[ -e "$DATA/hub.db" ] && fresh=no
+
+if ! getent passwd hsn >/dev/null; then
+  adduser --system --group --home "$DATA" --no-create-home --shell /usr/sbin/nologin hsn
+fi
+getent group dialout >/dev/null && usermod -a -G dialout hsn
+
+/usr/lib/hsn-hub/secure-data-folder.sh "$DATA" hsn hsn
+mkdir -p "$PREFIX/state"
+chown -R hsn:hsn "$PREFIX"
+chmod 0755 "$PREFIX"
+"$LAUNCHER" --prefix "$PREFIX" --select "$VERSION"
+chown -h hsn:hsn "$PREFIX/current"
+
+systemctl daemon-reload
+systemctl enable hsn-hub.service
+systemctl restart hsn-hub.service
+
+# The two LAN ports and mDNS, when ufw is on (section 9, "Firewall").
+if command -v ufw >/dev/null && ufw status 2>/dev/null | grep -q "Status: active"; then
+  ufw allow 8443/tcp comment "hsn-hub devices" >/dev/null
+  ufw allow 8444/tcp comment "hsn-hub apps" >/dev/null
+  ufw allow 5353/udp comment "hsn-hub mDNS" >/dev/null
+fi
+
+[ "$fresh" = yes ] || exit 0
+PROGRAM="$PREFIX/current/bin/hsn-hub"
+# The person who ran the installer, in their own desktop session, unelevated (D62, HB19).
+user=${SUDO_USER:-}
+if [ -n "$user" ] && [ "$user" != root ] && [ -S "/run/user/$(id -u "$user")/bus" ]; then
+  if /usr/lib/hsn-hub/open-setup-page.sh "$PROGRAM" "$DATA" "$user"; then exit 0; fi
+fi
+# No desktop: the first linking code, the home-network address and the certificate (D62).
+code=$(HSN_DATA_DIR="$DATA" "$PROGRAM" cli op link.create '{"kind":{"newPerson":{}},"form":"code"}' 2>/dev/null || true)
+info=$(HSN_DATA_DIR="$DATA" "$PROGRAM" cli op hub.info 2>/dev/null || true)
+echo "hsn-hub: installed. Link the first browser or phone with:"
+echo "  $code"
+echo "  hub: $info"
+exit 0

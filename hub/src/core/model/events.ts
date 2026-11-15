@@ -40,6 +40,8 @@ import type {
   ModeRow,
   ModeStateRow,
   NotificationPrefsRow,
+  NotificationReadRow,
+  NotificationRow,
   PeopleSettingsRow,
   PermissionRow,
   PersonRoleRow,
@@ -216,6 +218,12 @@ export interface M2Snapshot {
   readonly healthState: readonly HealthStateRow[];
   readonly notificationPrefs: readonly NotificationPrefsRow[];
   readonly updateState: UpdateStateRow | undefined;
+  /**
+   * The notifications and reads of the last 7 days ‡ before the last commit's wall time (section
+   * 7), so what is unread survives a restart; older ones are history only.
+   */
+  readonly notifications: readonly NotificationRow[];
+  readonly notificationReads: readonly NotificationReadRow[];
 }
 
 /** An M2 snapshot with nothing in it: a hub before its first M2 start, and the tests' default. */
@@ -241,6 +249,8 @@ export const EMPTY_M2_SNAPSHOT: M2Snapshot = {
   healthState: [],
   notificationPrefs: [],
   updateState: undefined,
+  notifications: [],
+  notificationReads: [],
 };
 
 /** Why the control socket refused a line before the core saw it (section 9). */
@@ -324,6 +334,25 @@ export type ConnCloseReason =
   /** The hub is stopping. */
   | "stopping";
 
+/** Why a handshake was refused (m2-design.md section 5), for `client_refused`. */
+export type ClientRefusalReason =
+  | "unknownKey"
+  | "removedKey"
+  | "consoleOnLan"
+  | "noVersion"
+  | "timeout"
+  | "malformed"
+  | "rateLimited"
+  /** `LinkHello.find` named no token: counted per address, no token's tries. */
+  | "unknownToken";
+
+/**
+ * Something the shell must report that is not a refused input (m2-design.md section 9): a closed
+ * union, so each new code is a reviewed change. `audit` records each as a hub event of origin
+ * `shell`, under its cap, at the level `M2_HUB_EVENTS` gives.
+ */
+export type ShellWarningCode = "data_folder_was_open";
+
 /** Why the shell refused a request before the core saw it (section 2), so the core records it. */
 export type AppRejection =
   /** Not UTF-8 JSON. */
@@ -337,11 +366,29 @@ export type AppRejection =
 
 /** Why a file job failed (section 2). */
 export type FileFailure =
-  "unreachable" | "full" | "badFile" | "badSignature" | "notNewer" | "wrongKey" | "io";
+  | "unreachable"
+  | "full"
+  | "badFile"
+  | "badSignature"
+  | "wrongSystem"
+  | "notNewer"
+  | "wrongKey"
+  /**
+   * The job's upload is not there (never finished, or freed): the operation that named it is
+   * answered `notFound {what: "upload"}`, not `badFile`.
+   */
+  | "noUpload"
+  | "io";
 
 /** What a file job came to (`fileReady`, section 2). */
 export type FileOutcome =
-  | { readonly kind: "backupWritten"; readonly name: string; readonly bytes: number }
+  | {
+      readonly kind: "backupWritten";
+      readonly name: string;
+      readonly bytes: number;
+      /** The folder is on the data folder's disk (their devices compared): `backup_folder_on_data_disk`. */
+      readonly sameDiskAsData: boolean;
+    }
   | { readonly kind: "exportSent"; readonly bytes: number }
   | { readonly kind: "updateStaged"; readonly version: string }
   /** A restore file's header (`readRestore`). */
@@ -381,6 +428,11 @@ export type HubEvent =
   | {
       readonly kind: "command";
       readonly request: RequestId;
+      /**
+       * The control connection, numbered from the shell's one counter with the app connections
+       * (m2-design.md section 6), so an upload on it is `UploadRef {conn, job}`.
+       */
+      readonly conn: ConnId;
       /** The user name the CLI reports (section 9). */
       readonly actor: string;
       readonly command: ControlCommand;
@@ -424,6 +476,44 @@ export type HubEvent =
       readonly kind: "linkFailed";
       readonly token: TokenId;
       readonly reason: "badPsk" | "malformed";
+      /** The peer's IP address as text, for the failures counted per address (section 5). */
+      readonly address: string;
+    }
+  /**
+   * The hub's facts for the link formats and `hub.info` (section 2): after `boot` and whenever one
+   * changes (the shell checks addresses every minute ‡ and renews the certificate, section 5).
+   * `app` keeps them; its view gives `hubFacts()`.
+   */
+  | {
+      readonly kind: "hubFacts";
+      /** The hub's own version. */
+      readonly version: string;
+      /** Every address the computer has on the home network. */
+      readonly addresses: readonly string[];
+      /** The apps' listener's port (8444 ‡), as it really opened: a link address and QR code name it. */
+      readonly appsPort: number;
+      /** The console listener's port (8445 ‡), as it really opened: the console's address names it. */
+      readonly consolePort: number;
+      /** The TLS certificate's SHA-256. */
+      readonly certificateSha256: Uint8Array;
+    }
+  /**
+   * Refused handshakes (section 5): at most one per address per minute, `count` standing for those
+   * held back; past 64 ‡ addresses in a minute the rest as one, with the address `"many"`. `app`
+   * records `client_refused`, routine, a warning past 10 an hour from one address.
+   */
+  | {
+      readonly kind: "clientRefused";
+      readonly address: string;
+      readonly reason: ClientRefusalReason;
+      readonly count: number;
+    }
+  /** A warning from the shell (section 9): recorded by `audit` as a hub event of origin `shell`. */
+  | {
+      readonly kind: "shellWarning";
+      readonly code: ShellWarningCode;
+      readonly message: string;
+      readonly detail: string | null;
     }
   /** The hub computer's time zone, at boot and when it changes (checked every hour ‡). */
   | { readonly kind: "timeZone"; readonly zone: string }

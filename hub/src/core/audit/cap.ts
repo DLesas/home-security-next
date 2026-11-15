@@ -28,6 +28,8 @@ export const WARNING_DECISIONS: ReadonlySet<DecisionKind> = new Set<DecisionKind
   "siren_unreachable",
   "door_changes_missed",
   "door_state_unexpected",
+  // M2: health's (m2-design.md section 7).
+  "cover_state_unexpected",
   "alarm_may_be_cut_short",
   "siren_wifi_lost",
   "siren_lora_lost",

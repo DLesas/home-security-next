@@ -129,8 +129,8 @@ const EXPECTED: Readonly<Record<string, { columns: string; key: string; rowid?: 
   person_roles: { columns: "person_id manage_users manage_system revision", key: "person_id" },
   link_tokens: {
     columns:
-      "id lookup kind person_id created_by_client created_boot created_mono expires_after_ms " +
-      "typed failures used_ms",
+      "id lookup kind person_id person_name created_by_client created_boot created_mono " +
+      "expires_after_ms typed failures used_ms",
     key: "id",
   },
   link_secrets: { columns: "token_id psk", key: "token_id" },
@@ -142,7 +142,7 @@ const EXPECTED: Readonly<Record<string, { columns: string; key: string; rowid?: 
   schedules: {
     columns:
       "id name action mode_id group_id sensor_id local_time days date enabled created_by " +
-      "last_run_ms last_run_local_date revision",
+      "last_run_ms last_run_local_date missed_due_ms missed_why missed_count revision",
     key: "id",
   },
   health_state: { columns: "device_id battery_low tamper_open", key: "device_id" },
@@ -158,7 +158,9 @@ const EXPECTED: Readonly<Record<string, { columns: string; key: string; rowid?: 
   },
   backup_key: { columns: "key epoch", key: "" },
   update_state: {
-    columns: "staged_version staged_ms approved_by approved_ms switching_ms previous_version",
+    columns:
+      "staged_version staged_ms approved_by approved_ms switching_ms previous_version last_result " +
+      "last_result_ms",
     key: "",
   },
   notifications: {

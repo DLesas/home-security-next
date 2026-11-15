@@ -28,6 +28,8 @@ export { recordJson, type RecordJson } from "./records.ts";
 export {
   chunkLine,
   type ChunkLine,
+  fileFailedLine,
+  type FileFailedLine,
   replyLine,
   type ReplyLine,
   requestLine,

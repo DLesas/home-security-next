@@ -4,7 +4,7 @@
  * misspelt option never passes silently. Names refer to devices by their `name`; the core's control
  * module looks them up.
  */
-import { type AppOp, fileChunkBody, parseAppOp } from "@hsn/protocol/app";
+import { type AppOp, fileChunkBody, parseAppOp, RETENTION_DAYS } from "@hsn/protocol/app";
 import { z } from "zod";
 import { dataRate, deviceName, roleName, siteChannel, time, unsigned } from "./values.ts";
 
@@ -130,6 +130,17 @@ const siteSet = z
     rate: dataRate.optional(),
     countdown: unsigned(8).optional(),
     autoStop: z.int().min(1).max(0xffff).optional(),
+    /** Retention in days (HB24; m2-design.md section 7): routine 1 to 90 ‡, events 30 to 730 ‡. */
+    retentionRoutineDays: z
+      .int()
+      .min(RETENTION_DAYS.routine.min)
+      .max(RETENTION_DAYS.routine.max)
+      .optional(),
+    retentionEventDays: z
+      .int()
+      .min(RETENTION_DAYS.event.min)
+      .max(RETENTION_DAYS.event.max)
+      .optional(),
   })
   .readonly();
 
@@ -256,7 +267,24 @@ const fileChunk = z
   .readonly();
 
 /** `hsn open`: a one-time console token for the computer's own browser (section 5, "The console"). */
-const consoleToken = z.strictObject({ kind: z.literal("consoleToken") }).readonly();
+const consoleToken = z
+  .strictObject({
+    kind: z.literal("consoleToken"),
+    /**
+     * Who asks, which sets the token's lifetime (section 11, "Step 1, wave 2"): `hsn open`, 2
+     * minutes ‡, by default; an installer's first opening, 10 minutes ‡.
+     */
+    for: z.enum(["open", "installer"]).optional(),
+  })
+  .readonly();
+
+/**
+ * `hsn open` waits for its console token (section 5, "The console"): answered `{used}` when the
+ * token is used, or expires unused. No access time and no port is read.
+ */
+const consoleTokenWait = z
+  .strictObject({ kind: z.literal("consoleTokenWait"), token: z.int().min(1) })
+  .readonly();
 
 export const controlCommand = z.discriminatedUnion("kind", [
   status,
@@ -284,6 +312,7 @@ export const controlCommand = z.discriminatedUnion("kind", [
   log,
   op,
   consoleToken,
+  consoleTokenWait,
   fileChunk,
 ]);
 

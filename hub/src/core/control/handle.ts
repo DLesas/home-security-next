@@ -2,7 +2,11 @@
  * The control module's handler (hub-design.md section 2, module 5; section 9; AL8).
  *
  * A `command` input is routed (`translate.ts`): answered at once from the state, or sent on as a
- * request to the module that owns the change and kept waiting until that module's `answer`.
+ * request to the module that owns the change and kept waiting until that module's `answer` (or
+ * `opAnswer`, for an operation of M2's modules). `hsn arm --all` and `hsn disarm --all` go to
+ * layout as switches to Away and Disarmed; the alarm answers them with `opAnswer`, which control
+ * turns into M1a's reply (`m1-replies.ts`), so they are answered as before (m2-design.md
+ * section 1).
  * Each command gets exactly one `respond`, and one record in `commands` with its actor, its
  * arguments (secrets left out) and its outcome. A second answer to one request is not passed on;
  * it is recorded as a warning. The answer is made in the step that made the change, so the loop
@@ -16,10 +20,11 @@ import type { ControlCommand, ControlReply } from "../model/control.ts";
 import type { Effect } from "../model/effects.ts";
 import type { CoreFault } from "../model/errors.ts";
 import type { Context, Handled, Handler } from "../model/handler.ts";
-import { isAppRequest, type RequestId } from "../model/ids.ts";
+import { type ConnId, isAppRequest, type RequestId } from "../model/ids.ts";
 import type { Internal, OpOutcome } from "../model/messages.ts";
 import { recordStamp } from "../clock/view.ts";
 import { hubEventRecord } from "../registry/view.ts";
+import { alarmBefore, armAllReply, disarmAllReply } from "./m1-replies.ts";
 import { type ControlSources, VIEW_SOURCES } from "./sources.ts";
 import type { ControlSlice, PendingCommand } from "./state.ts";
 import { recordedArgs, route } from "./translate.ts";
@@ -85,6 +90,7 @@ function commanded(
   slice: ControlSlice,
   ctx: Context,
   request: RequestId,
+  conn: ConnId,
   actor: string,
   command: ControlCommand,
   sources: ControlSources,
@@ -99,7 +105,7 @@ function commanded(
       // stays in time order (section 6).
       ...arrivalStamp(ctx),
     };
-    const routed = route(ctx.view, ctx.now, sources, request, actor, record, command);
+    const routed = route(ctx.view, ctx.now, sources, request, conn, actor, record, command);
     switch (routed.kind) {
       case "answer":
         return { slice, out: respond(request, pending, routed.reply) };
@@ -155,17 +161,50 @@ export function makeControlHandler(sources: ControlSources): Handler<"control"> 
         // Requests of an earlier run have no client left to answer.
         return ok({ slice: { ...slice, pending: new Map() }, out: [] });
       case "command":
-        return commanded(slice, ctx, message.request, message.actor, message.command, sources);
+        return commanded(
+          slice,
+          ctx,
+          message.request,
+          message.conn,
+          message.actor,
+          message.command,
+          sources,
+        );
       case "answer":
         // `app`'s requests to M1a's modules are numbered from 2⁴⁰ (m2-design.md section 2): their
         // answers are `app`'s, not control's.
         return isAppRequest(message.request)
           ? ok({ slice, out: [] })
           : answered(slice, ctx, message.request, message.reply);
-      case "opAnswer":
-        return message.answerTo.kind === "control"
-          ? answered(slice, ctx, message.answerTo.request, controlReplyOf(message.outcome))
-          : ok({ slice, out: [] });
+      case "armSensors": {
+        // `hsn disarm --all` on its way to the alarm: how the alarm stands as it acts, for
+        // M1a's answer, which names what the disarm cancelled and ended (`m1-replies.ts`).
+        const { answerTo } = message;
+        const pending =
+          answerTo.kind === "control" ? slice.pending.get(answerTo.request) : undefined;
+        if (answerTo.kind !== "control" || pending?.kind !== "disarm") {
+          return ok({ slice, out: [] });
+        }
+        return ok({
+          slice: withPending(slice, answerTo.request, {
+            ...pending,
+            before: alarmBefore(ctx.view),
+          }),
+          out: [],
+        });
+      }
+      case "opAnswer": {
+        if (message.answerTo.kind !== "control") return ok({ slice, out: [] });
+        const { request } = message.answerTo;
+        const pending = slice.pending.get(request);
+        const reply =
+          pending?.kind === "arm"
+            ? armAllReply(ctx.view, message.outcome)
+            : pending?.kind === "disarm"
+              ? disarmAllReply(ctx.view, pending.before, message.outcome)
+              : controlReplyOf(message.outcome);
+        return answered(slice, ctx, request, reply);
+      }
       case "inputRejected": {
         // A control line the socket refused (section 9): answered there, recorded here, its
         // length and shape errors only, never its content.

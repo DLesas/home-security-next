@@ -1,0 +1,23 @@
+<!--
+  The hub's Windows service (m2-design.md section 9, W3): WinSW 2.12.0, pinned by winsw.sha256,
+  runs the launcher, which starts and restarts the hub. Started at boot with nobody logged in; the
+  launcher is restarted on any exit but a clean stop; the service account is set to the virtual
+  account NT SERVICE\HSNHub by install-service.ps1 (`sc.exe config`), as spike W3 did it.
+-->
+<service>
+  <id>HSNHub</id>
+  <name>HSN Hub</name>
+  <description>The HSN home security hub.</description>
+  <executable>%BASE%\hsn-launcher.exe</executable>
+  <arguments>--prefix "%ProgramFiles%\HSN Hub" --data "%ProgramData%\HSN Hub"</arguments>
+  <workingdirectory>%BASE%</workingdirectory>
+  <startmode>Automatic</startmode>
+  <stoptimeout>30 sec</stoptimeout>
+  <onfailure action="restart" delay="5 sec"/>
+  <resetfailure>1 hour</resetfailure>
+  <logpath>%ProgramData%\HSN Hub\logs</logpath>
+  <log mode="roll-by-size">
+    <sizeThreshold>1024</sizeThreshold>
+    <keepFiles>4</keepFiles>
+  </log>
+</service>

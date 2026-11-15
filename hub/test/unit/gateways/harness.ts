@@ -5,6 +5,7 @@
  * modules, with every message and effect kept, so a test sees what the other modules would get.
  * Other modules' messages (`accepted`, `rejected`, `radioOut`, `siteMove`) are put in by hand.
  */
+import { nodeSha256 } from "@hsn/protocol";
 import { UNBUILT_CALENDAR } from "../../../src/shell/calendar/unbuilt.ts";
 import { EMPTY_M2_SNAPSHOT } from "../../../src/core/model/events.ts";
 import { readFileSync } from "node:fs";
@@ -209,7 +210,12 @@ export class Harness {
   cipher: DeviceCipher = cipher;
 
   get deps(): CoreDeps {
-    return { cipher: this.cipher, rules: this.rules, calendar: UNBUILT_CALENDAR };
+    return {
+      cipher: this.cipher,
+      rules: this.rules,
+      calendar: UNBUILT_CALENDAR,
+      sha256: nodeSha256,
+    };
   }
 
   /** Runs one input event and everything it causes; returns what this one input emitted. */

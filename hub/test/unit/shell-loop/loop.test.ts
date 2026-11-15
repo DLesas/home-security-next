@@ -8,21 +8,32 @@
  * - every send goes through the send gate: a counter at or above its key's committed resume
  *   point is refused, whatever the core says;
  * - while a commit fails, sends that need nothing uncommitted still go;
- * - a refused send, a failing link, a fault, failing random bytes: what each becomes.
+ * - a refused send, a failing link, a fault, failing random bytes: what each becomes;
+ * - jobs in pieces (m2-design.md section 3, "Jobs in pieces, the loop's contract"): one piece of
+ *   each open job a turn, after the turn's inputs, so an input never waits for a job's end; a stop
+ *   aborts them; every job's end, a throw included, frees its upload.
  */
+import { nodeSha256 } from "@hsn/protocol";
 import { UNBUILT_CALENDAR } from "../../../src/shell/calendar/unbuilt.ts";
 import { describe, expect, test } from "bun:test";
 import { err, ok, type Result } from "neverthrow";
-import type { Effect } from "../../../src/core/model/effects.ts";
+import type { Effect, FileWork } from "../../../src/core/model/effects.ts";
 import { type CoreFault, coreFault, type HubError } from "../../../src/core/model/errors.ts";
-import type { CommitOutcome, HubEvent, Input } from "../../../src/core/model/events.ts";
+import type {
+  CommitOutcome,
+  FileOutcome,
+  HubEvent,
+  Input,
+} from "../../../src/core/model/events.ts";
 import {
   type DeviceId,
   deviceId,
+  jobId,
   linkId,
   type RequestId,
   requestId,
   sendRef,
+  connId,
 } from "../../../src/core/model/ids.ts";
 import { DEFAULT_RULES } from "../../../src/core/model/rules.ts";
 import type { HubState } from "../../../src/core/model/state.ts";
@@ -33,6 +44,7 @@ import type { LinkError } from "../../../src/ports/links.ts";
 import type { CommitInfo, StagedEffect, StorageError } from "../../../src/ports/writer.ts";
 import {
   HubLoop,
+  type JobPieces,
   type LoopPorts,
   type LoopWriter,
   MAX_FAULTS_PER_HOUR,
@@ -135,9 +147,11 @@ interface Rig {
   linkFails: LinkError["code"] | undefined;
   randomFails: boolean;
   now: number;
+  /** How many times the loop asked for another turn soon. */
+  soons: number;
 }
 
-function rig(script: Script): Rig {
+function rig(script: Script, files?: LoopPorts["files"]): Rig {
   const seen: HubEvent[] = [];
   const writer = new TestWriter();
   const state = {
@@ -148,6 +162,7 @@ function rig(script: Script): Rig {
     linkFails: undefined as LinkError["code"] | undefined,
     randomFails: false,
     now: 0,
+    soons: 0,
   };
   const clock = {
     now: (): Now => ({ mono: mono(state.now), wall: 1_800_000_000_000, wallTrusted: true }),
@@ -180,13 +195,21 @@ function rig(script: Script): Rig {
       stop: () => ok(undefined),
     },
     wakeAt: () => undefined,
-    soon: () => undefined,
+    soon: () => {
+      state.soons += 1;
+    },
     report: (error) => state.reported.push(error),
     fatal: (error) => state.fatal.push(error),
+    ...(files === undefined ? {} : { files }),
   };
   const loop = new HubLoop(
     fakeCore(script, seen),
-    { cipher: VectorCipher.fromVectors(), rules: DEFAULT_RULES, calendar: UNBUILT_CALENDAR },
+    {
+      cipher: VectorCipher.fromVectors(),
+      rules: DEFAULT_RULES,
+      calendar: UNBUILT_CALENDAR,
+      sha256: nodeSha256,
+    },
     ports,
   );
   return Object.assign(state, { loop, writer, seen });
@@ -295,7 +318,13 @@ describe("a turn whose now commit fails (section 4, step 4)", () => {
         : [],
     );
     r.writer.failing = true;
-    r.loop.enqueue({ kind: "command", request, actor: "dimi", command: { kind: "status" } });
+    r.loop.enqueue({
+      kind: "command",
+      conn: connId(0),
+      request,
+      actor: "dimi",
+      command: { kind: "status" },
+    });
     drain(r);
     expect(r.answered).toEqual([]);
     r.loop.enqueue({ kind: "tick" });
@@ -457,5 +486,181 @@ describe("failures the loop turns into inputs or reports (sections 4 and 10)", (
     expect(r.seen.map((e) => (e.kind === "frame" ? e.bytes[0] : -1))).toEqual(
       Array.from({ length: MAX_INPUTS_PER_TURN + 6 }, (_, i) => i),
     );
+  });
+});
+
+describe("jobs in pieces (m2-design.md section 3, the loop's contract)", () => {
+  const UPLOAD = { conn: connId(7), job: 1 };
+  const STAGE: FileWork = { kind: "stageUpdate", upload: UPLOAD };
+  const EXPORT: FileWork = {
+    kind: "export",
+    conn: connId(7),
+    history: true,
+    key: new Uint8Array(32),
+    epoch: 1,
+  };
+  const STAGED: FileOutcome = { kind: "updateStaged", version: "1.2.0" };
+  const START = (n: number): HubEvent => ({
+    kind: "frame",
+    link: LINK,
+    bytes: new Uint8Array([0xf0, n]),
+  });
+
+  /** A job of `count` pieces, each logged as `name<n>`, ending with `outcome`. */
+  function job(
+    name: string,
+    count: number,
+    log: string[],
+    outcome: FileOutcome = STAGED,
+  ): JobPieces & { aborted: number } {
+    let done = 0;
+    return {
+      aborted: 0,
+      next() {
+        done += 1;
+        log.push(`${name}${done}`);
+        return done < count ? { done: false } : { done: true, outcome };
+      },
+      abort() {
+        this.aborted += 1;
+        log.push(`${name} aborted`);
+      },
+    };
+  }
+
+  /** A rig whose core starts job `n` on input `START(n)`, with the file jobs given. */
+  function jobs(
+    started: (n: number) => ReturnType<NonNullable<LoopPorts["files"]>["perform"]>,
+    ended: { job: number; outcome: FileOutcome | undefined }[],
+    works: readonly FileWork[] = [STAGE, EXPORT],
+  ): Rig {
+    return rig(
+      (event) => {
+        if (event.kind !== "frame" || event.bytes[0] !== 0xf0) return [];
+        const n = event.bytes[1] ?? 0;
+        return [{ kind: "fileJob", job: jobId(n), work: works[(n - 1) % works.length] ?? STAGE }];
+      },
+      {
+        perform: (n) => started(n),
+        ended: (n, _work, outcome) => ended.push({ job: n, outcome }),
+      },
+    );
+  }
+
+  const readies = (r: Rig) =>
+    r.seen.flatMap((e) =>
+      e.kind === "fileReady" ? [[Number(e.job), e.outcome.kind] as const] : [],
+    );
+
+  test("an input that comes while a job runs is the next turn's, not the job's end's", () => {
+    const log: string[] = [];
+    const ended: { job: number; outcome: FileOutcome | undefined }[] = [];
+    const r = jobs(() => ({ kind: "pieces", pieces: job("a", 5, log) }), ended);
+    r.loop.enqueue(START(1));
+    r.loop.turn();
+    // The job started after the turn's input, and its first piece ran in that turn.
+    expect(log).toEqual(["a1"]);
+    expect(r.loop.openJobs).toBe(1);
+    const soons = r.soons;
+    r.loop.enqueue(frame(9));
+    r.loop.turn();
+    // The door report (any input) was taken in the very next turn, before the job's next piece.
+    expect(r.seen.at(-1)).toEqual(frame(9));
+    expect(log).toEqual(["a1", "a2"]);
+    // While a job is open the loop asks for another turn, inputs or not.
+    expect(r.soons).toBeGreaterThan(soons);
+    r.loop.turn();
+    r.loop.turn();
+    expect(readies(r)).toEqual([]);
+    r.loop.turn();
+    expect(log).toEqual(["a1", "a2", "a3", "a4", "a5"]);
+    expect(r.loop.openJobs).toBe(0);
+    // `done` is the job's `fileReady`, the next turn's input; its end frees its upload.
+    r.loop.turn();
+    expect(readies(r)).toEqual([[1, "updateStaged"]]);
+    expect(ended).toEqual([{ job: 1, outcome: STAGED }]);
+  });
+
+  test("one piece of each open job a turn, in the order they started; never two of one job in a turn", () => {
+    const log: string[] = [];
+    const ended: { job: number; outcome: FileOutcome | undefined }[] = [];
+    const names = ["a", "b"];
+    const r = jobs((n) => ({ kind: "pieces", pieces: job(names[n - 1] ?? "?", 3, log) }), ended);
+    r.loop.enqueue(START(1));
+    r.loop.turn();
+    r.loop.enqueue(START(2));
+    r.loop.turn();
+    r.loop.turn();
+    r.loop.turn();
+    expect(log).toEqual(["a1", "a2", "b1", "a3", "b2", "b3"]);
+    r.loop.turn();
+    expect(readies(r)).toEqual([
+      [1, "updateStaged"],
+      [2, "updateStaged"],
+    ]);
+  });
+
+  test("a stop aborts every open job: no fileReady, no more pieces, the upload freed", () => {
+    const log: string[] = [];
+    const ended: { job: number; outcome: FileOutcome | undefined }[] = [];
+    const pieces = job("a", 100, log);
+    const r = jobs(() => ({ kind: "pieces", pieces }), ended);
+    r.loop.enqueue(START(1));
+    r.loop.turn();
+    r.loop.turn();
+    // The clean stop's order (main.ts): a last turn, then the loop stops.
+    r.loop.turn();
+    r.loop.stop();
+    expect(pieces.aborted).toBe(1);
+    expect(r.loop.openJobs).toBe(0);
+    r.loop.turn();
+    expect(log).toEqual(["a1", "a2", "a3", "a aborted"]);
+    expect(readies(r)).toEqual([]);
+    expect(ended).toEqual([{ job: 1, outcome: undefined }]);
+  });
+
+  test("a job that throws, at its start or in a piece, or that fails, ends as a failed job and frees its upload", () => {
+    const log: string[] = [];
+    const ended: { job: number; outcome: FileOutcome | undefined }[] = [];
+    const failed: FileOutcome = { kind: "failed", reason: "full", message: "the disk is full" };
+    // What a library does to a job: a throw (JSON's, standing in for any).
+    const breaks = (): never => JSON.parse("{") as never;
+    const r = jobs((n) => {
+      if (n === 1) return breaks();
+      if (n === 2)
+        return {
+          kind: "pieces",
+          pieces: {
+            next: () => breaks(),
+            abort: () => undefined,
+          },
+        };
+      if (n === 3) return { kind: "pieces", pieces: job("c", 2, log, failed) };
+      return { kind: "ready", outcome: failed };
+    }, ended);
+    for (const n of [1, 2, 3, 4]) r.loop.enqueue(START(n));
+    r.loop.turn();
+    r.loop.turn();
+    r.loop.turn();
+    // Started in order; 1 and 4 end at their start, 2 at its first piece in the same turn.
+    expect(readies(r)).toEqual([
+      [1, "failed"],
+      [4, "failed"],
+      [2, "failed"],
+      [3, "failed"],
+    ]);
+    expect(ended.map((e) => [e.job, e.outcome?.kind])).toEqual([
+      [1, "failed"],
+      [4, "failed"],
+      [2, "failed"],
+      [3, "failed"],
+    ]);
+    // A throw is reported, and the hub goes on: neither is fatal.
+    expect(r.reported.map((e) => e.message.split(":")[0])).toEqual([
+      "start file job 1",
+      "continue file job 2",
+    ]);
+    expect(r.fatal).toEqual([]);
+    expect(r.loop.openJobs).toBe(0);
   });
 });

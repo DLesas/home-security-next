@@ -128,6 +128,8 @@ class Run {
         "--port",
         String(this.port),
         "--no-usb-watch",
+        "--app-ports",
+        "0,0",
         ...usb.flatMap((p) => ["--serial", p]),
       ],
       { stdout: "ignore", stderr: "pipe" },

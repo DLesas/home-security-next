@@ -51,14 +51,25 @@ export type Effect =
   /** Close every session of a removed client. */
   | { readonly kind: "closeClient"; readonly client: ClientId; readonly reason: string }
   /**
-   * A link or restore token the shell may now accept (its pre-shared key), or no longer (null);
-   * `purpose` picks the handshake's prologue (section 5), never the token's number.
+   * A link or restore token the shell may now accept, by the `lookup` text `LinkHello.find`
+   * carries, with its pre-shared key; or no longer (both null). `purpose` picks the handshake's
+   * prologue (section 5), never the token's number.
    */
-  | {
+  | ({
       readonly kind: "linkSecret";
       readonly token: TokenId;
       readonly purpose: "link" | "restore";
-      readonly psk: Uint8Array | null;
+      /** Linking: a new person whose name was not given, so message 2 asks for one; false for a restore. */
+      readonly askName: boolean;
+    } & (
+      | { readonly lookup: string; readonly psk: Uint8Array }
+      | { readonly lookup: null; readonly psk: null }
+    ))
+  /** Close one link or restore handshake's connection the core refused (section 5). */
+  | {
+      readonly kind: "closeConn";
+      readonly conn: ConnId;
+      readonly reason: "linkRefused" | "restoreRefused";
     }
   /** Write a backup, stream an export, unpack or switch an update, read or apply a restore (section 9). */
   | { readonly kind: "fileJob"; readonly job: JobId; readonly work: FileWork }
@@ -73,7 +84,12 @@ export type Effect =
       readonly id: number;
       readonly query: HistoryQuery;
       readonly allowed: HistoryFilter;
-    };
+    }
+  /**
+   * `hub.status` (section 6): `app` has checked manage system; the shell replies from the writer
+   * and the size guard, as `hsn status` does, on that connection's queue with the request's `id`.
+   */
+  | { readonly kind: "hubStatusRead"; readonly conn: ConnId; readonly id: number };
 
 /** `history.query`'s body, as section 6's schema has it. */
 export type HistoryQuery = AppOpBody<"history.query">;
@@ -139,6 +155,8 @@ export const EFFECT_KINDS = [
   "linkSecret",
   "fileJob",
   "historyRead",
+  "closeConn",
+  "hubStatusRead",
 ] as const satisfies readonly Effect["kind"][];
 
 /** Compile-time proof that `EFFECT_KINDS` lists every effect kind. */

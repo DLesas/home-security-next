@@ -14,7 +14,7 @@ import {
   SetupType,
   toHex,
 } from "@hsn/protocol";
-import { deviceId } from "../../../src/core/model/ids.ts";
+import { deviceId, connId } from "../../../src/core/model/ids.ts";
 import { DeviceState } from "../../../src/core/model/rows.ts";
 import { MAX_ADDRESS_DRAWS } from "../../../src/core/setup/provision.ts";
 import { PAIRING_RESUME_POINT } from "../../../src/core/setup/handle.ts";
@@ -562,6 +562,7 @@ describe("the address draw (section 9, §3)", () => {
     const result = hub.try(
       {
         kind: "command",
+        conn: connId(0),
         request: 1 as never,
         actor: "tester",
         command: { kind: "usbAdd", port: PORT, name: "front" },

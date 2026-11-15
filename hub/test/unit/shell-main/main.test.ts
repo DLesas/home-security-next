@@ -30,6 +30,7 @@ describe("the command line", () => {
       serial: [],
       watchUsb: true,
       lockstep: undefined,
+      appPorts: { lan: 8444, console: 8445 },
     });
     expect(
       parseMainArgs(
@@ -43,6 +44,8 @@ describe("the command line", () => {
           "--serial",
           "/dev/b",
           "--no-usb-watch",
+          "--app-ports",
+          "0,0",
         ],
         {},
       ),
@@ -52,6 +55,7 @@ describe("the command line", () => {
       serial: ["/dev/a", "/dev/b"],
       watchUsb: false,
       lockstep: undefined,
+      appPorts: { lan: 0, console: 0 },
     });
     expect(parseMainArgs(["--data", "/d", "--bench-lockstep", "/tmp/l.sock"], {})).toMatchObject({
       lockstep: "/tmp/l.sock",
@@ -64,6 +68,9 @@ describe("the command line", () => {
     expect(parseMainArgs(["--serial"], { HSN_DATA_DIR: "/d" })).toBe("--serial needs a path");
     expect(parseMainArgs(["--loud"], { HSN_DATA_DIR: "/d" })).toBe("unknown option --loud");
     expect(parseMainArgs([], {})).toBe("no data folder: give --data or set HSN_DATA_DIR");
+    expect(parseMainArgs(["--app-ports", "8444"], { HSN_DATA_DIR: "/d" })).toBe(
+      "--app-ports needs <lan>,<console>",
+    );
   });
 });
 
@@ -72,7 +79,14 @@ describe("starts it refuses (section 10)", () => {
     const file = join(root, "not-a-folder");
     writeFileSync(file, "x");
     expect(
-      await runHub({ dataDir: file, port: 0, serial: [], watchUsb: false, lockstep: undefined }),
+      await runHub({
+        dataDir: file,
+        port: 0,
+        serial: [],
+        watchUsb: false,
+        lockstep: undefined,
+        appPorts: { lan: 0, console: 0 },
+      }),
     ).toBe(78);
   });
 
@@ -86,10 +100,13 @@ describe("starts it refuses (section 10)", () => {
 describe("a clean stop (section 7)", () => {
   test("SIGTERM: exit 0, and the next start reads the last run as a clean stop", async () => {
     const dataDir = join(root, "clean");
-    const hub = spawnTracked(["bun", MAIN, "--data", dataDir, "--port", "0", "--no-usb-watch"], {
-      stdout: "ignore",
-      stderr: "ignore",
-    });
+    const hub = spawnTracked(
+      ["bun", MAIN, "--data", dataDir, "--port", "0", "--no-usb-watch", "--app-ports", "0,0"],
+      {
+        stdout: "ignore",
+        stderr: "ignore",
+      },
+    );
     // Up once the control socket is there.
     const deadline = Date.now() + 10_000;
     while (!existsSync(socketPath(dataDir)) && Date.now() < deadline) await Bun.sleep(20);
@@ -103,10 +120,13 @@ describe("a clean stop (section 7)", () => {
 
   test("SIGTERM as soon as the process runs, while it starts: still a clean stop", async () => {
     const dataDir = join(root, "early");
-    const hub = spawnTracked(["bun", MAIN, "--data", dataDir, "--port", "0", "--no-usb-watch"], {
-      stdout: "ignore",
-      stderr: "ignore",
-    });
+    const hub = spawnTracked(
+      ["bun", MAIN, "--data", dataDir, "--port", "0", "--no-usb-watch", "--app-ports", "0,0"],
+      {
+        stdout: "ignore",
+        stderr: "ignore",
+      },
+    );
     // As soon as the database exists: the start is under way, the control socket not yet open.
     const deadline = Date.now() + 10_000;
     while (!existsSync(join(dataDir, "hub.db")) && Date.now() < deadline) await Bun.sleep(1);
@@ -128,10 +148,13 @@ describe("a clean stop (section 7)", () => {
 
   test("SIGTERM once the control socket is there: exit 0 (the next start reads a clean stop)", async () => {
     const dataDir = join(root, "clean2");
-    const hub = spawnTracked(["bun", MAIN, "--data", dataDir, "--port", "0", "--no-usb-watch"], {
-      stdout: "ignore",
-      stderr: "ignore",
-    });
+    const hub = spawnTracked(
+      ["bun", MAIN, "--data", dataDir, "--port", "0", "--no-usb-watch", "--app-ports", "0,0"],
+      {
+        stdout: "ignore",
+        stderr: "ignore",
+      },
+    );
     const deadline = Date.now() + 10_000;
     while (!existsSync(socketPath(dataDir)) && Date.now() < deadline) await Bun.sleep(20);
     const up = existsSync(socketPath(dataDir));

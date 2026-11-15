@@ -288,8 +288,16 @@ export const commandResult = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("op"), body: z.unknown() }).readonly(),
   /** `hsn open`'s console address with its one-time token, and how long it is good for. */
   z
-    .object({ kind: z.literal("consoleToken"), url: z.string(), expiresInMs: z.int().min(0) })
+    .object({
+      kind: z.literal("consoleToken"),
+      url: z.string(),
+      expiresInMs: z.int().min(0),
+      /** The token's number, for `consoleTokenWait`. */
+      token: z.int().min(1),
+    })
     .readonly(),
+  /** `consoleTokenWait`: whether the token was used, or expired unused. */
+  z.object({ kind: z.literal("consoleTokenWait"), used: z.boolean() }).readonly(),
   /** A file chunk taken by the shell (m2-design.md section 6). */
   z.object({ kind: z.literal("fileChunk") }).readonly(),
 ]);

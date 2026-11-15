@@ -101,8 +101,8 @@ describe("messages and effects", () => {
     // A compile-time check: no internal message kind is an effect kind.
     const disjoint: Extract<Internal["kind"], Effect["kind"]> extends never ? true : false = true;
     expect(disjoint).toBe(true);
-    // M1a's seven, and M2's five (m2-design.md section 2).
-    expect(EFFECT_KINDS).toHaveLength(12);
+    // M1a's seven, and M2's seven (m2-design.md section 2).
+    expect(EFFECT_KINDS).toHaveLength(14);
   });
 
   test("the module order is section 2's table, M2's seven in their places (m2-design.md section 2)", () => {

@@ -1,7 +1,9 @@
 /**
  * Migrations at start (hub-design.md section 6, "Migrations"), before the boot event. The
- * outstanding ones are applied in one transaction by Drizzle's migrator. Before one that changes
- * or drops an existing table, the database is copied with `VACUUM INTO hub.db.before-<n>` ‡.
+ * outstanding ones are applied in one transaction by Drizzle's migrator. Before every migration of
+ * an existing database the database is copied with `VACUUM INTO hub.db.before-<n>` ‡, `n` the
+ * first outstanding one: a rollback after a version switch needs the copy whatever the migration
+ * changed, additions included (m2-design.md section 11, "Step 1, wave 2").
  * A database newer than the code is refused, which is what lets D54 switch back to the previous
  * version: the caller records it in `fatal.log` and on standard error and exits.
  */
@@ -18,9 +20,6 @@ const CALLER = { kind: "storage", origin: ORIGIN } as const;
 
 /** Drizzle's record of the migrations applied, one row each with its journal time. */
 const MIGRATIONS_TABLE = "__drizzle_migrations";
-
-/** A statement that changes or drops a table that may hold rows. */
-const CHANGES_A_TABLE = /\b(?:ALTER\s+TABLE|DROP\s+TABLE)\b|\b__new_/i;
 
 /** The copy kept before migration `n` (its index in the journal) changes a table. */
 export function backupPath(dbPath: string, n: number): string {
@@ -102,11 +101,9 @@ export function migrateAtStart(
     .map((file, n): readonly [MigrationFile, number] => [file, n])
     .filter(([file]) => last === undefined || file.folderMillis > last);
   const alreadyApplied = files.value.length - outstanding.length;
-  const changing = outstanding.find(([file]) =>
-    file.sql.some((statement) => CHANGES_A_TABLE.test(statement)),
-  );
+  const first = outstanding[0];
   const backup =
-    last !== undefined && changing !== undefined ? backupPath(dbPath, changing[1]) : undefined;
+    last !== undefined && first !== undefined ? backupPath(dbPath, first[1]) : undefined;
   if (backup !== undefined) {
     const copied = copyBefore(db, dbPath, backup);
     if (copied.isErr()) return err(copied.error);

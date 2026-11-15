@@ -6,7 +6,8 @@
  * exit code. The fake hub is the real socket server with a sink that answers by command.
  */
 import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { chmodSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { err as errResult, ok as okResult, type Result } from "neverthrow";
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { FILE_CHUNKS } from "@hsn/protocol/app";
 import { CONTROL_LINE_BYTES, controlCommand } from "../../../src/control-protocol/index.ts";
 import { chunksOf } from "../../../cli/files.ts";
@@ -40,6 +41,9 @@ let hub: UnixControlServer;
 let received: ControlCommand[];
 let answer: (command: ControlCommand) => ControlReply | undefined;
 let records: readonly AuditRecord[];
+/** The addresses `hsn open` gave its page, and how opening it ends. */
+let browsed: string[];
+let browserAnswer: () => Promise<Result<"read" | "unread", string>>;
 
 function ok(result: CommandResult): ControlReply {
   return { ok: true, result };
@@ -49,6 +53,8 @@ beforeEach(async () => {
   where = testFolder();
   received = [];
   records = [];
+  browsed = [];
+  browserAnswer = () => Promise.resolve(okResult("read"));
   answer = (command) => ({
     ok: false,
     error: { code: "failed", message: `no answer set for ${command.kind}` },
@@ -93,6 +99,10 @@ function io(stdin = "", onInterrupt: CliIo["onInterrupt"] = () => undefined) {
     nowMs: () => Date.UTC(2026, 10, 13, 12),
     onInterrupt,
     ask: () => Promise.resolve("n"),
+    openConsole: (url) => {
+      browsed.push(url);
+      return browserAnswer();
+    },
   };
   return { value, out, err };
 }
@@ -318,8 +328,9 @@ const TABLE: readonly (readonly [string, ControlCommand, CommandResult, string])
       kind: "consoleToken",
       url: "http://127.0.0.1:8445/#console=AAAAAAAAAAAAAAAAAAAAAA",
       expiresInMs: 120_000,
+      token: 1,
     },
-    "open http://127.0.0.1:8445/#console=AAAAAAAAAAAAAAAAAAAAAA within 120 s",
+    "the console opened in the browser; its link works once",
   ],
   [
     "siren test hall",
@@ -752,6 +763,37 @@ describe("M2's forms (m2-design.md section 6)", () => {
     expect(existsSync(file)).toBe(false);
   });
 
+  test("hsn backup export: the reply {job} first, then the chunks on the connection, then the file", async () => {
+    const file = join(where.folder, "export.hsnb");
+    const bytes = new Uint8Array(FILE_CHUNKS.maxChunkBytes + 10).map((_, i) => i % 251);
+    hub.listen((event) => {
+      if (event.kind !== "command") return;
+      hub.respond(event.request, ok({ kind: "op", body: { job: 1 } }));
+      // After the reply (the loop runs jobs after the turn's answers), on the asking connection.
+      for (const { job, n, data, end } of chunksOf(bytes)) {
+        const chunk = end === undefined ? { job, n, data } : { job, n, data, end };
+        expect(hub.download(event.conn, { fileChunk: chunk })).toBe(true);
+      }
+    });
+    const run = await hsn(`backup export ${file}`);
+    expect(run.code).toBe(ExitCode.Ok);
+    expect(new Uint8Array(readFileSync(file))).toEqual(bytes);
+  });
+
+  test("hsn backup export: a fileFailed after the reply saves nothing and says so", async () => {
+    const file = join(where.folder, "failed.hsnb");
+    hub.listen((event) => {
+      if (event.kind !== "command") return;
+      hub.respond(event.request, ok({ kind: "op", body: { job: 2 } }));
+      hub.download(event.conn, { fileFailed: { job: 2, reason: "io" } });
+    });
+    const run = await hsn(`backup export ${file}`);
+    expect(run.code).toBe(ExitCode.Refused);
+    expect(run.err.join(" ")).toContain("nothing was saved");
+    expect(existsSync(file)).toBe(false);
+    expect(existsSync(`${file}.part`)).toBe(false);
+  });
+
   test("a file's chunks: 48 KB each, numbered from 0, the last with the count and the hash", () => {
     const chunks = chunksOf(new Uint8Array(FILE_CHUNKS.maxChunkBytes * 2 + 1));
     expect(chunks.map((c) => c.n)).toEqual([0, 1, 2]);
@@ -862,5 +904,65 @@ describe("no key reaches the CLI's output", () => {
     expect(plain.code).toBe(ExitCode.Ok);
     expect(json.out.join("")).toContain(toHex(new Uint8Array(16)));
     expectNoKeyLeaks();
+  });
+});
+
+describe("hsn open (m2-design.md section 5, the console)", () => {
+  const SECRET_URL = "http://127.0.0.1:8445/#console=q7Zx3kP9mW2vR8tY5nB1cA";
+  const SECRET = "q7Zx3kP9mW2vR8tY5nB1cA";
+  const TOKEN: CommandResult = {
+    kind: "consoleToken",
+    url: SECRET_URL,
+    expiresInMs: 120_000,
+    token: 1,
+  };
+
+  test("opens the token's address through its page and never prints it", async () => {
+    answer = () => ok(TOKEN);
+    const run = await hsn("open");
+    expect(received).toEqual([{ kind: "consoleToken" }]);
+    expect(browsed).toEqual([SECRET_URL]);
+    expect(run.code).toBe(ExitCode.Ok);
+    expect([...run.out, ...run.err].join("\n")).not.toContain(SECRET);
+  });
+
+  test("with --json, nor then", async () => {
+    answer = () => ok(TOKEN);
+    const run = await hsn("--json open");
+    expect(browsed).toEqual([SECRET_URL]);
+    expect(run.out.map((l) => JSON.parse(l) as unknown)).toEqual([
+      { opened: true, expiresInMs: 120_000 },
+    ]);
+    expect([...run.out, ...run.err].join("\n")).not.toContain(SECRET);
+  });
+
+  test("when no browser opens, it says so, exits 1, and still prints no address", async () => {
+    answer = () => ok(TOKEN);
+    browserAnswer = () => Promise.resolve(errResult("the browser could not be opened for anna"));
+    const run = await hsn("open");
+    expect(run.code).toBe(ExitCode.Refused);
+    expect(run.err[0]).toContain(
+      "the console could not be opened: the browser could not be opened for anna",
+    );
+    expect([...run.out, ...run.err].join("\n")).not.toContain(SECRET);
+  });
+
+  test("a refused token opens nothing", async () => {
+    answer = () => ({
+      ok: false,
+      error: { code: "failed", message: "the hub has not started yet" },
+    });
+    const run = await hsn("open");
+    expect(browsed).toEqual([]);
+    expect(run.code).toBe(ExitCode.Refused);
+  });
+
+  test("a page the browser did not read in time: said, and exit 75", async () => {
+    answer = () => ok(TOKEN);
+    browserAnswer = () => Promise.resolve(okResult("unread"));
+    const run = await hsn("open");
+    expect(run.code).toBe(ExitCode.NoAnswer);
+    expect(run.err[0]).toContain("did not open the console within 120 s");
+    expect([...run.out, ...run.err].join("\n")).not.toContain(SECRET);
   });
 });

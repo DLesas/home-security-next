@@ -25,7 +25,6 @@ import {
   secureFolder,
   secureSocket,
 } from "../../../src/shell/control/socket-file.ts";
-import { openWindowsControl } from "../../../src/shell/control/windows.ts";
 import { expectNoKeyLeaks, noteKey } from "../setup/support/leak-guard.ts";
 import { openServer, RawClient, settle, type TestFolder, testFolder } from "./support.ts";
 
@@ -95,7 +94,9 @@ function hubEvent(atMs: number): AuditRecord {
   };
 }
 
-describe("the socket file (section 9, D61, D62)", () => {
+// POSIX modes and user ids: macOS and Linux only. Windows' checks are windows-steps.test.ts (as
+// data, everywhere) and windows-real.test.ts (on Windows).
+describe.skipIf(process.platform === "win32")("the socket file (section 9, D61, D62)", () => {
   test("the socket is 0600 and its folder 0700, checked on the files themselves", async () => {
     const { where } = await server();
     expect(statSync(where.socket).isSocket()).toBe(true);
@@ -191,11 +192,6 @@ describe("the socket file (section 9, D61, D62)", () => {
       expect(nobody.status).toBe(3);
     },
   );
-
-  test("Windows: the pipe is not opened until it can be limited to the hub's account (WAITING)", async () => {
-    const opened = await openWindowsControl();
-    expect(opened.isErr() ? opened.error.message : "").toContain("WAITING");
-  });
 });
 
 describe("requests and replies", () => {

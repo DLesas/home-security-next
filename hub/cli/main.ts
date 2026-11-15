@@ -9,6 +9,8 @@ import type {
   ReplyLine,
 } from "../src/control-protocol/index.ts";
 import { type Globals, opCommand, parseArgs, PASSWORD_FROM_STDIN } from "./args.ts";
+import { openConsoleAddress, type PageOutcome } from "./console-page.ts";
+import type { Result } from "neverthrow";
 import { type ClientError, exchange, Session } from "./client.ts";
 import { type FileCommand, runFileCommand } from "./files.ts";
 import { qrLines } from "./qr.ts";
@@ -27,6 +29,13 @@ export interface CliIo {
   readonly onInterrupt: (end: () => void) => void;
   /** Asks the user a question on the terminal and gives the line answered (`hsn restore`). */
   readonly ask: (question: string) => Promise<string>;
+  /** The system, for its own wording of a refused socket; `process.platform` when not given. */
+  readonly platform?: NodeJS.Platform;
+  /**
+   * Opens the console's address in the ordinary user's browser through a page only they can read
+   * (`hsn open`, `console-page.ts`); the address is a secret. The real computer when not given.
+   */
+  readonly openConsole?: (url: string, expiresInMs: number) => Promise<Result<PageOutcome, string>>;
 }
 
 /** How long a command waits for its answer: 15 s ‡, covering a USB add's 5 s and its Set role. */
@@ -53,7 +62,7 @@ usage: hsn [--data <folder>] [--socket <path>] [--json] [--timeout <s>] <command
   siren test <name> [<s>]
   gateway set <name> status=<s> interference=<dB>/<s> power=<dBm> siren-power=<dBm>
   site show | site survey
-  site set channel=<868.1|868.3|868.5> rate=<DRn> countdown=<s> auto-stop=<s>
+  site set channel=<868.1|868.3|868.5> rate=<DRn> countdown=<s> auto-stop=<s> retention-routine=<days> retention-event=<days>
   site wifi --name <name> --password <password|->   (- reads the password from standard input)
   site change channel=<…> rate=<DRn> | site change status | site change cancel | site change force [--yes]
   log [--device <name>] [--since <time|10m|2h|1d>] [--kind rx|tx|decision|log|event|reject|notification] [--follow]
@@ -101,7 +110,12 @@ function clientFailure(error: ClientError, io: CliIo): ExitCode {
       io.err("Start the hub, or pass --data <folder> if it runs with another data folder.");
       return ExitCode.HubNotRunning;
     case "permission":
-      io.err(`hsn: ${error.message}: run hsn as the account the hub runs as.`);
+      // Windows lets only administrators and the hub's own account in (m2-design.md section 9).
+      io.err(
+        (io.platform ?? process.platform) === "win32"
+          ? `hsn: ${error.message}: run hsn from an administrator prompt (Run as administrator).`
+          : `hsn: ${error.message}: run hsn as the account the hub runs as.`,
+      );
       return ExitCode.NoPermission;
     case "timeout":
       io.err(
@@ -164,6 +178,34 @@ async function runFile(file: FileCommand, globals: Globals, io: CliIo): Promise<
   }
 }
 
+/**
+ * `hsn open` (m2-design.md section 5, "The console"): the one-time console token's address is
+ * opened in the ordinary user's browser through a page only that user can read, never on a command
+ * line and never printed, with `--json` or without: it would link whoever used it first as the
+ * console. It works once, for 2 minutes ‡; `hsn` says whether the browser read the page in time.
+ */
+async function openConsole(
+  token: { readonly url: string; readonly expiresInMs: number },
+  json: boolean,
+  io: CliIo,
+): Promise<ExitCode> {
+  const seconds = Math.round(token.expiresInMs / 1000);
+  const opened = await (io.openConsole ?? ((url, ms) => openConsoleAddress(url, ms)))(
+    token.url,
+    token.expiresInMs,
+  );
+  if (opened.isErr()) {
+    io.err(`hsn: the console could not be opened: ${printable(opened.error)}`);
+    io.err("The link was not used and expires by itself; nothing was put on a command line.");
+    return ExitCode.Refused;
+  }
+  const read = opened.value === "read";
+  if (json) io.out(JSON.stringify({ opened: read, expiresInMs: token.expiresInMs }));
+  else if (read) io.out("the console opened in the browser; its link works once");
+  else io.err(`hsn: the browser did not open the console within ${seconds} s; run hsn open again`);
+  return read ? ExitCode.Ok : ExitCode.NoAnswer;
+}
+
 /** Runs `hsn` with these words; resolves to the exit code. */
 export async function runCli(argv: readonly string[], io: CliIo): Promise<number> {
   const parsed = parseArgs(argv, io.nowMs());
@@ -212,6 +254,9 @@ export async function runCli(argv: readonly string[], io: CliIo): Promise<number
   );
   if (result.isErr()) return clientFailure(result.error, io);
   const { reply } = result.value;
+  if (reply.reply.ok && reply.reply.result.kind === "consoleToken") {
+    return openConsole(reply.reply.result, globals.json, io);
+  }
   // `hsn op` always prints JSON: the reply's body on success, `{code, detail}` on a refusal.
   if (command.kind === "op") {
     if (reply.reply.ok) for (const line of formatResult(reply.reply.result)) io.out(line);

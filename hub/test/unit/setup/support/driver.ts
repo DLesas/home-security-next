@@ -4,6 +4,7 @@
  * each step kept, and noted for the key-leak guard. Also fixtures (the hub's signing key and
  * identity from `pairing-data.json`, site rows) and the committed rows a restart reads back.
  */
+import { nodeSha256 } from "@hsn/protocol";
 import { UNBUILT_CALENDAR } from "../../../../src/shell/calendar/unbuilt.ts";
 import { expect } from "bun:test";
 import { fromHex, Role, SetupType, encodeSetupMessage, HUB_IDENTITY_LENGTH } from "@hsn/protocol";
@@ -21,6 +22,7 @@ import {
   requestId,
   type RequestId,
   deviceId,
+  connId,
 } from "../../../../src/core/model/ids.ts";
 import { DEFAULT_RULES } from "../../../../src/core/model/rules.ts";
 import {
@@ -170,6 +172,7 @@ export class Driver {
       cipher: VectorCipher.fromVectors(),
       rules: DEFAULT_RULES,
       calendar: UNBUILT_CALENDAR,
+      sha256: nodeSha256,
       deepFreeze: true,
     };
     this.state = core.emptyState();
@@ -229,7 +232,10 @@ export class Driver {
     const request = requestId(this.#nextRequest++);
     return {
       request,
-      effects: this.input({ kind: "command", request, actor, command }, entropyBytes),
+      effects: this.input(
+        { kind: "command", conn: connId(0), request, actor, command },
+        entropyBytes,
+      ),
     };
   }
 

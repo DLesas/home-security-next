@@ -4,7 +4,7 @@
  * the fixed module order. Every input event is also a message, under its own kind.
  */
 import type { Message, TransmitPriority } from "@hsn/protocol";
-import type { AppError, AppOp } from "@hsn/protocol/app";
+import type { AppError, AppOp, NotificationObject } from "@hsn/protocol/app";
 import type { AuditRecord } from "./audit.ts";
 import type { ControlCommand, ControlReply } from "./control.ts";
 import type { RejectReason } from "./errors.ts";
@@ -20,6 +20,7 @@ import type {
   ScheduleId,
   SendRef,
   Seq,
+  TokenId,
 } from "./ids.ts";
 import type { M2ModuleName } from "./modules.ts";
 import type { ArmState, MoveStageName, TxOutcome } from "./rows.ts";
@@ -137,9 +138,21 @@ export type Actor =
     }
   | { readonly kind: "schedule"; readonly schedule: ScheduleId; readonly name: string };
 
-/** Where a request's answer goes: a control request, an app request, or nowhere (a schedule). */
+/**
+ * Where a request's answer goes: a control request, an app request, or a schedule entry's run,
+ * which records `schedule_ran` or `schedule_held_back` from it in the same step (section 7).
+ */
 export type AnswerTo =
-  | { readonly kind: "control"; readonly request: RequestId }
+  | {
+      readonly kind: "control";
+      readonly request: RequestId;
+      /**
+       * The control connection the command came on (`command.conn`, m2-design.md section 6), so
+       * an upload or a download on it is `UploadRef {conn, job}` (`hsn restore`, `hsn update
+       * install`, `hsn backup export`).
+       */
+      readonly conn: ConnId;
+    }
   | {
       readonly kind: "app";
       readonly conn: ConnId;
@@ -149,7 +162,12 @@ export type AnswerTo =
       /** The change's `seq`, committed with the reply (section 3). */
       readonly seq: number | undefined;
     }
-  | { readonly kind: "none" };
+  | {
+      readonly kind: "schedule";
+      readonly schedule: ScheduleId;
+      /** The run's `commands` record. */
+      readonly record: Seq;
+    };
 
 /** An operation's outcome as its owner gives it: the reply's body, or one of section 5's errors. */
 export type OpOutcome =
@@ -415,7 +433,16 @@ export type DomainMessage =
   /** The owner's answer: control turns it into a `respond`, app into an `appSend` reply. */
   | { readonly kind: "opAnswer"; readonly answerTo: AnswerTo; readonly outcome: OpOutcome }
   /** control: `hsn open` asks people for a one-time console token (section 5, "The console"). */
-  | ({ readonly kind: "consoleTokenRequest" } & Requested)
+  | ({
+      readonly kind: "consoleTokenRequest";
+      /**
+       * Who asks, a parameter of the request that sets the token's lifetime: `hsn open`'s 2 minutes
+       * ‡ or an installer's first opening's 10 ‡ (`HubRules.people`).
+       */
+      readonly for: "open" | "installer";
+    } & Requested)
+  /** control: `hsn open` waits for its console token's use or expiry; people answers `{used}`. */
+  | ({ readonly kind: "consoleTokenWaitRequest"; readonly token: TokenId } & Requested)
   /** people: a client was linked; its sessions may start. */
   | { readonly kind: "clientAdded"; readonly client: ClientId; readonly person: PersonId | null }
   /** people: a client was removed; the shell closes its sessions (`closeClient`). */
@@ -427,23 +454,32 @@ export type DomainMessage =
   | {
       readonly kind: "armSensors";
       readonly sensors: readonly DeviceId[];
-      /** Set when the request was a switch to this mode; alarm records the per-sensor decisions. */
+      /**
+       * Set when the request was a switch to this mode, which arms `sensors` and disarms the rest
+       * (Disarmed: `sensors: []`); alarm records the per-sensor decisions.
+       */
       readonly mode: ModeId | undefined;
       readonly confirm: Confirmation | undefined;
       readonly actor: Actor;
       readonly answerTo: AnswerTo;
       readonly record: Seq;
     }
-  /** layout: a disarm resolved to sensors; a schedule's holds back its triggers (D117). */
+  /**
+   * layout: a disarm resolved to sensors. A switch is always one `armSensors`. Every request whose
+   * actor is a schedule holds back its triggers and counting sensors (D117): it follows the actor.
+   */
   | {
       readonly kind: "disarmSensors";
       readonly sensors: readonly DeviceId[];
-      readonly mode: ModeId | undefined;
-      /** A schedule's disarm leaves the triggers and counting sensors armed (D117). */
-      readonly holdBack: boolean;
       readonly actor: Actor;
       readonly answerTo: AnswerTo;
       readonly record: Seq;
+    }
+  /** notify: a notification raised, for `app` to send to these clients' sessions (section 7). */
+  | {
+      readonly kind: "notificationRaised";
+      readonly notification: NotificationObject;
+      readonly clients: readonly ClientId[];
     };
 
 /** Every message on the dispatcher's queue: input events and domain messages. */

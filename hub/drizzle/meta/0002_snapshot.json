@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "123a1206-5ff5-48ba-83d5-2c7444e23442",
+  "id": "e0cc673d-f069-492f-a2e4-8629f1489db1",
   "prevId": "839a0f46-7f0e-4407-8995-6dceafdd8ae9",
   "tables": {
     "alarm": {
@@ -1276,6 +1276,13 @@
           "notNull": false,
           "autoincrement": false
         },
+        "person_name": {
+          "name": "person_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "created_by_client": {
           "name": "created_by_client",
           "type": "integer",
@@ -2169,6 +2176,28 @@
           "notNull": false,
           "autoincrement": false
         },
+        "missed_due_ms": {
+          "name": "missed_due_ms",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "missed_why": {
+          "name": "missed_why",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "missed_count": {
+          "name": "missed_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
         "revision": {
           "name": "revision",
           "type": "integer",
@@ -2830,6 +2859,21 @@
         "previous_version": {
           "name": "previous_version",
           "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "last_result": {
+          "name": "last_result",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "last_result_ms": {
+          "name": "last_result_ms",
+          "type": "integer",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false

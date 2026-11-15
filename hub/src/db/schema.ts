@@ -375,6 +375,8 @@ export const linkTokens = sqliteTable(
     /** 0 a new person, 1 a device of an existing person, 2 console; a restore token is never stored. */
     kind: integer("kind").notNull(),
     personId: integer("person_id"),
+    /** The name given in `link.create`'s `newPerson {name?}`. */
+    personName: text("person_name"),
     /** Null for the console and the installer. */
     createdByClient: integer("created_by_client"),
     createdBoot: integer("created_boot").notNull(),
@@ -461,6 +463,11 @@ export const schedules = sqliteTable("schedules", {
   createdBy: text("created_by").notNull(),
   lastRunMs: integer("last_run_ms"),
   lastRunLocalDate: integer("last_run_local_date"),
+  /** The first occurrence missed since the last run (D116), kept across a restart. */
+  missedDueMs: integer("missed_due_ms"),
+  /** 0 hub off, 1 clock not set, 2 clock stepped. */
+  missedWhy: integer("missed_why"),
+  missedCount: integer("missed_count").notNull().default(0),
   revision: integer("revision").notNull(),
 });
 
@@ -538,6 +545,9 @@ export const updateState = sqliteTable("update_state", {
   approvedMs: integer("approved_ms"),
   switchingMs: integer("switching_ms"),
   previousVersion: text("previous_version"),
+  /** 0 none, 1 healthy, 2 rolled back. */
+  lastResult: integer("last_result").notNull().default(0),
+  lastResultMs: integer("last_result_ms"),
 });
 
 // M2's audit tables (section 4): HD 6's rules.

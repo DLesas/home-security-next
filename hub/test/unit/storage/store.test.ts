@@ -598,11 +598,21 @@ describe("migrations (section 6)", () => {
     ]);
   });
 
-  test("one that only adds a table is applied without a copy", () => {
+  test("one that only adds a table is copied first too: a rollback needs the copy (step 1, wave 2)", () => {
     store.db.close();
     const folder = withMigration("CREATE TABLE `extra` (`x` integer);");
     store = openTestStore(dir.path, clock, { migrations: folder });
     expect(store.migrations.ran).toEqual([CODE_MIGRATIONS]);
+    expect(store.migrations.backup).toBe(
+      backupPath(join(dir.path, DATABASE_FILE), CODE_MIGRATIONS),
+    );
+    expect(existsSync(store.migrations.backup ?? "")).toBe(true);
+  });
+
+  test("a database with nothing outstanding is not copied", () => {
+    store.db.close();
+    store = openTestStore(dir.path, clock);
+    expect(store.migrations.ran).toEqual([]);
     expect(store.migrations.backup).toBeUndefined();
   });
 

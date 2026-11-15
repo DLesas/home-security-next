@@ -20,6 +20,8 @@ export const LAUNCHER = {
   failingWithinMs: MINUTE,
   /** The hub's own request to be restarted (HD 10); every other non-zero exit is a failure. */
   restartMeExitCode: 70,
+  /** A crash: an uncaught exception or a fatal error (`FATAL_EXIT_CODE`). */
+  crashExitCode: 71,
   /** At most two versions are kept in `<prefix>/versions/` (section 9). */
   versionsKept: 2,
 } as const;

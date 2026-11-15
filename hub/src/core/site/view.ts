@@ -170,3 +170,14 @@ export function sirenSiteChannelField(
 ): Pick<MessageOf<typeof MessageType.SirenSettings>, "siteChannel"> {
   return { siteChannel: channel };
 }
+
+/**
+ * The current move's counts, as `hsn site change status` gives them (section 9): the sensors that
+ * confirmed it and the sensors in all. For `app`'s `siteMoveStatus` (m2-design.md section 11,
+ * "Step 1's questions"); read only.
+ */
+export function moveCounts(view: HubState): { readonly confirmed: number; readonly total: number } {
+  const move = view.site.row.moveId;
+  const parts = [...view.site.sensors.values()];
+  return { confirmed: parts.filter((part) => part.confirmed === move).length, total: parts.length };
+}

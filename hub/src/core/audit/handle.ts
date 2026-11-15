@@ -19,6 +19,7 @@ import type { Effect } from "../model/effects.ts";
 import type { CoreFault } from "../model/errors.ts";
 import type { DurableSnapshot, BootInfo, CommitOutcome, InputRejection } from "../model/events.ts";
 import type { Context, Handled, Handler } from "../model/handler.ts";
+import { M2_HUB_EVENTS } from "../model/decisions.ts";
 import { HUB_DEVICE } from "../model/ids.ts";
 import type { Internal, RejectSource } from "../model/messages.ts";
 import type { HubEventLevel, HubEventRow, RejectRow } from "../model/rows.ts";
@@ -26,6 +27,7 @@ import type { Durability } from "../model/store.ts";
 import type { RejectReason } from "../model/errors.ts";
 import { monoAfterMs } from "../model/time.ts";
 import { recordStamp, wallTrusted } from "../clock/view.ts";
+import { siteRow } from "../site/view.ts";
 import { cap, warningSource } from "./cap.ts";
 import { retentionRound } from "./retention.ts";
 import {
@@ -423,6 +425,37 @@ function onFault(
   return onRecord(slice, event.value, durabilityOf("critical"), ctx);
 }
 
+/**
+ * A warning from the shell (m2-design.md section 9, `shellWarning`): a hub event of origin `shell`,
+ * at the level and class `M2_HUB_EVENTS` gives its code, under the warning cap as every record is.
+ */
+function onShellWarning(
+  slice: AuditSlice,
+  message: Extract<Internal, { readonly kind: "shellWarning" }>,
+  ctx: Context,
+): Step {
+  const spec = M2_HUB_EVENTS[message.code];
+  return ctx.records.take().andThen((seq) =>
+    onRecord(
+      slice,
+      {
+        kind: "hubEvent",
+        row: {
+          seq,
+          ...recordStamp(ctx.view, ctx.now),
+          level: spec.level,
+          origin: "shell",
+          code: message.code,
+          message: message.message,
+          detail: message.detail,
+        },
+      },
+      spec.durability,
+      ctx,
+    ),
+  );
+}
+
 /** One retention round, then the next in 10 minutes ‡ (section 6). */
 function onRetention(slice: AuditSlice, ctx: Context): Step {
   const { everyMs, rowsPerRound } = ctx.deps.rules.retention;
@@ -434,7 +467,14 @@ function onRetention(slice: AuditSlice, ctx: Context): Step {
   ];
   if (!wallTrusted(ctx.view, ctx.now)) return ok({ slice: { ...slice, timers }, out: [] });
   const { atMs } = recordStamp(ctx.view, ctx.now);
-  const out: Out = retentionRound(slice.retention, atMs, rowsPerRound).map((op): Effect => ({
+  // The site's retention as it is now (HB24: `site.set` and `hsn site set` change it), else the
+  // boot's when no site row has been read.
+  const row = siteRow(ctx.view);
+  const retention =
+    row.retentionRoutineDays > 0 && row.retentionEventDays > 0
+      ? { routineDays: row.retentionRoutineDays, eventDays: row.retentionEventDays }
+      : slice.retention;
+  const out: Out = retentionRound(retention, atMs, rowsPerRound).map((op): Effect => ({
     kind: "write",
     durability: "routine",
     op,
@@ -456,6 +496,8 @@ function handle(slice: AuditSlice, message: Internal, ctx: Context): Step {
       return message.rejection.source === "core"
         ? onFault(slice, message.rejection, ctx)
         : ok({ slice, out: [] });
+    case "shellWarning":
+      return onShellWarning(slice, message, ctx);
     case "linkOpened": {
       const links = new Map(slice.links);
       links.set(message.link, message.label);

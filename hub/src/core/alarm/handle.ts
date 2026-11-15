@@ -1,8 +1,9 @@
 /**
  * The alarm module's handler (hub-design.md section 2, module 8; section 8, "Arming and the
- * countdown" and "What the siren should do"). It handles the boot and the downtime (restart rule,
- * D80, D113), accepted sensor status packets and siren packets, arm, disarm and siren test
- * requests, its two timers, and the device and settings changes it keeps copies of. It emits
+ * countdown" and "What the siren should do"; m2-design.md section 7). It handles the boot and the
+ * downtime (restart rule, D80, D113), accepted sensor status packets and siren packets, arm,
+ * disarm and siren test requests (M1a's from control, M2's resolved to sensors by layout), its
+ * two timers, and the device and settings changes it keeps copies of. It emits
  * `armedChanged`, `countdownCancelled`, `sirenIntent`, its rows written now, its decisions, and
  * the `cadence` effect whenever a countdown or the alarm starts or the last one ends (D112).
  */
@@ -12,7 +13,13 @@ import type { Context, Handler } from "../model/handler.ts";
 import type { DeviceId } from "../model/ids.ts";
 import type { Internal } from "../model/messages.ts";
 import { endAlarm } from "./alarm.ts";
-import { onArmRequest, onDisarmRequest, onSirenTestRequest } from "./commands.ts";
+import {
+  onArmRequest,
+  onArmSensors,
+  onDisarmRequest,
+  onDisarmSensors,
+  onSirenTestRequest,
+} from "./commands.ts";
 import { onCountdownEnd, onSensorStatus, sensorStatus } from "./doors.ts";
 import { type Changed, type Changing, unchanged, writeNow } from "./out.ts";
 import { newSensor, onBoot, onDowntimeKnown, onSirenHeard } from "./restore.ts";
@@ -46,6 +53,10 @@ function route(slice: AlarmSlice, message: Internal, ctx: Context): Changing {
       return onArmRequest(slice, ctx, message);
     case "disarmRequest":
       return onDisarmRequest(slice, ctx, message);
+    case "armSensors":
+      return onArmSensors(slice, ctx, message);
+    case "disarmSensors":
+      return onDisarmSensors(slice, ctx, message);
     case "sirenTestRequest":
       return onSirenTestRequest(slice, ctx, message);
     case "deviceAdded":

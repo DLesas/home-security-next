@@ -2,15 +2,56 @@
  * Read-only selectors over the alarm module's slice that other modules may use (hub-design.md
  * section 2): the sensors module for its replies and `sensor_config` rows, the sirens module for
  * what each siren should do, the site module for whether a switch must wait, and the control
- * module for `hsn status` (section 9).
+ * module for `hsn status` (section 9); and, in M2, the layout module for what an arming request
+ * will do (m2-design.md section 7).
  */
 import type { SirenShould } from "../model/messages.ts";
 import type { BootId, DeviceId } from "../model/ids.ts";
 import { ArmState } from "../model/rows.ts";
 import type { HubState } from "../model/state.ts";
 import type { Mono } from "../model/time.ts";
+import {
+  type ArmingAsk,
+  type ArmingPlan,
+  type DisarmingPlan,
+  planArming,
+  planDisarming,
+} from "./plan.ts";
 import type { SirenRestore } from "./state.ts";
 import { secondsUntil } from "./time.ts";
+
+export {
+  type ArmingAsk,
+  type ArmingPlan,
+  armingAskOf,
+  armRequestAsk,
+  type DisarmingPlan,
+} from "./plan.ts";
+export { actorText } from "./out.ts";
+export { DOORS_OPEN_MESSAGE } from "./commands.ts";
+
+/**
+ * What an arming request will do, as the alarm will do it in this step (`plan.ts`): the layout
+ * module asks it first, and records a mode switch, and changes `mode_state`, only for a plan the
+ * alarm will carry out (m2-design.md section 7; section 11, "Step 1's questions, settled").
+ */
+export function armingPlan(view: HubState, ask: ArmingAsk): ArmingPlan {
+  return planArming(view.alarm, view, ask);
+}
+
+/** What a disarming request will do, as the alarm will do it in this step (`plan.ts`). */
+export function disarmingPlan(
+  view: HubState,
+  sensors: readonly DeviceId[],
+  holdBack: boolean,
+): DisarmingPlan {
+  return planDisarming(view.alarm, sensors, holdBack);
+}
+
+/** The sensors whose entry countdown runs (AL3): the ones a disarm cancels with the notice (D24). */
+export function countingSensors(view: HubState): readonly DeviceId[] {
+  return [...view.alarm.countdowns.keys()];
+}
 
 /** A sensor's arming state (section 8), or undefined for a device that is no sensor. */
 export function armState(view: HubState, sensor: DeviceId): ArmState | undefined {

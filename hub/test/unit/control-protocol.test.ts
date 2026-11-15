@@ -70,6 +70,7 @@ const COMMANDS: readonly ParsedControlCommand[] = [
     body: { mode: 1, confirm: { openDoors: true, lowBattery: false } },
   },
   { kind: "consoleToken" },
+  { kind: "consoleTokenWait", token: 3 },
   { kind: "fileChunk", job: 1, n: 0, data: "AAEC", end: { chunks: 1, sha256: "0".repeat(64) } },
 ];
 
@@ -253,7 +254,9 @@ const RESULTS: readonly unknown[] = [
     kind: "consoleToken",
     url: "http://127.0.0.1:8445/#console=AAAAAAAAAAAAAAAAAAAAAA",
     expiresInMs: 120_000,
+    token: 3,
   },
+  { kind: "consoleTokenWait", used: true },
 ];
 
 describe("replies", () => {

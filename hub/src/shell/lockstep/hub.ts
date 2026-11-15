@@ -12,7 +12,8 @@
  * 64 inputs. When none came but a wake is due, one `tick` turn runs. What the hub sent, recorded
  * and answered meanwhile is the `idle` answer.
  */
-import { UNBUILT_CALENDAR } from "../calendar/unbuilt.ts";
+import { sha256 } from "@noble/hashes/sha2.js";
+import { makeCalendar } from "../calendar/calendar.ts";
 import { join } from "node:path";
 import { fromHex, toHex } from "@hsn/protocol";
 import { err, ok, type Result } from "neverthrow";
@@ -25,7 +26,7 @@ import {
 import type { AuditRecord } from "../../core/model/audit.ts";
 import type { ControlReply } from "../../core/model/control.ts";
 import type { HubError } from "../../core/model/errors.ts";
-import { type RequestId, requestId } from "../../core/model/ids.ts";
+import { connId, type RequestId, requestId } from "../../core/model/ids.ts";
 import { DEFAULT_RULES, type HubRules } from "../../core/model/rules.ts";
 import { type Mono, mono, type Now } from "../../core/model/time.ts";
 import { type Core, MODULES, makeCore } from "../../core/step.ts";
@@ -58,6 +59,12 @@ type Input = Extract<
  * A run's random bytes: the seed with the boot's number mixed in (4 bytes, little-endian), so one
  * seed gives each run of the hub its own stream, and the same seed and boot the same one.
  */
+/**
+ * The bench's control requests come on its one wire, so on one control connection: `ConnId` 1 of
+ * this hub's counter (m2-design.md section 6), which opens no app connection.
+ */
+const LOCKSTEP_CONTROL_CONN = connId(1);
+
 export function lockstepRandom(seed: Uint8Array, boot: number): SeededRandom {
   const bootBytes = new Uint8Array(4);
   new DataView(bootBytes.buffer).setUint32(0, boot, true);
@@ -196,6 +203,8 @@ export class LockstepHub {
     const keys = MemoryKeyStore.load(store.db);
     if (keys.isErr()) return err(keys.error);
     keysHolder.keys = keys.value;
+    const calendar = makeCalendar();
+    if (calendar.isErr()) return err(calendar.error);
     const registry = new LinkRegistry();
     const links = new LockstepLinks(registry, () => clock.mono);
     const holder: {
@@ -205,7 +214,7 @@ export class LockstepHub {
     } = { respond: undefined, publish: undefined, fatal: undefined };
     const loop = new HubLoop(
       options.core ?? makeCore(MODULES),
-      { cipher: new KeyStoreCipher(keys.value), rules, calendar: UNBUILT_CALENDAR },
+      { cipher: new KeyStoreCipher(keys.value), rules, calendar: calendar.value, sha256 },
       {
         clock,
         random,
@@ -431,11 +440,11 @@ export class LockstepHub {
     const request = requestId(this.#nextRequest++);
     if (command.kind !== "log") {
       this.#asked.set(request, id);
-      this.#loop.enqueue({ kind: "command", request, actor, command });
+      this.#loop.enqueue({ kind: "command", request, conn: LOCKSTEP_CONTROL_CONN, actor, command });
       return;
     }
     // Recorded like any command; answered from the database after a flush (section 3).
-    this.#loop.enqueue({ kind: "command", request, actor, command });
+    this.#loop.enqueue({ kind: "command", request, conn: LOCKSTEP_CONTROL_CONN, actor, command });
     this.#loop.turn();
     if (command.follow) {
       this.#replies.push({

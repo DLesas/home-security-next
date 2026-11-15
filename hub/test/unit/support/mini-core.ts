@@ -6,6 +6,8 @@
  * audit last), a timer to its owner only, and one record cursor per step, starting at the boot's
  * first sequence number on a boot input and otherwise where audit says.
  */
+import { EMPTY_SITE_SLICE } from "../../../src/core/site/state.ts";
+import { nodeSha256 } from "@hsn/protocol";
 import { UNBUILT_CALENDAR } from "../../../src/shell/calendar/unbuilt.ts";
 import { EMPTY_M2_SNAPSHOT } from "../../../src/core/model/events.ts";
 import { err, ok, type Result } from "neverthrow";
@@ -31,6 +33,7 @@ export const MINI_DEPS: CoreDeps = {
   cipher: VectorCipher.fromVectors(),
   rules: DEFAULT_RULES,
   calendar: UNBUILT_CALENDAR,
+  sha256: nodeSha256,
 };
 
 /** A snapshot of an empty database (as `test/world/world.ts` has it, without loading the core). */
@@ -90,7 +93,9 @@ const EFFECT_KINDS: ReadonlySet<string> = new Set([
  * the clock's selectors), so the other slices are absent; the cast says only that.
  */
 function viewOf(state: MiniState): HubState {
-  return state as unknown as HubState;
+  // The site's slice as before its boot: audit reads its retention from it once a site row is read
+  // (HB24), and keeps the boot's otherwise.
+  return { ...state, site: EMPTY_SITE_SLICE } as unknown as HubState;
 }
 
 function cursor(start: Seq, event: Input["event"]["kind"]): RecordCursor {

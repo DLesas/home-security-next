@@ -1,0 +1,4 @@
+#!/bin/sh
+# The .pkg's preinstall: an upgrade stops the daemon before its files change.
+launchctl bootout system/com.hsn.hub 2>/dev/null || true
+exit 0

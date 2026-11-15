@@ -10,7 +10,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { toHex, type PairingData } from "@hsn/protocol";
 import type { ControlCommand, ControlReply } from "../../../src/core/model/control.ts";
 import type { Effect } from "../../../src/core/model/effects.ts";
-import { requestId } from "../../../src/core/model/ids.ts";
+import { requestId, connId } from "../../../src/core/model/ids.ts";
 import { DeviceState, MoveStage } from "../../../src/core/model/rows.ts";
 import type { StoreOp } from "../../../src/core/model/store.ts";
 import { World } from "../../world/world.ts";
@@ -67,10 +67,12 @@ function committed(
 function command(world: World, cmd: ControlCommand): ControlReply | undefined {
   const request = requestId(nextRequest++);
   const before = world.replies.length;
-  world.input({ kind: "command", request, actor: "installer", command: cmd }).match(
-    () => undefined,
-    () => undefined,
-  );
+  world
+    .input({ kind: "command", conn: connId(0), request, actor: "installer", command: cmd })
+    .match(
+      () => undefined,
+      () => undefined,
+    );
   noteEffects(world.effects);
   return world.replies.slice(before).find((r) => r.request === request)?.reply;
 }

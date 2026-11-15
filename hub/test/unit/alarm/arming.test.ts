@@ -298,3 +298,30 @@ describe("the alarm (D67, D74, D95, AL2a, AL9, AL11, HB11, HB12)", () => {
     expect(actedCommands(h, "hall")).toHaveLength(1);
   });
 });
+
+describe("one trigger per sensor in an alarm (D95, D114)", () => {
+  test("the same sensor's second countdown ending in the alarm adds no trigger, no decision, no command", () => {
+    const h = home();
+    const t0 = h.now;
+    h.door("front", true);
+    h.advanceTo(t0 + 31 * SECOND);
+    expect(h.decisions("alarm")).toHaveLength(1);
+    // The door closes and opens again while the alarm sounds: front is armed with no countdown
+    // running, so it counts down again (D114), and that countdown ends inside the alarm.
+    h.door("front", false);
+    h.door("front", true);
+    expect(h.decisions("countdown_started")).toHaveLength(2);
+    const intents = h.messagesOf("sirenIntent").length;
+    const triggerWrites = () =>
+      h.world.effects.filter((e) => e.kind === "write" && e.op.table === "alarm_triggers").length;
+    const writes = triggerWrites();
+    h.advanceTo(t0 + 63 * SECOND);
+    expect(h.world.state.alarm.countdowns.size).toBe(0);
+    expect(h.decisions("alarm_trigger_added")).toEqual([]);
+    expect(h.decisions("alarm")).toHaveLength(1);
+    expect(h.world.state.alarm.alarm?.triggers.size).toBe(1);
+    expect(triggerWrites()).toBe(writes);
+    expect(h.messagesOf("sirenIntent")).toHaveLength(intents);
+    expect(actedCommands(h, "hall")).toHaveLength(1);
+  });
+});

@@ -22,7 +22,13 @@ import type { AuditRecord } from "../../../src/core/model/audit.ts";
 import type { DecisionKind } from "../../../src/core/model/decisions.ts";
 import type { Effect } from "../../../src/core/model/effects.ts";
 import type { DurableSnapshot } from "../../../src/core/model/events.ts";
-import { type DeviceId, deviceId, type LinkId, requestId } from "../../../src/core/model/ids.ts";
+import {
+  type DeviceId,
+  deviceId,
+  type LinkId,
+  requestId,
+  connId,
+} from "../../../src/core/model/ids.ts";
 import type { Internal } from "../../../src/core/model/messages.ts";
 import {
   ArmState,
@@ -254,7 +260,13 @@ export class Bench {
 
   command(command: ControlCommand, request = 1): void {
     must(
-      this.world.input({ kind: "command", request: requestId(request), actor: "test", command }),
+      this.world.input({
+        kind: "command",
+        conn: connId(0),
+        request: requestId(request),
+        actor: "test",
+        command,
+      }),
     );
   }
 

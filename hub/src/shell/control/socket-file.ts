@@ -95,8 +95,8 @@ export function secureFolder(
     );
 }
 
-/** True when a hub answers on the socket at `path`. */
-function answers(path: string): ResultAsync<boolean, HubError> {
+/** True when a hub answers on the socket at `path` (also the Windows steps', `windows.ts`). */
+export function hubAnswers(path: string): ResultAsync<boolean, HubError> {
   return ResultAsync.fromSafePromise(
     new Promise<boolean>((resolve) => {
       const probe = connect(path);
@@ -136,7 +136,7 @@ export function prepareSocketPath(
   if (existing === undefined) return okAsync(undefined);
   if (!existing.isSocket())
     return errAsync(fsError("something that is not a socket is at the socket's path", { path }));
-  return answers(path).andThen((alive) =>
+  return hubAnswers(path).andThen((alive) =>
     alive ? errAsync(fsError("another hub is running on this socket", { path })) : safeUnlink(path),
   );
 }

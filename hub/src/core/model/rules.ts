@@ -5,7 +5,7 @@
  * to be set by a measurement. Durations are milliseconds unless the name says otherwise.
  */
 import { EVENT_LISTEN_MS } from "@hsn/protocol";
-import { APP_LISTS, LINKING, REQUEST_LIMITS } from "@hsn/protocol/app";
+import { APP_LISTS, LINKING, REQUEST_LIMITS, RETENTION_DAYS } from "@hsn/protocol/app";
 import type { CadenceMs } from "./effects.ts";
 
 const SECOND = 1000;
@@ -270,6 +270,8 @@ export interface HubRules {
     readonly installerCodeExpiryMs: number;
     /** The console's one-time token, from `hsn open`, after 2 minutes ‡. */
     readonly consoleTokenExpiryMs: number;
+    /** The console token of an installer's first opening, after 10 minutes ‡ (section 9). */
+    readonly installerConsoleTokenExpiryMs: number;
     /** A typed code is void after 5 failed tries ‡. */
     readonly typedMaxFailures: number;
     /** Link failures are a warning after 10 in an hour from one address ‡. */
@@ -321,6 +323,10 @@ export interface HubRules {
     readonly sameMinuteOrder: "id";
     /** Several missed occurrences of one entry in one gap give one decision ‡. */
     readonly missedOccurrencesTogether: true;
+    /** A wall-clock step forward of more than this is a step, not drift: its occurrences are missed as `clockStepped` ‡. */
+    readonly clockStepMs: number;
+    /** An entry's monotonic deadline is computed again when the wall clock moves by more than this ‡. */
+    readonly reanchorMs: number;
   };
   /** Device health (section 7, "Device health"; HB33, D109). */
   readonly health: {
@@ -510,6 +516,7 @@ export const DEFAULT_RULES: HubRules = {
     inviteExpiryMs: LINKING.inviteExpiryMs,
     installerCodeExpiryMs: LINKING.installerCodeExpiryMs,
     consoleTokenExpiryMs: LINKING.consoleTokenExpiryMs,
+    installerConsoleTokenExpiryMs: LINKING.installerConsoleTokenExpiryMs,
     typedMaxFailures: LINKING.typedMaxFailures,
     linkFailureWarningPerHour: LINKING.failureWarningPerHour,
     recentlyLinkedMs: 30 * DAY,
@@ -534,6 +541,8 @@ export const DEFAULT_RULES: HubRules = {
     repeatedTime: "first",
     sameMinuteOrder: "id",
     missedOccurrencesTogether: true,
+    clockStepMs: 60_000,
+    reanchorMs: 1_000,
   },
   health: { batteryLowPercent: 10, batteryOkPercent: 15, batteryCurve: BATTERY_CURVE_INTERIM },
   notify: {
@@ -544,8 +553,8 @@ export const DEFAULT_RULES: HubRules = {
   },
   history: {
     pageRows: APP_LISTS.maxHistoryRows,
-    routineDays: { min: 1, max: 90 },
-    eventDays: { min: 30, max: 730 },
+    routineDays: RETENTION_DAYS.routine,
+    eventDays: RETENTION_DAYS.event,
   },
   backups: {
     keep: 20,

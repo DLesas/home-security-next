@@ -21,6 +21,7 @@
  */
 import type { Database } from "bun:sqlite";
 import { err, ok, type Result } from "neverthrow";
+import type { AuditRecord } from "../../core/model/audit.ts";
 import type { CadenceMs } from "../../core/model/effects.ts";
 import type { CommitOutcome, TrimReport } from "../../core/model/events.ts";
 import { type BootId, type DeviceId, HUB_DEVICE } from "../../core/model/ids.ts";
@@ -199,6 +200,14 @@ export class SqliteWriter implements Writer {
   /** The wall time of the last commit, for `hsn status` (section 9); undefined before the first. */
   get lastCommitMs(): number | undefined {
     return this.#lastCommitMs;
+  }
+
+  /**
+   * The records staged and not yet committed, in staging order: what a history page merges with
+   * the committed rows (m2-design.md section 7, "Reads never force a commit").
+   */
+  stagedRecords(): readonly AuditRecord[] {
+    return this.#batch.items().flatMap((item) => (item.kind === "record" ? [item.record] : []));
   }
 
   stage(items: readonly StagedEffect[]): void {

@@ -3,7 +3,7 @@
  * waiting for their answer, each with what its record needs (AL8: who asked, and what).
  */
 import type { ControlCommandKind } from "../model/control.ts";
-import type { RequestId, Seq } from "../model/ids.ts";
+import type { DeviceId, RequestId, Seq } from "../model/ids.ts";
 import type { TimerOf } from "../model/timers.ts";
 
 /** A command sent on to the module that owns its change, until that module answers. */
@@ -20,6 +20,18 @@ export interface PendingCommand {
   readonly record: Seq;
   readonly atMs: number;
   readonly clockOk: boolean;
+  /**
+   * For `hsn disarm --all`, a switch to Disarmed: the alarm as it stood when the switch reached
+   * it, for M1a's answer (`m1-replies.ts`), which names what the disarm cancelled and ended.
+   */
+  readonly before?: AlarmBefore;
+}
+
+/** The alarm as a switch found it: armed sensors, counting sensors, whether the alarm ran. */
+export interface AlarmBefore {
+  readonly armed: readonly DeviceId[];
+  readonly counting: readonly DeviceId[];
+  readonly alarm: boolean;
 }
 
 export interface ControlSlice {

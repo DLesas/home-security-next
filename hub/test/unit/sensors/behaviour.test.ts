@@ -46,7 +46,8 @@ const door = (
   type: MessageType.DoorChanged,
   settingsVersion: 1,
   flags: flags({ doorOpen: open, replyWanted: true }),
-  batteryCode: 1,
+  // 120 reads as a healthy cell, as the heartbeats' does, so health has no change to record.
+  batteryCode: 120,
   temperatureCelsius: 1,
   doorChangeCount: count,
   eventAgeSeconds: 0,

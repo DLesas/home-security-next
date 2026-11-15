@@ -1,6 +1,7 @@
 /**
  * The alarm: its triggers and the sirens they sound (hub-design.md section 8, "Arming and the
- * countdown" and "What the siren should do"; D67, D74, D95, D114). Every write here is "now", and
+ * countdown" and "What the siren should do"; D67, D74, D95, D114; AL2a, the sirens of each
+ * trigger's groups, m2-design.md section 7). Every write here is "now", and
  * the alarm's rows are emitted before the `sirenIntent` that leads to a command, so the alarm is
  * committed before any siren command leaves (section 5).
  */
@@ -10,6 +11,7 @@ import type { DeviceId, Seq } from "../model/ids.ts";
 import type { Internal } from "../model/messages.ts";
 import { type AlarmTriggerKind, ArmState } from "../model/rows.ts";
 import { type Mono, mono } from "../model/time.ts";
+import { triggerSirens } from "../layout/view.ts";
 import { sirenIds, sirenMaxSoundS } from "../sirens/view.ts";
 import { setArm } from "./arm-state.ts";
 import { type Changing, decide, each, type Out, then, writeNow } from "./out.ts";
@@ -67,9 +69,12 @@ export function triggerRow(
 }
 
 /**
- * Adds a trigger, starting the alarm if none runs. Every siren not yet in the alarm sounds until
- * the base plus the automatic stop, never later than now plus its longest sound (section 8); a
- * siren already in it is not extended (D114), so thirty doors cost one command per siren.
+ * Adds a trigger, starting the alarm if none runs. The trigger's sirens are those of every group
+ * its sensor is in, every paired siren for a sensor in no group or in a group of every siren
+ * (AL2a, D41, D74; m2-design.md section 7): with no groups, every siren, as before. Each of them
+ * not yet in the alarm sounds until the base plus the automatic stop, never later than now plus
+ * its longest sound (section 8); a siren already in it is not extended (D95, D114), so thirty
+ * doors cost one command per siren.
  */
 export function addTrigger(slice: AlarmSlice, ctx: Context, trigger: NewTrigger): Changing {
   const now = ctx.now.mono;
@@ -91,7 +96,9 @@ export function addTrigger(slice: AlarmSlice, ctx: Context, trigger: NewTrigger)
       sirens: new Map(),
       quietEnd: stopAt,
     };
+    const chosen = triggerSirens(ctx.view, trigger.sensor);
     const added: [DeviceId, AlarmSiren][] = sirenIds(ctx.view)
+      .filter((siren) => chosen === "all" || chosen.includes(siren))
       .filter((siren) => !base.sirens.has(siren))
       .flatMap((siren): [DeviceId, AlarmSiren][] => {
         const cap = afterSeconds(now, sirenMaxSoundS(ctx.view, siren) ?? slice.autoStopS);
