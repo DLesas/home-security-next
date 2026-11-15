@@ -16,3 +16,5 @@ export * from "./noise-interface.ts";
 export * from "./backup-interface.ts";
 export * from "./vector-formats.ts";
 export * from "./csp.ts";
+export { matchesIdentity, startHandshake, x25519StaticKey } from "./noise.ts";
+export { backupCodec, backupOpener, backupSealer } from "./backup.ts";

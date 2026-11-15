@@ -7,13 +7,17 @@
   "exports": {
     ".": "./src/index.ts",
     "./app": "./src/app/index.ts",
-    "./records": "./src/records.ts"
+    "./records": "./src/records.ts",
+    "./messages": "./src/messages-entry.ts"
   },
   "scripts": {
     "test": "bun test",
     "vectors": "bun scripts/generate-vectors.ts"
   },
   "dependencies": {
+    "@noble/ciphers": "2.4.0",
+    "@noble/curves": "2.4.0",
+    "@noble/hashes": "2.4.0",
     "zod": "4.6.7"
   }
 }

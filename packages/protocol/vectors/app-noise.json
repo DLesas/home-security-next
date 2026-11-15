@@ -1,0 +1,354 @@
+{
+  "description": "Every handshake of the app channel (docs/m2-design.md sections 5 and 10) with fixed keys, as exact bytes: Noise_IK_25519_ChaChaPoly_SHA256 for sessions, Noise_XXpsk3_25519_ChaChaPoly_SHA256 for linking and restore. Run both sides from the keys and the prologue (the IK initiator is given the responder's static public key; the XXpsk3 initiator is given psk at the start, the responder by setPsk right after it reads message 1): writing each payload must give exactly `message`, reading `message` must give `payload`, both sides must end with `handshakeHash`, and after the split each `plaintext` must encrypt to exactly `message` and decrypt back, in the order listed (each direction has its own nonce). Payloads are the UTF-8 JSON of packages/protocol/src/app/handshake.ts and envelope.ts. A link or restore vector's psk and its LinkHello `find` are those of an entry of app-link-secrets.json (QR code, link address, restore) or app-typed-code.json (typed code).",
+  "vectors": [
+    {
+      "name": "session (IK), a browser, no first request; then one transport message of every kind",
+      "pattern": "Noise_IK_25519_ChaChaPoly_SHA256",
+      "purpose": "session",
+      "prologue": "68736e2d73657373696f6e2f31000ee70bfcc29ff9dab6b63f727a8305f9",
+      "initiator": {
+        "static": {
+          "private": "9bb987206e461e02bd48544738ff9c78ecb45dd3ae77715bf78eeb9b50784790",
+          "public": "d1d857caa34067f4abbffe080756f1daa319675c352678afb4ecf7e0c2165e17"
+        },
+        "ephemeral": {
+          "private": "fb1e181d53041f1da1152bceabe544675ab5bc6a538ad214286929c633c48341",
+          "public": "96274b64507541015d7ee0b115be4e6bcb2e5b24db15c8c900628ef7b135e579"
+        }
+      },
+      "responder": {
+        "static": {
+          "private": "bbef9eb9c71979a0c3d8e8d13a5fe514985c2c714dc786874b974ed400cdedc6",
+          "public": "17908f4a78c05a0fcbf4721b582d1a5dac27a4fdae1aaf04ed77226583da8e35"
+        },
+        "ephemeral": {
+          "private": "2b51728491eb1f7aaa609d459134a99536d0c00f30ea332f803a90d20b4ee18e",
+          "public": "c2a05d5067a77e08b9e8546224faa48ab945d0ab568019b405fa66be0b570f0c"
+        }
+      },
+      "messages": [
+        {
+          "from": "initiator",
+          "payload": "7b2270726f746f223a5b312c315d2c22617070223a22302e322e30227d",
+          "message": "96274b64507541015d7ee0b115be4e6bcb2e5b24db15c8c900628ef7b135e57969f1e68dc9258aa3c0555d2fb596ffc55c596806b827dedab2a4f54f098168543c41334de4388b7dbf25694d916fa8b25225059f7e3665daac400c1755d82386b73f7b873aca1c1c6e6c6fd63f5356c748a97c35b7a99e5a25e03f5444"
+        },
+        {
+          "from": "responder",
+          "payload": "7b2270726f746f223a312c22687562223a22302e322e30222c22626f6f74223a332c22726576223a34312c22636c69656e74223a7b226964223a372c22706572736f6e223a322c226b696e64223a22776562227d2c226665617475726573223a5b5d7d",
+          "message": "c2a05d5067a77e08b9e8546224faa48ab945d0ab568019b405fa66be0b570f0c334f21fe2aff315e77b54b57ed92f4699ab950617ba2129c50d51a066a1265dc1b179c24a278f40bf35f3357d20a48d2400b8f5d833fa59527ba60b692824722e08e5acf8743b9012e9ac8a88282f7b4f4cad47027ab3f9684d5af91eeb8304b78f20edfa317cb4383e49032e1f3bc1bcbfaeb"
+        }
+      ],
+      "handshakeHash": "174ed9c49694521c29992a9293589766283cf819ece8a73e34d7a7675de6a665",
+      "transport": [
+        {
+          "from": "initiator",
+          "plaintext": "7b2274223a22726571222c226964223a312c226f70223a22706f6e67222c22626f6479223a7b7d7d",
+          "message": "b3b7c5a169c07242e0995c808c93cac8acb078e2552534476b00189aac4b5fe5eb84b434ad938b472420e4a392c5eae9ee90d15ef87b5338"
+        },
+        {
+          "from": "responder",
+          "plaintext": "7b2274223a22726573222c226964223a312c226f6b223a747275652c22626f6479223a7b7d7d",
+          "message": "e1eed89f40031617a5012fe99bc1d35d6da6fe2fd1f767d54f01d0f257197010dd5635d27c6a4038a6fcb8098a828d4fdb1e6bae932c"
+        },
+        {
+          "from": "initiator",
+          "plaintext": "7b2274223a22726571222c226964223a322c22736571223a34312c226f70223a226d6f64652e737769746368222c22626f6479223a7b226d6f6465223a317d7d",
+          "message": "c284f700834f9aa151f770311a5e989210fdeee1ade68e9405abc25739e3df2d90a90d2c74b38c865f7522f5d8850b869dde161108feb6648de3f77f2a59479282dca4e3c09cb0c15d3e9af73b9841a7"
+        },
+        {
+          "from": "responder",
+          "plaintext": "7b2274223a22726573222c226964223a322c226f6b223a66616c73652c226572726f72223a7b22636f6465223a22736571546f6f4c6f77222c2264657461696c223a7b226c617374223a34317d7d7d",
+          "message": "635e36cee6382541ad9d76298d42203174e8e735036fd1f7d5d3b5793cc182c842300e69f54fe76a405e7b8d0d031244524cbaef399e3746d6fef20667eacae5cba6ec3f6efaae4d6d9b1f881c1acc313a2dddd7b893a6c614cb525e975b62"
+        },
+        {
+          "from": "initiator",
+          "plaintext": "7b2274223a22726571222c226964223a332c22736571223a34322c226f70223a226d6f64652e737769746368222c22626f6479223a7b226d6f6465223a317d7d",
+          "message": "f8a3048e256ae3da586f87408bd6864179c492f6f9204f53c1a6a34141b6040e5a32aac0016912de51b5a8ebce8bc4955872e8d91858e78db446d37e1cc4e8433faf57df7fdb0d6a33caa1a31253581a"
+        },
+        {
+          "from": "responder",
+          "plaintext": "7b2274223a22726573222c226964223a332c226f6b223a747275652c22626f6479223a7b2261726d6564223a5b342c355d2c2264697361726d6564223a5b5d2c2277616974696e67223a5b365d7d2c22726570656174223a747275657d",
+          "message": "3e35e4274ed32b1a9d49866c1215e29007f811967fc24d239104f0f7207967ff504f3c9faf0d88d473cf3dfc0720666d0f4af78c7cffbee1c3e6d24e8cc41952eece37ca0e91b211218859e57a5adbeb43992cc6061d5223789b2db297158cde97cc2caf47d55baacad130bbb3"
+        },
+        {
+          "from": "responder",
+          "plaintext": "7b2274223a22657674222c22726576223a34322c226576223a2270696e67222c22626f6479223a7b7d7d",
+          "message": "0eae525e6ee46d801a7d706b5e53ca60a788f4f23833c389e61c7dbd7c75f13f5bda5b064b2273637c103c1c5b0b6d06dd480de4968217aebb9a"
+        }
+      ]
+    },
+    {
+      "name": "session (IK), a phone, with a first request (the lock-screen Disarm)",
+      "pattern": "Noise_IK_25519_ChaChaPoly_SHA256",
+      "purpose": "session",
+      "prologue": "68736e2d73657373696f6e2f31000ee70bfcc29ff9dab6b63f727a8305f9",
+      "initiator": {
+        "static": {
+          "private": "4d27ebd02b8a122a5bf7077d85f8c9e6805a2c52bfa0f0312a81382435878597",
+          "public": "efce7f4151547a341c1e9985e3ceced3e539815996e3468884e072878c054541"
+        },
+        "ephemeral": {
+          "private": "c68ddc6409275e2c3c0d79deaf61b8f7ac16b3a2099f5cc44b1247c487c1093f",
+          "public": "3bd7243a245c755775926af1cb0ad49dbf8296a3e9eb1a019b0cfd75d58bff1e"
+        }
+      },
+      "responder": {
+        "static": {
+          "private": "bbef9eb9c71979a0c3d8e8d13a5fe514985c2c714dc786874b974ed400cdedc6",
+          "public": "17908f4a78c05a0fcbf4721b582d1a5dac27a4fdae1aaf04ed77226583da8e35"
+        },
+        "ephemeral": {
+          "private": "e3d57a91045040bedd1f95b5387b9735133d4fe29bf0e3349b8564f966189fce",
+          "public": "dd06956296d8ba68f44d9f334cd8d01eb07ab3dd2061e7dc99a9b7525f74083a"
+        }
+      },
+      "messages": [
+        {
+          "from": "initiator",
+          "payload": "7b2270726f746f223a5b312c315d2c22617070223a22302e322e30222c226669727374223a7b2274223a22726571222c226964223a312c22736571223a392c226f70223a2264697361726d222c22626f6479223a7b22746172676574223a226d696e65227d7d7d",
+          "message": "3bd7243a245c755775926af1cb0ad49dbf8296a3e9eb1a019b0cfd75d58bff1ec5c4a5be2e7fbb149b5654ac58a36d8665e3f13a71b145b6c99d89ae75d69a7cae6c2d42075a1ca2ce6a483387485d3b0b1819c022201c3b8f35f6895ef86a9ffd63d7b8dbbc3fb3ec41d6af7bc9a94fab78b579b57057679c7ae04878e2327d0e2830d7d0235d53fef6195b0c247c40df14185740eb19246aaf34643b568347965f9cc30ae70d6e8786a5eb6c977fb7dbf0c5f34d1b384a5d1371b4ed48287b7fc889946e2218"
+        },
+        {
+          "from": "responder",
+          "payload": "7b2270726f746f223a312c22687562223a22302e322e30222c22626f6f74223a332c22726576223a34312c22636c69656e74223a7b226964223a382c22706572736f6e223a322c226b696e64223a2270686f6e65227d2c226665617475726573223a5b5d7d",
+          "message": "dd06956296d8ba68f44d9f334cd8d01eb07ab3dd2061e7dc99a9b7525f74083a3a3f36d8da9011382c74b04c41d1154ff3ff977bb0fe0040491f7f74e74f1e2f0d6ddbe3c9cf85a418df80e9712fecf02ad1e1090b63a50a15862c85c5b28b1d190ad8e17d1934f27059d4bab81915f4e8a0954505ea181403889913fa6f037e60a6a014d598d113153f7cbfeb088af15fc9376921"
+        }
+      ],
+      "handshakeHash": "ff723ce10c5ce12ee81691bf9216b4cba88f99b3f28ccc17054e7831a8df394e",
+      "transport": [
+        {
+          "from": "responder",
+          "plaintext": "7b2274223a22726573222c226964223a312c226f6b223a747275652c22626f6479223a7b2264697361726d6564223a5b342c352c365d2c22616c61726d456e646564223a747275657d7d",
+          "message": "cd8923ad645adc23990e26a175deff136dbd929c9a7fb252be7f86739f759f899ea5b004c82f276c7d13a121a996cbfa04a47e9b27775b128b694d206d4d31c9c3f237fad18de05c1dfcfdb56f50d8d493957d36338cbba91208"
+        },
+        {
+          "from": "initiator",
+          "plaintext": "7b2274223a22726571222c226964223a322c226f70223a22706f6e67222c22626f6479223a7b7d7d",
+          "message": "487b1be23828989b88956f5cefe7aa05081fc049929743176c7a3be9e14c5b51a829ab50be9c791f06b05a99482718649ba8629adbe25456"
+        }
+      ]
+    },
+    {
+      "name": "link (XXpsk3) from a QR code: a phone for a new person, given the backup key",
+      "pattern": "Noise_XXpsk3_25519_ChaChaPoly_SHA256",
+      "purpose": "link",
+      "carrier": "qr",
+      "prologue": "68736e2d6c696e6b2f3100",
+      "psk": "1eb48b339da583688bae0eba7510efd6588e61fc69843e594066f9b5ef9aeb65",
+      "initiator": {
+        "static": {
+          "private": "4d27ebd02b8a122a5bf7077d85f8c9e6805a2c52bfa0f0312a81382435878597",
+          "public": "efce7f4151547a341c1e9985e3ceced3e539815996e3468884e072878c054541"
+        },
+        "ephemeral": {
+          "private": "70e760482949f49f620ef6c8ff0ceb8b821900c037fd2b78c2b4b21691dd86cc",
+          "public": "88279ff02866e3f2aa9c96f12f33e35ddfc86505852dc8a63f28051e7c51d133"
+        }
+      },
+      "responder": {
+        "static": {
+          "private": "bbef9eb9c71979a0c3d8e8d13a5fe514985c2c714dc786874b974ed400cdedc6",
+          "public": "17908f4a78c05a0fcbf4721b582d1a5dac27a4fdae1aaf04ed77226583da8e35"
+        },
+        "ephemeral": {
+          "private": "a62966291204070992e33da9e148ff363166fe74ebe30305965402f8d5dc7502",
+          "public": "087382b40622fd76358ec6939f5b4eae487213bd6aeaf410acfd8109e58b0638"
+        }
+      },
+      "messages": [
+        {
+          "from": "initiator",
+          "payload": "7b2270726f746f223a5b312c315d2c2266696e64223a226635636562303238227d",
+          "message": "88279ff02866e3f2aa9c96f12f33e35ddfc86505852dc8a63f28051e7c51d133c3f192d40a55c9baef6d92506b85c0c4274be8448dc9b1aaa22ac288a6ede948ee7d41495f16964017259ea305f68d91c0"
+        },
+        {
+          "from": "responder",
+          "payload": "7b22687562223a22302e322e30222c2270726f746f223a312c2261736b4e616d65223a66616c73657d",
+          "message": "087382b40622fd76358ec6939f5b4eae487213bd6aeaf410acfd8109e58b063881ec94a6a68f9d8231376d17ab94b8cee562d80521ac39d1df07fd019173b9eb60c497e03c6e509f32a76b247d56fdd0c0f8ef20de443dc544faac05e5e3df3afd6acf2ca37e4070ece4af28760ec016e24527f3d74a1d6161e2ef5da9d12fd35a66ac2b212e102418"
+        },
+        {
+          "from": "initiator",
+          "payload": "7b226e616d65223a22416e6e61e28099732070686f6e65222c226b696e64223a2270686f6e65222c22706572736f6e223a7b226e616d65223a22416e6e61227d7d",
+          "message": "5df1b5b98e49ebea9f448ad2bf2b893e5eee529566e0b43ee8e837ac791bf1d169b1eb847e40e4de50db365a6282c156042325b48684230936d0bf9a235061b3b71efa8196b75ec8d86ab02e3d54d0a157d4450b8790d8eaa29f549ab2e07ca1d229a27785bd882b9c520c7edd5e7cedba1cacb1c7e226d42857d51bccd85eff16"
+        }
+      ],
+      "handshakeHash": "8b783e848dc096a756a6a14d4b2efaf63ecdafe3406848d21e26a1876d5d955a",
+      "transport": [
+        {
+          "from": "responder",
+          "plaintext": "7b22636c69656e74223a382c22706572736f6e223a322c226261636b75704b6579223a7b226b6579223a227434336c2d714d706b6970376c465530592d566d3034477368307562556d384a716344534659456a386930222c2265706f6368223a337d7d",
+          "message": "bd031c49b23e183bf4c67df127b5d51ef6623416ad20e14962a8f091bd35f62ee5abefec4e5cc63021fab239d54d38bb576a53ded09ef8cb57254ce0041b35c6f31bdac0dfa11845eaa63fdf81c7b28e0b9507482c150fdf357cf65fb514067ea401e8bf039481e467824bfacc8a77cb9bb4c7"
+        }
+      ]
+    },
+    {
+      "name": "link (XXpsk3) from a link address: another browser of an existing person",
+      "pattern": "Noise_XXpsk3_25519_ChaChaPoly_SHA256",
+      "purpose": "link",
+      "carrier": "linkAddress",
+      "prologue": "68736e2d6c696e6b2f3100",
+      "psk": "3c87835783fa8a7daa2638c654793eb9db1729b36c2b9166bf06b2b598bb572e",
+      "initiator": {
+        "static": {
+          "private": "9bb987206e461e02bd48544738ff9c78ecb45dd3ae77715bf78eeb9b50784790",
+          "public": "d1d857caa34067f4abbffe080756f1daa319675c352678afb4ecf7e0c2165e17"
+        },
+        "ephemeral": {
+          "private": "6572a10180f58004e286859fde0cdf195e641b86a3e69888998d54dc5f167385",
+          "public": "17f026bed1ec52a987182f70a0aed730e8ba8bea6ed3bd90d6539d53778d231a"
+        }
+      },
+      "responder": {
+        "static": {
+          "private": "bbef9eb9c71979a0c3d8e8d13a5fe514985c2c714dc786874b974ed400cdedc6",
+          "public": "17908f4a78c05a0fcbf4721b582d1a5dac27a4fdae1aaf04ed77226583da8e35"
+        },
+        "ephemeral": {
+          "private": "a877dd5ce448f91cbe45bd0acf1fe5860376f95307955c104f099de48a9c94dc",
+          "public": "4b01db1f979d4d7bcbe2f544007de823d198061bc84200501422d7a30fbc8f04"
+        }
+      },
+      "messages": [
+        {
+          "from": "initiator",
+          "payload": "7b2270726f746f223a5b312c315d2c2266696e64223a223435656334366166227d",
+          "message": "17f026bed1ec52a987182f70a0aed730e8ba8bea6ed3bd90d6539d53778d231a6d26472275c86d1cb0cb9db7d0ea6d445a326bb7951d34dcc39dbfcd052bc32507242a6eee90b58d3721f67e4a35840fe1"
+        },
+        {
+          "from": "responder",
+          "payload": "7b22687562223a22302e322e30222c2270726f746f223a312c2261736b4e616d65223a66616c73657d",
+          "message": "4b01db1f979d4d7bcbe2f544007de823d198061bc84200501422d7a30fbc8f04a9c424b69e96ccdb585ceaf9a3d15c0f7a1dff69d4fb6c90f3c4646c79312838d100754f31bd4787a0933fc0d9a4fc1c9b94097878569b0c0d7c8d115e09c9ef2d809e7d6c0efed4ac27a6d38bfec8df27c184f844948ba271908453f8f6d01721b6abd7cf426704fe"
+        },
+        {
+          "from": "initiator",
+          "payload": "7b226e616d65223a224b69746368656e206c6170746f70222c226b696e64223a22776562227d",
+          "message": "09279e56596c88049b571fffc964aebcc5bfdbdcd066be41f1a05bff9fd372aa2b79da476bbfd3c8f0bcbfd006c988403dee0ceebce939c34562275d373bb41bc66e83d9dfdb8201656e7d4c433571eba0961b1766979697c108858c3f83231421476d073cdf"
+        }
+      ],
+      "handshakeHash": "d68b6f7634f7fef9ff3c8b1760ef096ca105b085d72d0a36daee32db663dd515",
+      "transport": [
+        {
+          "from": "responder",
+          "plaintext": "7b22636c69656e74223a372c22706572736f6e223a327d",
+          "message": "90b4d9feef97c221677e4239b122a54f8d7a76ed9f3ab24dbb6fc9fd4c9136354a03b7f15e91d3"
+        }
+      ]
+    },
+    {
+      "name": "link (XXpsk3) from a typed code: a browser for a new person; the lookup is the token id",
+      "pattern": "Noise_XXpsk3_25519_ChaChaPoly_SHA256",
+      "purpose": "link",
+      "carrier": "typedCode",
+      "prologue": "68736e2d6c696e6b2f3100",
+      "psk": "255b00b22865943fd8f1745f985885bb22a8802bcbc97f9e3a21499b09442ba1",
+      "initiator": {
+        "static": {
+          "private": "9bb987206e461e02bd48544738ff9c78ecb45dd3ae77715bf78eeb9b50784790",
+          "public": "d1d857caa34067f4abbffe080756f1daa319675c352678afb4ecf7e0c2165e17"
+        },
+        "ephemeral": {
+          "private": "f6e96f57c90d2200a3d67ffd4f5bfd27c614d27de6dededefcb0172d4690e164",
+          "public": "7f15c694b29cc1cb009c7ccab059c48bc6a51c0a3fa53af040dcd866582b163d"
+        }
+      },
+      "responder": {
+        "static": {
+          "private": "bbef9eb9c71979a0c3d8e8d13a5fe514985c2c714dc786874b974ed400cdedc6",
+          "public": "17908f4a78c05a0fcbf4721b582d1a5dac27a4fdae1aaf04ed77226583da8e35"
+        },
+        "ephemeral": {
+          "private": "0acbff1d99c97eb38ecaf88f00d36b90ff7948c233667ab76e28d693019243f3",
+          "public": "5da5b7b632b27c6b1bcd70d036bfc1dab359d1078b64af9684acd9f8bfb11c19"
+        }
+      },
+      "messages": [
+        {
+          "from": "initiator",
+          "payload": "7b2270726f746f223a5b312c315d2c2266696e64223a2239385931227d",
+          "message": "7f15c694b29cc1cb009c7ccab059c48bc6a51c0a3fa53af040dcd866582b163ddf4d3c39ba87ad492da6fccd66e799824ccd779260d21857976fa308fc5b958d14830188b726629b90d73bee15"
+        },
+        {
+          "from": "responder",
+          "payload": "7b22687562223a22302e322e30222c2270726f746f223a312c2261736b4e616d65223a66616c73657d",
+          "message": "5da5b7b632b27c6b1bcd70d036bfc1dab359d1078b64af9684acd9f8bfb11c19d3353143ccf006f5457d6864098fb0567c581003cccfba4f83f3c50eef392a50880a9aed30a526b22b1c17198ff95db8ead9e2d941984e4dde88bc5b530049aaa65c7db61f134c563a3898e6e2912b44262bb6d3ea55797a77de835d8757cd9d8a821ba0ee19ebc2a4"
+        },
+        {
+          "from": "initiator",
+          "payload": "7b226e616d65223a2242656ee2809973206c6170746f70222c226b696e64223a22776562222c22706572736f6e223a7b226e616d65223a2242656e227d7d",
+          "message": "c52b8376c32670093d543242a75ca514b0a86ae97e1da3c3691a9294deff8f9f1a77b423f4f220291426dd17086c52a646b598c117fcc2866ed996deb0fde5440edffbca21edd87ed052107428d40c7ca11566bd427cf3b9b458e2b19831f0a49789550fc145f85def54248c7d6a6fc05ad03261f141f098be815d90e63d"
+        }
+      ],
+      "handshakeHash": "f7fa4f41b407b3b7193a6885318fa6057e8782d0141b5f09f88e5da4d2ccb9bd",
+      "transport": [
+        {
+          "from": "responder",
+          "plaintext": "7b22636c69656e74223a392c22706572736f6e223a337d",
+          "message": "4e262a7927e377bc40d57356ed067d354b63270b8a941fa63786198650434c846a0c3b36811bcc"
+        }
+      ]
+    },
+    {
+      "name": "restore (XXpsk3): the hub proves the pre-shared key (message 4) before the phone sends the backup key (message 5)",
+      "pattern": "Noise_XXpsk3_25519_ChaChaPoly_SHA256",
+      "purpose": "restore",
+      "carrier": "qr",
+      "prologue": "68736e2d726573746f72652f3100",
+      "psk": "7285839db737a2f0db8a05c4dbab6817b5c881ff4199ff8145c828f025b0fa60",
+      "initiator": {
+        "static": {
+          "private": "4d27ebd02b8a122a5bf7077d85f8c9e6805a2c52bfa0f0312a81382435878597",
+          "public": "efce7f4151547a341c1e9985e3ceced3e539815996e3468884e072878c054541"
+        },
+        "ephemeral": {
+          "private": "dd6294df269c1a0058fb8a8b7ad2b35d0071a8771722f2aa72acfa10e1165dc5",
+          "public": "d1ba35c6ee680339f6a87c1bf547c1dd07a2415befbb1f27edb7564285e08c17"
+        }
+      },
+      "responder": {
+        "static": {
+          "private": "bbef9eb9c71979a0c3d8e8d13a5fe514985c2c714dc786874b974ed400cdedc6",
+          "public": "17908f4a78c05a0fcbf4721b582d1a5dac27a4fdae1aaf04ed77226583da8e35"
+        },
+        "ephemeral": {
+          "private": "f1f04b478b9895036205e96861175db01b9dee38f0c8b0f7ab9ce7e3e22dff81",
+          "public": "8f2d8f8ea10ff8d45a84c948e981736c7a23f38cc288e83ea87738698aeeb14f"
+        }
+      },
+      "messages": [
+        {
+          "from": "initiator",
+          "payload": "7b2270726f746f223a5b312c315d2c2266696e64223a223161666361626433227d",
+          "message": "d1ba35c6ee680339f6a87c1bf547c1dd07a2415befbb1f27edb7564285e08c17944f025f2198e7793fc97bf08eab2dae265089817d399361656cdb547931b6b42ebbe04181c9c4ab93eb84171fe92b7486"
+        },
+        {
+          "from": "responder",
+          "payload": "7b22687562223a22302e322e30222c2270726f746f223a312c2261736b4e616d65223a66616c73657d",
+          "message": "8f2d8f8ea10ff8d45a84c948e981736c7a23f38cc288e83ea87738698aeeb14fb31a662e1fada8b38235878ffbb3a9116f13e9d5abfa0c809bdbe22bd972204e9e95ae6c2d869f8f10d2f65321299d08aa5d82cc8b4b75f4642d9821e2b36ca52a2a67552bcaa3168800826993c053ed86b1dc2295c0b2a0b460e94c9530fc29aa61f548467b429889"
+        },
+        {
+          "from": "initiator",
+          "payload": "7b22617070223a22302e322e30227d",
+          "message": "fd987422517445aa5df9a9378da3ac383c7941e7d51c303b5cfc8699cec4f6935d424d31e3a9b747e4a6e773052f332b4573b68be5e1337b14f668e81dfa65f5f4e21cab7844854651eb0017661079"
+        }
+      ],
+      "handshakeHash": "27bd3e20b07c108f3270f7810fe2abbb2aa01c0dbd2f23177db5e1480b2cbf03",
+      "transport": [
+        {
+          "from": "responder",
+          "plaintext": "7b226964656e74697479223a226d6d77797174376576786f6877356a6a786c6a69766b75673779222c2265706f6368223a332c226d6164654d73223a313739343039363030303030302c226c6173744368616e67654d73223a313739343030393630303030307d",
+          "message": "64d6fe7739c261cadd7f6e2978aae44dc0958fae7894bcc8afafef29b3d2b70682b42d1496062870671bd207db51b544d759b2b1c91656853053319a3645a22ce685b837c90f895ec17b8fde518a31338632e234fe0ed14199d5a3b48b2b70d4e16a30aa58a3054ed40ad7efec9898ea62735918d4edb6"
+        },
+        {
+          "from": "initiator",
+          "plaintext": "7b226b6579223a227434336c2d714d706b6970376c465530592d566d3034477368307562556d384a716344534659456a386930222c2265706f6368223a337d",
+          "message": "0b54a9f9fb1f006639297226318ebefb8d39c2a446526f50f8ebd880c4413591a5688d931efe30adb082d240080ad9cfaf30d901e4d007e1400cc7b0f87cdec5726067f17a326daacb2e516bc8e048"
+        },
+        {
+          "from": "responder",
+          "plaintext": "7b226f6b223a747275657d",
+          "message": "12139d18812823fcc1131a14b1cfebbac33998ec7f17432be4008d"
+        }
+      ]
+    }
+  ]
+}

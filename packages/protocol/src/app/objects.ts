@@ -4,7 +4,7 @@
  * Their fields follow sections 4, 6 and 7.
  */
 import { z } from "zod";
-import { recordJson } from "../records.ts";
+import { auditRecordJson } from "../records.ts";
 import {
   clientKind,
   clientRef,
@@ -86,7 +86,8 @@ export const scheduleObject = z
     missed: z
       .strictObject({
         dueMs: wallMs,
-        why: z.enum(["hubOff", "clockNotSet"]),
+        /** The hub was off, its clock not set, or the clock stepped forward over it. */
+        why: z.enum(["hubOff", "clockNotSet", "clockStepped"]),
         count: z.int().min(1),
       })
       .readonly()
@@ -207,7 +208,8 @@ export const alarmStatus = z
 /** The site's settings an app may see (section 6, `site.show`): never the Wi-Fi password. */
 export const siteObject = z
   .strictObject({
-    channel: siteChannelValue,
+    /** Null until the first survey: the app shows "not chosen yet". */
+    channel: siteChannelValue.nullable(),
     rate: dataRateValue,
     countdownS: z.int().min(0).max(255),
     autoStopS: z.int().min(1),
@@ -264,6 +266,8 @@ export const NOTIFICATION_CATEGORIES = [
   "newClient",
   "backup",
   "hub",
+  /** A door or cover the hub did not expect, and schedules waiting for the clock (section 7). */
+  "stateUnexpected",
 ] as const;
 export const notificationCategory = z.enum(NOTIFICATION_CATEGORIES);
 
@@ -284,6 +288,47 @@ export const notificationObject = z
     /** Raised more than 60 s ‡ before it was delivered (D102's rule). */
     delayed: z.boolean(),
   })
+  .readonly();
+
+/** A client's optional categories, those on, and their revision (`notifications.prefs`). */
+export const notificationPrefsObject = z
+  .strictObject({ categories: z.array(optionalCategory).readonly(), revision })
+  .readonly();
+
+// ----- A device's settings (section 6, `device.show`): each `*.settings` body's fields, made
+// required, without the device, plus the settings `version` they make. -----
+
+const settingsVersionValue = z.int().min(1).max(255);
+const gatewayPower = z.int().min(-9).max(22);
+const gatewayByte = z.int().min(1).max(255);
+
+/** A sensor's settings fields (`sensor.settings`, as `hsn sensor set`). */
+export const SENSOR_SETTINGS_FIELDS = {
+  countdown: z.int().min(0).max(255),
+  heartbeat: z.int().min(1).max(255),
+  linkCheck: z.int().min(1).max(255),
+  replyRate: z.union([dataRateValue, z.literal("learn")]),
+  correction: z.union([z.int().min(-32_768).max(32_767), z.literal("learn")]),
+};
+/** A siren's settings fields (`siren.settings`). */
+export const SIREN_SETTINGS_FIELDS = { max: z.int().min(1).max(0xffff) };
+/** A gateway's settings fields (`gateway.settings`). */
+export const GATEWAY_SETTINGS_FIELDS = {
+  statusS: gatewayByte,
+  interferenceDb: gatewayByte,
+  interferenceS: gatewayByte,
+  powerDbm: gatewayPower,
+  sirenPowerDbm: gatewayPower,
+};
+
+export const sensorSettingsObject = z
+  .strictObject({ ...SENSOR_SETTINGS_FIELDS, version: settingsVersionValue })
+  .readonly();
+export const sirenSettingsObject = z
+  .strictObject({ ...SIREN_SETTINGS_FIELDS, version: settingsVersionValue })
+  .readonly();
+export const gatewaySettingsObject = z
+  .strictObject({ ...GATEWAY_SETTINGS_FIELDS, version: settingsVersionValue })
   .readonly();
 
 /** The current mode (D90), and whether arming changed since the last switch. */
@@ -318,6 +363,17 @@ export const snapshotObject = z
     alarm: alarmStatus.nullable(),
     siteMove: siteMoveStatus.nullable(),
     notifications: z.array(notificationObject).readonly(),
+    /**
+     * Configuration (section 5, "Configuration in the snapshot"): every mode; every group, with
+     * only the sensors the person may view in its `sensors` (its sirens in full); every schedule
+     * entry but those whose target is a sensor the person may not view, or a group none of whose
+     * sensors they may view. Kept current by `config` and `arming` events, filtered the same way.
+     */
+    modes: z.array(modeObject).readonly(),
+    groups: z.array(groupObject).readonly(),
+    schedules: z.array(scheduleObject).readonly(),
+    /** This client's categories, kept current by the `notifications.prefs` reply (section 6). */
+    notificationPrefs: notificationPrefsObject,
   })
   .readonly();
 
@@ -334,7 +390,7 @@ export const TOPICS = [
 ] as const;
 export const topic = z.enum(TOPICS);
 
-/** The kinds of record history holds: `recordJson`'s. */
+/** The kinds of record history holds: `auditRecordJson`'s. */
 export const historyKind = z.enum([
   "rx",
   "tx",
@@ -349,10 +405,10 @@ export const historyKind = z.enum([
 
 /**
  * One row of history (section 6, `history.query`): `row` as `hsn log --json` writes it, the
- * schema `recordJson` of `@hsn/protocol/records`, of the same kind.
+ * schema `auditRecordJson` of `@hsn/protocol/records`, of the same kind.
  */
 export const historyRow = z
-  .strictObject({ kind: historyKind, row: recordJson })
+  .strictObject({ kind: historyKind, row: auditRecordJson })
   .refine((r) => r.row.kind === r.kind, "the row is of its kind")
   .readonly();
 
@@ -374,3 +430,7 @@ export type LocalTimeText = z.infer<typeof localTimeText>;
 export type ScheduleDays = z.infer<typeof scheduleDays>;
 export type SirenChoice = z.infer<typeof sirenChoice>;
 export type HubInfo = z.infer<typeof hubInfo>;
+export type NotificationPrefsObject = z.infer<typeof notificationPrefsObject>;
+export type SensorSettingsObject = z.infer<typeof sensorSettingsObject>;
+export type SirenSettingsObject = z.infer<typeof sirenSettingsObject>;
+export type GatewaySettingsObject = z.infer<typeof gatewaySettingsObject>;

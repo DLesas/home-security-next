@@ -1,0 +1,234 @@
+{
+  "description": "Typed linking codes (docs/m2-design.md section 5): 12 characters of Crockford base32 shown as XXXX-XXXX-XXXX, the 20-bit token id (4 characters), the 35-bit secret (7 characters) and a check character (the 55-bit value mod 37, Crockford's symbols, 32 to 36 being * ~ $ = U). `secret` is the 35 bits as 5 bytes big-endian, `lookup` the token id's 4 characters (LinkHello's `find`), `psk` SHA-256 of the ASCII bytes hsn-link/1, a zero byte, and the 5 bytes. Each of `typed` is what a person might type: `valid` ones (case, spaces and dashes, I and L for 1, O for 0 forgiven) must read back to this token id and secret; the others must be refused, never read as another code.",
+  "vectors": [
+    {
+      "code": "98Y1-MDJR-FAEP",
+      "tokenId": 304065,
+      "secret": "051b2c3d4e",
+      "lookup": "98Y1",
+      "psk": "255b00b22865943fd8f1745f985885bb22a8802bcbc97f9e3a21499b09442ba1",
+      "typed": [
+        {
+          "text": "98Y1-MDJR-FAEP",
+          "valid": true
+        },
+        {
+          "text": "98y1-mdjr-faep",
+          "valid": true
+        },
+        {
+          "text": "98Y1MDJRFAEP",
+          "valid": true
+        },
+        {
+          "text": " 98Y1 MDJR FAEP ",
+          "valid": true
+        },
+        {
+          "text": "98Yl-MDJR-FAEP",
+          "valid": true
+        },
+        {
+          "text": "78Y1MDJRFAEP",
+          "valid": false
+        },
+        {
+          "text": "89Y1MDJRFAEP",
+          "valid": false
+        },
+        {
+          "text": "98Y1MDJRFAE",
+          "valid": false
+        },
+        {
+          "text": "98Y1MDJRFAEP0",
+          "valid": false
+        },
+        {
+          "text": "U8Y1MDJRFAEP",
+          "valid": false
+        }
+      ]
+    },
+    {
+      "code": "0000-0000-0000",
+      "tokenId": 0,
+      "secret": "0000000000",
+      "lookup": "0000",
+      "psk": "14d168d404f2267dd1adfe7303c10bf9e94a165eb282e1572f4b1855cc1e2180",
+      "typed": [
+        {
+          "text": "0000-0000-0000",
+          "valid": true
+        },
+        {
+          "text": "0000-0000-0000",
+          "valid": true
+        },
+        {
+          "text": "000000000000",
+          "valid": true
+        },
+        {
+          "text": " 0000 0000 0000 ",
+          "valid": true
+        },
+        {
+          "text": "OOOO-OOOO-OOOO",
+          "valid": true
+        },
+        {
+          "text": "700000000000",
+          "valid": false
+        },
+        {
+          "text": "00000000000",
+          "valid": false
+        },
+        {
+          "text": "0000000000000",
+          "valid": false
+        },
+        {
+          "text": "U00000000000",
+          "valid": false
+        }
+      ]
+    },
+    {
+      "code": "ZZZZ-ZZZZ-ZZZ$",
+      "tokenId": 1048575,
+      "secret": "07ffffffff",
+      "lookup": "ZZZZ",
+      "psk": "d4873f54c10c74bf0fb5bccc2532c0ae47df65562caf5b5d3a0f4f1f81324dc0",
+      "typed": [
+        {
+          "text": "ZZZZ-ZZZZ-ZZZ$",
+          "valid": true
+        },
+        {
+          "text": "zzzz-zzzz-zzz$",
+          "valid": true
+        },
+        {
+          "text": "ZZZZZZZZZZZ$",
+          "valid": true
+        },
+        {
+          "text": " ZZZZ ZZZZ ZZZ$ ",
+          "valid": true
+        },
+        {
+          "text": "7ZZZZZZZZZZ$",
+          "valid": false
+        },
+        {
+          "text": "ZZZZZZZZZZZ",
+          "valid": false
+        },
+        {
+          "text": "ZZZZZZZZZZZ$0",
+          "valid": false
+        },
+        {
+          "text": "UZZZZZZZZZZ$",
+          "valid": false
+        }
+      ]
+    },
+    {
+      "code": "040G-40G2-0818",
+      "tokenId": 4112,
+      "secret": "0101010101",
+      "lookup": "040G",
+      "psk": "f7b27abe9bba1d5d7b3c273891720cf3b90b802dbc334db22502fe6665497275",
+      "typed": [
+        {
+          "text": "040G-40G2-0818",
+          "valid": true
+        },
+        {
+          "text": "040g-40g2-0818",
+          "valid": true
+        },
+        {
+          "text": "040G40G20818",
+          "valid": true
+        },
+        {
+          "text": " 040G 40G2 0818 ",
+          "valid": true
+        },
+        {
+          "text": "O4OG-4OG2-O8l8",
+          "valid": true
+        },
+        {
+          "text": "740G40G20818",
+          "valid": false
+        },
+        {
+          "text": "400G40G20818",
+          "valid": false
+        },
+        {
+          "text": "040G40G2081",
+          "valid": false
+        },
+        {
+          "text": "040G40G208180",
+          "valid": false
+        },
+        {
+          "text": "U40G40G20818",
+          "valid": false
+        }
+      ]
+    },
+    {
+      "code": "NF6Y-4HMA-SWV*",
+      "tokenId": 703710,
+      "secret": "012345679b",
+      "lookup": "NF6Y",
+      "psk": "939d93fd756c7011beccc1baa589349591427dc4d312a11338383bf14dfe7c74",
+      "typed": [
+        {
+          "text": "NF6Y-4HMA-SWV*",
+          "valid": true
+        },
+        {
+          "text": "nf6y-4hma-swv*",
+          "valid": true
+        },
+        {
+          "text": "NF6Y4HMASWV*",
+          "valid": true
+        },
+        {
+          "text": " NF6Y 4HMA SWV* ",
+          "valid": true
+        },
+        {
+          "text": "7F6Y4HMASWV*",
+          "valid": false
+        },
+        {
+          "text": "FN6Y4HMASWV*",
+          "valid": false
+        },
+        {
+          "text": "NF6Y4HMASWV",
+          "valid": false
+        },
+        {
+          "text": "NF6Y4HMASWV*0",
+          "valid": false
+        },
+        {
+          "text": "UF6Y4HMASWV*",
+          "valid": false
+        }
+      ]
+    }
+  ]
+}

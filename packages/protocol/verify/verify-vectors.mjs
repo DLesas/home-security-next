@@ -1610,9 +1610,10 @@ const UNITS = {
   }
 }
 
-// Every vector file must be one this script checks.
+// Every device vector file must be one this script checks. The app's vectors (`app-*.json`, the
+// app channel's, m2-design.md section 10) share the folder; their part of this script is A9's.
 for (const name of readdirSync(VECTORS))
-  if (name.endsWith(".json") && !loadedFiles.has(name))
+  if (name.endsWith(".json") && !name.startsWith("app-") && !loadedFiles.has(name))
     mismatch(name, "(file)", "a vector file the script does not know");
 
 // ---------------------------------------------------------------------------

@@ -109,6 +109,20 @@ export const INVALID_REASONS = [
   "tooOld",
   /** `restore.start` on a hub with devices. */
   "noDevicesRequired",
+  /** A board that gave no answer (M1a's `noAnswer`). */
+  "noAnswer",
+  /** No gateway to send through (M1a's `noGateway`). */
+  "noGateway",
+  /** A release or backup file that is not one (section 9). */
+  "badFile",
+  /** A release whose signature no key the hub carries verifies (D84). */
+  "badSignature",
+  /** A release for another system or architecture. */
+  "wrongSystem",
+  /** A release not newer than the running version. */
+  "notNewer",
+  /** No room for the update or its copy. */
+  "full",
 ] as const;
 
 /** `invalid`: the body's path, dotted (`devices.2.manage`, `name`), and why. */

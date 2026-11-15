@@ -91,7 +91,7 @@ const SECTION_6: readonly (readonly [string, boolean])[] = [
   ["site.changeStatus", false],
   ["history.query", false],
   ["notifications.list", false],
-  ["notifications.read", true],
+  ["notifications.read", false],
   ["notifications.prefs", true],
   ["people.list", false],
   ["person.create", true],
@@ -277,8 +277,11 @@ describe("events (section 6)", () => {
         "forget",
         "backupKeyChanged",
         "fileChunk",
+        "fileFailed",
       ].toSorted(),
     );
+    expect(APP_EVENTS.fileFailed.safeParse({ job: 3, reason: "stopping" }).success).toBe(true);
+    expect(APP_EVENTS.fileFailed.safeParse({ job: 3, reason: "lost" }).success).toBe(false);
     expect(
       parseEvent({ t: "evt", rev: 4, ev: "door", body: { sensor: 3, open: true, atMs: 1 } }).ok,
     ).toBe(true);
@@ -322,8 +325,8 @@ describe("handshake payloads (section 5)", () => {
     expect(linkHello.safeParse({ proto: [1, 1], find: "7XQ0" }).success).toBe(true);
     expect(linkHello.safeParse({ proto: [1, 1], find: "7XQI" }).success).toBe(false);
     expect(linkHello.safeParse({ proto: 1, find: "7XQ0" }).success).toBe(false);
-    expect(linkHubPayload.safeParse({ hub: "2.0.0", proto: 1 }).success).toBe(true);
-    expect(linkHubPayload.safeParse({ hub: "2.0.0" }).success).toBe(false);
+    expect(linkHubPayload.safeParse({ hub: "2.0.0", proto: 1, askName: true }).success).toBe(true);
+    expect(linkHubPayload.safeParse({ hub: "2.0.0", proto: 1 }).success).toBe(false);
     expect(linkRequest.safeParse({ name: "Ben's laptop", kind: "web" }).success).toBe(true);
     expect(linkResult.safeParse({ client: 7, person: 2 }).success).toBe(true);
   });
@@ -458,10 +461,10 @@ describe("names, weekdays, categories, history rows and the backup header (secti
     expect(historyRow.safeParse({ ...row, kind: "decision" }).success).toBe(false);
   });
 
-  test("the backup header: 64 bytes, flag bit 0 for history", () => {
+  test("the backup header: 64 bytes, no flag known (bit 0 retired)", () => {
     const last = BACKUP_HEADER_LAYOUT[BACKUP_HEADER_LAYOUT.length - 1];
     expect(last === undefined ? 0 : last[1] + last[2]).toBe(64);
-    expect(BACKUP_KNOWN_FLAGS).toBe(1);
+    expect(BACKUP_KNOWN_FLAGS).toBe(0);
   });
 });
 

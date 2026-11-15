@@ -11,21 +11,28 @@ import {
   historyKind,
   historyRow,
   hubInfo,
+  GATEWAY_SETTINGS_FIELDS,
+  gatewaySettingsObject,
   modeObject,
   notificationObject,
+  notificationPrefsObject,
   optionalCategory,
   personObject,
   scheduleAction,
   scheduleDays,
   scheduleObject,
   scheduleTarget,
+  SENSOR_SETTINGS_FIELDS,
+  sensorSettingsObject,
+  SIREN_SETTINGS_FIELDS,
+  sirenSettingsObject,
   siteMoveStatus,
   siteObject,
   sirenChoice,
   snapshotObject,
   topic,
 } from "./objects.ts";
-import { APP_LISTS, FILE_CHUNKS } from "./constants.ts";
+import { APP_LISTS, FILE_CHUNKS, RETENTION_DAYS } from "./constants.ts";
 import {
   base64urlBytes,
   clientRef,
@@ -76,6 +83,8 @@ const armingResult = z
     armed: z.array(deviceRef).readonly(),
     disarmed: z.array(deviceRef).readonly(),
     waiting: z.array(deviceRef).readonly(),
+    /** The sensors armed at 10% or below, for a person too, after confirming (AL12). */
+    lowBattery: z.array(deviceRef).readonly(),
   })
   .readonly();
 
@@ -129,18 +138,10 @@ const linkKind = z.union([
 ]);
 
 const sensorSettings = z
-  .strictObject({
-    sensor: deviceRef,
-    countdown: z.int().min(0).max(255).optional(),
-    heartbeat: z.int().min(1).max(255).optional(),
-    linkCheck: z.int().min(1).max(255).optional(),
-    replyRate: z.union([dataRateValue, z.literal("learn")]).optional(),
-    correction: z.union([z.int().min(-32_768).max(32_767), z.literal("learn")]).optional(),
-  })
+  .strictObject(SENSOR_SETTINGS_FIELDS)
+  .partial()
+  .extend({ sensor: deviceRef })
   .readonly();
-
-const gatewayPower = z.int().min(-9).max(22);
-const gatewayByte = z.int().min(1).max(255);
 
 function op<B extends z.ZodType, R extends z.ZodType>(rule: OpRule, body: B, reply: R) {
   return { ...rule, body, reply } as const;
@@ -188,7 +189,13 @@ export const APP_OPS = {
   "mode.switch": op(
     C("M of every sensor whose state would change (HB5a)", "device"),
     z.strictObject({ mode: modeRef, confirm: confirmation.optional() }).readonly(),
-    armingResult,
+    z
+      .strictObject({
+        ...armingResult.unwrap().shape,
+        /** The sensors a schedule's switch left armed during a countdown or an alarm (D117); else empty. */
+        heldBack: z.array(deviceRef).readonly(),
+      })
+      .readonly(),
   ),
   arm: op(
     C("M of every sensor whose state would change", "device"),
@@ -201,6 +208,8 @@ export const APP_OPS = {
     z
       .strictObject({
         disarmed: z.array(deviceRef).readonly(),
+        /** The sensors a schedule's disarm left armed during a countdown or an alarm (D117); empty for a person. */
+        heldBack: z.array(deviceRef).readonly(),
         alarmEnded: z.boolean(),
         alarmContinues: z
           .strictObject({ triggers: z.array(deviceRef).readonly() })
@@ -250,7 +259,12 @@ export const APP_OPS = {
   "device.show": op(
     R("V(d) (sirens and gateways: any ‡)", "device"),
     z.strictObject({ device: deviceRef }).readonly(),
-    deviceObject,
+    z
+      .strictObject({
+        device: deviceObject,
+        settings: z.union([sensorSettingsObject, sirenSettingsObject, gatewaySettingsObject]),
+      })
+      .readonly(),
   ),
   "device.rename": op(
     C("MS", "MS"),
@@ -270,7 +284,7 @@ export const APP_OPS = {
   ),
   "siren.settings": op(
     C("MS", "MS"),
-    z.strictObject({ siren: deviceRef, max: z.int().min(1).max(0xffff) }).readonly(),
+    z.strictObject({ siren: deviceRef, ...SIREN_SETTINGS_FIELDS }).readonly(),
     settingsVersion,
   ),
   "siren.test": op(
@@ -280,16 +294,7 @@ export const APP_OPS = {
   ),
   "gateway.settings": op(
     C("MS", "MS"),
-    z
-      .strictObject({
-        gateway: deviceRef,
-        statusS: gatewayByte.optional(),
-        interferenceDb: gatewayByte.optional(),
-        interferenceS: gatewayByte.optional(),
-        powerDbm: gatewayPower.optional(),
-        sirenPowerDbm: gatewayPower.optional(),
-      })
-      .readonly(),
+    z.strictObject(GATEWAY_SETTINGS_FIELDS).partial().extend({ gateway: deviceRef }).readonly(),
     settingsVersion,
   ),
   "usb.list": op(
@@ -340,6 +345,17 @@ export const APP_OPS = {
         rate: dataRateValue.optional(),
         countdown: z.int().min(0).max(255).optional(),
         autoStop: z.int().min(1).max(0xffff).optional(),
+        // HB24: the size guard still trims by size whatever these say (HD 6).
+        retentionRoutineDays: z
+          .int()
+          .min(RETENTION_DAYS.routine.min)
+          .max(RETENTION_DAYS.routine.max)
+          .optional(),
+        retentionEventDays: z
+          .int()
+          .min(RETENTION_DAYS.event.min)
+          .max(RETENTION_DAYS.event.max)
+          .optional(),
       })
       .readonly(),
     siteObject,
@@ -396,15 +412,16 @@ export const APP_OPS = {
       .readonly(),
     z.strictObject({ notifications: z.array(notificationObject).readonly() }).readonly(),
   ),
+  // Not a change: no `seq`, and the reads are routine (section 7).
   "notifications.read": op(
-    C("any (own)", "own"),
+    R("any (own)", "own"),
     z.strictObject({ seqs: z.array(recordSeqValue).min(1).readonly() }).readonly(),
     ok,
   ),
   "notifications.prefs": op(
     C("any (own client)", "own"),
     z.strictObject({ categories: z.array(optionalCategory).readonly() }).readonly(),
-    z.strictObject({ categories: z.array(optionalCategory).readonly(), revision }).readonly(),
+    notificationPrefsObject,
   ),
   "people.list": op(
     R("MU; any for oneself", "MU"),
@@ -563,6 +580,8 @@ export const APP_OPS = {
         approvedBy: z.string().nullable(),
         switching: z.boolean(),
         lastResult: z.enum(["none", "healthy", "rolledBack"]),
+        /** When the last update ended (healthy or rolled back); null before any (section 9). */
+        lastResultMs: wallMs.nullable(),
       })
       .readonly(),
   ),

@@ -7,6 +7,7 @@
  *                  {"t":"res","id":N,"ok":false,"error":{"code":"<code>","detail":{…}}}
  *                  {"t":"evt","rev":R,"ev":"<name>","body":{…}}
  */
+import type { LinkResult, RestoreOffer, RestoreResult } from "./handshake.ts";
 import { z } from "zod";
 import { appError } from "./errors.ts";
 import { APP_EVENT_NAMES, APP_EVENTS, type AppEventBody, type AppEventName } from "./events.ts";
@@ -113,5 +114,18 @@ export function parseEvent(
   return { ok: true, value: { ...frame.data, body: body.data } as AppEvent };
 }
 
-/** What the hub sends a client inside the channel: a reply or an event (`appSend`, section 2). */
-export type AppMessage = AppReply | AppEvent;
+/**
+ * A handshake's transport payload from the core (section 5): linking's message 4 (`LinkResult`),
+ * restore's message 4 (`RestoreOffer`) or 6 (`RestoreResult`), sent as the transport message's
+ * JSON, `body` alone. After `LinkResult` or `RestoreResult` the shell closes the connection.
+ */
+export interface AppHandshakeMessage {
+  readonly kind: "handshake";
+  readonly body: LinkResult | RestoreOffer | RestoreResult;
+}
+
+/**
+ * What the hub sends a client inside the channel (`appSend`, section 2): a reply or an event on a
+ * session, or a handshake's payload on a link or restore connection.
+ */
+export type AppMessage = AppReply | AppEvent | AppHandshakeMessage;

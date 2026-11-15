@@ -51,7 +51,10 @@ export interface HandshakeOptions {
   readonly staticKey: StaticKey;
   /** The responder's static key, known to an IK initiator from linking. */
   readonly remoteStatic?: Uint8Array;
-  /** XXpsk3's pre-shared key, 32 bytes. */
+  /**
+   * XXpsk3's pre-shared key, 32 bytes: the initiator's. The responder is made without one and
+   * given it by `setPsk` after reading message 1, whose payload names the token (section 5).
+   */
   readonly psk?: Uint8Array;
   /** Fixed ephemeral keys, for the vectors only. */
   readonly ephemeral?: EphemeralKeyPair;
@@ -63,6 +66,12 @@ export interface Handshake {
   writeMessage(payload: Uint8Array): Promise<NoiseResult<Uint8Array>>;
   /** Reads the next handshake message, returning its payload. */
   readMessage(message: Uint8Array): Promise<NoiseResult<Uint8Array>>;
+  /**
+   * XXpsk3's responder only, after reading message 1 and before message 3: the pre-shared key of
+   * the token message 1 named. Reading message 3 without one is `wrongState`, as is a second call
+   * or one on an initiator or an IK side.
+   */
+  setPsk(psk: Uint8Array): NoiseResult<void>;
   /** True once every message of the pattern is through. */
   readonly complete: boolean;
   /** The other side's static key, once a message has carried it. */

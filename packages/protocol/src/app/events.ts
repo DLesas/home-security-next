@@ -20,7 +20,7 @@ import {
   sirenStatus,
 } from "./objects.ts";
 import { fileChunkBody } from "./ops.ts";
-import { deviceRef, wallMs } from "./values.ts";
+import { deviceRef, jobRef, wallMs } from "./values.ts";
 
 /** What a `health` event names (section 6): silence, a path, offline, interference, battery, tamper. */
 export const healthWhat = z.enum([
@@ -39,6 +39,9 @@ export const healthWhat = z.enum([
 ]);
 
 /** The events, by name, with their bodies. */
+/** Why a download stopped short (section 6): the file could not be made, or the hub is stopping. */
+export const FILE_FAILED_REASONS = ["io", "stopping"] as const;
+
 export const APP_EVENTS = {
   arming: z
     .strictObject({
@@ -95,12 +98,24 @@ export const APP_EVENTS = {
     z.strictObject({ userManagement: z.boolean() }).readonly(),
   ]),
   site: siteMoveStatus.nullable(),
+  /**
+   * To people with manage system and the console, by `what` (section 5): `updateStaged`,
+   * `updateRefused` (a file refused, or a switch refused for space), `updateSwitching`, `backup`
+   * (any backup decision, `backup_written`, `backup_failed`; `detail.kind` names it),
+   * `databaseFailing` (the first `commit_failed` of a run), `databaseRecovered` (the first commit
+   * after them), `databaseSize` (the size guard's state changing), `historyShortened`. A restore
+   * and an update's outcome come before any session: notifications and `update.status` carry them.
+   * Sent by `core/app/live.ts`, shown by the app's `state/live.ts` (each has its TODO).
+   */
   hub: z
     .strictObject({
       what: z.enum([
         "updateStaged",
+        "updateRefused",
         "updateSwitching",
         "backup",
+        "databaseFailing",
+        "databaseRecovered",
         "databaseSize",
         "historyShortened",
       ]),
@@ -113,6 +128,11 @@ export const APP_EVENTS = {
   backupKeyChanged: z.strictObject({ epoch: z.int().min(0) }).readonly(),
   /** A file streamed to the client (`backup.export`), as `fileChunk` requests travel the other way. */
   fileChunk: fileChunkBody,
+  /**
+   * A download that stops before its end mark (section 6): the reply `{job}` came first, then
+   * chunks; nothing was saved.
+   */
+  fileFailed: z.strictObject({ job: jobRef, reason: z.enum(FILE_FAILED_REASONS) }).readonly(),
 } as const;
 
 export type AppEventName = keyof typeof APP_EVENTS;

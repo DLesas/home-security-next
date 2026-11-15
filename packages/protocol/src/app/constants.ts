@@ -26,6 +26,19 @@ export const LISTENER_PORTS = {
 /** The WebSocket path of the app channel on the two app listeners. */
 export const APP_PATH = "/app";
 
+/**
+ * The WebSocket path of each handshake (section 5, "Admitting a session" and "Linking"): a path
+ * each, no trial reading. Both ends import these.
+ */
+export const APP_PATHS = {
+  /** A session (IK). */
+  session: APP_PATH,
+  /** Linking (XXpsk3, the link prologue). */
+  link: `${APP_PATH}/link`,
+  /** A restore (XXpsk3, the restore prologue). */
+  restore: `${APP_PATH}/restore`,
+} as const;
+
 /** The mDNS text field that names the apps' port (§10 gains it ‡). */
 export const MDNS_APP_PORT_FIELD = "app";
 
@@ -106,6 +119,8 @@ export const LINKING = {
   installerCodeExpiryMs: 7 * DAY,
   /** The console's one-time token, from `hsn open` ‡. */
   consoleTokenExpiryMs: 2 * MINUTE,
+  /** The console token an installer's first opening asks for (section 9, D62) ‡. */
+  installerConsoleTokenExpiryMs: 10 * MINUTE,
   /** A restore token, never stored, expires after this or its first use ‡ (section 9). */
   restoreTokenExpiryMs: 10 * MINUTE,
   /** The QR code's URL scheme and path. */
@@ -128,6 +143,12 @@ export const FILE_CHUNKS = {
   maxChunkBytes: 48_000,
   /** An upload, kept by the shell in the data folder's `uploads/`, at most ‡. */
   maxUploadBytes: 256 * 1024 * 1024,
+} as const;
+
+/** Retention a person with manage system may set (section 7, "History"; HB24) ‡, in days. */
+export const RETENTION_DAYS = {
+  routine: { min: 1, max: 90 },
+  event: { min: 30, max: 730 },
 } as const;
 
 /** History and notifications over the channel (sections 6 and 7). */

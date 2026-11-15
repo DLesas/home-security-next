@@ -81,7 +81,12 @@ export const linkHello = z
  * no failed try.
  */
 export const linkHubPayload = z
-  .strictObject({ hub: z.string().min(1).max(64), proto: version })
+  .strictObject({
+    hub: z.string().min(1).max(64),
+    proto: version,
+    /** Linking: the token makes a new person whose name was not given, so the client asks for one; false for a restore. */
+    askName: z.boolean(),
+  })
   .readonly();
 
 /** XXpsk3 message 3, new client → hub: only a name and a kind, nothing it must keep secret. */
@@ -133,12 +138,23 @@ export const restoreOffer = z
  */
 export const restoreKey = backupKeyPayload;
 
-/** Restore message 6, hub → phone; then the hub closes, and on success restarts as the restored hub. */
+/**
+ * Restore message 6, hub → phone; then the hub closes, and on success restarts as the restored hub
+ * (m2-design.md section 9). A file whose first chunk does not open with the phone's key is
+ * `wrongKey` ("this key does not open that backup"); any later failure (`truncated`, `cut`, or
+ * `decryptFailed` after chunk 0) is a damaged file, `badFile` ("the backup file is damaged or
+ * incomplete; choose another"), on the phone and on the console alike.
+ * TODO(A7): the phone's and the console's restore pages say `badFile` as above, apart from
+ * `wrongKey`.
+ */
 export const restoreResult = z
   .discriminatedUnion("ok", [
     z.strictObject({ ok: z.literal(true) }).readonly(),
     z
-      .strictObject({ ok: z.literal(false), reason: z.enum(["wrongKey", "expired", "busy"]) })
+      .strictObject({
+        ok: z.literal(false),
+        reason: z.enum(["wrongKey", "badFile", "expired", "busy"]),
+      })
       .readonly(),
   ])
   .readonly();
