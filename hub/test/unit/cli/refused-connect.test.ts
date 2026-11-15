@@ -11,7 +11,7 @@ import { chmodSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { connectFailure, exchange, folderOf, Session } from "../../../cli/client.ts";
-import { type FolderListing, listFolder } from "../../../cli/files.ts";
+import { type FolderListing, listFolder, listingOf } from "../../../cli/files.ts";
 import { type CliIo, runCli } from "../../../cli/main.ts";
 import { ExitCode } from "../../../cli/exit-codes.ts";
 
@@ -65,6 +65,21 @@ describe("the decision, every not-running code crossed with every listing", () =
   test("the socket's folder, on either kind of path", () => {
     expect(folderOf("C:\\ProgramData\\HSN Hub\\control.sock")).toBe("C:\\ProgramData\\HSN Hub");
     expect(folderOf("/var/lib/hsn-hub/control.sock")).toBe("/var/lib/hsn-hub");
+  });
+});
+
+describe("what a listing's error says", () => {
+  test.each([
+    ["EACCES", { code: "EACCES" }, "refused"],
+    ["EPERM, as Windows reports access denied", { code: "EPERM" }, "refused"],
+    ["ENOENT", { code: "ENOENT" }, "missing"],
+    ["another code", { code: "EIO" }, "other"],
+    ["no code", new Error("x"), "other"],
+    ["a code that is not text", { code: 13 }, "other"],
+    ["a thrown value that is not an object", "EPERM", "other"],
+    ["null", null, "other"],
+  ] as const)("%s", (_what, thrown, listing) => {
+    expect(listingOf(thrown)).toBe(listing);
   });
 });
 

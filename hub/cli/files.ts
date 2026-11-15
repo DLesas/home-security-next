@@ -85,20 +85,20 @@ function errorCode(thrown: unknown): string {
     : "";
 }
 
+/** What a listing's thrown error says: refused (EACCES, or EPERM as Windows says it), missing, or other. */
+export function listingOf(thrown: unknown): FolderListing {
+  const code = errorCode(thrown);
+  if (code === "EACCES" || code === "EPERM") return "refused";
+  if (code === "ENOENT") return "missing";
+  return "other";
+}
+
 /** Lists the folder, keeping only whether it could (m2-design.md section 9, Windows). */
 export function listFolder(path: string): FolderListing {
-  return Result.fromThrowable(
-    () => {
-      readdirSync(path);
-      return "listed" as const;
-    },
-    (thrown): FolderListing => {
-      const code = errorCode(thrown);
-      if (code === "EACCES" || code === "EPERM") return "refused";
-      if (code === "ENOENT") return "missing";
-      return "other";
-    },
-  )().match(
+  return Result.fromThrowable(() => {
+    readdirSync(path);
+    return "listed" as const;
+  }, listingOf)().match(
     (listed) => listed,
     (refused) => refused,
   );
