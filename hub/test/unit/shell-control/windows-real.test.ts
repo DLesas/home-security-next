@@ -11,11 +11,10 @@
  */
 import { afterAll, describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { appendFileSync, existsSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { ok } from "neverthrow";
 import { UnixControlServer } from "../../../src/shell/control/server.ts";
-import { checkDescriptor, parseSid } from "../../../src/shell/control/windows-acl.ts";
 import { type ControlWarning, windowsSocketSteps } from "../../../src/shell/control/windows.ts";
 import { WINDOWS_CALLS } from "../../../src/shell/safe/control-socket-windows.ts";
 import { RawClient } from "./support.ts";
@@ -23,8 +22,10 @@ import {
   icacls,
   isWindows,
   junction,
+  listVerdict,
   lockFolder,
   ordinaryFolder,
+  removeTree,
   runProgram,
   system32,
 } from "./windows-folders.ts";
@@ -37,14 +38,7 @@ const warn = (warning: ControlWarning): void => {
   warnings.push(warning);
 };
 
-/** What the rule says of a path's real list now: "closed", or what it found. */
-function listNow(path: string, asFolder: boolean): string {
-  const hub = parseSid(WINDOWS_CALLS.processSid()._unsafeUnwrap(), 0)._unsafeUnwrap().sid;
-  const bytes = WINDOWS_CALLS.securityDescriptor(path);
-  if (bytes.isErr()) return bytes.error.message;
-  const checked = checkDescriptor(bytes.value, { hub }, asFolder);
-  return checked.isOk() ? "closed" : checked.error.join("; ");
-}
+const listNow = listVerdict;
 
 /** A row of the job summary's table, when the workflow asks for one. */
 function row(what: string, observed: string): void {
@@ -90,7 +84,7 @@ afterAll(async () => {
       if (existsSync(join(BASE, link)))
         runProgram(system32("cmd.exe"), ["/d", "/c", "rmdir", join(BASE, link)]);
     }
-    rmSync(BASE, { recursive: true, force: true });
+    row("cleanup: the test's folders", removeTree(BASE));
   }
 });
 

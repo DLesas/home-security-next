@@ -4,11 +4,12 @@
  * well-known SIDs so nothing depends on the system's language, as spike W2 set them.
  */
 import { spawnSync } from "node:child_process";
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import {
-  parseSid,
   ADMINISTRATORS_SID,
+  checkDescriptor,
+  parseSid,
   SYSTEM_SID,
 } from "../../../src/shell/control/windows-acl.ts";
 import { WINDOWS_CALLS } from "../../../src/shell/safe/control-socket-windows.ts";
@@ -69,4 +70,27 @@ export function junction(link: string, target: string): Ran {
 export function lockFolderTo(path: string, sids: readonly string[]): Ran {
   mkdirSync(path, { recursive: true });
   return icacls(path, "/inheritance:r", "/grant:r", ...sids.map((sid) => `*${sid}:(OI)(CI)F`));
+}
+
+/**
+ * Removes a test's folder tree without throwing, and says what is left: the lists reset to
+ * inherited first, since a test may have added a deny entry that names the runner's own account
+ * (it is in Users), which makes `rmSync` fail with EPERM; then `rmdir /s /q`, which removes a
+ * junction as a link and never what it points at. Remove junctions before calling this.
+ */
+export function removeTree(path: string): string {
+  if (!existsSync(path)) return "removed";
+  const reset = icacls(path, "/reset", "/T", "/C", "/Q");
+  const removed = runProgram(system32("cmd.exe"), ["/d", "/c", "rmdir", "/s", "/q", path]);
+  return existsSync(path)
+    ? `left behind (icacls /reset ${reset.code}: ${reset.out.slice(0, 300)}; rmdir ${removed.code}: ${removed.out.slice(0, 300)})`
+    : "removed";
+}
+
+/** What the hub's rule says of a path's real list now: "closed", or what it found. */
+export function listVerdict(path: string, asFolder: boolean): string {
+  const bytes = WINDOWS_CALLS.securityDescriptor(path);
+  if (bytes.isErr()) return bytes.error.message;
+  const checked = checkDescriptor(bytes.value, { hub: ownSid() }, asFolder);
+  return checked.isOk() ? "closed" : checked.error.join("; ");
 }

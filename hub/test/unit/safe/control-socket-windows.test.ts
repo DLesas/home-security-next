@@ -6,7 +6,7 @@
  * file's reparse tag, the system drive's flags.
  */
 import { afterAll, describe, expect, test } from "bun:test";
-import { mkdirSync, rmSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import { createServer } from "node:net";
 import { join } from "node:path";
 import {
@@ -25,12 +25,19 @@ import {
   IO_REPARSE_TAG_AF_UNIX,
 } from "../../../src/shell/control/windows.ts";
 import { WINDOWS_CALLS } from "../../../src/shell/safe/control-socket-windows.ts";
-import { isWindows, lockFolder, runProgram, system32 } from "../shell-control/windows-folders.ts";
+import {
+  isWindows,
+  lockFolder,
+  removeTree,
+  runProgram,
+  system32,
+} from "../shell-control/windows-folders.ts";
 
 const BASE = join(process.env.SystemDrive ?? "C:", "\\", `hsn-a11-safe-${process.pid}`);
 
 afterAll(() => {
-  if (isWindows) rmSync(BASE, { recursive: true, force: true });
+  // A leftover on a throwaway runner is not a failure of the calls under test.
+  if (isWindows) removeTree(BASE);
 });
 
 describe.skipIf(isWindows)("off Windows", () => {
