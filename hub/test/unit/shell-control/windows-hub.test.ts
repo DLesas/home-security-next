@@ -203,7 +203,10 @@ const hsnAs = async (who: Who, label: string, args: readonly string[]): Promise<
 
 /** The raw connect error and folder listing as `who` sees them, for the job summary. */
 async function probe(who: Who, label: string, folder: string): Promise<void> {
-  const text = await runHelper(who, "windows-connect-probe.ts", `probe-${label}`, [folder]);
+  // The result file's name: a label may hold a path (`C:\…`), whose colon and separators are not
+  // a file name, and the probe would exit 1 without writing (run 43693478238).
+  const file = `probe-${who}-${label}`.replaceAll(/[^A-Za-z0-9-]+/gu, "-");
+  const text = await runHelper(who, "windows-connect-probe.ts", file, [folder]);
   row(`probe: ${label} (${who})`, "the raw error behind hsn's answer", text);
 }
 

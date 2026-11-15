@@ -13,7 +13,7 @@ A second local account was created on the machine, and a client was run as it ag
 
 | Option | Same user | Second account | Verdict |
 | --- | --- | --- | --- |
-| Unix-domain socket in a folder locked to the user, Administrators and SYSTEM | answered | refused (`EACCES`) | works |
+| Unix-domain socket in a folder locked to the user, Administrators and SYSTEM | answered | refused (`EACCES` in the spike; `ENOENT` with the real hub and `hsn`, see below) | works |
 | The same in the user's temp folder, and in ProgramData | answered | refused | works |
 | The same in an ordinary folder with inherited access | answered | **answered** | unsafe: the folder's access list is the whole protection |
 | The same in an ordinary folder, with the socket file's own access list limited | answered | refused | works, but one mistake away from the row above |
@@ -25,6 +25,7 @@ Both of Bun's socket interfaces (`node:net` and `Bun.listen`) gave the same resu
 What the hub's code must allow for on Windows:
 
 - `stat` of the socket file fails with `EACCES`, so the hub cannot check the file's kind or owner as it does on macOS and Linux. It can check that the file exists.
+- The error an account kept out of the folder receives is not reliably `EACCES`. With the real hub and the real `hsn` (run 43693478238, 2026-11-15), the connect failed with `ENOENT` for both `node:net` and `Bun.connect`, and listing the folder failed with `EPERM`. `hsn` therefore lists the data folder to tell "kept out" (exit 77) from "not running" (exit 69), and does not rely on the connect's error code.
 - The safety check is therefore on the folder: read its access list and refuse to open the socket unless only the hub's account, Administrators and SYSTEM have access. Today the hub refuses on Windows outright ("the data folder is open to other accounts"); that refusal is replaced by this check.
 - The second account was refused by a named pipe too, which the hub design did not expect (it says a pipe made this way is open to every user). The run did not find out why, and nothing depends on it: the pipe is not used.
 
