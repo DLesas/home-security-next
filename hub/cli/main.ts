@@ -103,7 +103,7 @@ function timeoutFor(command: ParsedControlCommand, seconds: number | undefined):
 }
 
 /** What a failed connection prints, and its exit code. */
-function clientFailure(error: ClientError, io: CliIo): ExitCode {
+export function clientFailure(error: ClientError, io: CliIo): ExitCode {
   switch (error.kind) {
     case "notRunning":
       io.err(`hsn: the hub is not running: ${error.message}.`);

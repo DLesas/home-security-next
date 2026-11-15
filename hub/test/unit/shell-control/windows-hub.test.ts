@@ -46,6 +46,8 @@ const OPEN = join(BASE, "open", "data");
 const ADMINS_ONLY = join(BASE, "admins");
 /** A listable folder with no hub: what "not running" looks like to each account. */
 const EMPTY = join(BASE, "empty");
+/** A data folder that does not exist (a wrong --data): "not running", never "kept out". */
+const MISSING = join(BASE, "missing");
 const ADMINISTRATORS = "S-1-5-32-544";
 const SYSTEM = "S-1-5-18";
 const password = newPassword();
@@ -357,6 +359,9 @@ describe.skipIf(!enabled)("Windows: the real hub's command socket, reached by hs
     );
     await probe("other", "hub running, folder the hub closed", OPEN);
     await stop(hub);
+    // The folder was open before the hub started: else this test proves nothing.
+    expect(before).not.toBe("closed");
+    expect(before).toContain("inheritance is on");
     expect(read.code).toBe(1);
     expect(opened).toBe(true);
     expect(folderVerdict).toBe("closed");
@@ -409,4 +414,46 @@ describe.skipIf(!enabled)("Windows: the real hub's command socket, reached by hs
     expect(normal.err).toContain("administrator prompt");
     expect(quiet.code).toBe(69);
   }, 300_000);
+
+  /**
+   * Every account against every state, for hub/cli's rule (A2): an account that cannot list the
+   * data folder is kept out (77); one that can, or a folder that does not exist, is "not running"
+   * (69). Each row has hsn's answer and the probe's raw facts (the listing, the connect error), so
+   * a wrong answer shows which fact the rule misread.
+   */
+  test("who is told what: each account, with the hub running, not running, and the folder missing (hub/cli's change)", async () => {
+    const seen: string[] = [];
+    const check = async (
+      who: Who,
+      state: string,
+      folder: string,
+      expected: number,
+    ): Promise<void> => {
+      const label = `${who}-${state}-${folder.split("\\").at(-1) ?? ""}`.replaceAll(" ", "-");
+      const answer = await hsnAs(who, `who-${label}`, ["--data", folder, "status"]);
+      row(`hsn as ${who}, ${state}, ${folder}`, String(expected), `${answer.code}: ${answer.err}`);
+      await probe(who, `${state}, ${folder}`, folder);
+      if (answer.code !== expected)
+        seen.push(`${who}, ${state}, ${folder}: ${answer.code}, expected ${expected}`);
+    };
+    for (const hub of hubs.splice(0)) {
+      hub.kill();
+      await hub.exited;
+    }
+    for (const who of ["self", "unelevated", "other"] as const) {
+      await check(who, "no hub", MISSING, 69);
+      await check(who, "no hub", EMPTY, 69);
+    }
+    await check("self", "no hub", ADMINS_ONLY, 69);
+    await check("unelevated", "no hub", ADMINS_ONLY, 77);
+    await check("other", "no hub", ADMINS_ONLY, 77);
+    await check("other", "no hub", LOCKED, 77);
+    const hub = await startAndWait(ADMINS_ONLY);
+    await hsnUntilAnswered(ADMINS_ONLY);
+    await check("self", "hub running", ADMINS_ONLY, 0);
+    await check("unelevated", "hub running", ADMINS_ONLY, 77);
+    await check("other", "hub running", ADMINS_ONLY, 77);
+    await stop(hub);
+    expect(seen).toEqual([]);
+  }, 600_000);
 });

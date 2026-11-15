@@ -5,6 +5,7 @@
  * database.
  */
 import { connect, type Socket } from "node:net";
+import { type FolderListing, listFolder } from "./files.ts";
 import { err, ok, Result } from "neverthrow";
 import {
   type ChunkLine,
@@ -48,6 +49,42 @@ const NOT_RUNNING_CODES: ReadonlySet<string> = new Set([
 ]);
 const PERMISSION_CODES: ReadonlySet<string> = new Set(["EACCES", "EPERM"]);
 
+/** What deciding a refused connection needs of the computer; tests give their own. */
+export interface ConnectContext {
+  readonly platform: string;
+  readonly listFolder: (path: string) => FolderListing;
+}
+
+export const REAL_CONNECT_CONTEXT: ConnectContext = { platform: process.platform, listFolder };
+
+/** The folder that holds the socket. */
+export function folderOf(socketPath: string): string {
+  const cut = socketPath.replace(/[\\/]+$/u, "").search(/[\\/][^\\/]*$/u);
+  return cut <= 0 ? socketPath : socketPath.slice(0, cut);
+}
+
+/**
+ * What a failed connect means (hub-design.md section 9; m2-design.md section 9, Windows). A
+ * permission code is a refusal. A code that says no hub is listening means that, except on
+ * Windows: there an account the data folder's access list keeps out is told one of those codes
+ * too, so the folder is listed, and if this account may not list it the answer is a refusal. An
+ * account that may use the socket can always list the folder, so a hub that is merely stopped is
+ * never called a refusal; a folder that is missing, or another error, leaves "not running".
+ */
+export function connectFailure(code: string, path: string, context: ConnectContext): ClientError {
+  const refused: ClientError = {
+    kind: "permission",
+    message: `this account may not use the hub at ${path}`,
+  };
+  if (PERMISSION_CODES.has(code)) return refused;
+  if (NOT_RUNNING_CODES.has(code)) {
+    if (context.platform === "win32" && context.listFolder(folderOf(path)) === "refused")
+      return refused;
+    return { kind: "notRunning", message: `no hub is listening on ${path}` };
+  }
+  return { kind: "closed", message: `the connection failed (${code})` };
+}
+
 function codeOf(error: unknown): string {
   return typeof error === "object" &&
     error !== null &&
@@ -67,6 +104,7 @@ export function exchange(
   timeoutMs: number,
   onRecord?: (record: RecordJson) => void,
   stop?: (end: () => void) => void,
+  context: ConnectContext = REAL_CONNECT_CONTEXT,
 ): Promise<Result<Exchange, ClientError>> {
   return new Promise((resolve) => {
     let settled = false;
@@ -95,15 +133,7 @@ export function exchange(
     });
     socket.on("error", (error) => {
       const code = codeOf(error);
-      if (NOT_RUNNING_CODES.has(code))
-        fail({ kind: "notRunning", message: `no hub is listening on ${path}` });
-      else if (PERMISSION_CODES.has(code))
-        fail({ kind: "permission", message: `this account may not open ${path}` });
-      else
-        fail({
-          kind: "closed",
-          message: `the connection failed (${code === "" ? error.message : code})`,
-        });
+      fail(connectFailure(code === "" ? error.message : code, path, context));
     });
     socket.on("close", () => {
       if (reply === undefined)
@@ -192,20 +222,14 @@ export class Session {
   }
 
   /** Opens a connection to the hub's socket. */
-  static open(path: string): Promise<Result<Session, ClientError>> {
+  static open(
+    path: string,
+    context: ConnectContext = REAL_CONNECT_CONTEXT,
+  ): Promise<Result<Session, ClientError>> {
     return new Promise((resolve) => {
       const socket = connect(path);
       const failed = (error: Error): void => {
-        const code = codeOf(error);
-        resolve(
-          err(
-            NOT_RUNNING_CODES.has(code)
-              ? { kind: "notRunning", message: `no hub is listening on ${path}` }
-              : PERMISSION_CODES.has(code)
-                ? { kind: "permission", message: `this account may not open ${path}` }
-                : { kind: "closed", message: `the connection failed (${code})` },
-          ),
-        );
+        resolve(err(connectFailure(codeOf(error), path, context)));
       };
       socket.once("error", failed);
       socket.once("connect", () => {

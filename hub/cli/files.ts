@@ -7,7 +7,15 @@
  * request's reply, into a temporary file renamed when the hash matches.
  */
 import { createHash } from "node:crypto";
-import { lstatSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import {
+  lstatSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { FILE_CHUNKS } from "@hsn/protocol/app";
 import { err, ok, Result } from "neverthrow";
 import type { ChunkLine, ControlError, ReplyLine } from "../src/control-protocol/index.ts";
@@ -62,6 +70,39 @@ const remove = Result.fromThrowable(
   },
   () => undefined,
 );
+
+// ----- The hub's data folder, for what a refused connection means (client.ts) -----
+
+/** Whether this account can list a folder: it can, it is refused, there is none, or another error. */
+export type FolderListing = "listed" | "refused" | "missing" | "other";
+
+function errorCode(thrown: unknown): string {
+  return typeof thrown === "object" &&
+    thrown !== null &&
+    "code" in thrown &&
+    typeof thrown.code === "string"
+    ? thrown.code
+    : "";
+}
+
+/** Lists the folder, keeping only whether it could (m2-design.md section 9, Windows). */
+export function listFolder(path: string): FolderListing {
+  return Result.fromThrowable(
+    () => {
+      readdirSync(path);
+      return "listed" as const;
+    },
+    (thrown): FolderListing => {
+      const code = errorCode(thrown);
+      if (code === "EACCES" || code === "EPERM") return "refused";
+      if (code === "ENOENT") return "missing";
+      return "other";
+    },
+  )().match(
+    (listed) => listed,
+    (refused) => refused,
+  );
+}
 
 // ----- `hsn open`'s page (console-page.ts): the only file calls it makes itself -----
 

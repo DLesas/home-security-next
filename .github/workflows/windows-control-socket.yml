@@ -105,3 +105,11 @@ jobs:
               echo "</details>"
             done
           } >> "$GITHUB_STEP_SUMMARY"
+          # The same rows in the log too: the job summary is not in `gh run view --log`, nor
+          # served to a reader who is not signed in. Paths, codes and messages only, no secret.
+          for file in results/*.md; do
+            [ -f "$file" ] || continue
+            echo "::group::$file"
+            cat "$file"
+            echo "::endgroup::"
+          done
