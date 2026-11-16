@@ -1,0 +1,207 @@
+# `bun run check` on every push (M2, A9; docs/m2-design.md section 11). The stages are read from
+# the root package.json's `check` script at run time, so this runs exactly what `bun run check`
+# runs; each stage runs even when one before it failed, so a first run shows every problem, and
+# the job fails if any stage failed. Each stage's result, time and last lines go to the job
+# summary. If `check` is ever not a plain `bun run a && bun run b …` chain, the job runs
+# `bun run check` itself instead. A second job runs the root-only tests (hub/test/root/) under
+# sudo on Linux and macOS.
+name: Check (bun run check)
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.2
+
+      - name: Tools
+        shell: bash
+        run: |
+          {
+            echo "# bun run check"
+            echo
+            echo "Commit \`${GITHUB_SHA}\` on \`${GITHUB_REF_NAME}\`, $(. /etc/os-release && echo "$PRETTY_NAME") $(uname -m)"
+            echo
+            echo "| Tool | Version | From |"
+            echo "| --- | --- | --- |"
+            echo "| Bun | $(bun --version) | oven-sh/setup-bun (pinned above) |"
+            echo "| Node.js (verify:vectors) | $(node --version 2>&1) | the runner image |"
+            echo "| bash | ${BASH_VERSION} | the runner image |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Install dependencies
+        shell: bash
+        run: |
+          set +e
+          mkdir -p "$RUNNER_TEMP/check"
+          start=$SECONDS
+          bun install --frozen-lockfile > "$RUNNER_TEMP/check/install.txt" 2>&1
+          code=$?
+          cat "$RUNNER_TEMP/check/install.txt"
+          {
+            echo
+            if [ "$code" -eq 0 ]; then
+              echo "- ✅ \`bun install --frozen-lockfile\` ($((SECONDS - start)) s)"
+            else
+              echo "- ❌ \`bun install --frozen-lockfile\`: exit $code ($((SECONDS - start)) s); no stage was run"
+              echo
+              echo '```'
+              tail -n 40 "$RUNNER_TEMP/check/install.txt"
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$code"
+
+      - name: bun run check, stage by stage
+        id: stages
+        shell: bash
+        run: |
+          set +e
+          out="$RUNNER_TEMP/check"
+          mkdir -p "$out"
+          # The stages of `check`, from package.json: `bun run <name>` joined by `&&`.
+          chain=$(bun -e 'console.log(JSON.parse(require("fs").readFileSync("package.json","utf8")).scripts.check ?? "")')
+          echo "check is: $chain"
+          stages=$(printf '%s\n' "$chain" | awk -F' && ' '{ for (i = 1; i <= NF; i++) print $i }')
+          plain=yes
+          while IFS= read -r stage; do
+            case "$stage" in
+              "bun run "*) name=${stage#bun run }; case "$name" in *" "* | "") plain=no ;; esac ;;
+              *) plain=no ;;
+            esac
+          done <<< "$stages"
+          if [ "$plain" != yes ] || [ -z "$chain" ]; then
+            echo "check is not a plain chain of bun run stages: running bun run check as it is"
+            stages="bun run check"
+          fi
+          failed=0
+          n=0
+          : > "$out/stages.md"
+          {
+            echo
+            echo "## Stages"
+            echo
+            echo "| Stage | Result | Time |"
+            echo "| --- | --- | --- |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          while IFS= read -r stage; do
+            n=$((n + 1))
+            name=${stage#bun run }
+            log="$out/$n-$name.txt"
+            echo "::group::$stage"
+            start=$SECONDS
+            bash -c "$stage" > "$log" 2>&1 < /dev/null
+            code=$?
+            cat "$log"
+            echo "::endgroup::"
+            if [ "$code" -eq 0 ]; then mark="✅"; else mark="❌ exit $code"; failed=$((failed + 1)); fi
+            echo "| \`$stage\` | $mark | $((SECONDS - start)) s |" >> "$GITHUB_STEP_SUMMARY"
+            {
+              echo
+              echo "### \`$stage\`: $mark"
+              echo
+              case "$name" in
+                test)
+                  echo '```'
+                  grep -E '^\s*\(fail\)|^\s*[0-9]+ (pass|fail|skip|todo)$|^Ran |^error:' "$log" | tail -n 60
+                  echo '```'
+                  ;;
+                format:check)
+                  echo '```'
+                  grep -E '^\[warn\]|^\[error\]|All matched files|Code style issues' "$log" | tail -n 60
+                  echo '```'
+                  ;;
+                lint)
+                  echo '```'
+                  grep -E '^\s+[0-9]+:[0-9]+|^/|problems?\b' "$log" | sed "s|$GITHUB_WORKSPACE/||" | tail -n 60
+                  echo '```'
+                  ;;
+                typecheck)
+                  echo '```'
+                  grep -E 'error TS[0-9]+' "$log" | tail -n 60
+                  echo "($(grep -cE 'error TS[0-9]+' "$log") TypeScript errors)"
+                  echo '```'
+                  ;;
+                *)
+                  echo '```'
+                  tail -n 20 "$log"
+                  echo '```'
+                  ;;
+              esac
+              if [ "$code" -ne 0 ]; then
+                echo
+                echo "<details><summary>The last 80 lines</summary>"
+                echo
+                echo '```'
+                tail -n 80 "$log"
+                echo '```'
+                echo
+                echo "</details>"
+              fi
+            } >> "$out/stages.md"
+          done <<< "$stages"
+          cat "$out/stages.md" >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo
+            if [ "$failed" -eq 0 ]; then echo "**Every stage passed.**"; else echo "**$failed stage(s) failed.**"; fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          [ "$failed" -eq 0 ]
+
+  # hsn's drop of root (m2-design.md section 9, "Dropping privileges in Bun"), proved where it
+  # runs: hub/test/root/ as root through sudo, with the system's own `daemon` account as the one to
+  # become. The step fails if the tests were skipped or fewer than three of them passed.
+  root-drop:
+    name: Root-only drop test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.2
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: hub/test/root/ as root
+        shell: bash
+        run: |
+          set +e
+          out=$(sudo env "PATH=$PATH" HSN_TEST_ACCOUNT=daemon "$(command -v bun)" test hub/test/root/ 2>&1)
+          code=$?
+          printf '%s\n' "$out"
+          passed=$(printf '%s\n' "$out" | grep -cE '^\(pass\) hsn gives up root for good')
+          skipped=no
+          if printf '%s\n' "$out" | grep -q 'privilege-drop: skipped'; then skipped=yes; fi
+          ok=yes
+          [ "$code" -eq 0 ] && [ "$skipped" = no ] && [ "$passed" -ge 3 ] || ok=no
+          {
+            echo "# Root-only drop test, $(uname -s) $(uname -m)"
+            echo
+            if [ "$ok" = yes ]; then echo "- ✅ hub/test/root/ as root: $passed root-only tests passed"; else echo "- ❌ hub/test/root/ as root: exit $code, $passed root-only tests passed (3 needed), skipped: $skipped"; fi
+            echo
+            echo '```'
+            printf '%s\n' "$out" | grep -E '^\((pass|fail|skip)\)|^\s*[0-9]+ (pass|fail|skip)$|^Ran |privilege-drop:|error' | tail -n 40
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          [ "$ok" = yes ]

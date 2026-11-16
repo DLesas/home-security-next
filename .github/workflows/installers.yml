@@ -1,0 +1,1330 @@
+# The installer matrix (M2, A9; docs/m2-design.md section 10, "The installer", and section 9: the
+# table, "The privilege boundary", "Tested on the hosted machines"). Windows first (D124): the
+# .msi job runs on every push touching the hub; the .deb (x64, arm64) and .pkg jobs run only by
+# hand (workflow_dispatch, `systems`). Each builds its package from hub/packaging/ exactly as the
+# build script expects, installs it as a person would (silently: no person is at a runner), runs
+# A8's hosted `owners` and `console` checks, checks that the service runs as its own account from
+# the package's tree, that `hsn status` answers an administrator, that the console listener
+# serves the web app, and that the launcher restarts a killed hub; then uninstalls (the program
+# and the service gone, both hub trees kept) and removes with data (both hub trees gone).
+#
+# The privilege boundary's planted links and the top folder replaced by a link (A8's `plant`,
+# `verify`, `link-top`) run in their own jobs, by hand only (`boundary`), around an upgrade
+# between two builds of the package, an uninstall and a removal with data.
+#
+# Every check is one ✅ or ❌ line in the job summary (installer-checks.sh, installer-checks.ps1);
+# no check stops the job, and its last step fails if any failed. Logs are redacted (no link code,
+# console address, token or long key-like string) before they are shown or uploaded; hub.db and
+# the hub's keys are never read. What a hosted runner cannot show: a reboot, a real UAC prompt,
+# what a person sees in the browser.
+name: Installers (A9)
+
+on:
+  workflow_dispatch:
+    inputs:
+      systems:
+        description: "Which installers to build and test"
+        type: choice
+        options: [windows, linux-x64, linux-arm64, macos, all]
+        default: windows
+      boundary:
+        description: "Also run the privilege-boundary jobs (plant, verify, link-top around an upgrade, an uninstall and a removal with data)"
+        type: boolean
+        default: false
+  push:
+    paths:
+      - "hub/**"
+      - "app/**"
+      - "packages/**"
+      - "package.json"
+      - "bun.lock"
+      - ".github/workflows/installers.yml"
+      - ".github/workflows/installer-checks.*"
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    name: Linux ${{ matrix.arch }} .deb
+    if: ${{ github.event_name == 'workflow_dispatch' && (inputs.systems == 'all' || startsWith(inputs.systems, 'linux-')) }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(inputs.systems == 'linux-x64' && '[{"runner":"ubuntu-24.04","arch":"amd64"}]' || inputs.systems == 'linux-arm64' && '[{"runner":"ubuntu-24.04-arm","arch":"arm64"}]' || '[{"runner":"ubuntu-24.04","arch":"amd64"},{"runner":"ubuntu-24.04-arm","arch":"arm64"}]') }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    env:
+      ARCH: ${{ matrix.arch }}
+      PKG: /usr/lib/hsn-hub
+      DATA: /var/lib/hsn-hub
+      PROGRAM: /var/lib/hsn-hub-program
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.2
+
+      - name: Tools
+        shell: bash
+        run: |
+          . .github/workflows/installer-checks.sh
+          say "# Linux $ARCH: the .deb" ""
+          say "Commit \`$GITHUB_SHA\`, $(. /etc/os-release && echo "$PRETTY_NAME"), $(uname -m), kernel $(uname -r)" ""
+          say "| Tool | Version | From |" "| --- | --- | --- |"
+          say "| Bun | $(bun --version) | oven-sh/setup-bun (pinned) |"
+          say "| dpkg-deb, dpkg | $(dpkg-deb --version | head -n1) | the system (dpkg) |"
+          say "| apt-get | $(apt-get --version | head -n1) | the system (apt) |"
+          say "| systemd, systemctl, journalctl, systemd-inhibit | $(systemctl --version | head -n1) | the system (systemd) |"
+          say "| adduser, deluser | $(dpkg-query -W -f='${Version}' adduser 2>/dev/null) | the system (adduser) |"
+          say "| procps (pgrep), iproute2 (ss), coreutils, findutils | (the system's) | the system |"
+          say "| sudo, curl, file | $(sudo --version | head -n1); $(curl --version | head -n1 | cut -d' ' -f1-2) | the runner image |"
+          say ""
+          expect "The runner's architecture is the package's" "$ARCH" "$(dpkg --print-architecture)"
+
+      - name: Install dependencies
+        shell: bash
+        run: |
+          . .github/workflows/installer-checks.sh
+          heading "Build"
+          check "bun install --frozen-lockfile" bun install --frozen-lockfile
+
+      - name: Export the web app
+        shell: bash
+        run: |
+          . .github/workflows/installer-checks.sh
+          check "bun run app:export (the web build the package carries)" bun run app:export
+          check "app/dist/index.html exists" test -f app/dist/index.html
+
+      - name: Build the .deb
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: |
+          . .github/workflows/installer-checks.sh
+          built=$(sh hub/packaging/linux/build-deb.sh "$ARCH" "$RUNNER_TEMP/out" 2>&1)
+          code=$?
+          keep_text build-deb.txt "$built" 30
+          deb=$(printf '%s\n' "$built" | tail -n 1)
+          if [ "$code" -ne 0 ] || [ ! -f "$deb" ]; then
+            fail "build-deb.sh $ARCH built a package" "exit $code: $(printf '%s' "$built" | tail -n 4 | one_line)"
+            exit 0
+          fi
+          pass "build-deb.sh $ARCH built \`$(basename "$deb")\`"
+          echo "DEB=$deb" >> "$GITHUB_ENV"
+          echo "VERSION=$(dpkg-deb -f "$deb" Version)" >> "$GITHUB_ENV"
+          say "" "| | |" "| --- | --- |"
+          say "| Size | $(stat -c %s "$deb") bytes |"
+          say "| SHA-256 | \`$(sha256sum "$deb" | cut -d' ' -f1)\` |"
+          say "| Version | $(dpkg-deb -f "$deb" Version) |"
+          say "| Architecture | $(dpkg-deb -f "$deb" Architecture) |"
+          say "| Depends | $(dpkg-deb -f "$deb" Depends) |"
+          say ""
+          expect "The package's architecture" "$ARCH" "$(dpkg-deb -f "$deb" Architecture)"
+          dpkg-deb -c "$deb" > "$HSN_CHECKS/logs/deb-files.txt"
+          files=$(wc -l < "$HSN_CHECKS/logs/deb-files.txt")
+          web=$(grep -c '/web/' "$HSN_CHECKS/logs/deb-files.txt")
+          say "" "<details><summary>The package's files: $files entries ($web under web/, not listed here; all in deb-files.txt)</summary>" "" '```'
+          grep -v '/web/.' "$HSN_CHECKS/logs/deb-files.txt" >> "$GITHUB_STEP_SUMMARY"
+          say '```' "" "</details>"
+          say "" "<details><summary>The control file and maintainer scripts</summary>" "" '```'
+          dpkg-deb -I "$deb" >> "$GITHUB_STEP_SUMMARY"
+          say '```' "" "</details>"
+
+      - name: Install with apt
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: |
+          . .github/workflows/installer-checks.sh
+          heading "Install"
+          if [ -z "${DEB:-}" ]; then fail "apt-get install" "no package was built"; exit 0; fi
+          installed=$(sudo env DEBIAN_FRONTEND=noninteractive NEEDRESTART_SUSPEND=1 apt-get install -y "$DEB" 2>&1)
+          code=$?
+          keep_text apt-install.txt "$installed" 30
+          expect "sudo apt-get install -y ./$(basename "$DEB")" "0" "$code"
+          expect "dpkg says it is installed" "install ok installed" "$(dpkg-query -W -f='${Status}' hsn-hub 2>&1)"
+          # No person at a runner: the postinst's silent path makes no token and shows no code.
+          check "A silent install tells the person to run sudo hsn open, and makes no token" sh -c 'printf "%s\n" "$1" | grep -q "sudo hsn open" && ! printf "%s\n" "$1" | grep -qi "link the first browser or phone with:"' _ "$installed"
+          check "The package's installed marker is there" sudo test -f "$PKG/installed"
+
+      - name: A8's hosted check, owners
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: |
+          . .github/workflows/installer-checks.sh
+          heading "The package's tree and the hub's top folders (A8's check.sh owners)"
+          check "The hub answers before the checks (sudo hsn status within 90 s)" wait_until 90 sudo hsn status
+          hosted owners
+
+      - name: The service
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: |
+          . .github/workflows/installer-checks.sh
+          heading "The service"
+          check "hsn-hub.service is active within 60 s" wait_until 60 systemctl is-active --quiet hsn-hub.service
+          expect "Enabled at boot" "enabled" "$(systemctl is-enabled hsn-hub.service 2>&1)"
+          expect "Runs as" "User=hsn" "$(systemctl show -p User hsn-hub.service)"
+          expect "Restarted by systemd" "Restart=on-failure" "$(systemctl show -p Restart hsn-hub.service)"
+          expect "After" "RestartUSec=5s" "$(systemctl show -p RestartUSec hsn-hub.service)"
+          check "hsn-hub-inhibit.service (as root, bound to the hub's) is active" wait_until 30 systemctl is-active --quiet hsn-hub-inhibit.service
+          check "Sleep is held off (systemd-inhibit --list names HSN Hub)" sh -c 'systemd-inhibit --list --no-pager 2>/dev/null | grep -q "HSN Hub"'
+          check "The hub's process runs within 90 s" wait_until 90 hub_runs
+          expect "The hub's process runs as" "hsn" "$(ps -o user= -p "$(hub_pid)" 2>/dev/null | tr -d ' ')"
+          check "It runs this version from the package's tree" sh -c 'case "$1" in "$2/packaged/$3/bin/hsn-hub --data $4"*) exit 0 ;; *) echo "$1"; exit 1 ;; esac' _ "$(args_of "$(hub_pid)")" "$PKG" "$VERSION" "$DATA"
+          expect "The launcher's process runs as" "hsn" "$(ps -o user= -p "$(launcher_pid)" 2>/dev/null | tr -d ' ')"
+          check "The launcher runs from the package's tree with the two trees and the data folder" sh -c 'case "$1" in "$2/bin/hsn-launcher --package $2 --program $3 --data $4"*) exit 0 ;; *) echo "$1"; exit 1 ;; esac' _ "$(args_of "$(launcher_pid)")" "$PKG" "$PROGRAM" "$DATA"
+          check "The hub's account is in dialout" sh -c 'id -nG hsn | tr " " "\n" | grep -qx dialout'
+          check "The control socket appears within 120 s" wait_until 120 sudo test -S "$DATA/control.sock"
+          expect "systemd never had to restart the launcher" "NRestarts=0" "$(systemctl show -p NRestarts hsn-hub.service)"
+          check "The launcher's state, read as the hub's account, names this version" sh -c 'sudo -u hsn cat "$1/state/launcher.json" | grep -q "\"current\":\"$2\""' _ "$PROGRAM" "$VERSION"
+          check "Nothing of the old single-tree layout (/opt/hsn-hub)" absent /opt/hsn-hub
+          info "Listening" "$(ss -ltnH 2>/dev/null | awk '{print $4}' | grep -E ':(8443|8444|8445)$' | tr '\n' ' ')"
+          if command -v ufw >/dev/null && sudo ufw status | grep -q 'Status: active'; then
+            check "ufw allows the two LAN ports and mDNS" sh -c 'sudo ufw status | grep -q 8443/tcp && sudo ufw status | grep -q 8444/tcp && sudo ufw status | grep -q 5353/udp'
+          else
+            info "ufw is not active on this runner: the postinst adds no rule, as designed"
+          fi
+
+      - name: hsn status, and the console
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: |
+          . .github/workflows/installer-checks.sh
+          heading "hsn and the console"
+          status=$(sudo hsn status 2>&1)
+          code=$?
+          expect "sudo hsn status's exit code" "0" "$code"
+          say "" '```'
+          printf '%s\n' "$status" | redact | head -n 40 >> "$GITHUB_STEP_SUMMARY"
+          say '```'
+          refused=$(cd / && sudo -u nobody /usr/bin/hsn status 2>&1)
+          code=$?
+          expect "An ordinary account (nobody) is refused: exit 77" "77" "$code"
+          info "What nobody was told" "$(printf '%s' "$refused" | one_line)"
+          check "The console (127.0.0.1:8445) answers 200 within 60 s" wait_until 60 curl -fsS -o /dev/null http://127.0.0.1:8445/
+          check "The console serves the web app's page" sh -c 'curl -fsS http://127.0.0.1:8445/ | grep -qi "<html"'
+          hosted console
+
+      - name: The hub's trees
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: |
+          . .github/workflows/installer-checks.sh
+          heading "The hub's trees ($DATA, $PROGRAM)"
+          for tree in "$DATA" "$PROGRAM"; do
+            expect "$tree: nothing inside is open to group or others" "" "$(sudo find "$tree" -mindepth 1 -perm /077 ! -type l 2>&1 | head -n 5)"
+            expect "$tree: everything inside belongs to hsn" "" "$(sudo find "$tree" -mindepth 1 ! -user hsn 2>&1 | head -n 5)"
+            info "$tree holds (names only)" "$(sudo ls -A "$tree" | tr '\n' ' ')"
+          done
+          check "The hub made its database (hub.db)" sudo test -e "$DATA/hub.db"
+          check "The launcher keeps its state in the hub's program tree" sudo test -f "$PROGRAM/state/launcher.json"
+
+      - name: A killed hub is restarted
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: |
+          . .github/workflows/installer-checks.sh
+          heading "Restart after a crash"
+          old=$(hub_pid)
+          if [ -z "$old" ]; then fail "The launcher restarts a killed hub" "no hub process to kill"; exit 0; fi
+          sudo kill -KILL "$old"
+          restarted() { new=$(hub_pid); [ -n "$new" ] && [ "$new" != "$old" ] && sudo hsn status >/dev/null 2>&1; }
+          check "The launcher restarts a killed hub and hsn status answers again within 60 s" wait_until 60 restarted
+          expect "systemd did not restart the launcher for it" "NRestarts=0" "$(systemctl show -p NRestarts hsn-hub.service)"
+
+      - name: Logs
+        if: always()
+        shell: bash
+        run: |
+          . .github/workflows/installer-checks.sh
+          heading "Logs"
+          keep_text journal.txt "$(sudo journalctl -u hsn-hub.service -u hsn-hub-inhibit.service --no-pager -o short-iso -n 1000 2>&1)" 40
+          keep_log launcher-status.json "$DATA/launcher-status.json" 20
+          keep_log fatal.log "$DATA/fatal.log" 20
+          keep_text units.txt "$(systemctl cat hsn-hub.service hsn-hub-inhibit.service 2>&1; systemctl status hsn-hub.service hsn-hub-inhibit.service --no-pager 2>&1)" 30
+
+      - name: Uninstall (apt-get remove)
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: |
+          . .github/workflows/installer-checks.sh
+          heading "Uninstall: apt-get remove keeps both hub trees"
+          removed=$(sudo env DEBIAN_FRONTEND=noninteractive apt-get remove -y hsn-hub 2>&1)
+          code=$?
+          keep_text apt-remove.txt "$removed" 20
+          expect "sudo apt-get remove -y hsn-hub" "0" "$code"
+          check_not "dpkg no longer has it installed" sh -c 'dpkg-query -W -f="\${Status}" hsn-hub 2>/dev/null | grep -q "install ok installed"'
+          check_not "The hub's unit is gone" systemctl cat hsn-hub.service
+          check_not "The sleep unit is gone" systemctl cat hsn-hub-inhibit.service
+          check "No process of the hub's account is left within 30 s" wait_until 30 sh -c '! pgrep -u hsn >/dev/null'
+          check "/usr/bin/hsn is gone" absent /usr/bin/hsn
+          check "The package's tree ($PKG) is gone" absent "$PKG"
+          check "The data folder is kept" sudo test -d "$DATA"
+          check "The database is kept" sudo test -e "$DATA/hub.db"
+          check "The hub's program tree is kept" sudo test -d "$PROGRAM"
+          info "The hub's account after remove" "$(getent passwd hsn || echo 'gone')"
+
+      - name: Purge (apt-get purge)
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: |
+          . .github/workflows/installer-checks.sh
+          heading "Purge: apt-get purge removes both hub trees and the account"
+          purged=$(sudo env DEBIAN_FRONTEND=noninteractive apt-get purge -y hsn-hub 2>&1)
+          code=$?
+          keep_text apt-purge.txt "$purged" 20
+          expect "sudo apt-get purge -y hsn-hub" "0" "$code"
+          check "The data folder is gone" absent "$DATA"
+          check "The hub's program tree is gone" absent "$PROGRAM"
+          check_not "The account hsn is gone" getent passwd hsn
+          info "The group hsn after purge" "$(getent group hsn || echo 'gone')"
+          check_not "dpkg has forgotten it" sh -c 'dpkg-query -W -f="\${Status}" hsn-hub 2>/dev/null | grep -qv "not-installed"'
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: installer-linux-${{ matrix.arch }}-logs
+          path: ${{ runner.temp }}/hsn-checks/logs/
+          if-no-files-found: warn
+
+      - name: Result
+        if: always()
+        shell: bash
+        run: |
+          . .github/workflows/installer-checks.sh
+          finish
+
+  macos:
+    name: macOS arm64 .pkg
+    if: ${{ github.event_name == 'workflow_dispatch' && (inputs.systems == 'macos' || inputs.systems == 'all') }}
+    runs-on: macos-15
+    timeout-minutes: 45
+    env:
+      PKG: /usr/local/hsn-hub
+      DATA: /Library/Application Support/HSN Hub
+      PROGRAM: /Library/Application Support/HSN Hub Program
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.2
+
+      - name: Tools
+        shell: bash
+        run: |
+          . .github/workflows/installer-checks.sh
+          say "# macOS arm64: the .pkg" ""
+          say "Commit \`$GITHUB_SHA\`, macOS $(sw_vers -productVersion) ($(sw_vers -buildVersion)), $(uname -m)" ""
+          say "| Tool | Version | From |" "| --- | --- | --- |"
+          say "| Bun | $(bun --version) | oven-sh/setup-bun (pinned) |"
+          say "| pkgbuild, pkgutil, installer, launchctl, dscl, plutil, log, stat, shasum, curl, sudo | (the system's) | the system |"
+          say "| bash | $BASH_VERSION | the runner image |"
+          say ""
+          expect "The runner is arm64" "arm64" "$(uname -m)"
+
+      - name: Install dependencies
+        shell: bash
+        run: |
+          . .github/workflows/installer-checks.sh
+          heading "Build"
+          check "bun install --frozen-lockfile" bun install --frozen-lockfile
+
+      - name: Export the web app
+        shell: bash
+        run: |
+          . .github/workflows/installer-checks.sh
+          check "bun run app:export (the web build the package carries)" bun run app:export
+          check "app/dist/index.html exists" test -f app/dist/index.html
+
+      - name: Build the .pkg
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: |
+          . .github/workflows/installer-checks.sh
+          built=$(sh hub/packaging/macos/build-pkg.sh "$RUNNER_TEMP/out" 2>&1)
+          code=$?
+          keep_text build-pkg.txt "$built" 30
+          pkg=$(printf '%s\n' "$built" | tail -n 1)
+          if [ "$code" -ne 0 ] || [ ! -f "$pkg" ]; then
+            fail "build-pkg.sh built a package" "exit $code: $(printf '%s' "$built" | tail -n 4 | one_line)"
+            exit 0
+          fi
+          pass "build-pkg.sh built \`$(basename "$pkg")\`"
+          echo "PKGFILE=$pkg" >> "$GITHUB_ENV"
+          expanded="$RUNNER_TEMP/pkg-expanded"
+          rm -rf "$expanded" && pkgutil --expand "$pkg" "$expanded"
+          version=$(sed -nE 's/.*<pkg-info [^>]* version="([^"]+)".*/\1/p' "$expanded/PackageInfo" | head -n 1)
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+          say "" "| | |" "| --- | --- |"
+          say "| Size | $(stat -f %z "$pkg") bytes |"
+          say "| SHA-256 | \`$(shasum -a 256 "$pkg" | cut -d' ' -f1)\` |"
+          say "| Version | $version |"
+          say "| Signature | $(pkgutil --check-signature "$pkg" 2>&1 | sed -n 2p | sed 's/^ *//') |"
+          say ""
+          pkgutil --payload-files "$pkg" > "$HSN_CHECKS/logs/pkg-files.txt"
+          files=$(wc -l < "$HSN_CHECKS/logs/pkg-files.txt" | tr -d ' ')
+          web=$(grep -c '/web/' "$HSN_CHECKS/logs/pkg-files.txt")
+          say "" "<details><summary>The payload: $files entries ($web under web/, not listed here; all in pkg-files.txt)</summary>" "" '```'
+          grep -v '/web/.' "$HSN_CHECKS/logs/pkg-files.txt" >> "$GITHUB_STEP_SUMMARY"
+          say '```' "" "</details>"
+          say "" "<details><summary>PackageInfo and the scripts</summary>" "" '```'
+          cat "$expanded/PackageInfo" >> "$GITHUB_STEP_SUMMARY"
+          ls -l "$expanded/Scripts" >> "$GITHUB_STEP_SUMMARY"
+          say '```' "" "</details>"
+          check "The .pkg carries its uninstaller (usr/local/hsn-hub/uninstall.sh)" grep -qx './usr/local/hsn-hub/uninstall.sh' "$HSN_CHECKS/logs/pkg-files.txt"
+          rm -rf "$expanded"
+
+      - name: Install with installer
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: |
+          . .github/workflows/installer-checks.sh
+          heading "Install"
+          if [ -z "${PKGFILE:-}" ]; then fail "sudo installer -pkg … -target /" "no package was built"; exit 0; fi
+          since=$(date '+%Y-%m-%d %H:%M:%S')
+          echo "SINCE=$since" >> "$GITHUB_ENV"
+          installed=$(sudo installer -pkg "$PKGFILE" -target / -verboseR 2>&1)
+          code=$?
+          keep_text installer.txt "$installed" 30
+          expect "sudo installer -pkg $(basename "$PKGFILE") -target /" "0" "$code"
+          check "pkgutil knows com.hsn.hub" pkgutil --pkg-info com.hsn.hub
+          lines=$(sudo cat /var/log/install.log | awk -v since="$since" 'substr($0, 1, 19) >= since' | grep -E 'com\.hsn\.hub|hsn-hub|HSN Hub|postinstall|preinstall|launcher:|hsn:')
+          keep_text install-log.txt "$lines" 40
+          # `installer` on the command line is a silent install: no token, no page.
+          check "A silent install tells the person to run sudo hsn open (install.log)" sh -c 'printf "%s\n" "$1" | grep -q "sudo hsn open"' _ "$lines"
+          check "The package's installed marker is there" sudo test -f "$PKG/installed"
+
+      - name: A8's hosted check, owners
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: |
+          . .github/workflows/installer-checks.sh
+          heading "The package's tree and the hub's top folders (A8's check.sh owners)"
+          check "The hub answers before the checks (sudo hsn status within 90 s)" wait_until 90 sudo hsn status
+          hosted owners
+
+      - name: The service
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: |
+          . .github/workflows/installer-checks.sh
+          heading "The service"
+          running() { sudo launchctl print system/com.hsn.hub 2>/dev/null | grep -q 'state = running'; }
+          check "launchd runs system/com.hsn.hub within 60 s" wait_until 60 running
+          printed=$(sudo launchctl print system/com.hsn.hub 2>&1)
+          keep_text launchctl-print.txt "$printed" 60
+          expect "Runs as" "username = _hsnhub" "$(printf '%s\n' "$printed" | grep -m1 -E '^[[:space:]]*username = ' | sed 's/^[[:space:]]*//')"
+          expect "launchd started the launcher once (runs = 1)" "runs = 1" "$(printf '%s\n' "$printed" | grep -m1 -E '^[[:space:]]*runs = ' | sed 's/^[[:space:]]*//')"
+          check "The hub's process runs within 90 s" wait_until 90 hub_runs
+          expect "The hub's process runs as" "_hsnhub" "$(ps -o user= -p "$(hub_pid)" 2>/dev/null | tr -d ' ')"
+          check "It runs this version from the package's tree" sh -c 'case "$1" in "$2/packaged/$3/bin/hsn-hub --data $4"*) exit 0 ;; *) echo "$1"; exit 1 ;; esac' _ "$(args_of "$(hub_pid)")" "$PKG" "$VERSION" "$DATA"
+          expect "The launcher's process runs as" "_hsnhub" "$(ps -o user= -p "$(launcher_pid)" 2>/dev/null | tr -d ' ')"
+          check "The launcher runs from the package's tree with the two trees and the data folder" sh -c 'case "$1" in "$2/bin/hsn-launcher --package $2 --program $3 --data $4"*) exit 0 ;; *) echo "$1"; exit 1 ;; esac' _ "$(args_of "$(launcher_pid)")" "$PKG" "$PROGRAM" "$DATA"
+          check "Sleep is held off (caffeinate -s -w <the hub's pid>)" sh -c 'ps -axo command | grep -v grep | grep -q "caffeinate -s -w $1\$"' _ "$(hub_pid)"
+          check "The control socket appears within 120 s" wait_until 120 sudo test -S "$DATA/control.sock"
+          check "The launcher's state, read as the hub's account, names this version" sh -c 'sudo -u _hsnhub cat "$1/state/launcher.json" | grep -q "\"current\":\"$2\""' _ "$PROGRAM" "$VERSION"
+          uid=$(dscl . -read /Users/_hsnhub UniqueID 2>/dev/null | awk '{print $2}')
+          check "The hub's user _hsnhub exists with an id below 500" test -n "$uid" -a "${uid:-999}" -lt 500
+          expect "It is hidden" "IsHidden: 1" "$(dscl . -read /Users/_hsnhub IsHidden 2>&1)"
+          expect "It has no shell" "UserShell: /usr/bin/false" "$(dscl . -read /Users/_hsnhub UserShell 2>&1)"
+          check "Nothing of the old layout (/usr/local/libexec/hsn-hub, /Library/Logs/HSN Hub)" sh -c '! test -e /usr/local/libexec/hsn-hub && ! test -e "/Library/Logs/HSN Hub"'
+          info "Listening" "$(sudo lsof -nP -iTCP -sTCP:LISTEN 2>/dev/null | awk '/hsn-hub/ {print $9}' | sort -u | tr '\n' ' ')"
+
+      - name: hsn status, and the console
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: |
+          . .github/workflows/installer-checks.sh
+          heading "hsn and the console"
+          status=$(sudo hsn status 2>&1)
+          code=$?
+          expect "sudo hsn status's exit code" "0" "$code"
+          say "" '```'
+          printf '%s\n' "$status" | redact | head -n 40 >> "$GITHUB_STEP_SUMMARY"
+          say '```'
+          refused=$(cd / && sudo -u nobody /usr/local/bin/hsn status 2>&1)
+          code=$?
+          expect "An ordinary account (nobody) is refused: exit 77" "77" "$code"
+          info "What nobody was told" "$(printf '%s' "$refused" | one_line)"
+          check "The console (127.0.0.1:8445) answers 200 within 60 s" wait_until 60 curl -fsS -o /dev/null http://127.0.0.1:8445/
+          check "The console serves the web app's page" sh -c 'curl -fsS http://127.0.0.1:8445/ | grep -qi "<html"'
+          hosted console
+
+      - name: The hub's trees
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: |
+          . .github/workflows/installer-checks.sh
+          heading "The hub's trees ($DATA, $PROGRAM)"
+          for tree in "$DATA" "$PROGRAM"; do
+            expect "$tree: nothing inside is open to group or others" "" "$(sudo find "$tree" -mindepth 1 -perm +077 ! -type l 2>&1 | head -n 5)"
+            expect "$tree: everything inside belongs to _hsnhub" "" "$(sudo find "$tree" -mindepth 1 ! -user _hsnhub 2>&1 | head -n 5)"
+            info "$tree holds (names only)" "$(sudo ls -A "$tree" | tr '\n' ' ')"
+          done
+          check "The hub made its database (hub.db)" sudo test -e "$DATA/hub.db"
+          check "The launcher keeps its state in the hub's program tree" sudo test -f "$PROGRAM/state/launcher.json"
+
+      - name: A killed hub is restarted
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: |
+          . .github/workflows/installer-checks.sh
+          heading "Restart after a crash"
+          old=$(hub_pid)
+          if [ -z "$old" ]; then fail "The launcher restarts a killed hub" "no hub process to kill"; exit 0; fi
+          sudo kill -KILL "$old"
+          restarted() { new=$(hub_pid); [ -n "$new" ] && [ "$new" != "$old" ] && sudo hsn status >/dev/null 2>&1; }
+          check "The launcher restarts a killed hub and hsn status answers again within 60 s" wait_until 60 restarted
+          expect "launchd did not restart the launcher for it" "runs = 1" "$(sudo launchctl print system/com.hsn.hub 2>/dev/null | grep -m1 -E '^[[:space:]]*runs = ' | sed 's/^[[:space:]]*//')"
+
+      - name: Logs
+        if: always()
+        shell: bash
+        run: |
+          . .github/workflows/installer-checks.sh
+          heading "Logs (the system log: the daemon names no log file)"
+          keep_log launcher-status.json "$DATA/launcher-status.json" 20
+          keep_log fatal.log "$DATA/fatal.log" 20
+          keep_text unified-log.txt "$(log show --style compact --start "${SINCE:-$(date -v-30M '+%Y-%m-%d %H:%M:%S')}" --predicate 'process == "logger" OR process == "hsn-launcher" OR process == "hsn-hub" OR eventMessage CONTAINS "com.hsn.hub"' 2>&1 | tail -n 300)" 30
+
+      - name: Uninstall (sudo hsn uninstall)
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: |
+          . .github/workflows/installer-checks.sh
+          heading "Uninstall: sudo hsn uninstall keeps both hub trees"
+          removed=$(sudo hsn uninstall 2>&1)
+          code=$?
+          keep_text uninstall.txt "$removed" 20
+          expect "sudo hsn uninstall" "0" "$code"
+          check_not "launchd no longer has system/com.hsn.hub" sudo launchctl print system/com.hsn.hub
+          check "No process of the hub's user is left within 30 s" wait_until 30 sh -c '! pgrep -u _hsnhub >/dev/null'
+          check "The package's tree ($PKG) is gone" absent "$PKG"
+          check "/usr/local/bin/hsn is gone" absent /usr/local/bin/hsn
+          check "The daemon's plist is gone" absent /Library/LaunchDaemons/com.hsn.hub.plist
+          check_not "pkgutil has forgotten com.hsn.hub" pkgutil --pkg-info com.hsn.hub
+          check "The data folder is kept" sudo test -d "$DATA"
+          check "The database is kept" sudo test -e "$DATA/hub.db"
+          check "The hub's program tree is kept" sudo test -d "$PROGRAM"
+          info "The hub's user after uninstall" "$(dscl . -read /Users/_hsnhub UniqueID 2>&1 | one_line)"
+
+      - name: Remove with data (sudo hsn uninstall --remove-data)
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: |
+          . .github/workflows/installer-checks.sh
+          heading "Removal with data: reinstalled, then sudo hsn uninstall --remove-data --yes"
+          # `hsn uninstall` went with the package: it is installed again first.
+          if [ -z "${PKGFILE:-}" ]; then fail "sudo hsn uninstall --remove-data" "no package was built"; exit 0; fi
+          again=$(sudo installer -pkg "$PKGFILE" -target / 2>&1)
+          code=$?
+          keep_text reinstall.txt "$again" 10
+          expect "Installed again over the kept data" "0" "$code"
+          check "The hub answers again (sudo hsn status within 90 s)" wait_until 90 sudo hsn status
+          # --yes: no person to type "remove" (the confirmation itself is uninstall.sh's).
+          purged=$(sudo hsn uninstall --remove-data --yes 2>&1)
+          code=$?
+          keep_text purge.txt "$purged" 20
+          expect "sudo hsn uninstall --remove-data --yes" "0" "$code"
+          check "The data folder is gone" absent "$DATA"
+          check "The hub's program tree is gone" absent "$PROGRAM"
+          check "The package's tree is gone" absent "$PKG"
+          check_not "The user _hsnhub is gone" dscl . -read /Users/_hsnhub
+          check_not "The group _hsnhub is gone" dscl . -read /Groups/_hsnhub
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: installer-macos-arm64-logs
+          path: ${{ runner.temp }}/hsn-checks/logs/
+          if-no-files-found: warn
+
+      - name: Result
+        if: always()
+        shell: bash
+        run: |
+          . .github/workflows/installer-checks.sh
+          finish
+
+  windows:
+    name: Windows x64 .msi
+    if: ${{ github.event_name == 'push' || inputs.systems == 'windows' || inputs.systems == 'all' }}
+    runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      # WiX Toolset 5, which build-msi.ps1 needs and the runner image does not carry (it carries
+      # at most WiX 3, whose `candle`/`light` cannot build hsn-hub.wix.xml). Each package is
+      # fetched from nuget.org and refused unless its SHA-512 is the one pinned here. The pins are
+      # nuget.org's own `packageHash` (SHA512, base64) from each package's catalog entry, read on
+      # 2026-11-15 (no package was downloaded to take them): they protect against a later change
+      # of the file, not against a wrong first read. Catalog entries:
+      #   catalog0/data/2024.10.05.01.27.27/wix.5.0.2.json (4,587,200 bytes)
+      #   catalog0/data/2024.10.05.01.26.54/wixtoolset.ui.wixext.5.0.2.json (795,434 bytes)
+      #   catalog0/data/2024.10.05.01.27.27/wixtoolset.util.wixext.5.0.2.json (888,252 bytes)
+      WIX_VERSION: 5.0.2
+      WIX_SHA512: "z+fu1deTcaV+TRCo4+6HrJ48Sdnj+yeQjjMStTI3GW7NxFEPaknYCdxrf0qEvgdXrjYdjLnkZKCsNSqTTOo2OA=="
+      WIX_UI_SHA512: "XaZi5p36bpveznFL7yAaVQhf19/WYMMbkKo1qSI1dDlmF7fvzH/25dlTpEvRC6lQO6DkOudG/tNc9RZXXoPJ+A=="
+      WIX_UTIL_SHA512: "ykiHMz3z9Uly1KuipvHQhm4cNtbM6JgA353IayqrdTTLnHEgO6Uai9w2T/1IaXdgxjrQ6PjfEaiQ4kYMedN43w=="
+      # WiX 5's `wix` targets an older .NET than the image's newest; let it run on that one.
+      DOTNET_ROLL_FORWARD: Major
+      DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+      DOTNET_NOLOGO: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.2
+
+      - name: Tools
+        shell: pwsh
+        run: |
+          . .github/workflows/installer-checks.ps1
+          $os = Get-CimInstance Win32_OperatingSystem
+          Write-Summary @("# Windows x64: the .msi", "", "Commit ``$env:GITHUB_SHA``, $($os.Caption) $($os.Version), $env:PROCESSOR_ARCHITECTURE", "")
+          $ps51 = & powershell.exe -NoProfile -Command '$PSVersionTable.PSVersion.ToString()'
+          $dotnet = (& dotnet --version 2>&1) -join " "
+          $wix = Get-Command wix -ErrorAction SilentlyContinue
+          $candle = Get-Command candle -ErrorAction SilentlyContinue
+          Write-Summary @(
+            "| Tool | Version | From |",
+            "| --- | --- | --- |",
+            "| Bun | $(bun --version) | oven-sh/setup-bun (pinned) |",
+            "| PowerShell 7 (these steps, build-msi.ps1, A8's check.ps1) | $($PSVersionTable.PSVersion) | the runner image |",
+            "| Windows PowerShell (the .msi's custom actions) | $ps51 | the system |",
+            "| msiexec, sc.exe, netsh, icacls, mountvol, robocopy | (the system's) | the system |",
+            "| .NET SDK (dotnet tool install, for WiX) | $dotnet | the runner image |",
+            "| WiX on the image | $(if ($wix) { "wix: $($wix.Source)" } elseif ($candle) { "WiX 3 only: $($candle.Source)" } else { "none" }) | the runner image |",
+            "| WiX $env:WIX_VERSION and its UI and Util extensions | pinned below | nuget.org, refused unless the pinned SHA-512 (nuget.org's packageHash, read 2026-11-15) |",
+            "| WinSW 2.12.0 | fetched by build-msi.ps1 | GitHub releases, refused unless hub/packaging/windows/winsw.sha256 |",
+            ""
+          )
+
+      - name: Install dependencies
+        shell: pwsh
+        run: |
+          . .github/workflows/installer-checks.ps1
+          Write-Heading "Build"
+          bun install --frozen-lockfile
+          $code = $LASTEXITCODE
+          Test-Check "bun install --frozen-lockfile" { if ($code -eq 0) { $true } else { "exit $code" } }
+
+      - name: Export the web app
+        shell: pwsh
+        run: |
+          . .github/workflows/installer-checks.ps1
+          bun run app:export
+          $code = $LASTEXITCODE
+          Test-Check "bun run app:export (the web build the package carries)" { if ($code -eq 0) { $true } else { "exit $code" } }
+          Test-Check "app\dist\index.html exists" { if (Test-Path app\dist\index.html) { $true } else { "missing" } }
+
+      - name: WiX Toolset 5, pinned
+        if: ${{ !cancelled() }}
+        shell: pwsh
+        run: |
+          . .github/workflows/installer-checks.ps1
+          $packages = @(
+            @{ Id = "wix"; Sha = $env:WIX_SHA512 },
+            @{ Id = "WixToolset.UI.wixext"; Sha = $env:WIX_UI_SHA512 },
+            @{ Id = "WixToolset.Util.wixext"; Sha = $env:WIX_UTIL_SHA512 }
+          )
+          # A SHA-512 in base64 is 88 characters ending in "==".
+          $missing = @($packages | Where-Object { $_.Sha -notmatch '^[A-Za-z0-9+/]{86}==$' } | ForEach-Object { $_.Id })
+          if ($missing.Count -gt 0) {
+            Write-Fail "BLOCKED: WiX $env:WIX_VERSION is not installed" "no SHA-512 is pinned for $($missing -join ', ') (installers.yml, the windows job's env); nothing was fetched"
+            exit 0
+          }
+          $source = Join-Path $env:RUNNER_TEMP "wix-packages"
+          New-Item -ItemType Directory -Force -Path $source | Out-Null
+          $ok = $true
+          foreach ($p in $packages) {
+            $id = $p.Id.ToLowerInvariant()
+            $file = Join-Path $source "$id.$env:WIX_VERSION.nupkg"
+            Invoke-WebRequest -Uri "https://api.nuget.org/v3-flatcontainer/$id/$env:WIX_VERSION/$id.$env:WIX_VERSION.nupkg" -OutFile $file
+            # nuget.org's packageHash: the SHA-512 of the .nupkg as served, in base64. Checked before
+            # anything in the package is read or run.
+            $hash = [Convert]::ToBase64String([Convert]::FromHexString((Get-FileHash $file -Algorithm SHA512).Hash))
+            if ($hash -cne $p.Sha) {
+              Remove-Item $file
+              Write-Fail "$($p.Id) $env:WIX_VERSION is the pinned file" "its SHA-512 is $hash, not the pinned $($p.Sha): refused and deleted"
+              $ok = $false
+            } else {
+              Write-Pass "$($p.Id) $env:WIX_VERSION is the pinned file"
+            }
+          }
+          if (-not $ok) { exit 0 }
+          # Only the checked files are a source: nuget.org is cleared.
+          $config = Join-Path $source "nuget.config"
+          Set-Content -Path $config -Encoding utf8 -Value @"
+          <?xml version="1.0" encoding="utf-8"?>
+          <configuration><packageSources><clear /><add key="pinned" value="$source" /></packageSources></configuration>
+          "@
+          & dotnet tool install --global wix --version $env:WIX_VERSION --configfile $config
+          $code = $LASTEXITCODE
+          $tools = Join-Path $env:USERPROFILE ".dotnet\tools"
+          $tools | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+          $env:PATH = "$tools;$env:PATH"
+          Test-Check "dotnet tool install --global wix $env:WIX_VERSION (from the pinned file only)" { if ($code -eq 0) { $true } else { "exit $code" } }
+          # `wix extension add -g` unpacks a package into this cache; the checked files are unpacked
+          # there directly, so that nothing is fetched by name.
+          foreach ($id in @("WixToolset.UI.wixext", "WixToolset.Util.wixext")) {
+            $target = Join-Path $env:USERPROFILE ".wix\extensions\$id\$env:WIX_VERSION"
+            New-Item -ItemType Directory -Force -Path $target | Out-Null
+            $zip = Join-Path $env:RUNNER_TEMP "$id.zip"
+            Copy-Item (Join-Path $source "$($id.ToLowerInvariant()).$env:WIX_VERSION.nupkg") $zip
+            Expand-Archive -Path $zip -DestinationPath $target -Force
+          }
+          $listed = (& wix extension list -g 2>&1) -join "`n"
+          Write-Info "wix --version" ((& wix --version 2>&1) -join " ")
+          Test-Check "wix sees the UI and Util extensions" { if ($listed -match 'WixToolset\.UI\.wixext' -and $listed -match 'WixToolset\.Util\.wixext') { $true } else { "wix extension list -g: $listed" } }
+
+      - name: Build the .msi
+        if: ${{ !cancelled() }}
+        shell: pwsh
+        run: |
+          . .github/workflows/installer-checks.ps1
+          $out = Join-Path $env:RUNNER_TEMP "out"
+          $log = Join-Path $env:RUNNER_TEMP "build-msi.txt"
+          & pwsh -NoProfile -File hub/packaging/windows/build-msi.ps1 -Out $out *> $log
+          $code = $LASTEXITCODE
+          $built = Get-Content -Raw $log
+          Save-Text "build-msi.txt" $built 40
+          $msi = Get-ChildItem -Path $out -Filter *.msi -ErrorAction SilentlyContinue | Select-Object -First 1
+          # build-msi.ps1's stages, in order: build-program.ts, WinSW fetched and pinned, wix build.
+          Test-Check "build-program.ts compiled the program, the launcher and hsn" { if ($built -notmatch 'build-program failed' -and ($built -match 'winsw-pin' -or $null -ne $msi)) { $true } else { "the build stopped at or before build-program.ts" } }
+          Test-Check "WinSW 2.12.0 is the file pinned in winsw.sha256 (winsw-pin.ts)" { if ($built -match 'winsw-pin: the pinned WinSW') { $true } else { "winsw-pin.ts did not accept it, or the build stopped before" } }
+          if ($code -ne 0 -or $null -eq $msi) {
+            Write-Fail "build-msi.ps1 built a package" "exit ${code}: $((($built -split "`r?`n") | Where-Object { $_ } | Select-Object -Last 4) -join ' ')"
+            exit 0
+          }
+          Write-Pass "build-msi.ps1 built ``$($msi.Name)``"
+          "MSI=$($msi.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "VERSION=$($msi.BaseName -replace '^HSN-Hub-', '')" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Write-Summary @("", "| | |", "| --- | --- |",
+            "| Size | $($msi.Length) bytes |",
+            "| SHA-256 | ``$((Get-FileHash $msi.FullName -Algorithm SHA256).Hash.ToLowerInvariant())`` |",
+            "| Signature | $((Get-AuthenticodeSignature $msi.FullName).Status) |", "")
+          function Get-MsiRows([string]$Path, [string]$Query) {
+            $installer = New-Object -ComObject WindowsInstaller.Installer
+            $db = $installer.GetType().InvokeMember("OpenDatabase", "InvokeMethod", $null, $installer, @($Path, 0))
+            $view = $db.GetType().InvokeMember("OpenView", "InvokeMethod", $null, $db, @($Query))
+            $view.GetType().InvokeMember("Execute", "InvokeMethod", $null, $view, $null) | Out-Null
+            $rows = [System.Collections.Generic.List[string]]::new()
+            while ($true) {
+              $record = $view.GetType().InvokeMember("Fetch", "InvokeMethod", $null, $view, $null)
+              if ($null -eq $record) { break }
+              $count = $record.GetType().InvokeMember("FieldCount", "GetProperty", $null, $record, $null)
+              $fields = for ($i = 1; $i -le $count; $i++) { $record.GetType().InvokeMember("StringData", "GetProperty", $null, $record, @($i)) }
+              $rows.Add(($fields -join " | "))
+            }
+            $view.GetType().InvokeMember("Close", "InvokeMethod", $null, $view, $null) | Out-Null
+            [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($view)
+            [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($db)
+            [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($installer)
+            [GC]::Collect(); [GC]::WaitForPendingFinalizers()
+            $rows
+          }
+          try {
+            $props = Get-MsiRows $msi.FullName "SELECT Property, Value FROM Property"
+            $files = Get-MsiRows $msi.FullName "SELECT File.FileName, File.FileSize, Component.Directory_ FROM File, Component WHERE File.Component_ = Component.Component"
+            $actions = Get-MsiRows $msi.FullName "SELECT Action, Type, Source, Target FROM CustomAction"
+            $sequence = Get-MsiRows $msi.FullName "SELECT Action, Condition, Sequence FROM InstallExecuteSequence"
+            $files | Set-Content -Path (Join-Path $HsnChecks "logs\msi-files.txt") -Encoding utf8
+            $named = @($props | Where-Object { $_ -match '^(ProductName|ProductVersion|Manufacturer|UpgradeCode|ProductCode|ALLUSERS|WixShellExecTarget) ' })
+            # PrepareUpgrade's target is the whole script, encoded: shown by name and type only.
+            $shownActions = @($actions | ForEach-Object { if ($_ -match '^PrepareUpgrade ') { ($_ -split ' \| ')[0..2] -join " | " } else { $_ } })
+            Write-Summary (@("<details><summary>The .msi: $($files.Count) files (all in msi-files.txt), its properties and custom actions</summary>", "", '```') +
+              $named + @("") + @($files | Where-Object { $_ -notmatch '\| web' } | Select-Object -First 80) + @("") + $shownActions + @("") +
+              @($sequence | Where-Object { $_ -match '^(PrepareUpgrade|InstallService|UninstallService|RemoveExistingProducts|InstallInitialize|InstallFiles|RemoveFiles|InstallFinalize) ' }) +
+              @('```', "", "</details>"))
+          } catch {
+            Write-Info "The .msi's tables could not be read" $_.Exception.Message
+          }
+
+      - name: Install with msiexec
+        if: ${{ !cancelled() }}
+        shell: pwsh
+        run: |
+          . .github/workflows/installer-checks.ps1
+          Write-Heading "Install"
+          if (-not $env:MSI) { Write-Fail "msiexec /i … /qn" "no package was built"; exit 0 }
+          $log = Join-Path $env:RUNNER_TEMP "msi-install.log"
+          $p = Start-Process msiexec.exe -ArgumentList @("/i", "`"$env:MSI`"", "/qn", "/l*v", "`"$log`"") -Wait -PassThru
+          Test-Check "msiexec /i $(Split-Path -Leaf $env:MSI) /qn" { if ($p.ExitCode -eq 0) { $true } else { "exit $($p.ExitCode)" } }
+          Save-Log "msi-install.log" $log 40
+          $text = Get-Content -Raw $log -ErrorAction SilentlyContinue
+          if ($text -match 'Return value 3') {
+            $lines = $text -split "`r?`n"
+            $at = [Array]::FindIndex($lines, [Predicate[string]] { param($l) $l -match 'Return value 3' })
+            Save-Text "msi-install-failure.txt" (($lines[[Math]::Max(0, $at - 40)..$at]) -join "`n") 41
+          }
+          $page = Join-Path $env:LOCALAPPDATA "HSN Hub\setup.html"
+          Test-Check "A silent install writes no setup page (no token)" { if (-not (Test-Path $page)) { $true } else { "$page was written" } }
+          Test-Check "The installed marker (HKLM\Software\HSN Hub, Installed = 1)" { if ((Get-ItemProperty -Path "HKLM:\Software\HSN Hub" -Name Installed -ErrorAction SilentlyContinue).Installed -eq 1) { $true } else { "no marker" } }
+
+      - name: A8's hosted check, owners
+        if: ${{ !cancelled() }}
+        shell: pwsh
+        run: |
+          . .github/workflows/installer-checks.ps1
+          Write-Heading "The package's tree and the hub's top folders (A8's check.ps1 owners)"
+          Invoke-Hosted "owners"
+
+      - name: The service
+        if: ${{ !cancelled() }}
+        shell: pwsh
+        run: |
+          . .github/workflows/installer-checks.ps1
+          Write-Heading "The service"
+          $package = Join-Path $env:ProgramFiles "HSN Hub"
+          $data = Join-Path $env:ProgramData "HSN Hub"
+          Test-Check "The service HSNHub is running within 60 s" { if (Wait-Until 60 { (Get-Service HSNHub -ErrorAction SilentlyContinue).Status -eq "Running" }) { $true } else { "status: $((Get-Service HSNHub -ErrorAction SilentlyContinue).Status)" } }
+          $qc = (& sc.exe qc HSNHub) -join "`n"
+          Test-Check "Starts automatically" { if ($qc -match 'START_TYPE\s+:\s+2\s+AUTO_START') { $true } else { $qc } }
+          Test-Check "Runs as NT SERVICE\HSNHub" { if ($qc -match 'SERVICE_START_NAME\s+:\s+NT SERVICE\\HSNHub') { $true } else { $qc } }
+          Test-Check "WinSW runs from the package's tree (bin\HSNHub.exe)" { if ($qc -match [regex]::Escape("$package\bin\HSNHub.exe")) { $true } else { $qc } }
+          Write-Info "sc.exe qfailure HSNHub" ((& sc.exe qfailure HSNHub) -join " ")
+          Test-Check "The hub's process runs within 90 s" { if (Wait-Until 90 { $null -ne (Get-Process hsn-hub -ErrorAction SilentlyContinue) }) { $true } else { "no hsn-hub.exe" } }
+          # (Not $name: PowerShell's names ignore case, and Test-Check's own parameter is $Name.)
+          $where = @{ "hsn-hub.exe" = "$package\packaged\$env:VERSION\bin\hsn-hub.exe"; "hsn-launcher.exe" = "$package\bin\hsn-launcher.exe" }
+          foreach ($exe in @("hsn-hub.exe", "hsn-launcher.exe")) {
+            Test-Check "$exe runs as NT SERVICE\HSNHub, from $($where[$exe])" {
+              $proc = Get-CimInstance Win32_Process -Filter "Name = '$exe'" | Select-Object -First 1
+              if ($null -eq $proc) { return "not running" }
+              $owner = Invoke-CimMethod -InputObject $proc -MethodName GetOwner
+              if ("$($owner.Domain)\$($owner.User)" -ne "NT SERVICE\HSNHub") { return "runs as $($owner.Domain)\$($owner.User)" }
+              if ($proc.ExecutablePath -ne $where[$exe]) { return "runs $($proc.ExecutablePath)" }
+              $true
+            }
+          }
+          Test-Check "The control socket appears within 120 s" { if (Wait-Until 120 { Test-Path (Join-Path $data "control.sock") }) { $true } else { "no control.sock" } }
+          Test-Check "Nothing of the old layout (HSN Hub Launcher, versions, current)" { $old = @((Join-Path $env:ProgramFiles "HSN Hub Launcher"), "$package\versions", "$package\current") | Where-Object { Test-Path $_ }; if ($old.Count -eq 0) { $true } else { "present: $($old -join ', ')" } }
+          Test-Check "The event log has the source HSN Hub (the launcher's failures)" { if ([System.Diagnostics.EventLog]::SourceExists("HSN Hub")) { $true } else { "no source" } }
+          foreach ($rule in @(@{ Name = "HSN Hub devices"; Port = "8443"; Protocol = "TCP" }, @{ Name = "HSN Hub apps"; Port = "8444"; Protocol = "TCP" }, @{ Name = "HSN Hub mDNS"; Port = "5353"; Protocol = "UDP" })) {
+            Test-Check "Firewall: $($rule.Name) ($($rule.Protocol) $($rule.Port), inbound, allowed)" {
+              $shown = (& netsh.exe advfirewall firewall show rule name="$($rule.Name)") -join "`n"
+              if ($LASTEXITCODE -ne 0) { return "no such rule" }
+              if ($shown -match "LocalPort:\s+$($rule.Port)" -and $shown -match "Protocol:\s+$($rule.Protocol)" -and $shown -match 'Action:\s+Allow' -and $shown -match 'Direction:\s+In') { $true } else { $shown }
+            }
+          }
+          $listening = Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue | Where-Object { $_.LocalPort -in 8443, 8444, 8445 } | ForEach-Object { "$($_.LocalAddress):$($_.LocalPort)" }
+          Write-Info "Listening" ($listening -join " ")
+
+      - name: hsn status, and the console
+        if: ${{ !cancelled() }}
+        shell: pwsh
+        run: |
+          . .github/workflows/installer-checks.ps1
+          Write-Heading "hsn and the console"
+          $bin = Join-Path $env:ProgramFiles "HSN Hub\bin"
+          $data = Join-Path $env:ProgramData "HSN Hub"
+          $machinePath = [Environment]::GetEnvironmentVariable("Path", "Machine")
+          Test-Check "The machine's PATH has the package's bin (for hsn)" { if (@($machinePath -split ';' | ForEach-Object { $_.TrimEnd('\') }) -contains $bin) { $true } else { "not in PATH" } }
+          # As a new elevated prompt would: the machine's PATH, then `hsn` by name, as a person types it.
+          $env:Path = "$machinePath;$([Environment]::GetEnvironmentVariable('Path', 'User'))"
+          Test-Check "hsn status (as typed, elevated) answers within 60 s" { if (Wait-Until 60 { & hsn status *> $null; $LASTEXITCODE -eq 0 }) { $true } else { "exit ${LASTEXITCODE}: $(((& hsn status 2>&1) -join ' '))" } }
+          $status = (& hsn --data $data status 2>&1) -join "`n"
+          $code = $LASTEXITCODE
+          Test-Check "hsn --data <the data folder> status answers (as the Start menu and check.ps1 call it)" { if ($code -eq 0) { $true } else { "exit $code" } }
+          Write-Summary (@("", '```') + @((Hide-Secrets $status) -split "`n" | Select-Object -First 40) + @('```'))
+          Write-Info "An ordinary account is not tried here" "windows-control-socket.yml (A11) makes one and checks the refusal"
+          Test-Check "The console (127.0.0.1:8445) serves the web app within 60 s" {
+            $ok = Wait-Until 60 {
+              try { $r = Invoke-WebRequest -Uri http://127.0.0.1:8445/ -UseBasicParsing -TimeoutSec 10; $r.StatusCode -eq 200 -and $r.Content -match '<html' } catch { $false }
+            }
+            if ($ok) { $true } else { "no page" }
+          }
+          Invoke-Hosted "console"
+
+      - name: The hub's trees
+        if: ${{ !cancelled() }}
+        shell: pwsh
+        run: |
+          . .github/workflows/installer-checks.ps1
+          $data = Join-Path $env:ProgramData "HSN Hub"
+          $program = Join-Path $env:ProgramData "HSN Hub Program"
+          Write-Heading "The hub's trees ($data, $program)"
+          $sidType = [System.Security.Principal.SecurityIdentifier]
+          $service = (New-Object System.Security.Principal.NTAccount("NT SERVICE\HSNHub")).Translate($sidType).Value
+          # hub-folder.sddl's list, entry by entry: SID | rights | inheritance | propagation.
+          $want = @(
+            "S-1-5-32-544|2032127|ContainerInherit, ObjectInherit|None",
+            "S-1-5-18|2032127|ContainerInherit, ObjectInherit|None",
+            "$service|1179815|None|None",
+            "$service|2032127|ContainerInherit, ObjectInherit|InheritOnly"
+          ) | Sort-Object
+          foreach ($tree in @($data, $program)) {
+            $acl = Get-Acl -LiteralPath $tree
+            $have = @($acl.GetAccessRules($true, $true, $sidType) | ForEach-Object { "$($_.IdentityReference.Value)|$([int]$_.FileSystemRights)|$($_.InheritanceFlags)|$($_.PropagationFlags)" }) | Sort-Object
+            Write-Summary (@("", '```', "$tree, owner $($acl.GetOwner($sidType).Value)") + $have + @('```', ""))
+            Test-Check "${tree}: owned by Administrators" { if ($acl.GetOwner($sidType).Value -eq "S-1-5-32-544") { $true } else { "owner $($acl.GetOwner($sidType).Value)" } }
+            Test-Check "${tree}: a protected list (no inheritance from %ProgramData%)" { if ($acl.AreAccessRulesProtected) { $true } else { "inherits from its parent" } }
+            Test-Check "${tree}: exactly hub-folder.sddl's list (the service: 0x001200a7 on the folder, full control inherit-only)" { if (($have -join ";") -eq ($want -join ";")) { $true } else { "has $($have -join '; ')" } }
+            Test-Check "${tree}: nothing inside has an entry of its own" {
+              $own = @()
+              foreach ($item in Get-ChildItem -LiteralPath $tree -Recurse -Force -ErrorAction SilentlyContinue) {
+                # control.sock is a socket (a reparse point), whose access list is the hub's (A11).
+                if ($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) { continue }
+                try {
+                  $a = Get-Acl -LiteralPath $item.FullName
+                  if ($a.AreAccessRulesProtected -or @($a.GetAccessRules($true, $false, $sidType)).Count -gt 0) { $own += $item.Name }
+                } catch { $own += "$($item.Name) (unreadable: $($_.Exception.Message))" }
+              }
+              if ($own.Count -eq 0) { $true } else { "own entries: $($own -join ', ')" }
+            }
+            Write-Info "$tree holds (names only)" ((Get-ChildItem -LiteralPath $tree -Force | ForEach-Object { $_.Name }) -join " ")
+          }
+          Test-Check "The hub made its database (hub.db)" { if (Test-Path (Join-Path $data "hub.db")) { $true } else { "no hub.db" } }
+          Test-Check "The launcher keeps its state in the hub's program tree" { if (Test-Path (Join-Path $program "state\launcher.json")) { $true } else { "no state\launcher.json" } }
+
+      - name: A killed hub is restarted
+        if: ${{ !cancelled() }}
+        shell: pwsh
+        run: |
+          . .github/workflows/installer-checks.ps1
+          Write-Heading "Restart after a crash"
+          $data = Join-Path $env:ProgramData "HSN Hub"
+          $hsn = Join-Path $env:ProgramFiles "HSN Hub\bin\hsn.exe"
+          $old = Get-Process hsn-hub -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($null -eq $old) { Write-Fail "The launcher restarts a killed hub" "no hub process to kill"; exit 0 }
+          Stop-Process -Id $old.Id -Force
+          Test-Check "The launcher restarts a killed hub and hsn status answers again within 60 s" {
+            $ok = Wait-Until 60 {
+              $new = Get-Process hsn-hub -ErrorAction SilentlyContinue | Select-Object -First 1
+              if ($null -eq $new -or $new.Id -eq $old.Id) { return $false }
+              & $hsn --data $data status *> $null
+              $LASTEXITCODE -eq 0
+            }
+            if ($ok) { $true } else { "no new hub answered" }
+          }
+
+      - name: Logs
+        if: always()
+        shell: pwsh
+        run: |
+          . .github/workflows/installer-checks.ps1
+          Write-Heading "Logs"
+          $data = Join-Path $env:ProgramData "HSN Hub"
+          foreach ($file in Get-ChildItem -Path (Join-Path $data "logs") -Filter *.log -ErrorAction SilentlyContinue) { Save-Log "winsw-$($file.Name)" $file.FullName 30 }
+          Save-Log "launcher-status.json" (Join-Path $data "launcher-status.json") 20
+          Save-Log "fatal.log" (Join-Path $data "fatal.log") 20
+          $events = Get-WinEvent -FilterHashtable @{ LogName = "Application"; ProviderName = "HSN Hub" } -MaxEvents 50 -ErrorAction SilentlyContinue | ForEach-Object { "$($_.TimeCreated.ToString('s')) $($_.LevelDisplayName) $($_.Id) $($_.Message)" }
+          Save-Text "application-events.txt" ($events -join "`n") 20
+          $scm = Get-WinEvent -FilterHashtable @{ LogName = "System"; ProviderName = "Service Control Manager" } -MaxEvents 300 -ErrorAction SilentlyContinue | Where-Object { $_.Message -match 'HSN' } | ForEach-Object { "$($_.TimeCreated.ToString('s')) $($_.Id) $($_.Message)" }
+          Save-Text "service-control-manager.txt" ($scm -join "`n") 20
+
+      - name: Uninstall (msiexec /x)
+        if: ${{ !cancelled() }}
+        shell: pwsh
+        run: |
+          . .github/workflows/installer-checks.ps1
+          Write-Heading "Uninstall: msiexec /x keeps both hub trees"
+          if (-not $env:MSI) { Write-Fail "msiexec /x … /qn" "no package was built"; exit 0 }
+          $log = Join-Path $env:RUNNER_TEMP "msi-uninstall.log"
+          $p = Start-Process msiexec.exe -ArgumentList @("/x", "`"$env:MSI`"", "/qn", "/l*v", "`"$log`"") -Wait -PassThru
+          Test-Check "msiexec /x $(Split-Path -Leaf $env:MSI) /qn" { if ($p.ExitCode -eq 0) { $true } else { "exit $($p.ExitCode)" } }
+          Save-Log "msi-uninstall.log" $log 30
+          & sc.exe query HSNHub *> $null
+          $code = $LASTEXITCODE
+          Test-Check "The service is gone (sc.exe query: 1060)" { if ($code -eq 1060) { $true } else { "sc.exe query answered $code" } }
+          Test-Check "No hub, launcher or WinSW runs" { $left = @(Get-Process hsn-hub, hsn-launcher, HSNHub -ErrorAction SilentlyContinue); if ($left.Count -eq 0) { $true } else { "running: $($left.Name -join ', ')" } }
+          Test-Check "The package's tree (Program Files\HSN Hub) is gone" { if (-not (Test-Path (Join-Path $env:ProgramFiles "HSN Hub"))) { $true } else { "left: $((Get-ChildItem (Join-Path $env:ProgramFiles 'HSN Hub') -Force).Name -join ', ')" } }
+          Test-Check "The installed marker is gone" { if (-not (Test-Path "HKLM:\Software\HSN Hub")) { $true } else { "HKLM\Software\HSN Hub is still there" } }
+          $bin = Join-Path $env:ProgramFiles "HSN Hub\bin"
+          Test-Check "The machine's PATH no longer has it" { if (@([Environment]::GetEnvironmentVariable("Path", "Machine") -split ';' | ForEach-Object { $_.TrimEnd('\') }) -notcontains $bin) { $true } else { "still in PATH" } }
+          foreach ($ruleName in @("HSN Hub devices", "HSN Hub apps", "HSN Hub mDNS")) {
+            & netsh.exe advfirewall firewall show rule name="$ruleName" *> $null
+            $found = $LASTEXITCODE -eq 0
+            Test-Check "Firewall rule $ruleName is gone" { if (-not $found) { $true } else { "still there" } }
+          }
+          $data = Join-Path $env:ProgramData "HSN Hub"
+          Test-Check "The data folder is kept" { if (Test-Path $data) { $true } else { "gone" } }
+          Test-Check "The database is kept" { if (Test-Path (Join-Path $data "hub.db")) { $true } else { "gone" } }
+          Test-Check "The hub's program tree is kept" { if (Test-Path (Join-Path $env:ProgramData "HSN Hub Program")) { $true } else { "gone" } }
+
+      - name: Remove with data (REMOVEDATA=1)
+        if: ${{ !cancelled() }}
+        shell: pwsh
+        run: |
+          . .github/workflows/installer-checks.ps1
+          Write-Heading "Removal with data: installed again, then msiexec /x … REMOVEDATA=1 (what the Start menu's entry runs after its confirmation)"
+          if (-not $env:MSI) { Write-Fail "msiexec /x … REMOVEDATA=1" "no package was built"; exit 0 }
+          $log = Join-Path $env:RUNNER_TEMP "msi-reinstall.log"
+          $p = Start-Process msiexec.exe -ArgumentList @("/i", "`"$env:MSI`"", "/qn", "/l*v", "`"$log`"") -Wait -PassThru
+          Test-Check "Installed again over the kept data" { if ($p.ExitCode -eq 0) { $true } else { "exit $($p.ExitCode)" } }
+          Test-Check "The service runs again within 60 s" { if (Wait-Until 60 { (Get-Service HSNHub -ErrorAction SilentlyContinue).Status -eq "Running" }) { $true } else { "not running" } }
+          $log = Join-Path $env:RUNNER_TEMP "msi-remove-data.log"
+          $p = Start-Process msiexec.exe -ArgumentList @("/x", "`"$env:MSI`"", "/qn", "REMOVEDATA=1", "/l*v", "`"$log`"") -Wait -PassThru
+          Test-Check "msiexec /x $(Split-Path -Leaf $env:MSI) /qn REMOVEDATA=1" { if ($p.ExitCode -eq 0) { $true } else { "exit $($p.ExitCode)" } }
+          Save-Log "msi-remove-data.log" $log 30
+          Test-Check "The data folder is gone" { if (-not (Test-Path (Join-Path $env:ProgramData "HSN Hub"))) { $true } else { "still there" } }
+          Test-Check "The hub's program tree is gone" { if (-not (Test-Path (Join-Path $env:ProgramData "HSN Hub Program"))) { $true } else { "still there" } }
+          Test-Check "The package's tree is gone" { if (-not (Test-Path (Join-Path $env:ProgramFiles "HSN Hub"))) { $true } else { "still there" } }
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: installer-windows-x64-logs
+          path: ${{ runner.temp }}/hsn-checks/logs/
+          if-no-files-found: warn
+
+      - name: Result
+        if: always()
+        shell: pwsh
+        run: |
+          . .github/workflows/installer-checks.ps1
+          $failed = @(Get-Content $HsnFailures | Where-Object { $_ })
+          Write-Heading "Result"
+          if ($failed.Count -eq 0) { Write-Summary "All checks passed."; exit 0 }
+          Write-Summary (@("**$($failed.Count) check(s) failed:**", "") + @($failed | ForEach-Object { "- $_" }))
+          exit 1
+
+  # The privilege boundary (section 9, "Tested on the hosted machines"), by hand only: A8's plant,
+  # verify and link-top around an upgrade between two builds of the package (the checkout's
+  # version, then the same code with its patch number raised in this runner's copy of
+  # hub/package.json), an uninstall and a removal with data.
+  boundary-unix:
+    name: Boundary ${{ matrix.system }} ${{ matrix.arch }}
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.boundary && inputs.systems != 'windows' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(inputs.systems == 'linux-x64' && '[{"runner":"ubuntu-24.04","system":"linux","arch":"amd64"}]' || inputs.systems == 'linux-arm64' && '[{"runner":"ubuntu-24.04-arm","system":"linux","arch":"arm64"}]' || inputs.systems == 'macos' && '[{"runner":"macos-15","system":"macos","arch":"arm64"}]' || '[{"runner":"ubuntu-24.04","system":"linux","arch":"amd64"},{"runner":"ubuntu-24.04-arm","system":"linux","arch":"arm64"},{"runner":"macos-15","system":"macos","arch":"arm64"}]') }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    env:
+      SYSTEM: ${{ matrix.system }}
+      ARCH: ${{ matrix.arch }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.2
+
+      - name: Build two versions
+        shell: bash
+        run: |
+          . .github/workflows/installer-checks.sh
+          say "# The privilege boundary, $SYSTEM $ARCH" ""
+          heading "Build"
+          check "bun install --frozen-lockfile" bun install --frozen-lockfile
+          check "bun run app:export" bun run app:export
+          if [ "$SYSTEM" = linux ]; then
+            echo "DATA=/var/lib/hsn-hub" >> "$GITHUB_ENV"; echo "PROGRAM=/var/lib/hsn-hub-program" >> "$GITHUB_ENV"; echo "PKG=/usr/lib/hsn-hub" >> "$GITHUB_ENV"
+          else
+            echo "DATA=/Library/Application Support/HSN Hub" >> "$GITHUB_ENV"; echo "PROGRAM=/Library/Application Support/HSN Hub Program" >> "$GITHUB_ENV"; echo "PKG=/usr/local/hsn-hub" >> "$GITHUB_ENV"
+          fi
+          build() {
+            if [ "$SYSTEM" = linux ]; then sh hub/packaging/linux/build-deb.sh "$ARCH" "$1" 2>&1; else sh hub/packaging/macos/build-pkg.sh "$1" 2>&1; fi
+          }
+          first=$(build "$RUNNER_TEMP/out1"); code1=$?
+          cp hub/package.json "$RUNNER_TEMP/hub-package.json"
+          v2=$(bun -e 'const f = "hub/package.json"; const j = JSON.parse(await Bun.file(f).text()); const [a, b, c] = j.version.split(".").map(Number); j.version = `${a}.${b}.${c + 1}`; await Bun.write(f, JSON.stringify(j, null, 2) + "\n"); console.log(j.version)')
+          second=$(build "$RUNNER_TEMP/out2"); code2=$?
+          cp "$RUNNER_TEMP/hub-package.json" hub/package.json
+          keep_text build-1.txt "$first" 10
+          keep_text build-2.txt "$second" 10
+          p1=$(printf '%s\n' "$first" | tail -n 1); p2=$(printf '%s\n' "$second" | tail -n 1)
+          if [ "$code1" -eq 0 ] && [ -f "$p1" ]; then pass "Built $(basename "$p1")"; echo "P1=$p1" >> "$GITHUB_ENV"; else fail "Built the first version" "exit $code1"; fi
+          if [ "$code2" -eq 0 ] && [ -f "$p2" ]; then pass "Built $(basename "$p2") (the same code, version $v2)"; echo "P2=$p2" >> "$GITHUB_ENV"; echo "V2=$v2" >> "$GITHUB_ENV"; else fail "Built the second version" "exit $code2"; fi
+
+      - name: Install the first version
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: |
+          . .github/workflows/installer-checks.sh
+          heading "Install the first version"
+          if [ -z "${P1:-}" ]; then fail "Install" "no package was built"; exit 0; fi
+          if [ "$SYSTEM" = linux ]; then out=$(sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y "$P1" 2>&1); else out=$(sudo installer -pkg "$P1" -target / 2>&1); fi
+          code=$?
+          keep_text install-1.txt "$out" 10
+          expect "Installed $(basename "$P1")" "0" "$code"
+          check "The hub answers (sudo hsn status within 120 s)" wait_until 120 sudo hsn status
+          hosted owners
+
+      - name: Plant, upgrade, verify
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: |
+          . .github/workflows/installer-checks.sh
+          heading "Upgrade to the second version, with links planted in both hub trees"
+          if [ -z "${P2:-}" ]; then fail "Upgrade" "no second package was built"; exit 0; fi
+          hosted plant
+          if [ "$SYSTEM" = linux ]; then out=$(sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y "$P2" 2>&1); else out=$(sudo installer -pkg "$P2" -target / 2>&1); fi
+          code=$?
+          keep_text upgrade.txt "$out" 10
+          expect "Upgraded to $(basename "$P2")" "0" "$code"
+          hosted verify
+          check "The hub answers after the upgrade (within 120 s)" wait_until 120 sudo hsn status
+          hosted owners
+          expect "The package's tree keeps the new version and the one before it" "2" "$(sudo ls -1 "$PKG/packaged" | grep -c .)"
+          on_v2() { case "$(args_of "$(hub_pid)")" in "$PKG/packaged/$V2/bin/hsn-hub --data"*) return 0 ;; *) return 1 ;; esac; }
+          check "The launcher switched to the new packaged version within 120 s" wait_until 120 on_v2
+          user=hsn; [ "$SYSTEM" = macos ] && user=_hsnhub
+          healthy() { sudo -u "$user" cat "$PROGRAM/state/launcher.json" | grep -q "\"current\":\"$V2\".*\"trial\":null"; }
+          check "Its trial ended healthy (launcher.json: current $V2, no trial) within 120 s" wait_until 120 healthy
+
+      - name: A top folder replaced by a link
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: |
+          . .github/workflows/installer-checks.sh
+          heading "The data folder replaced by a link: the installer must refuse"
+          if [ -z "${P2:-}" ]; then fail "link-top" "no second package was built"; exit 0; fi
+          kept="$HSN_CHECKS/link-top-output.txt"
+          if [ "$SYSTEM" = linux ]; then
+            hosted link-top sh "$HSN_CHECKS/step.sh" "$kept" env DEBIAN_FRONTEND=noninteractive apt-get install --reinstall -y "$P2"
+          else
+            hosted link-top sh "$HSN_CHECKS/step.sh" "$kept" installer -pkg "$P2" -target /
+          fi
+          refusal=$(cat "$kept" 2>/dev/null)
+          keep_text link-top-installer.txt "$refusal" 20
+          check "It refused because of the link, not for another reason" sh -c 'printf "%s\n" "$1" | grep -q "refusing $2: it is a link"' _ "$refusal" "$DATA"
+          # The refused step left the package half-done: it is finished now, with the folder back.
+          if [ "$SYSTEM" = linux ]; then out=$(sudo env DEBIAN_FRONTEND=noninteractive dpkg --configure -a 2>&1); else out=$(sudo installer -pkg "$P2" -target / 2>&1); fi
+          code=$?
+          keep_text link-top-recovery.txt "$out" 10
+          expect "The installer finishes once the folder is back" "0" "$code"
+          check "The hub answers again (within 120 s)" wait_until 120 sudo hsn status
+          hosted verify
+
+      - name: Plant, uninstall, verify
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: |
+          . .github/workflows/installer-checks.sh
+          heading "Uninstall, keeping data, with links planted"
+          hosted plant
+          if [ "$SYSTEM" = linux ]; then out=$(sudo env DEBIAN_FRONTEND=noninteractive apt-get remove -y hsn-hub 2>&1); else out=$(sudo hsn uninstall 2>&1); fi
+          code=$?
+          keep_text uninstall.txt "$out" 10
+          expect "Uninstalled" "0" "$code"
+          hosted verify
+          check "The data folder is kept" sudo test -d "$DATA"
+          check "The hub's program tree is kept" sudo test -d "$PROGRAM"
+
+      - name: Plant, remove with data, verify
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: |
+          . .github/workflows/installer-checks.sh
+          heading "Removal with data, with links planted"
+          if [ "$SYSTEM" = macos ]; then
+            # `hsn uninstall` went with the package: installed again first.
+            out=$(sudo installer -pkg "$P2" -target / 2>&1)
+            expect "Installed again over the kept data" "0" "$?"
+            check "The hub answers (within 120 s)" wait_until 120 sudo hsn status
+          fi
+          hosted plant
+          if [ "$SYSTEM" = linux ]; then out=$(sudo env DEBIAN_FRONTEND=noninteractive apt-get purge -y hsn-hub 2>&1); else out=$(sudo hsn uninstall --remove-data --yes 2>&1); fi
+          code=$?
+          keep_text remove-data.txt "$out" 10
+          expect "Removed with data" "0" "$code"
+          hosted verify
+          check "The data folder is gone" absent "$DATA"
+          check "The hub's program tree is gone" absent "$PROGRAM"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: boundary-${{ matrix.system }}-${{ matrix.arch }}-logs
+          path: ${{ runner.temp }}/hsn-checks/logs/
+          if-no-files-found: warn
+
+      - name: Result
+        if: always()
+        shell: bash
+        run: |
+          . .github/workflows/installer-checks.sh
+          finish
+
+  boundary-windows:
+    name: Boundary windows x64
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.boundary && (inputs.systems == 'windows' || inputs.systems == 'all') }}
+    runs-on: windows-latest
+    timeout-minutes: 60
+    env:
+      # As the windows job's: see there.
+      WIX_VERSION: 5.0.2
+      WIX_SHA512: "z+fu1deTcaV+TRCo4+6HrJ48Sdnj+yeQjjMStTI3GW7NxFEPaknYCdxrf0qEvgdXrjYdjLnkZKCsNSqTTOo2OA=="
+      WIX_UI_SHA512: "XaZi5p36bpveznFL7yAaVQhf19/WYMMbkKo1qSI1dDlmF7fvzH/25dlTpEvRC6lQO6DkOudG/tNc9RZXXoPJ+A=="
+      WIX_UTIL_SHA512: "ykiHMz3z9Uly1KuipvHQhm4cNtbM6JgA353IayqrdTTLnHEgO6Uai9w2T/1IaXdgxjrQ6PjfEaiQ4kYMedN43w=="
+      DOTNET_ROLL_FORWARD: Major
+      DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+      DOTNET_NOLOGO: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.2
+
+      - name: WiX Toolset 5, pinned
+        shell: pwsh
+        run: |
+          . .github/workflows/installer-checks.ps1
+          Write-Summary @("# The privilege boundary, windows x64", "")
+          Write-Heading "Build"
+          $packages = @(
+            @{ Id = "wix"; Sha = $env:WIX_SHA512 },
+            @{ Id = "WixToolset.UI.wixext"; Sha = $env:WIX_UI_SHA512 },
+            @{ Id = "WixToolset.Util.wixext"; Sha = $env:WIX_UTIL_SHA512 }
+          )
+          $source = Join-Path $env:RUNNER_TEMP "wix-packages"
+          New-Item -ItemType Directory -Force -Path $source | Out-Null
+          foreach ($p in $packages) {
+            $id = $p.Id.ToLowerInvariant()
+            $file = Join-Path $source "$id.$env:WIX_VERSION.nupkg"
+            Invoke-WebRequest -Uri "https://api.nuget.org/v3-flatcontainer/$id/$env:WIX_VERSION/$id.$env:WIX_VERSION.nupkg" -OutFile $file
+            $hash = [Convert]::ToBase64String([Convert]::FromHexString((Get-FileHash $file -Algorithm SHA512).Hash))
+            if ($hash -cne $p.Sha) { Remove-Item $file; Write-Fail "$($p.Id) $env:WIX_VERSION is the pinned file" "its SHA-512 is ${hash}: refused and deleted"; exit 0 }
+          }
+          $config = Join-Path $source "nuget.config"
+          Set-Content -Path $config -Encoding utf8 -Value @"
+          <?xml version="1.0" encoding="utf-8"?>
+          <configuration><packageSources><clear /><add key="pinned" value="$source" /></packageSources></configuration>
+          "@
+          & dotnet tool install --global wix --version $env:WIX_VERSION --configfile $config
+          $code = $LASTEXITCODE
+          Join-Path $env:USERPROFILE ".dotnet\tools" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+          Test-Check "WiX $env:WIX_VERSION from the pinned files only" { if ($code -eq 0) { $true } else { "exit $code" } }
+          foreach ($id in @("WixToolset.UI.wixext", "WixToolset.Util.wixext")) {
+            $target = Join-Path $env:USERPROFILE ".wix\extensions\$id\$env:WIX_VERSION"
+            New-Item -ItemType Directory -Force -Path $target | Out-Null
+            $zip = Join-Path $env:RUNNER_TEMP "$id.zip"
+            Copy-Item (Join-Path $source "$($id.ToLowerInvariant()).$env:WIX_VERSION.nupkg") $zip
+            Expand-Archive -Path $zip -DestinationPath $target -Force
+          }
+
+      - name: Build two versions
+        if: ${{ !cancelled() }}
+        shell: pwsh
+        run: |
+          . .github/workflows/installer-checks.ps1
+          bun install --frozen-lockfile
+          bun run app:export
+          function Build-Msi([string]$Out) {
+            & pwsh -NoProfile -File hub/packaging/windows/build-msi.ps1 -Out $Out *> "$Out.txt"
+            Save-Text "$(Split-Path -Leaf $Out)-build.txt" (Get-Content -Raw "$Out.txt") 10
+            Get-ChildItem -Path $Out -Filter *.msi -ErrorAction SilentlyContinue | Select-Object -First 1
+          }
+          $first = Build-Msi (Join-Path $env:RUNNER_TEMP "out1")
+          Copy-Item hub/package.json (Join-Path $env:RUNNER_TEMP "hub-package.json")
+          $v2 = (& bun -e 'const f = "hub/package.json"; const j = JSON.parse(await Bun.file(f).text()); const [a, b, c] = j.version.split(".").map(Number); j.version = `${a}.${b}.${c + 1}`; await Bun.write(f, JSON.stringify(j, null, 2) + "\n"); console.log(j.version)').Trim()
+          $second = Build-Msi (Join-Path $env:RUNNER_TEMP "out2")
+          Copy-Item (Join-Path $env:RUNNER_TEMP "hub-package.json") hub/package.json -Force
+          if ($first) { Write-Pass "Built $($first.Name)"; "P1=$($first.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8 } else { Write-Fail "Built the first version" "no .msi" }
+          if ($second) { Write-Pass "Built $($second.Name) (the same code, version $v2)"; "P2=$($second.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8; "V2=$v2" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8 } else { Write-Fail "Built the second version" "no .msi" }
+
+      - name: Install the first version
+        if: ${{ !cancelled() }}
+        shell: pwsh
+        run: |
+          . .github/workflows/installer-checks.ps1
+          Write-Heading "Install the first version"
+          if (-not $env:P1) { Write-Fail "Install" "no package was built"; exit 0 }
+          $p = Start-Process msiexec.exe -ArgumentList @("/i", "`"$env:P1`"", "/qn", "/l*v", "`"$env:RUNNER_TEMP\install-1.log`"") -Wait -PassThru
+          Test-Check "Installed $(Split-Path -Leaf $env:P1)" { if ($p.ExitCode -eq 0) { $true } else { "exit $($p.ExitCode)" } }
+          Test-Check "The service runs (within 60 s)" { if (Wait-Until 60 { (Get-Service HSNHub -ErrorAction SilentlyContinue).Status -eq "Running" }) { $true } else { "not running" } }
+          Invoke-Hosted "owners"
+
+      - name: Plant, upgrade, verify
+        if: ${{ !cancelled() }}
+        shell: pwsh
+        run: |
+          . .github/workflows/installer-checks.ps1
+          Write-Heading "Upgrade to the second version, with junctions, links and a mount point planted in both hub trees"
+          if (-not $env:P2) { Write-Fail "Upgrade" "no second package was built"; exit 0 }
+          Invoke-Hosted "plant"
+          $p = Start-Process msiexec.exe -ArgumentList @("/i", "`"$env:P2`"", "/qn", "/l*v", "`"$env:RUNNER_TEMP\upgrade.log`"") -Wait -PassThru
+          Test-Check "Upgraded to $(Split-Path -Leaf $env:P2)" { if ($p.ExitCode -eq 0) { $true } else { "exit $($p.ExitCode)" } }
+          Save-Log "upgrade.log" "$env:RUNNER_TEMP\upgrade.log" 30
+          Invoke-Hosted "verify"
+          Invoke-Hosted "owners"
+          $packaged = Join-Path $env:ProgramFiles "HSN Hub\packaged"
+          Test-Check "The package's tree keeps the new version and the one before it" { $n = @(Get-ChildItem -LiteralPath $packaged -Directory).Count; if ($n -eq 2) { $true } else { "$n versions: $((Get-ChildItem -LiteralPath $packaged -Directory).Name -join ', ')" } }
+          $want = Join-Path $packaged "$env:V2\bin\hsn-hub.exe"
+          Test-Check "The launcher switched to the new packaged version within 120 s" { if (Wait-Until 120 { (Get-CimInstance Win32_Process -Filter "Name = 'hsn-hub.exe'" | Select-Object -First 1).ExecutablePath -eq $want }) { $true } else { "not running $want" } }
+          $state = Join-Path $env:ProgramData "HSN Hub Program\state\launcher.json"
+          Test-Check "Its trial ended healthy (launcher.json: current $env:V2, no trial) within 120 s" { if (Wait-Until 120 { (Get-Content -Raw $state -ErrorAction SilentlyContinue) -match "`"current`":`"$([regex]::Escape($env:V2))`".*`"trial`":null" }) { $true } else { "launcher.json: $(Get-Content -Raw $state -ErrorAction SilentlyContinue)" } }
+
+      - name: A top folder replaced by a junction
+        if: ${{ !cancelled() }}
+        shell: pwsh
+        run: |
+          . .github/workflows/installer-checks.ps1
+          Write-Heading "The data folder replaced by a junction: the installer's repair must refuse"
+          if (-not $env:P2) { Write-Fail "link-top" "no second package was built"; exit 0 }
+          # The hub holds hub.db open, so the folder can be renamed only with the service stopped.
+          Stop-Service HSNHub -Force -ErrorAction SilentlyContinue
+          (Get-Service HSNHub).WaitForStatus("Stopped", [TimeSpan]::FromSeconds(60))
+          $log = Join-Path $env:RUNNER_TEMP "link-top.log"
+          # No quotes in the command: check.ps1 passes it to cmd.exe /c as one string.
+          Invoke-Hosted "link-top" "msiexec /fa $env:P2 /qn /l*v $log"
+          $text = Get-Content -Raw $log -ErrorAction SilentlyContinue
+          Save-Text "link-top-msi.log" $text 30
+          Test-Check "It was the install script that refused (InstallService returned 3)" { if ($text -match 'InstallService[\s\S]{0,4000}Return value 3') { $true } else { "the log shows no refusal by InstallService" } }
+          $p = Start-Process msiexec.exe -ArgumentList @("/fa", "`"$env:P2`"", "/qn") -Wait -PassThru
+          Test-Check "The repair finishes once the folder is back" { if ($p.ExitCode -eq 0) { $true } else { "exit $($p.ExitCode)" } }
+          Test-Check "The service runs again (within 60 s)" { if (Wait-Until 60 { (Get-Service HSNHub -ErrorAction SilentlyContinue).Status -eq "Running" }) { $true } else { "not running" } }
+          Invoke-Hosted "verify"
+
+      - name: Plant, uninstall, verify
+        if: ${{ !cancelled() }}
+        shell: pwsh
+        run: |
+          . .github/workflows/installer-checks.ps1
+          Write-Heading "Uninstall, keeping data, with links planted"
+          Invoke-Hosted "plant"
+          $p = Start-Process msiexec.exe -ArgumentList @("/x", "`"$env:P2`"", "/qn") -Wait -PassThru
+          Test-Check "Uninstalled" { if ($p.ExitCode -eq 0) { $true } else { "exit $($p.ExitCode)" } }
+          Invoke-Hosted "verify"
+          Test-Check "The data folder is kept" { if (Test-Path (Join-Path $env:ProgramData "HSN Hub")) { $true } else { "gone" } }
+          Test-Check "The hub's program tree is kept" { if (Test-Path (Join-Path $env:ProgramData "HSN Hub Program")) { $true } else { "gone" } }
+
+      - name: Plant, remove with data, verify
+        if: ${{ !cancelled() }}
+        shell: pwsh
+        run: |
+          . .github/workflows/installer-checks.ps1
+          Write-Heading "Removal with data (REMOVEDATA=1), with links planted"
+          $p = Start-Process msiexec.exe -ArgumentList @("/i", "`"$env:P2`"", "/qn") -Wait -PassThru
+          Test-Check "Installed again over the kept data" { if ($p.ExitCode -eq 0) { $true } else { "exit $($p.ExitCode)" } }
+          Test-Check "The service runs (within 60 s)" { if (Wait-Until 60 { (Get-Service HSNHub -ErrorAction SilentlyContinue).Status -eq "Running" }) { $true } else { "not running" } }
+          Invoke-Hosted "plant"
+          $p = Start-Process msiexec.exe -ArgumentList @("/x", "`"$env:P2`"", "/qn", "REMOVEDATA=1") -Wait -PassThru
+          Test-Check "Removed with data" { if ($p.ExitCode -eq 0) { $true } else { "exit $($p.ExitCode)" } }
+          Invoke-Hosted "verify"
+          Test-Check "The data folder is gone" { if (-not (Test-Path (Join-Path $env:ProgramData "HSN Hub"))) { $true } else { "still there" } }
+          Test-Check "The hub's program tree is gone" { if (-not (Test-Path (Join-Path $env:ProgramData "HSN Hub Program"))) { $true } else { "still there" } }
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: boundary-windows-x64-logs
+          path: ${{ runner.temp }}/hsn-checks/logs/
+          if-no-files-found: warn
+
+      - name: Result
+        if: always()
+        shell: pwsh
+        run: |
+          . .github/workflows/installer-checks.ps1
+          $failed = @(Get-Content $HsnFailures | Where-Object { $_ })
+          Write-Heading "Result"
+          if ($failed.Count -eq 0) { Write-Summary "All checks passed."; exit 0 }
+          Write-Summary (@("**$($failed.Count) check(s) failed:**", "") + @($failed | ForEach-Object { "- $_" }))
+          exit 1
