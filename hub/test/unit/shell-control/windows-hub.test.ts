@@ -47,6 +47,7 @@ import {
   icacls,
   isWindows,
   made,
+  setSddl,
   shapeFolder,
   lockFolderTo,
   listVerdict,
@@ -445,6 +446,13 @@ describe.skipIf(!enabled)("Windows: the real hub's command socket, reached by hs
     const planted = join(STAND_IN_SHAPED, "planted.txt");
     writeFileSync(planted, "made by an administrator, with an entry for Everyone of its own");
     expect(made(icacls(planted, "/grant", "*S-1-1-0:(R)"))).toBe("made");
+    // An item made by another allowed account, as WinSW's `logs` is made by the installer: owned
+    // by Administrators, admitting the three alone, and one the stand-in may not change (it may
+    // only read it). The steps must leave it as it is (run 43872833188).
+    const logs = join(STAND_IN_SHAPED, "logs");
+    mkdirSync(logs, { recursive: true });
+    const logsSddl = `O:BAD:P(A;OICI;FA;;;BA)(A;OICI;FA;;;SY)(A;OICI;0x1200a9;;;${standIn})`;
+    expect(made(setSddl(logs, logsSddl))).toBe("made");
     const result = await runHelper("other", "windows-steps-as.ts", "steps-shaped", [
       STAND_IN_SHAPED,
     ]);
@@ -459,8 +467,18 @@ describe.skipIf(!enabled)("Windows: the real hub's command socket, reached by hs
       prepared: "ok",
       warnings: [],
       top: "closed",
-      inside: [{ name: "planted.txt", list: "closed" }],
     });
+    const inside =
+      typeof parsed === "object" && parsed !== null && "inside" in parsed ? parsed.inside : [];
+    expect(inside).toEqual(
+      expect.arrayContaining([
+        { name: "planted.txt", list: "closed" },
+        { name: "logs", list: "closed" },
+      ]),
+    );
+    const logsAfter = icacls(logs);
+    row("stand-in service: the item made by Administrators, after", "as it was", logsAfter.out);
+    expect(logsAfter.out).not.toContain(`${OTHER_USER}:(OI)(CI)(F)`);
   }, 300_000);
 
   test("as the service (a stand-in account): an open top folder is refused with data_folder_open and left as it was; what is inside is made to inherit", async () => {

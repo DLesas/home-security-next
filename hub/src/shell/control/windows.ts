@@ -27,8 +27,9 @@
  *    be pointed elsewhere after the check; it is on a local drive Windows can tell, whose file
  *    system keeps access lists.
  * 3. **As the service, what is inside**: walked without following anything, any link inside
- *    refused; each entry but an old socket file made to inherit the top folder's list, and read
- *    back.
+ *    refused; each entry but an old socket file judged by `contentProblems`, and only an open one
+ *    made to inherit the top folder's list and the service's own, then read back. An open item
+ *    the service cannot close is refused with `data_folder_open`.
  * 4. **The top folder's list**, judged by `topFolderProblems`. A list that cannot be read is
  *    refused. One that is not the shape is **open**:
  *    - as the service: refused, with the warning `data_folder_open` (the installer's repair, or
@@ -265,23 +266,46 @@ function entriesInside(full: string, calls: WindowsCalls): Result<readonly strin
 function tightenInside(full: string, calls: WindowsCalls, service: string): Result<void, HubError> {
   // As the service, what is inside becomes its own: the service's SID, which it is.
   const owner = sidToBytes(service).mapErr((why) => refused(why, { folder: full }));
+  const judged = (entry: string): Result<readonly string[], HubError> =>
+    calls
+      .securityDescriptor(entry)
+      .mapErr((error) => unreadable(`the access list of ${entry} cannot be read`, error))
+      .map((bytes) =>
+        checkContent(bytes, service).match(
+          () => [],
+          (problems) => problems,
+        ),
+      );
   return entriesInside(full, calls).andThen((entries) => {
+    // Parents before children: a parent changed passes its list on, and each item is judged as
+    // it is when its turn comes. Only an item that is open is changed; one made by another
+    // allowed account (Administrators, SYSTEM) that admits nobody else is left as it is, though
+    // the service could not change it (run 43872833188: WinSW's `logs`).
     for (const entry of entries) {
+      const before = judged(entry);
+      if (before.isErr()) return err(before.error);
+      if (before.value.length === 0) continue;
+      const found = before.value.join("; ");
       const set = owner.andThen((sid) => calls.inheritFromParent(entry, EMPTY_ACL, sid));
       if (set.isErr())
-        return err(unreadable(`the hub could not make ${entry} inherit its list`, set.error));
-    }
-    for (const entry of entries) {
-      const bytes = calls.securityDescriptor(entry);
-      if (bytes.isErr())
-        return err(unreadable(`the access list of ${entry} cannot be read`, bytes.error));
-      const checked = checkContent(bytes.value, service);
-      if (checked.isErr())
         return err(
-          refused(`${entry} reads back open: ${checked.error.join("; ")}`, {
+          refused(
+            `${entry} is open (${found}) and the hub could not close it: ${set.error.message}`,
+            {
+              folder: full,
+              entry,
+              found,
+            },
+          ),
+        );
+      const after = judged(entry);
+      if (after.isErr()) return err(after.error);
+      if (after.value.length > 0)
+        return err(
+          refused(`${entry} reads back open: ${after.value.join("; ")}`, {
             folder: full,
             entry,
-            found: checked.error.join("; "),
+            found: after.value.join("; "),
           }),
         );
     }

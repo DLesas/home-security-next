@@ -31,7 +31,7 @@
  * restore's read and rebuild (it waits for a phone's key over Noise on the apps' listener).
  */
 import { afterAll, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
 import {
   Direction,
@@ -61,6 +61,7 @@ import { writeOlderRows } from "./run.ts";
 /** The hub's own entry with the clock taken as synchronised (a Linux runner may not say it is). */
 const MAIN = join(import.meta.dir, "..", "world", "hub-entry.ts");
 const MIGRATIONS = join(import.meta.dir, "..", "..", "drizzle");
+const HSN = join(import.meta.dir, "..", "..", "cli", "hsn.ts");
 const TIMING = process.env.HSN_TIMING === "1";
 /** A report behind a piece and a commit is taken within about 50 ms (section 3), asserted opt-in. */
 const TAKEN_WITHIN_MS = 50;
@@ -378,27 +379,38 @@ describe("door reports while the hub writes whole files (section 3, the loop's t
       await op("backup.now", {});
       await Bun.sleep(4000);
     });
-    // 2. The configuration export, then 3. the export with history, streamed to `hsn`.
+    // 2. The configuration export, then 3. the export with history, streamed to the real `hsn`
+    // (`hsn backup export <file> [--history]`) in a process of its own: decoding some hundred
+    // megabytes of chunks here would stall this process, whose gateway would then take the hub's
+    // replies late and in a burst, which looks like a held loop when it is the test's own.
     const exportOf = async (history: boolean): Promise<number> => {
-      let chunks = 0;
+      const file = join(
+        dataDir,
+        "..",
+        `${dataDir.split("/").at(-1)}-${history ? "history" : "configuration"}.export`,
+      );
+      folders.push(file);
+      const done = { code: -1 };
       await during(bench, async () => {
-        await new Promise<void>((resolve) => {
-          void op(
-            "backup.export",
-            { history },
-            {
-              onChunk: (chunk) => {
-                chunks++;
-                if (chunk.end !== undefined) resolve();
-              },
-              onFailed: () => {
-                resolve();
-              },
-            },
-          );
-        });
+        const hsn = spawnTracked(
+          [
+            "bun",
+            HSN,
+            "--data",
+            dataDir,
+            "backup",
+            "export",
+            file,
+            ...(history ? ["--history"] : []),
+          ],
+          { stdout: "ignore", stderr: "pipe" },
+        );
+        done.code = await hsn.exited;
+        if (done.code !== 0)
+          console.log(`hsn backup export: ${await new Response(hsn.stderr).text()}`);
       });
-      return chunks;
+      expect(done.code).toBe(0);
+      return existsSync(file) ? statSync(file).size : 0;
     };
     const configuration = await exportOf(false);
     const history = await exportOf(true);
@@ -451,15 +463,16 @@ describe("door reports while the hub writes whole files (section 3, the loop's t
     console.log(
       `${bench.sent} door reports sent, ${doors} recorded, ${answers.length} answered; ` +
         `${duringBackup} recorded during the backup; ` +
-        `configuration export ${configuration} chunks, history export ${history} chunks`,
+        `configuration export ${configuration} bytes, history export ${history} bytes`,
     );
     // Every report is recorded (each is a new door change) and answered: its reply was sent.
     expect(doors).toBe(bench.sent);
     expect(replies).toEqual([{ outcome: TxOutcome.Sent, n: bench.sent }]);
     // None waited for a whole job: the hub took reports between each job's pieces.
     expect(duringBackup).toBeGreaterThanOrEqual(AT_LEAST_DURING);
-    expect(configuration).toBeGreaterThan(1);
-    expect(history).toBeGreaterThan(1);
+    // Each export ran long enough to span many chunks of 48 KB ‡ (many pieces).
+    expect(configuration).toBeGreaterThan(100 * 48 * 1024);
+    expect(history).toBeGreaterThan(100 * 48 * 1024);
     if (TIMING) {
       // From a report leaving the gateway to the hub's own record of taking it (`at_ms`, on the
       // same computer's clock): section 3's "within about 50 ms" behind a piece and a commit.

@@ -147,6 +147,11 @@ describe("Windows: the service and the .msi", () => {
     expect(ps).toContain('/grant "${Account}:(OI)(CI)RX"');
     expect(ps).not.toMatch(/\(OI\)\(CI\)M|\/reset|Set-Acl|-Recurse/u);
     expect(ps).toContain("Set-HubTopFolder $Data");
+    // Shaped before WinSW's install writes logs\wrapper.log inside (run 43872833188).
+    expect(ps.indexOf("Set-HubTopFolder $Data")).toBeLessThan(ps.indexOf('"HSNHub.exe") install'));
+    expect(ps.indexOf("Set-HubTopFolder $Program")).toBeLessThan(
+      ps.indexOf('"HSNHub.exe") install'),
+    );
     expect(ps).toContain("Set-HubTopFolder $Program");
     // Fresh by the registry's marker, never by hub.db; a page only at the full interface.
     expect(ps).not.toContain("hub.db");

@@ -2,11 +2,14 @@
 #
 # The .msi's deferred, elevated custom action at install and at every upgrade (m2-design.md
 # section 9, Windows, and "The privilege boundary"), run from the package's tree only:
-#   1. the service registered by WinSW, under NT SERVICE\HSNHub, start type automatic;
-#   2. the package's tree, %ProgramFiles%\HSN Hub: the service account may read and run it only;
+#   1. each hub tree's top folder (%ProgramData%\HSN Hub, %ProgramData%\HSN Hub Program) made or
+#      checked and its access list set on that folder alone (tree.ps1): never its contents. First,
+#      before anything is made inside: WinSW's `install` writes logs\wrapper.log in the data folder
+#      as SYSTEM, and what is made before the shaping keeps %ProgramData%'s own list (run
+#      43872833188: the hub could not then close logs\, Windows error 5);
+#   2. the service registered by WinSW, under NT SERVICE\HSNHub, start type automatic;
+#   3. the package's tree, %ProgramFiles%\HSN Hub: the service account may read and run it only;
 #      the version this package replaced kept beside the new one, then at most two;
-#   3. each hub tree's top folder (%ProgramData%\HSN Hub, %ProgramData%\HSN Hub Program) made or
-#      checked and its access list set on that folder alone (tree.ps1): never its contents;
 #   4. the firewall's rules for the two LAN ports and mDNS;
 #   5. the event log's source "HSN Hub", the service started;
 #   6. on a fresh install (the registry's marker, not the hub's files), with a person at the full
@@ -31,7 +34,12 @@ $Program = Join-Path $env:ProgramData "HSN Hub Program"
 $Marker = "HKLM:\Software\HSN Hub"
 $fresh = -not ((Get-ItemProperty -Path $Marker -Name Installed -ErrorAction SilentlyContinue).Installed -eq 1)
 
-# 1. The service.
+# 1. The hub's two trees: their top folders only, before anything is made inside them. The list
+# names the service's SID, which Windows derives from its name whether or not the service exists.
+Set-HubTopFolder $Data
+Set-HubTopFolder $Program
+
+# 2. The service.
 & sc.exe query $Service *> $null
 if ($LASTEXITCODE -ne 0) {
   & (Join-Path $Bin "HSNHub.exe") install
@@ -40,7 +48,7 @@ if ($LASTEXITCODE -ne 0) {
 & sc.exe config $Service obj= $Account start= auto | Out-Null
 if ($LASTEXITCODE -ne 0) { throw "sc.exe config failed" }
 
-# 2. The package's tree: Administrators' and SYSTEM's; the service account reads and runs it.
+# 3. The package's tree: Administrators' and SYSTEM's; the service account reads and runs it.
 & icacls.exe $Package /grant "${Account}:(OI)(CI)RX" /Q | Out-Null
 if ($LASTEXITCODE -ne 0) { throw "icacls on $Package failed" }
 $packaged = Join-Path $Package "packaged"
@@ -55,10 +63,6 @@ if (Test-Path -LiteralPath $kept) {
 $others = @(Get-ChildItem -LiteralPath $packaged -Directory | Where-Object { $_.Name -ne $Version -and $_.Name -match '^\d+\.\d+\.\d+' } |
   Sort-Object { [version]($_.Name -replace '[-+].*$', '') } -Descending)
 foreach ($extra in ($others | Select-Object -Skip 1)) { Remove-TreeSafely $extra.FullName }
-
-# 3. The hub's two trees: their top folders only.
-Set-HubTopFolder $Data
-Set-HubTopFolder $Program
 
 # 4. The firewall.
 $rules = @(

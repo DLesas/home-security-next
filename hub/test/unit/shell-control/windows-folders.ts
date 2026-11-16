@@ -68,6 +68,15 @@ export function shapeFolder(
   const denies = extra.filter((entry) => entry.startsWith("(D;")).join("");
   const allows = extra.filter((entry) => !entry.startsWith("(D;")).join("");
   const sddl = `${shape.slice(0, at)}${denies}${shape.slice(at)}${allows}`;
+  return setSddl(path, sddl);
+}
+
+/**
+ * Sets `path`'s owner and list from SDDL text, as A8's `tree.ps1` does: Windows' own converter,
+ * then `SetKernelObjectSecurity` on the object's no-follow handle. `out` is the SDDL, or what
+ * failed.
+ */
+export function setSddl(path: string, sddl: string): Ran {
   const advapi = dlopen("advapi32.dll", {
     ConvertStringSecurityDescriptorToSecurityDescriptorW: {
       args: [FFIType.ptr, FFIType.u32, FFIType.ptr, FFIType.ptr],

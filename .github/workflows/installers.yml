@@ -782,6 +782,10 @@ jobs:
             # Stop here: the service checks could only fail because nothing is installed.
             Stop-Job "msiexec /i failed (exit $($p.ExitCode)); its log is msi-install.log, above"
           }
+          # A probe expected to fail (sc.exe query of a removed service, netsh of a removed rule)
+          # leaves its exit code behind: the checks above are this step's result, counted by
+          # Result; a step that must stop the job says so with Stop-Job.
+          exit 0
 
       - name: A8's hosted check, owners
         if: ${{ !cancelled() && env.HSN_STOPPED == '' }}
@@ -790,6 +794,10 @@ jobs:
           . .github/workflows/installer-checks.ps1
           Write-Heading "The package's tree and the hub's top folders (A8's check.ps1 owners)"
           Invoke-Hosted "owners"
+          # A probe expected to fail (sc.exe query of a removed service, netsh of a removed rule)
+          # leaves its exit code behind: the checks above are this step's result, counted by
+          # Result; a step that must stop the job says so with Stop-Job.
+          exit 0
 
       - name: The service
         if: ${{ !cancelled() && env.HSN_STOPPED == '' }}
@@ -830,6 +838,10 @@ jobs:
           }
           $listening = Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue | Where-Object { $_.LocalPort -in 8443, 8444, 8445 } | ForEach-Object { "$($_.LocalAddress):$($_.LocalPort)" }
           Write-Info "Listening" ($listening -join " ")
+          # A probe expected to fail (sc.exe query of a removed service, netsh of a removed rule)
+          # leaves its exit code behind: the checks above are this step's result, counted by
+          # Result; a step that must stop the job says so with Stop-Job.
+          exit 0
 
       - name: hsn status, and the console
         if: ${{ !cancelled() && env.HSN_STOPPED == '' }}
@@ -856,6 +868,10 @@ jobs:
             if ($ok) { $true } else { "no page" }
           }
           Invoke-Hosted "console"
+          # A probe expected to fail (sc.exe query of a removed service, netsh of a removed rule)
+          # leaves its exit code behind: the checks above are this step's result, counted by
+          # Result; a step that must stop the job says so with Stop-Job.
+          exit 0
 
       - name: The hub's trees
         if: ${{ !cancelled() && env.HSN_STOPPED == '' }}
@@ -897,6 +913,10 @@ jobs:
           }
           Test-Check "The hub made its database (hub.db)" { if (Test-Path (Join-Path $data "hub.db")) { $true } else { "no hub.db" } }
           Test-Check "The launcher keeps its state in the hub's program tree" { if (Test-Path (Join-Path $program "state\launcher.json")) { $true } else { "no state\launcher.json" } }
+          # A probe expected to fail (sc.exe query of a removed service, netsh of a removed rule)
+          # leaves its exit code behind: the checks above are this step's result, counted by
+          # Result; a step that must stop the job says so with Stop-Job.
+          exit 0
 
       - name: A killed hub is restarted
         if: ${{ !cancelled() && env.HSN_STOPPED == '' }}
@@ -918,6 +938,10 @@ jobs:
             }
             if ($ok) { $true } else { "no new hub answered" }
           }
+          # A probe expected to fail (sc.exe query of a removed service, netsh of a removed rule)
+          # leaves its exit code behind: the checks above are this step's result, counted by
+          # Result; a step that must stop the job says so with Stop-Job.
+          exit 0
 
       - name: Logs
         if: always()
@@ -933,6 +957,10 @@ jobs:
           Save-Text "application-events.txt" ($events -join "`n") 20
           $scm = Get-WinEvent -FilterHashtable @{ LogName = "System"; ProviderName = "Service Control Manager" } -MaxEvents 300 -ErrorAction SilentlyContinue | Where-Object { $_.Message -match 'HSN' } | ForEach-Object { "$($_.TimeCreated.ToString('s')) $($_.Id) $($_.Message)" }
           Save-Text "service-control-manager.txt" ($scm -join "`n") 20
+          # A probe expected to fail (sc.exe query of a removed service, netsh of a removed rule)
+          # leaves its exit code behind: the checks above are this step's result, counted by
+          # Result; a step that must stop the job says so with Stop-Job.
+          exit 0
 
       - name: Uninstall (msiexec /x)
         if: ${{ !cancelled() && env.HSN_STOPPED == '' }}
@@ -962,6 +990,10 @@ jobs:
           Test-Check "The data folder is kept" { if (Test-Path $data) { $true } else { "gone" } }
           Test-Check "The database is kept" { if (Test-Path (Join-Path $data "hub.db")) { $true } else { "gone" } }
           Test-Check "The hub's program tree is kept" { if (Test-Path (Join-Path $env:ProgramData "HSN Hub Program")) { $true } else { "gone" } }
+          # A probe expected to fail (sc.exe query of a removed service, netsh of a removed rule)
+          # leaves its exit code behind: the checks above are this step's result, counted by
+          # Result; a step that must stop the job says so with Stop-Job.
+          exit 0
 
       - name: Remove with data (REMOVEDATA=1)
         if: ${{ !cancelled() && env.HSN_STOPPED == '' }}
@@ -981,6 +1013,8 @@ jobs:
           Test-Check "The data folder is gone" { if (-not (Test-Path (Join-Path $env:ProgramData "HSN Hub"))) { $true } else { "still there" } }
           Test-Check "The hub's program tree is gone" { if (-not (Test-Path (Join-Path $env:ProgramData "HSN Hub Program"))) { $true } else { "still there" } }
           Test-Check "The package's tree is gone" { if (-not (Test-Path (Join-Path $env:ProgramFiles "HSN Hub"))) { $true } else { "still there" } }
+          # A probe expected to fail leaves its exit code behind: the checks above are the result.
+          exit 0
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()

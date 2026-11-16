@@ -152,14 +152,23 @@ async function answers(server: UnixControlServer | undefined, socket: string): P
 const callsTo = (fake: FakeWindows, call: string) =>
   fake.calls.filter((c) => c.startsWith(`${call} `) || c === call);
 
-/** The data folder holds `hub.db` and `backups\keys`. */
+/** An item inside that is open: an entry of its own for Everyone, owned by a person. */
+const OPEN_ITEM = descriptorBytes({
+  owner: USER_SID,
+  control: SE_SELF_RELATIVE | SE_DACL_PRESENT,
+  dacl: [...contentAces(), { kind: "allow", sid: EVERYONE_SID, mask: FULL }],
+});
+
+/** The data folder holds `hub.db` and `backups\keys`, each open until made to inherit. */
 function withContents(at: Place): readonly string[] {
   const backups = join(at.where.folder, "backups");
   at.fake.contents.set(pathKey(at.where.folder), ["hub.db", "backups"]);
   at.fake.contents.set(pathKey(backups), ["keys"]);
   setFor(at.fake.attributes, join(at.where.folder, "hub.db"), 0x20);
   setFor(at.fake.attributes, join(backups, "keys"), 0x20);
-  return [join(at.where.folder, "hub.db"), backups, join(backups, "keys")];
+  const inside = [join(at.where.folder, "hub.db"), backups, join(backups, "keys")];
+  for (const entry of inside) setFor(at.fake.descriptors, entry, OPEN_ITEM);
+  return inside;
 }
 
 /** Ways a top folder is open: each with what the refusal or the warning names. */
@@ -263,6 +272,53 @@ describe("Windows, as the service: what is inside inherits; the top folder is ch
     expect(at.warnings).toEqual([]);
   });
 
+  test("an item made by another allowed account that admits nobody else is left as it is, though the service could not change it", async () => {
+    // As WinSW's `logs`, made by the installer as SYSTEM (run 43872833188).
+    for (const owner of [SYSTEM_SID, ADMINISTRATORS_SID, SERVICE_SID]) {
+      const at = place();
+      at.fake.contents.set(pathKey(at.where.folder), ["logs"]);
+      const logs = join(at.where.folder, "logs");
+      setFor(
+        at.fake.descriptors,
+        logs,
+        descriptorBytes({
+          owner,
+          control: SE_SELF_RELATIVE | SE_DACL_PRESENT,
+          dacl: contentAces(),
+        }),
+      );
+      at.fake.inheritFails.add(pathKey(logs));
+      await opens(at);
+      expect(callsTo(at.fake, "inheritFromParent")).toEqual([]);
+      expect(at.warnings).toEqual([]);
+    }
+  });
+
+  test("an open item the service cannot close is refused with data_folder_open, naming it and what was found", async () => {
+    const at = place();
+    at.fake.contents.set(pathKey(at.where.folder), ["logs"]);
+    const logs = join(at.where.folder, "logs");
+    setFor(
+      at.fake.descriptors,
+      logs,
+      descriptorBytes({
+        owner: SYSTEM_SID,
+        control: SE_SELF_RELATIVE | SE_DACL_PRESENT,
+        dacl: [
+          ...contentAces(),
+          { kind: "allow", sid: USERS_SID, flags: INHERITED, mask: 0x1200a9 },
+        ],
+      }),
+    );
+    at.fake.inheritFails.add(pathKey(logs));
+    const message = await refusal(at);
+    expect(message).toContain("is open (it lets in Users (S-1-5-32-545)");
+    expect(message).toContain(
+      "and the hub could not close it: SetNamedSecurityInfoW failed with Windows error 5",
+    );
+    expect(at.warnings.map((w) => w.code)).toEqual(["data_folder_open"]);
+  });
+
   test("an old socket file inside is left to be replaced, not made to inherit", async () => {
     const at = place();
     at.fake.contents.set(pathKey(at.where.folder), ["old.sock"]);
@@ -329,7 +385,7 @@ describe("Windows, as the service: what is inside inherits; the top folder is ch
     const failing = place();
     const inside = withContents(failing);
     failing.fake.inheritFails.add(pathKey(inside[0] ?? ""));
-    expect(await refusal(failing)).toContain("the hub could not make");
+    expect(await refusal(failing)).toContain("and the hub could not close it");
     expect(failing.warnings[0]?.code).toBe("data_folder_open");
     const open = place();
     const entries = withContents(open);

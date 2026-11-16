@@ -39,8 +39,13 @@ switch ($Step) {
       foreach ($rule in $acl.Access) {
         $who = $rule.IdentityReference.Value
         if ($who -in @("BUILTIN\Administrators", "NT AUTHORITY\SYSTEM", "NT SERVICE\TrustedInstaller", "CREATOR OWNER")) { continue }
-        $writes = [System.Security.AccessControl.FileSystemRights]"Write, Modify, FullControl, Delete, ChangePermissions, TakeOwnership, CreateFiles, AppendData"
-        if (($rule.AccessControlType -eq "Allow") -and ($rule.FileSystemRights -band $writes)) { Fail "$who may write $($item.FullName)" }
+        # The bits that let one change something, alone: WriteData (create files), AppendData
+        # (create folders), WriteExtendedAttributes, DeleteSubdirectoriesAndFiles, WriteAttributes,
+        # Delete, ChangePermissions, TakeOwnership, and the generic GENERIC_WRITE and GENERIC_ALL.
+        # Not a mask built from FullControl or Modify, which share Read's and Synchronize's bits
+        # with Read and Execute (run 43872833188 failed a correct RX grant on that).
+        $writes = 0x2 -bor 0x4 -bor 0x10 -bor 0x40 -bor 0x100 -bor 0x10000 -bor 0x40000 -bor 0x80000 -bor 0x40000000 -bor 0x10000000
+        if (($rule.AccessControlType -eq "Allow") -and (([int64]$rule.FileSystemRights -band $writes) -ne 0)) { Fail "$who may write $($item.FullName) ($($rule.FileSystemRights))" }
       }
     }
     foreach ($top in @($Data, $Program)) {
