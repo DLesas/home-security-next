@@ -91,7 +91,7 @@ describe.skipIf(isWindows)("off Windows", () => {
       WINDOWS_CALLS.volume("C:\\x"),
       WINDOWS_CALLS.isAdministrator(),
       WINDOWS_CALLS.setTopShape("C:\\x", new Uint8Array(20)),
-      WINDOWS_CALLS.inheritFromParent("C:\\x", EMPTY_ACL),
+      WINDOWS_CALLS.inheritFromParent("C:\\x", EMPTY_ACL, new Uint8Array(16)),
       WINDOWS_CALLS.defaultOwnerAdministrators(new Uint8Array(16)),
     ];
     for (const result of results) {
@@ -181,9 +181,14 @@ describe.skipIf(!isWindows)("on Windows, against the system's own tools", () => 
     writeFileSync(file, "x");
     expect(made(icacls(file, "/grant", "*S-1-1-0:(R)"))).toBe("made");
     expect(entries(file).some(([, sid]) => sid === "S-1-1-0")).toBe(true);
-    const inherited = WINDOWS_CALLS.inheritFromParent(file, EMPTY_ACL);
+    const inherited = WINDOWS_CALLS.inheritFromParent(
+      file,
+      EMPTY_ACL,
+      sidToBytes(own())._unsafeUnwrap(),
+    );
     expect(inherited.isOk() ? "made" : inherited.error.message).toBe("made");
     expect(entries(file).some(([, sid]) => sid === "S-1-1-0")).toBe(false);
+    expect(descriptorOf(file).owner).toBe(own());
     expect(entries(file).every(([, , flags]) => ((flags as number) & INHERITED_ACE) !== 0)).toBe(
       true,
     );
@@ -251,7 +256,7 @@ describe.skipIf(!isWindows)("on Windows, against the system's own tools", () => 
       });
     });
     const gone = checkHubPeer(path, own());
-    expect(gone.isErr() ? gone.error.kind : "accepted").toBe("cannotTell");
+    expect(gone.isErr() ? gone.error.kind : "accepted").toBe("notRunning");
   });
 
   test("the system drive keeps access lists and is a fixed drive", () => {

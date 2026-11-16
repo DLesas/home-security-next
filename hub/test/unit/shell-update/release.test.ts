@@ -35,6 +35,7 @@ import {
   isNewer,
   makeRelease,
   platformOf,
+  type ReleasePlatform,
   publicOfSeed,
   RELEASE,
 } from "../../../src/shell/update/release.ts";
@@ -79,7 +80,7 @@ beforeEach(() => {
 
 function release(
   version = "1.0.0",
-  platform: "darwin-arm64" | "linux-x64" = "darwin-arm64",
+  platform: ReleasePlatform = "darwin-arm64",
   seed = SEED,
 ): Uint8Array {
   const made = releaseOf(source, version, platform, seed, 0);
@@ -395,8 +396,10 @@ describe("the switch's room", () => {
     expect(existsSync(installPaths(prefix).switchFile)).toBe(false);
   });
 
-  test("staged through the job, with the test key", () => {
-    writeFileSync(upload, release());
+  // The job stages for the system it runs on (`platformOf`), so the release is built for it.
+  const here = platformOf(process.platform, process.arch);
+  test.skipIf(here === undefined)("staged through the job, with the test key", () => {
+    writeFileSync(upload, release("1.0.0", here ?? "linux-x64"));
     const done = runToEnd(
       jobId(1),
       { kind: "stageUpdate", upload: { conn: connId(1), job: 1 } },

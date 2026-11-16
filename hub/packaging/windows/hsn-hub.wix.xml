@@ -117,7 +117,10 @@
     <UIRef Id="WixUI_Common" />
     <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOXTEXT" Value="Open the setup page" />
     <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOX" Value="1" />
-    <Property Id="WixShellExecTarget" Value="[LocalAppDataFolder]HSN Hub\setup.html" />
+    <!-- Set from another property at run time, as WiX's WIX1077 advises: a Property's own value
+         is a literal. -->
+    <SetProperty Id="WixShellExecTarget" Value="[LocalAppDataFolder]HSN Hub\setup.html"
+                 After="CostFinalize" Sequence="both" />
     <CustomAction Id="OpenSetupPage" DllEntry="WixShellExec" Impersonate="yes"
                   BinaryRef="Wix4UtilCA_X64" />
     <UI>

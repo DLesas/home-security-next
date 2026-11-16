@@ -12,22 +12,28 @@ export function formatTime(
   hub: Pick<HubInfo, "timeZone" | "clockTrusted"> | null,
   ms: number,
 ): string {
+  // Date and time apart, joined by the app's own words: systems join them differently (", ", " at ").
+  const zone = hub === null ? undefined : hub.timeZone;
   let text: string;
   try {
-    text = new Intl.DateTimeFormat(language, {
-      dateStyle: "medium",
-      timeStyle: "short",
-      ...(hub === null ? {} : { timeZone: hub.timeZone }),
-    }).format(ms);
+    text = joinDateTime(t, language, ms, zone);
   } catch {
     // A zone this browser's Intl does not know: the instant in UTC, still unambiguous.
-    text = new Intl.DateTimeFormat(language, {
-      dateStyle: "medium",
-      timeStyle: "short",
-      timeZone: "UTC",
-    }).format(ms);
+    text = joinDateTime(t, language, ms, "UTC");
   }
   return hub !== null && !hub.clockTrusted ? t("time.about", { time: text }) : text;
+}
+
+function joinDateTime(
+  t: Translate,
+  language: string,
+  ms: number,
+  zone: string | undefined,
+): string {
+  const inZone = zone === undefined ? {} : { timeZone: zone };
+  const date = new Intl.DateTimeFormat(language, { dateStyle: "medium", ...inZone }).format(ms);
+  const time = new Intl.DateTimeFormat(language, { timeStyle: "short", ...inZone }).format(ms);
+  return t("time.at", { date, time });
 }
 
 /** Seconds left of a countdown told at `toldAtMs`, never below zero. */

@@ -439,10 +439,8 @@ async function slowControlLink(
     let held = false;
     let text = "";
     hub.on("data", (bytes: Buffer) => {
-      if (held) {
-        client.write(bytes);
-        return;
-      }
+      // After the first chunk the hub is dead to `hsn`: nothing it had already sent gets through.
+      if (held) return;
       text += bytes.toString("latin1");
       for (let at = text.indexOf("\n"); at >= 0 && !held; at = text.indexOf("\n")) {
         const line = text.slice(0, at + 1);
@@ -451,9 +449,12 @@ async function slowControlLink(
         if (line.includes('"fileChunk"')) {
           held = true;
           hub.pause();
+          // What the hub sent before it was killed stays here: on a fast machine that can be the
+          // whole export, which would reach `hsn` whole (seen on Linux, run 43870921541).
           void atFirstChunk().then(() => {
-            if (text.length > 0) client.write(Buffer.from(text, "latin1"));
-            hub.resume();
+            text = "";
+            hub.destroy();
+            client.end();
           });
         }
       }
@@ -670,7 +671,9 @@ describe("the channel end to end on the real hub (m2-design.md section 11)", () 
     const viaKilled = join(root, "killed.hsnb");
     const killed = await hsn(["--socket", slowPath, "backup", "export", viaKilled]);
     slow.close();
-    console.log(`end to end: hsn when the hub was killed half-way: ${killed.err.trim()}`);
+    console.log(
+      `end to end: hsn when the hub was killed half-way: exit ${String(killed.code)}, ${killed.err.trim()}; out: ${killed.out.trim()}`,
+    );
     expect(killedAt).toBe("after its first chunk");
     expect(hub.signalCode).toBe("SIGKILL");
     expect(killed.code).not.toBe(0);

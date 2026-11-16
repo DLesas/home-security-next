@@ -263,9 +263,11 @@ function entriesInside(full: string, calls: WindowsCalls): Result<readonly strin
 
 /** Step 3, as the service: what is inside made to inherit the top folder's list, and read back. */
 function tightenInside(full: string, calls: WindowsCalls, service: string): Result<void, HubError> {
+  // As the service, what is inside becomes its own: the service's SID, which it is.
+  const owner = sidToBytes(service).mapErr((why) => refused(why, { folder: full }));
   return entriesInside(full, calls).andThen((entries) => {
     for (const entry of entries) {
-      const set = calls.inheritFromParent(entry, EMPTY_ACL);
+      const set = owner.andThen((sid) => calls.inheritFromParent(entry, EMPTY_ACL, sid));
       if (set.isErr())
         return err(unreadable(`the hub could not make ${entry} inherit its list`, set.error));
     }

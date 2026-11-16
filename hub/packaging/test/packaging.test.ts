@@ -90,20 +90,24 @@ describe("Linux: the systemd units", () => {
   });
 });
 
-describe("macOS: the launchd daemon", () => {
-  const plist = JSON.parse(
-    run(["plutil", "-convert", "json", "-o", "-", join(HERE, "macos/com.hsn.hub.plist")]).out,
-  ) as Record<string, unknown>;
+const MAC = process.platform === "darwin";
+
+// plutil is macOS's own: these run on a Mac only, and nothing of it runs outside a test.
+describe.skipIf(!MAC)("macOS: the launchd daemon", () => {
+  const plist = (): Record<string, unknown> =>
+    JSON.parse(
+      run(["plutil", "-convert", "json", "-o", "-", join(HERE, "macos/com.hsn.hub.plist")]).out,
+    ) as Record<string, unknown>;
 
   test("a valid property list", () => {
     expect(run(["plutil", "-lint", join(HERE, "macos/com.hsn.hub.plist")]).code).toBe(0);
   });
 
   test("run at load, kept alive unless it exits 0, as _hsnhub, the launcher with both trees", () => {
-    expect(plist.RunAtLoad).toBe(true);
-    expect(plist.KeepAlive).toEqual({ SuccessfulExit: false });
-    expect(plist.UserName).toBe(SERVICE.macos.user);
-    expect(plist.ProgramArguments).toEqual([
+    expect(plist().RunAtLoad).toBe(true);
+    expect(plist().KeepAlive).toEqual({ SuccessfulExit: false });
+    expect(plist().UserName).toBe(SERVICE.macos.user);
+    expect(plist().ProgramArguments).toEqual([
       INSTALL.macos.launcher,
       "--package",
       INSTALL.macos.packageTree,
@@ -112,13 +116,13 @@ describe("macOS: the launchd daemon", () => {
       "--data",
       INSTALL.macos.dataFolder,
     ]);
-    expect(plist.Umask).toBe(0o77);
-    expect(plist.WorkingDirectory).toBe("/");
+    expect(plist().Umask).toBe(0o77);
+    expect(plist().WorkingDirectory).toBe("/");
   });
 
   test("no log path: launchd would open it as root (the launcher writes to the system log)", () => {
-    expect(plist.StandardOutPath).toBeUndefined();
-    expect(plist.StandardErrorPath).toBeUndefined();
+    expect(plist().StandardOutPath).toBeUndefined();
+    expect(plist().StandardErrorPath).toBeUndefined();
   });
 });
 
@@ -181,6 +185,11 @@ describe("Windows: the service and the .msi", () => {
     expect(wxs).toContain("-RemoveData &quot;[REMOVEDATA]&quot;");
     expect(wxs).toContain('Condition="NOT REMOVE=&quot;ALL&quot;"');
     expect(read("windows/remove-with-data.ps1")).toContain("REMOVEDATA=1");
+    // WIX1077: a Property's value is a literal; the page's path is set from LocalAppDataFolder.
+    expect(wxs).not.toMatch(/<Property Id="WixShellExecTarget"/u);
+    expect(wxs).toContain(
+      '<SetProperty Id="WixShellExecTarget" Value="[LocalAppDataFolder]HSN Hub\\setup.html"',
+    );
     // No licence page in M2, and no placeholder licence.
     expect(wxs).not.toMatch(/WixUI_Minimal|WelcomeEulaDlg|LicenseAgreementDlg|WixUILicenseRtf/u);
     expect(wxs).toContain(
@@ -190,6 +199,11 @@ describe("Windows: the service and the .msi", () => {
 
   test("build-msi.ps1: the pinned WinSW, its licence kept here, the work folder always removed", () => {
     const build = read("windows/build-msi.ps1");
+    // A short work folder, and the paths' lengths checked before WiX (run 43870921430).
+    expect(build).toContain('Join-Path "$env:SystemDrive\\" ("hsnb-"');
+    expect(build.indexOf("the paths' lengths")).toBeLessThan(
+      build.indexOf('Invoke-Native "wix build"'),
+    );
     expect(build).toContain("winsw-pin.ts");
     expect(build).not.toContain('LICENSE.txt" -OutFile');
     expect(build).not.toMatch(/Invoke-WebRequest[^\n]*LICENSE/u);
@@ -414,7 +428,8 @@ describe("prune-packaged.sh and open-setup-page.sh", () => {
   }, 15_000);
 });
 
-describe("macOS: a real .pkg, from a stand-in program", () => {
+// pkgbuild and pkgutil are macOS's own.
+describe.skipIf(!MAC)("macOS: a real .pkg, from a stand-in program", () => {
   test("pkgbuild makes it; its payload has the program, the launcher, hsn and the daemon; its scripts are there", () => {
     const work = scratch();
     const program = join(work, "program");

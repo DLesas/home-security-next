@@ -1,6 +1,6 @@
 # `app/e2e/`: owner A9
 
-M2's browser tests and the "done when" (docs/m2-design.md section 10, "The app"), against a real hub (`hub/src/shell/main.ts`) on a temporary data folder that serves the exported web build itself on its console listener (`http://127.0.0.1:<port>`, the channel at `ws://…/app`) and its apps' listener (HTTPS, the hub's own certificate). Tests are `*.e2e.ts`: `bun test` would run any `*.spec.ts`.
+M2's browser tests and the "done when" (docs/m2-design.md section 10, "The app"), against a real hub (`hub/test/world/hub-entry.ts`: `hub/src/shell/main.ts`'s entry with the clock taken as synchronised) on a temporary data folder that serves the exported web build itself on its console listener (`http://127.0.0.1:<port>`, the channel at `ws://…/app`) and its apps' listener (HTTPS, the hub's own certificate). Tests are `*.e2e.ts`: `bun test` would run any `*.spec.ts`.
 
 - `done-when.e2e.ts`: the whole flow, one serial test per step: the console's first link, setup (name, the gateway added on its own when plugged in, the survey, the rate, the Wi-Fi, the countdown, the sensor and the siren over USB), a group and a mode, Away with a disarm in the countdown, the mode with the alarm and the siren sounding, the history, a schedule entry, a second browser linked by a typed code and removed, the hub's records and a clean stop; no refusal under the content security policy; axe on every screen it passed through.
 - `routes.e2e.ts`: every route loads from the hub, with axe.

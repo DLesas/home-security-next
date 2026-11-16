@@ -13,7 +13,9 @@ import { networkInterfaces } from "node:os";
 import { join } from "node:path";
 import { webSocketConnect, type Connect } from "../../src/hub/wire";
 
-const MAIN = join(import.meta.dir, "..", "..", "..", "hub", "src", "shell", "main.ts");
+// The hub's own entry with its clock taken as synchronised (a Linux machine trusts its clock only
+// when the system says so, and refuses exports otherwise): the shared test entry.
+const MAIN = join(import.meta.dir, "..", "..", "..", "hub", "test", "world", "hub-entry.ts");
 const live = new Set<Subprocess>();
 const folders = new Set<string>();
 

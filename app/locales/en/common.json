@@ -210,7 +210,8 @@
   },
   "time": {
     "about": "about {{time}}",
-    "untrusted": "The hub's clock is not set, so times are approximate."
+    "untrusted": "The hub's clock is not set, so times are approximate.",
+    "at": "{{date}} at {{time}}"
   },
   "arm": {
     "disarmed": "Disarmed",

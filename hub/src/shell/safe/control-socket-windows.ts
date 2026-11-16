@@ -20,7 +20,10 @@
  *   folder's contents, and no elevated step may touch what is inside a hub tree.
  * - `inheritFromParent`, run only as the service account, on what is inside its own tree: the
  *   object's list made "inherited only" (`SetNamedSecurityInfoW`, unprotected, no entry of its
- *   own), so it takes the top folder's list. Only after the walk has refused every link inside.
+ *   own), so it takes the top folder's list, and its owner made the service itself, which its
+ *   full control there allows (a file an administrator put inside is otherwise still the
+ *   administrator's, who could rewrite its list: run 43870921431). Only after the walk has
+ *   refused every link inside.
  * - `createFolder`, for an administrator's run on a computer with no data folder yet: the
  *   folder made with the shape from its first moment, so everything made in it inherits it.
  * - `defaultOwnerAdministrators`: this process's token makes what it creates owned by
@@ -74,8 +77,12 @@ export interface WindowsCalls {
   readonly isAdministrator: () => Result<boolean, HubError>;
   /** Sets a folder's owner and list from a self-relative descriptor, on its handle; refuses a link. */
   readonly setTopShape: (path: string, descriptor: Uint8Array) => Result<void, HubError>;
-  /** Makes the object's list inherited only: no entry of its own, inheritance on. */
-  readonly inheritFromParent: (path: string, emptyAcl: Uint8Array) => Result<void, HubError>;
+  /** Makes the object's list inherited only (no entry of its own, inheritance on) and `owner` its owner. */
+  readonly inheritFromParent: (
+    path: string,
+    emptyAcl: Uint8Array,
+    owner: Uint8Array,
+  ) => Result<void, HubError>;
   /** What this process creates from now on is owned by Administrators (`sid`'s bytes). */
   readonly defaultOwnerAdministrators: (sid: Uint8Array) => Result<void, HubError>;
   /**
@@ -331,13 +338,13 @@ function setTopShape(path: string, descriptor: Uint8Array): void {
   }
 }
 
-function inheritFromParent(path: string, emptyAcl: Uint8Array): void {
+function inheritFromParent(path: string, emptyAcl: Uint8Array, owner: Uint8Array): void {
   const { advapi } = win32();
   const failed = advapi.SetNamedSecurityInfoW(
     wide(path),
     SE_FILE_OBJECT,
-    DACL_SECURITY_INFORMATION | UNPROTECTED_DACL_SECURITY_INFORMATION,
-    null,
+    OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION | UNPROTECTED_DACL_SECURITY_INFORMATION,
+    owner,
     null,
     emptyAcl,
     null,
@@ -484,9 +491,9 @@ export const WINDOWS_CALLS: WindowsCalls = {
     wrap(`set the owner and access list of ${path}`, () => {
       setTopShape(path, descriptor);
     }),
-  inheritFromParent: (path, emptyAcl) =>
+  inheritFromParent: (path, emptyAcl, owner) =>
     wrap(`make ${path} inherit its access list`, () => {
-      inheritFromParent(path, emptyAcl);
+      inheritFromParent(path, emptyAcl, owner);
     }),
   createFolder: (path, descriptor) =>
     wrap(`make the folder ${path}`, () => createFolder(path, descriptor)),

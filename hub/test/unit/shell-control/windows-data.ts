@@ -16,6 +16,7 @@ import {
   INHERIT_ONLY_ACE,
   INHERITED_ACE,
   OBJECT_INHERIT_ACE,
+  parseSid,
   SE_DACL_PRESENT,
   SE_DACL_PROTECTED,
   SE_SELF_RELATIVE,
@@ -206,6 +207,8 @@ export interface FakeWindows {
   createFolder: "takes" | "error" | "otherwise";
   /** Whether it was made: what the process creates is then Administrators'. */
   ownerIsAdministrators: boolean;
+  /** The owner given with each "inherit from the parent". */
+  readonly ownersSet: string[];
   /** Every shape set, with its path. */
   readonly shapesSet: { readonly path: string; readonly descriptor: Uint8Array }[];
   /** Every call made, in order: `<call> <path>`. */
@@ -249,6 +252,7 @@ export function fakeWindows(
     ownerFails: false,
     createFolder: "takes",
     ownerIsAdministrators: false,
+    ownersSet: [],
     shapesSet: [],
     calls: [],
   };
@@ -306,8 +310,13 @@ export function fakeWindows(
       if (fake.setShape === "takes") fake.descriptors.set(pathKey(path), descriptor.slice());
       return ok(undefined);
     },
-    inheritFromParent: (path) => {
+    inheritFromParent: (path, _acl, owner) => {
       fake.calls.push(`inheritFromParent ${path}`);
+      fake.ownersSet.push(
+        parseSid(owner, 0)
+          .map(({ sid }) => sid)
+          .unwrapOr("(not a SID)"),
+      );
       if (fake.inheritFails.has(pathKey(path)))
         return err(failure("SetNamedSecurityInfoW failed with Windows error 5"));
       fake.descriptors.set(pathKey(path), contentDescriptor(runAs, service));

@@ -16,7 +16,13 @@ param([Parameter(Mandatory = $true)][string]$Out)
 $ErrorActionPreference = "Stop"
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repo = (Resolve-Path (Join-Path $here "..\..\..")).Path
-$work = Join-Path ([System.IO.Path]::GetTempPath()) ("hsn-msi-" + [guid]::NewGuid())
+# A short work folder at the drive's root: WiX's cabinet helper (wixnative.exe) is bound by
+# Windows' 260-character paths, and the web app's deepest file is about 170 characters below
+# web\, which under %TEMP%\hsn-msi-<guid>\program\versions\<v>\web\ passes 260 (run 43870921430:
+# "WIX0001: System.IO.IOException: The pipe has been ended" in Cabinet.Compress).
+$work = Join-Path "$env:SystemDrive\" ("hsnb-" + [guid]::NewGuid().ToString("N").Substring(0, 8))
+# Windows' limit for a path wixnative.exe and Windows Installer open.
+$MaxPath = 259
 $stage = "start"
 
 # Runs a native command, printing all it says; throws, naming the stage and the command, on a
@@ -69,8 +75,22 @@ try {
   Get-ChildItem $bin | ForEach-Object { Write-Output "  $($_.Name) $($_.Length)" }
   $prepare = [Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes((Get-Content (Join-Path $here "prepare-upgrade.ps1") -Raw)))
 
+  # The longest paths the build reads, and the longest the installed package will hold, said
+  # before WiX runs, and refused here rather than as a crash inside WiX.
+  $stage = "the paths' lengths"
+  Write-Output "build-msi: $stage"
+  $versionDir = Join-Path $work "program\versions\$version"
+  $files = @(Get-ChildItem -LiteralPath $versionDir -Recurse -File | Sort-Object { $_.FullName.Length } -Descending)
+  foreach ($f in ($files | Select-Object -First 3)) { Write-Output "  $($f.FullName.Length) $($f.FullName)" }
+  $longest = $files[0].FullName.Length
+  $installed = (Join-Path $env:ProgramFiles "HSN Hub\packaged\$version").Length + ($longest - $versionDir.Length)
+  Write-Output "  longest source path $longest; longest installed path about $installed"
+  if ($longest -gt $MaxPath) { throw "FAILED at ${stage}: a source path of $longest characters (more than $MaxPath)" }
+  if ($installed -gt $MaxPath) { throw "FAILED at ${stage}: an installed path of about $installed characters (more than $MaxPath)" }
+
   New-Item -ItemType Directory -Force -Path $Out | Out-Null
   $msi = Join-Path $Out "HSN-Hub-$version.msi"
+  Invoke-Native "wix --version" "wix --version" { & wix --version }
   $wxs = Join-Path $here "hsn-hub.wix.xml"
   Invoke-Native "wix build" "wix build -arch x64 -ext WixToolset.UI.wixext -ext WixToolset.Util.wixext -d Version=$version -d ProgramDir=$work\program -d BinDir=$bin -d PrepareUpgrade=<$($prepare.Length) characters> $wxs -o $msi" {
     & wix build -arch x64 -ext WixToolset.UI.wixext -ext WixToolset.Util.wixext -d "Version=$version" -d "ProgramDir=$work\program" -d "BinDir=$bin" -d "PrepareUpgrade=$prepare" $wxs -o $msi

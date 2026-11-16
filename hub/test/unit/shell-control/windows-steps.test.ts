@@ -249,6 +249,8 @@ describe("Windows, as the service: what is inside inherits; the top folder is ch
     expect(callsTo(at.fake, "inheritFromParent").map((c) => c.slice(18).toLowerCase())).toEqual(
       inside.map(pathKey),
     );
+    // ... each made the service's own (a file an administrator put there stays theirs otherwise).
+    expect(at.fake.ownersSet).toEqual(inside.map(() => SERVICE_SID));
     const lastInherit = at.fake.calls.findLastIndex((c) => c.startsWith("inheritFromParent"));
     const topRead = at.fake.calls.findIndex(
       (c, i) =>
@@ -333,8 +335,8 @@ describe("Windows, as the service: what is inside inherits; the top folder is ch
     const entries = withContents(open);
     const stubborn: WindowsCalls = {
       ...open.calls,
-      inheritFromParent: (path, acl) =>
-        open.calls.inheritFromParent(path, acl).map(() => {
+      inheritFromParent: (path, acl, owner) =>
+        open.calls.inheritFromParent(path, acl, owner).map(() => {
           if (pathKey(path) === pathKey(entries[2] ?? ""))
             setFor(
               open.fake.descriptors,

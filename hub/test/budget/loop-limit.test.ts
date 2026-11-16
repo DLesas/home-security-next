@@ -1,6 +1,6 @@
 /**
  * The loop's time while the hub listens (m2-design.md section 3; section 10, "The loop's limit"),
- * on a real hub process (`src/shell/main.ts`): each whole-file job is started as production
+ * on a real hub process (`test/world/hub-entry.ts`, the hub's entry): each whole-file job is started as production
  * starts it, over the control socket as `hsn` does, while a scripted gateway on the `/device`
  * WebSocket forwards a door report from a paired sensor every 100 ms. The hub must take the reports
  * between the job's pieces, never behind the whole job.
@@ -58,7 +58,8 @@ import { endProcesses, spawnTracked } from "../world/processes.ts";
 import { ScriptedGateway } from "../world/scripted-gateway.ts";
 import { writeOlderRows } from "./run.ts";
 
-const MAIN = join(import.meta.dir, "..", "..", "src", "shell", "main.ts");
+/** The hub's own entry with the clock taken as synchronised (a Linux runner may not say it is). */
+const MAIN = join(import.meta.dir, "..", "world", "hub-entry.ts");
 const MIGRATIONS = join(import.meta.dir, "..", "..", "drizzle");
 const TIMING = process.env.HSN_TIMING === "1";
 /** A report behind a piece and a commit is taken within about 50 ms (section 3), asserted opt-in. */

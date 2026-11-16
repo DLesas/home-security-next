@@ -1,6 +1,6 @@
 /**
  * The harness of the browser tests (m2-design.md section 10, "The app"): a real hub process
- * (`hub/src/shell/main.ts`) on a temporary data folder, serving the exported web build itself on
+ * (`hub/test/world/hub-entry.ts`, the hub's own entry) on a temporary data folder, serving the exported web build itself on
  * its two app listeners (section 5): the console's, `http://127.0.0.1:<port>` with the channel at
  * `ws://127.0.0.1:<port>/app`, and the apps', HTTPS with the hub's own certificate on every
  * address. In a source tree the hub serves `app/dist` (`programPaths` in
@@ -25,7 +25,8 @@ import type { BenchCommand, BenchLine, BenchState } from "./bench.ts";
 const APP = join(import.meta.dirname, "..", "..");
 const REPO = join(APP, "..");
 const DIST = join(APP, "dist");
-const HUB_MAIN = join(REPO, "hub", "src", "shell", "main.ts");
+/** The hub's own entry with the clock taken as synchronised (`hub/test/world/hub-entry.ts`). */
+const HUB_MAIN = join(REPO, "hub", "test", "world", "hub-entry.ts");
 const BENCH = join(import.meta.dirname, "bench.ts");
 /** How long a clean stop may take before the hub is killed. */
 const STOP_MS = 10_000;

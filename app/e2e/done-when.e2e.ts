@@ -468,7 +468,8 @@ test("a second browser on the home network, linked by a typed code, then removed
     .click();
   await page.getByRole("button", { name: "Make the code" }).click();
   const code = page.getByTestId("link-code-made");
-  await expect(code).toHaveText(/^[0-9A-Z]{4}-[0-9A-Z]{4}-[0-9A-Z]{4}$/u);
+  // Crockford's characters, the last a check character, which may also be one of `*~$=`.
+  await expect(code).toHaveText(/^[0-9A-Z]{4}-[0-9A-Z]{4}-[0-9A-Z]{3}[0-9A-Z*~$=]$/u);
   await axeOn(page, "link a device, a code made");
   const typed = (await code.textContent()) ?? "";
 
