@@ -166,7 +166,9 @@ function seed(dataDir: string, backups: string): void {
   s.db.run(`UPDATE backup_state SET folder = ?`, [backups]);
   writeOlderRows(s, { routinePerDay: 200_000, eventPerDay: 0 }, bootId(s.boot.id - 1));
   s.writer.stop()._unsafeUnwrap();
-  s.db.close();
+  // Closed for certain before the hub opens it: `close()` alone may defer it, and the hub then
+  // finds the database locked (as on a Linux runner).
+  s.db.close(true);
 }
 
 async function freePort(): Promise<number> {
@@ -455,7 +457,7 @@ describe("door reports while the hub writes whole files (section 3, the loop's t
       )
       .get()?.n;
     s.writer.stop()._unsafeUnwrap();
-    s.db.close();
+    s.db.close(true);
     // The backup asked for was written.
     expect(written).toBeGreaterThanOrEqual(1);
     expect(Number.isFinite(end)).toBe(true);

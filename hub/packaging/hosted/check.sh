@@ -117,9 +117,20 @@ case "${1:-}" in
     echo "check: refused"
     ;;
   console)
-    page=$(curl -fsS -D - http://127.0.0.1:8445/) || fail "the console listener did not answer"
-    echo "$page" | grep -qi '^content-security-policy:' || fail "the console page has no CSP header"
-    echo "$page" | grep -qi '<html' || fail "the console page is not the web app's"
+    # Only the running hub passes this: its own page byte for byte, its headers, a wrong Host
+    # refused with 421, and `hsn open` saying there is no browser.
+    version=$(cat "$PKG/version")
+    web="$PKG/packaged/$version/web"
+    headers=$(mktemp)
+    body=$(mktemp)
+    curl -fsS -D "$headers" -o "$body" http://127.0.0.1:8445/ || fail "the console listener did not answer"
+    cmp -s "$body" "$web/index.html" || fail "the page is not the package's own web/index.html"
+    for want in 'content-security-policy:' 'x-content-type-options: nosniff' 'referrer-policy: no-referrer' 'x-frame-options: deny' 'cache-control: no-store'; do
+      tr 'A-Z' 'a-z' < "$headers" | grep -q "^$want" || fail "the console page has no '$want' header"
+    done
+    rm -f "$headers" "$body"
+    code=$(curl -s -o /dev/null -w '%{http_code}' -H 'Host: rebound.example:8445' http://127.0.0.1:8445/)
+    [ "$code" = 421 ] || fail "a request naming another Host was answered $code, not 421"
     out=$(env -u SUDO_USER -u SUDO_UID "$HSN" open 2>&1) || fail "hsn open failed: $out"
     echo "$out" | grep -qi 'no browser' || fail "hsn open did not say there is no browser: $out"
     echo "check: the console opens (no desktop)"

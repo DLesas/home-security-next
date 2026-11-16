@@ -90,7 +90,8 @@ function seed(): void {
   store.writer.stage(ops.map((op) => ({ kind: "write", durability: "now", op })));
   store.writer.flush("now")._unsafeUnwrap();
   store.writer.stop()._unsafeUnwrap();
-  store.db.close();
+  // Closed for certain before the hub opens it (`close()` alone may defer it).
+  store.db.close(true);
 }
 
 async function freePort(): Promise<number> {
@@ -224,7 +225,7 @@ describe(`a real hub killed with kill -9, ${RUNS} times`, () => {
       const boots = store.db.query<{ n: number }, []>("SELECT count(*) AS n FROM boots").get();
       expect(boots?.n).toBe(RUNS);
       expect(store.boot.previousExit).not.toBe("clean");
-      store.db.close();
+      store.db.close(true);
     },
     RUNS * (START_TIMEOUT_MS + 2_000),
   );

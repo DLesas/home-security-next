@@ -14,7 +14,8 @@
 #              unchanged, the system volume's files untouched
 #   link-top   a hub tree's top folder replaced by a junction; the installer step <command> must
 #              refuse; the folder put back
-#   console    "the console opens" with no desktop: the console listener's page and headers
+#   console    "the console opens" with no desktop: the running hub's own console page and
+#              headers, from the service's own process, and a wrong Host refused (421)
 #
 # Each exits non-zero, saying what failed.
 param([Parameter(Mandatory = $true)][string]$Step, [string]$Command = "")
@@ -120,13 +121,45 @@ switch ($Step) {
   }
   "console" {
     # On a runner with no desktop "the console opens" means (section 9): the console listener
-    # answers http://127.0.0.1:8445/ with the web app's page and section 5's headers. Opening a
-    # browser is a person's check; `hsn open`'s printed code is the CLI's (A2) and not judged here.
-    $response = Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:8445/"
+    # answers http://127.0.0.1:8445/ with the web app's page and section 5's headers. It must not
+    # pass without the hub (run 43872833188 passed while the hub crash-looped), so it asks for
+    # what only the running hub gives: the port held by the service's own hsn-hub.exe, the
+    # package's own index.html byte for byte, the headers built from that package's csp.json,
+    # and a wrong Host refused with 421. Opening a browser is a person's check; `hsn open`'s
+    # printed code is the CLI's (A2) and not judged here. Needs PowerShell 7 (pwsh).
+    $version = (Get-Content -LiteralPath (Join-Path $Package "version") -Raw).Trim()
+    $web = Join-Path $Package "packaged\$version\web"
+    $listening = $null
+    for ($i = 0; $i -lt 60 -and $null -eq $listening; $i++) {
+      $listening = Get-NetTCPConnection -State Listen -LocalPort 8445 -ErrorAction SilentlyContinue | Select-Object -First 1
+      if ($null -eq $listening) { Start-Sleep -Seconds 1 }
+    }
+    if ($null -eq $listening) { Fail "nothing listens on port 8445 within 60 s" }
+    $proc = Get-CimInstance Win32_Process -Filter "ProcessId = $($listening.OwningProcess)"
+    $owner = Invoke-CimMethod -InputObject $proc -MethodName GetOwner
+    if ($proc.ExecutablePath -ne (Join-Path $Package "packaged\$version\bin\hsn-hub.exe")) { Fail "port 8445 is held by $($proc.ExecutablePath)" }
+    if ("$($owner.Domain)\$($owner.User)" -ne "NT SERVICE\HSNHub") { Fail "port 8445 is held by a process of $($owner.Domain)\$($owner.User)" }
+    $response = Invoke-WebRequest -UseBasicParsing -SkipHttpErrorCheck -Uri "http://127.0.0.1:8445/"
     if ($response.StatusCode -ne 200) { Fail "the console listener answered $($response.StatusCode)" }
-    if (-not $response.Headers["Content-Security-Policy"]) { Fail "the console page has no CSP header" }
-    if ($response.Content -notmatch "<html") { Fail "the console page is not the web app's" }
-    Write-Output "check: the console opens (no desktop)"
+    $page = [System.IO.File]::ReadAllBytes((Join-Path $web "index.html"))
+    if ([Convert]::ToBase64String($response.RawContentStream.ToArray()) -ne [Convert]::ToBase64String($page)) {
+      Fail "the page is not the package's own web\index.html"
+    }
+    $want = @{
+      "X-Content-Type-Options" = "nosniff"; "Referrer-Policy" = "no-referrer"; "X-Frame-Options" = "DENY"
+      "Cross-Origin-Opener-Policy" = "same-origin"; "Cache-Control" = "no-store"
+    }
+    foreach ($name in $want.Keys) {
+      if ("$($response.Headers[$name])" -ne $want[$name]) { Fail "the header $name is '$($response.Headers[$name])', not '$($want[$name])'" }
+    }
+    $csp = "$($response.Headers["Content-Security-Policy"])"
+    $hashes = (Get-Content -LiteralPath (Join-Path $web "csp.json") -Raw | ConvertFrom-Json).styles
+    foreach ($hash in $hashes) {
+      if (-not $csp.Contains($hash)) { Fail "the CSP does not carry the package's style hash $hash: $csp" }
+    }
+    $rebound = Invoke-WebRequest -UseBasicParsing -SkipHttpErrorCheck -SkipHeaderValidation -Uri "http://127.0.0.1:8445/" -Headers @{ Host = "rebound.example:8445" }
+    if ($rebound.StatusCode -ne 421) { Fail "a request naming another Host was answered $($rebound.StatusCode), not 421" }
+    Write-Output "check: the console opens (no desktop): the hub's own page and headers, from its own process"
   }
   default { Fail "usage: check.ps1 owners | plant | verify | link-top <command> | console" }
 }
