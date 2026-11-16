@@ -41,7 +41,8 @@ import { writeBackup } from "../../../src/shell/backup/write.ts";
 import { homeAddresses } from "../../../src/shell/hub-facts.ts";
 import { endProcesses, spawnTracked } from "../../world/processes.ts";
 
-const MAIN = join(import.meta.dir, "..", "..", "..", "src", "shell", "main.ts");
+// The tests' entry: `main.ts`'s, with the clock synchronised on any Linux (`test/world`).
+const MAIN = join(import.meta.dir, "..", "..", "world", "hub-entry.ts");
 const HSN = join(import.meta.dir, "..", "..", "..", "cli", "hsn.ts");
 const root = mkdtempSync("/tmp/hsn-e2e-");
 const encoder = new TextEncoder();

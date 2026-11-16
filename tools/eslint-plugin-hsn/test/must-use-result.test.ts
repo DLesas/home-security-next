@@ -12,7 +12,7 @@ import { mustUseResult } from "../src/rules/must-use-result.ts";
 RuleTester.afterAll = afterAll;
 RuleTester.describe = describe;
 RuleTester.it = it;
-RuleTester.itOnly = it.only;
+// No `RuleTester.itOnly`: reading `it.only` throws under `CI` (Bun), and no case is `only`.
 
 describe("its documentation", () => {
   it("is a path inside this repository, to the section that specifies it", () => {

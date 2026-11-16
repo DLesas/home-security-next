@@ -7,10 +7,10 @@
  * pipe, `\\.\pipe\hsn-control` (WAITING: shell/control/windows.ts).
  *
  * On Windows the installed hub's folder is fixed (`WINDOWS_DATA_FOLDER`, m2-design.md section 9):
- * an elevated `hsn`, or one that cannot tell, uses it whatever the flag or the environment say,
- * as root does on macOS and Linux; one not elevated takes `--data` or `$HSN_DATA_DIR` when given
- * and otherwise the same fixed folder, whose access list then refuses it and the CLI says to run
- * it from an administrator prompt. It never looks in the person's own folder there.
+ * an elevated `hsn`, or one that cannot tell, takes an explicit `--data` and otherwise that
+ * folder, the environment ignored, as root does on macOS and Linux (`elevated.ts`); one not
+ * elevated takes `--data` or `$HSN_DATA_DIR` when given and otherwise the same fixed folder, whose
+ * access list then refuses it. It never looks in the person's own folder there.
  */
 
 /** The socket's file name in the data folder (section 9). */
@@ -42,8 +42,9 @@ export function dataFolder(
   env: Readonly<Record<string, string | undefined>>,
   windows?: WindowsRun,
 ): string | undefined {
-  if (windows?.strict === true) return WINDOWS_DATA_FOLDER;
+  // The person's own `--data` is honoured even elevated (D124); only the environment is not.
   if (flag !== undefined && flag !== "") return flag;
+  if (windows?.strict === true) return WINDOWS_DATA_FOLDER;
   const named = env[DATA_FOLDER_VARIABLE];
   if (named !== undefined && named !== "") return named;
   if (windows !== undefined) return WINDOWS_DATA_FOLDER;

@@ -92,4 +92,31 @@ describe("hsn checks who serves the socket on Windows (section 9)", () => {
     expect(code).toBe(ExitCode.NoPermission);
     expect(t.asked).toHaveLength(1);
   });
+
+  test("nothing serving it: answered as a hub that is not running, 69", async () => {
+    const t = io("win32", () =>
+      err<SocketPeer, PeerRefusal>({
+        kind: "notRunning",
+        error: { kind: "internal", origin: "test", message: "10061" },
+      }),
+    );
+    expect(await runCli(SOCKET, t.io)).toBe(ExitCode.HubNotRunning);
+    expect(t.err).toEqual([
+      "hsn: the hub is not running: no hub is listening on /tmp/hsn-peer-test-none.sock.",
+      "Start the hub, or pass --data <folder> if it runs with another data folder.",
+    ]);
+  });
+
+  test("this account kept out: answered as a kept-out account, 77, with the administrator prompt", async () => {
+    const t = io("win32", () =>
+      err<SocketPeer, PeerRefusal>({
+        kind: "notAllowed",
+        error: { kind: "internal", origin: "test", message: "10013" },
+      }),
+    );
+    expect(await runCli(SOCKET, t.io)).toBe(ExitCode.NoPermission);
+    expect(t.err).toEqual([
+      "hsn: this account may not use the hub at /tmp/hsn-peer-test-none.sock: run hsn from an administrator prompt (Run as administrator).",
+    ]);
+  });
 });

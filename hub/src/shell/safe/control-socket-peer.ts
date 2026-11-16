@@ -101,9 +101,9 @@ const TOKEN_USER_CLASS = 1;
 class PeerFailure extends Error {
   readonly code: string;
 
-  constructor(call: string, code: number) {
+  constructor(call: string, code: number, prefix = "") {
     super(`${call} failed with Windows error ${code}`);
-    this.code = `WIN32_${code}`;
+    this.code = `WIN32_${prefix}${code}`;
   }
 }
 
@@ -124,7 +124,7 @@ function peerPid(path: string): number {
   if (socket === INVALID_SOCKET) throw new PeerFailure("socket", ws2.WSAGetLastError());
   try {
     if (ws2.connect(socket, address, SOCKADDR_UN_BYTES) !== 0)
-      throw new PeerFailure("connect", ws2.WSAGetLastError());
+      throw new PeerFailure("connect", ws2.WSAGetLastError(), "CONNECT_");
     const pid = new Uint32Array(1);
     const returned = new Uint32Array(1);
     if (ws2.WSAIoctl(socket, SIO_AF_UNIX_GETPEERPID, null, 0, pid, 4, returned, null, null) !== 0)
@@ -177,8 +177,25 @@ export function socketPeer(path: string): Result<SocketPeer, HubError> {
 export type PeerRefusal =
   /** Another account serves it. */
   | { readonly kind: "notTheHub"; readonly peer: SocketPeer; readonly expected: string }
+  /**
+   * Nothing serves it: the connect was refused (Winsock 10061: no socket file, or an old one with
+   * no hub behind it) or found no such path (10050: the folder does not exist), as run 43869303145
+   * showed. `hsn` answers as for a hub that is not running.
+   */
+  | { readonly kind: "notRunning"; readonly error: HubError }
+  /** This account may not open it (Winsock 10013): `hsn` answers as for a kept-out account. */
+  | { readonly kind: "notAllowed"; readonly error: HubError }
   /** Windows would not say who serves it. */
   | { readonly kind: "cannotTell"; readonly error: HubError };
+
+/** What a failure to ask who serves the socket means, from the connect's Winsock code. */
+export function refusalOf(error: HubError): PeerRefusal {
+  const code = error.detail?.code;
+  if (code === "WIN32_CONNECT_10061" || code === "WIN32_CONNECT_10050")
+    return { kind: "notRunning", error };
+  if (code === "WIN32_CONNECT_10013") return { kind: "notAllowed", error };
+  return { kind: "cannotTell", error };
+}
 
 /**
  * `hsn.exe`'s check: the socket at `path` is served by a process running as `expected`, the
@@ -186,7 +203,7 @@ export type PeerRefusal =
  */
 export function checkHubPeer(path: string, expected: string): Result<SocketPeer, PeerRefusal> {
   return socketPeer(path)
-    .mapErr((error): PeerRefusal => ({ kind: "cannotTell", error }))
+    .mapErr(refusalOf)
     .andThen((peer) =>
       peer.sid === expected
         ? ok<SocketPeer, PeerRefusal>(peer)

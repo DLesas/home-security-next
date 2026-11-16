@@ -11,8 +11,8 @@
  *   its compiled executables), then proves it: real, effective and saved user and group ids all
  *   the hub's (Linux `/proc/self/status`; macOS `ps -o ruid,uid,svuid,rgid,gid,svgid`), the
  *   groups the account's, and `setuid(0)` refused. The root-only test is `hub/test/root/`.
- *   **Unproved until the hosted job has run that test as root**; if it fails there, the drop
- *   becomes the re-run through the system's tool (`setpriv`, `sudo -u`) the design gives.
+ *   It passed as root on the hosted ubuntu-24.04 and macos-15 machines, so the drop stays in
+ *   process; the re-run through the system's tool (`setpriv`, `sudo -u`) is not needed.
  *
  * Windows (an elevated administrator, who cannot become a virtual account) checks its peer
  * instead (A11's); nothing here runs there.
@@ -74,6 +74,7 @@ export function invokingUser(
 /**
  * The environment `hsn` uses as root: the fixed data folder and the actor's name, nothing else
  * (no `HSN_DATA_DIR`, `HOME` or anything a `.env` could have set; the executable loads none).
+ * An explicit `--data` on the command line still wins (`paths.ts`, D124): it is the person's.
  */
 export function elevatedEnv(
   platform: UnixPlatform,

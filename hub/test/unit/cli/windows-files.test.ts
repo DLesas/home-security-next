@@ -209,10 +209,11 @@ describe("hsn.exe elevated on Windows (section 9)", () => {
     expect(failedFinish.log).toEqual([`write ${String(bytes.length)}`, "finish", "abandon"]);
   });
 
-  test("elevated, or cannot tell: the fixed data folder, whatever the flag or environment say", () => {
+  test("elevated, or cannot tell: an explicit --data, else the fixed folder; HSN_DATA_DIR ignored", () => {
     const env = { HSN_DATA_DIR: "D:\\planted", USERPROFILE: "C:\\Users\\anna" };
-    expect(dataFolder("D:\\flag", env, { strict: true })).toBe("C:\\ProgramData\\HSN Hub");
+    expect(dataFolder(undefined, env, { strict: true })).toBe("C:\\ProgramData\\HSN Hub");
     expect(dataFolder(undefined, {}, { strict: true })).toBe(WINDOWS_DATA_FOLDER);
+    expect(dataFolder("D:\\tests", env, { strict: true })).toBe("D:\\tests");
   });
 
   test("not elevated: the flag or HSN_DATA_DIR when given, else the same fixed folder, never the person's", () => {

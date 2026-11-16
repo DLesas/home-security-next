@@ -9,7 +9,7 @@ import { noLiteralText } from "../src/rules/no-literal-text.ts";
 RuleTester.afterAll = afterAll;
 RuleTester.describe = describe;
 RuleTester.it = it;
-RuleTester.itOnly = it.only;
+// No `RuleTester.itOnly`: reading `it.only` throws under `CI` (Bun), and no case is `only`.
 
 const ruleTester = new RuleTester({
   languageOptions: { parserOptions: { ecmaFeatures: { jsx: true } } },

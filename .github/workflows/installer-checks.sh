@@ -127,6 +127,9 @@ keep_log() {
   local name=$1 source=$2 lines=${3:-40}
   if sudo test -f "$source"; then
     sudo cat "$source" | redact >"$HSN_CHECKS/logs/$name"
+    echo "::group::$name (whole, redacted)"
+    cat "$HSN_CHECKS/logs/$name"
+    echo "::endgroup::"
     say "" "<details><summary>$name (last $lines lines, redacted)</summary>" "" '```'
     tail -n "$lines" "$HSN_CHECKS/logs/$name" >>"$GITHUB_STEP_SUMMARY"
     say '```' "" "</details>"
@@ -139,6 +142,10 @@ keep_log() {
 keep_text() {
   local name=$1 lines=${3:-40}
   printf '%s\n' "$2" | redact >"$HSN_CHECKS/logs/$name"
+  # The whole of it in the log too (redacted), so a first run reads from `gh run view --log` alone.
+  echo "::group::$name (whole, redacted)"
+  cat "$HSN_CHECKS/logs/$name"
+  echo "::endgroup::"
   say "" "<details><summary>$name (last $lines lines, redacted)</summary>" "" '```'
   tail -n "$lines" "$HSN_CHECKS/logs/$name" >>"$GITHUB_STEP_SUMMARY"
   say '```' "" "</details>"

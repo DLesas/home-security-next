@@ -13,4 +13,7 @@ if (typeof options === "string") {
   process.stderr.write(`hub (test key): ${options}\n`);
   process.exit(2);
 }
-process.exit(await runHub(options, { publisherKeys: [TEST_PUBLISHER_KEY] }));
+// The clock synchronised as in every test's hub (`test/world/hub-entry.ts`).
+process.exit(
+  await runHub(options, { publisherKeys: [TEST_PUBLISHER_KEY], clockSynchronised: true }),
+);

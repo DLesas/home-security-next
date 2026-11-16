@@ -109,7 +109,9 @@
       <Publish Dialog="MaintenanceTypeDlg" Control="RemoveButton" Event="NewDialog" Value="VerifyReadyDlg" />
       <Publish Dialog="MaintenanceTypeDlg" Control="Back" Event="NewDialog" Value="MaintenanceWelcomeDlg" />
       <InstallUISequence>
-        <Show Dialog="WelcomeDlg" Before="ProgressDlg" Condition="NOT Installed" />
+        <!-- WelcomeDlg.wxs schedules itself as "virtual WelcomeDlg" (WiX 5.0.2's UI extension), so a
+             product's own entry must say "override" or the build stops on a duplicate. -->
+        <Show Dialog="override WelcomeDlg" Before="ProgressDlg" Condition="NOT Installed" />
       </InstallUISequence>
     </UI>
     <UIRef Id="WixUI_Common" />

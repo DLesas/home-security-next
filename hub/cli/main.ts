@@ -265,7 +265,9 @@ export function guardedIo(io: CliIo): CliIo {
 /**
  * On Windows, before anything is sent: the socket must be served by the hub's service account
  * (section 9, "The Windows peer check"); the exit code when it is not, or undefined to go on. Off
- * Windows it is never asked: the data folder's mode 0700 is the check there.
+ * Windows it is never asked: the data folder's mode 0700 is the check there. Nothing serving it
+ * (`notRunning`) and this account kept out (`notAllowed`, A11's) are answered exactly as the
+ * same failed connect is (`clientFailure`); only "cannot tell" is the check's own refusal.
  */
 function refusedPeer(path: string, io: CliIo): ExitCode | undefined {
   if ((io.platform ?? process.platform) !== "win32") return undefined;
@@ -277,6 +279,13 @@ function refusedPeer(path: string, io: CliIo): ExitCode | undefined {
   const checked = (io.checkPeer ?? checkHubPeer)(path, expected);
   if (checked.isOk()) return undefined;
   const refusal = checked.error;
+  if (refusal.kind === "notRunning")
+    return clientFailure({ kind: "notRunning", message: `no hub is listening on ${path}` }, io);
+  if (refusal.kind === "notAllowed")
+    return clientFailure(
+      { kind: "permission", message: `this account may not use the hub at ${path}` },
+      io,
+    );
   if (refusal.kind === "notTheHub") {
     io.err(
       `hsn: the hub's socket is served by ${printable(refusal.peer.sid)} (process ${String(refusal.peer.pid)}), not the hub's account ${printable(refusal.expected)}: nothing was sent`,

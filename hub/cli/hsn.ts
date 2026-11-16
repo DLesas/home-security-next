@@ -18,7 +18,8 @@
  * service's account, `hsn.exe` elevated (or unable to tell) keeps to fixed paths and an ignored
  * environment, opens a named file by its handle outside the hub's trees (`windows-files.ts`, A11's
  * calls), and checks who serves the socket (`main.ts`).
- * The drop is unproved until the hosted job's root test (`hub/test/root/`) has run.
+ * The drop is proved irreversible by the root test (`hub/test/root/`), which passed as root on
+ * the hosted ubuntu-24.04 and macos-15 machines.
  */
 import {
   dropTo,

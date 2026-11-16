@@ -148,6 +148,13 @@ function say(message: string): void {
  */
 export interface HubTrust {
   readonly publisherKeys: readonly Uint8Array[];
+  /**
+   * The wall clock taken as synchronised without asking the system (section 5's probe skipped),
+   * as macOS and Windows always are. Only a test's own entry says it (`test/world/hub-entry.ts`):
+   * a test machine's Linux need not run systemd-timesyncd, whose mark the probe looks for, and
+   * an untrusted clock refuses exports, backups and schedules. The product's entries never do.
+   */
+  readonly clockSynchronised?: true;
 }
 
 /**
@@ -165,7 +172,7 @@ export function hubUmask(): void {
 export async function runHub(options: MainOptions, trusted: HubTrust): Promise<number> {
   const rules = DEFAULT_RULES;
   const trust = new SystemTimeTrust({
-    probe: probeFor(process.platform),
+    probe: trusted.clockSynchronised === true ? undefined : probeFor(process.platform),
     scheduler: systemScheduler,
     wall: () => Date.now(),
     notBeforeMs: HUB_BUILD_TIME_MS,

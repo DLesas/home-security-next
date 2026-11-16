@@ -12,6 +12,7 @@ import {
   idsProblem,
   invokingUser,
 } from "../../../cli/elevated.ts";
+import { dataFolder } from "../../../cli/paths.ts";
 import { INSTALL } from "../../../packaging/shared/layout.ts";
 import { SERVICE } from "../../../src/shell/m2-values.ts";
 
@@ -50,6 +51,12 @@ describe("hsn as root (section 9)", () => {
       HSN_DATA_DIR: "/Library/Application Support/HSN Hub",
       USER: "root",
     });
+  });
+
+  test("as root: an explicit --data is honoured (D124), HSN_DATA_DIR is not, else the fixed folder", () => {
+    const env = elevatedEnv("linux", { ...SUDO, HSN_DATA_DIR: "/tmp/planted" });
+    expect(dataFolder(undefined, env)).toBe("/var/lib/hsn-hub");
+    expect(dataFolder("/tmp/hsn-tests", env)).toBe("/tmp/hsn-tests");
   });
 
   test("after a drop every id must be the account's, and root's group gone", () => {

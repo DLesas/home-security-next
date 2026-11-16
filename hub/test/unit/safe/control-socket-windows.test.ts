@@ -37,7 +37,11 @@ import {
   processElevation,
   sidKind,
 } from "../../../src/shell/safe/control-socket-hsn.ts";
-import { checkHubPeer, socketPeer } from "../../../src/shell/safe/control-socket-peer.ts";
+import {
+  checkHubPeer,
+  refusalOf,
+  socketPeer,
+} from "../../../src/shell/safe/control-socket-peer.ts";
 import {
   icacls,
   isWindows,
@@ -57,6 +61,24 @@ const BASE = join(process.env.SystemDrive ?? "C:", "\\", `hsn-a11-safe-${process
 afterAll(() => {
   // A leftover on a throwaway runner is not a failure of the calls under test.
   if (isWindows) removeTree(BASE);
+});
+
+describe("what a failed ask of who serves the socket means (run 43869303145's codes)", () => {
+  const failure = (code: string) => ({
+    kind: "control" as const,
+    origin: "shell/safe/control-socket-peer",
+    message: `connect failed with Windows error ${code}`,
+    detail: { code },
+  });
+
+  test("refused or no such path: not running; access denied: not allowed; anything else: cannot tell", () => {
+    expect(refusalOf(failure("WIN32_CONNECT_10061")).kind).toBe("notRunning");
+    expect(refusalOf(failure("WIN32_CONNECT_10050")).kind).toBe("notRunning");
+    expect(refusalOf(failure("WIN32_CONNECT_10013")).kind).toBe("notAllowed");
+    for (const code of ["WIN32_10061", "WIN32_CONNECT_10022", "WIN32_5", "ENOENT"])
+      expect(refusalOf(failure(code)).kind).toBe("cannotTell");
+    expect(refusalOf({ kind: "control", origin: "x", message: "no code" }).kind).toBe("cannotTell");
+  });
 });
 
 describe.skipIf(isWindows)("off Windows", () => {
@@ -177,6 +199,23 @@ describe.skipIf(!isWindows)("on Windows, against the system's own tools", () => 
     mkdirSync(BASE, { recursive: true });
     writeFileSync(file, "x");
     expect(descriptorOf(file).owner).toBe(ADMINISTRATORS_SID);
+  });
+
+  test("list names a folder's entries by FindFirstFileW, and a missing folder's none", () => {
+    const folder = join(BASE, "listed");
+    mkdirSync(join(folder, "sub"), { recursive: true });
+    writeFileSync(join(folder, "a.txt"), "x");
+    expect([...WINDOWS_CALLS.list(folder)._unsafeUnwrap()].sort()).toEqual(["a.txt", "sub"]);
+    expect(WINDOWS_CALLS.list(join(BASE, "nothing"))._unsafeUnwrap()).toEqual([]);
+  });
+
+  test("the peer check says not running, or not allowed, rather than cannot tell", () => {
+    const empty = join(BASE, "no-hub");
+    mkdirSync(empty, { recursive: true });
+    const none = checkHubPeer(join(empty, "control.sock"), HUB_SERVICE_SID);
+    expect(none.isErr() ? none.error.kind : "accepted").toBe("notRunning");
+    const missing = checkHubPeer(join(BASE, "missing", "control.sock"), HUB_SERVICE_SID);
+    expect(missing.isErr() ? missing.error.kind : "accepted").toBe("notRunning");
   });
 
   test("attributes: a folder is a folder, a missing path is undefined", () => {

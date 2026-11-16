@@ -616,6 +616,7 @@ jobs:
           bun install --frozen-lockfile
           $code = $LASTEXITCODE
           Test-Check "bun install --frozen-lockfile" { if ($code -eq 0) { $true } else { "exit $code" } }
+          if ($code -ne 0) { Stop-Job "bun install --frozen-lockfile failed (exit $code)" }
 
       - name: Export the web app
         shell: pwsh
@@ -625,9 +626,10 @@ jobs:
           $code = $LASTEXITCODE
           Test-Check "bun run app:export (the web build the package carries)" { if ($code -eq 0) { $true } else { "exit $code" } }
           Test-Check "app\dist\index.html exists" { if (Test-Path app\dist\index.html) { $true } else { "missing" } }
+          if ($code -ne 0 -or -not (Test-Path app\dist\index.html)) { Stop-Job "bun run app:export failed (exit $code)" }
 
       - name: WiX Toolset 5, pinned
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && env.HSN_STOPPED == '' }}
         shell: pwsh
         run: |
           . .github/workflows/installer-checks.ps1
@@ -640,7 +642,7 @@ jobs:
           $missing = @($packages | Where-Object { $_.Sha -notmatch '^[A-Za-z0-9+/]{86}==$' } | ForEach-Object { $_.Id })
           if ($missing.Count -gt 0) {
             Write-Fail "BLOCKED: WiX $env:WIX_VERSION is not installed" "no SHA-512 is pinned for $($missing -join ', ') (installers.yml, the windows job's env); nothing was fetched"
-            exit 0
+            Stop-Job "WiX $env:WIX_VERSION is not pinned"
           }
           $source = Join-Path $env:RUNNER_TEMP "wix-packages"
           New-Item -ItemType Directory -Force -Path $source | Out-Null
@@ -660,7 +662,7 @@ jobs:
               Write-Pass "$($p.Id) $env:WIX_VERSION is the pinned file"
             }
           }
-          if (-not $ok) { exit 0 }
+          if (-not $ok) { Stop-Job "a WiX package is not the pinned file" }
           # Only the checked files are a source: nuget.org is cleared.
           $config = Join-Path $source "nuget.config"
           Set-Content -Path $config -Encoding utf8 -Value @"
@@ -673,6 +675,7 @@ jobs:
           $tools | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
           $env:PATH = "$tools;$env:PATH"
           Test-Check "dotnet tool install --global wix $env:WIX_VERSION (from the pinned file only)" { if ($code -eq 0) { $true } else { "exit $code" } }
+          if ($code -ne 0) { Stop-Job "dotnet tool install --global wix $env:WIX_VERSION failed (exit $code)" }
           # `wix extension add -g` unpacks a package into this cache; the checked files are unpacked
           # there directly, so that nothing is fetched by name.
           foreach ($id in @("WixToolset.UI.wixext", "WixToolset.Util.wixext")) {
@@ -685,9 +688,10 @@ jobs:
           $listed = (& wix extension list -g 2>&1) -join "`n"
           Write-Info "wix --version" ((& wix --version 2>&1) -join " ")
           Test-Check "wix sees the UI and Util extensions" { if ($listed -match 'WixToolset\.UI\.wixext' -and $listed -match 'WixToolset\.Util\.wixext') { $true } else { "wix extension list -g: $listed" } }
+          if (-not ($listed -match 'WixToolset\.UI\.wixext' -and $listed -match 'WixToolset\.Util\.wixext')) { Stop-Job "wix does not see its UI and Util extensions" }
 
       - name: Build the .msi
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && env.HSN_STOPPED == '' }}
         shell: pwsh
         run: |
           . .github/workflows/installer-checks.ps1
@@ -696,15 +700,19 @@ jobs:
           & pwsh -NoProfile -File hub/packaging/windows/build-msi.ps1 -Out $out *> $log
           $code = $LASTEXITCODE
           $built = Get-Content -Raw $log
+          # The whole build's output in the log (a group), passed or failed.
           Save-Text "build-msi.txt" $built 40
           $msi = Get-ChildItem -Path $out -Filter *.msi -ErrorAction SilentlyContinue | Select-Object -First 1
-          # build-msi.ps1's stages, in order: build-program.ts, WinSW fetched and pinned, wix build.
-          Test-Check "build-program.ts compiled the program, the launcher and hsn" { if ($built -notmatch 'build-program failed' -and ($built -match 'winsw-pin' -or $null -ne $msi)) { $true } else { "the build stopped at or before build-program.ts" } }
-          Test-Check "WinSW 2.12.0 is the file pinned in winsw.sha256 (winsw-pin.ts)" { if ($built -match 'winsw-pin: the pinned WinSW') { $true } else { "winsw-pin.ts did not accept it, or the build stopped before" } }
-          if ($code -ne 0 -or $null -eq $msi) {
-            Write-Fail "build-msi.ps1 built a package" "exit ${code}: $((($built -split "`r?`n") | Where-Object { $_ } | Select-Object -Last 4) -join ' ')"
-            exit 0
+          # build-msi.ps1 says where it stopped: one line `build-msi: FAILED at <stage> (exit <n>): <command>`.
+          $failed = @($built -split "`r?`n" | Where-Object { $_ -match '^build-msi: FAILED at ' }) | Select-Object -First 1
+          if ($code -ne 0 -or $null -eq $msi -or $null -ne $failed) {
+            $why = if ($null -ne $failed) { $failed } else { "build-msi: FAILED (exit ${code}), and it named no stage; see build-msi.txt in the log" }
+            Write-Fail "build-msi.ps1 built a package" $why
+            # Stop here: every later check could only fail because there is no package.
+            Stop-Job $why
           }
+          Test-Check "build-program.ts compiled the program, the launcher and hsn" { if ($built -notmatch 'build-msi: FAILED at build-program') { $true } else { "build-msi: FAILED at build-program" } }
+          Test-Check "WinSW 2.12.0 is the file pinned in winsw.sha256 (winsw-pin.ts)" { if ($built -match 'winsw-pin: the pinned WinSW') { $true } else { "winsw-pin.ts did not say it accepted the pinned file" } }
           Write-Pass "build-msi.ps1 built ``$($msi.Name)``"
           "MSI=$($msi.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           "VERSION=$($msi.BaseName -replace '^HSN-Hub-', '')" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
@@ -750,7 +758,7 @@ jobs:
           }
 
       - name: Install with msiexec
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && env.HSN_STOPPED == '' }}
         shell: pwsh
         run: |
           . .github/workflows/installer-checks.ps1
@@ -759,6 +767,7 @@ jobs:
           $log = Join-Path $env:RUNNER_TEMP "msi-install.log"
           $p = Start-Process msiexec.exe -ArgumentList @("/i", "`"$env:MSI`"", "/qn", "/l*v", "`"$log`"") -Wait -PassThru
           Test-Check "msiexec /i $(Split-Path -Leaf $env:MSI) /qn" { if ($p.ExitCode -eq 0) { $true } else { "exit $($p.ExitCode)" } }
+          # The whole verbose log in the log (a group): its first "Return value 3" says why.
           Save-Log "msi-install.log" $log 40
           $text = Get-Content -Raw $log -ErrorAction SilentlyContinue
           if ($text -match 'Return value 3') {
@@ -769,9 +778,13 @@ jobs:
           $page = Join-Path $env:LOCALAPPDATA "HSN Hub\setup.html"
           Test-Check "A silent install writes no setup page (no token)" { if (-not (Test-Path $page)) { $true } else { "$page was written" } }
           Test-Check "The installed marker (HKLM\Software\HSN Hub, Installed = 1)" { if ((Get-ItemProperty -Path "HKLM:\Software\HSN Hub" -Name Installed -ErrorAction SilentlyContinue).Installed -eq 1) { $true } else { "no marker" } }
+          if ($p.ExitCode -ne 0) {
+            # Stop here: the service checks could only fail because nothing is installed.
+            Stop-Job "msiexec /i failed (exit $($p.ExitCode)); its log is msi-install.log, above"
+          }
 
       - name: A8's hosted check, owners
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && env.HSN_STOPPED == '' }}
         shell: pwsh
         run: |
           . .github/workflows/installer-checks.ps1
@@ -779,7 +792,7 @@ jobs:
           Invoke-Hosted "owners"
 
       - name: The service
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && env.HSN_STOPPED == '' }}
         shell: pwsh
         run: |
           . .github/workflows/installer-checks.ps1
@@ -819,7 +832,7 @@ jobs:
           Write-Info "Listening" ($listening -join " ")
 
       - name: hsn status, and the console
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && env.HSN_STOPPED == '' }}
         shell: pwsh
         run: |
           . .github/workflows/installer-checks.ps1
@@ -845,7 +858,7 @@ jobs:
           Invoke-Hosted "console"
 
       - name: The hub's trees
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && env.HSN_STOPPED == '' }}
         shell: pwsh
         run: |
           . .github/workflows/installer-checks.ps1
@@ -886,7 +899,7 @@ jobs:
           Test-Check "The launcher keeps its state in the hub's program tree" { if (Test-Path (Join-Path $program "state\launcher.json")) { $true } else { "no state\launcher.json" } }
 
       - name: A killed hub is restarted
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && env.HSN_STOPPED == '' }}
         shell: pwsh
         run: |
           . .github/workflows/installer-checks.ps1
@@ -922,7 +935,7 @@ jobs:
           Save-Text "service-control-manager.txt" ($scm -join "`n") 20
 
       - name: Uninstall (msiexec /x)
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && env.HSN_STOPPED == '' }}
         shell: pwsh
         run: |
           . .github/workflows/installer-checks.ps1
@@ -951,7 +964,7 @@ jobs:
           Test-Check "The hub's program tree is kept" { if (Test-Path (Join-Path $env:ProgramData "HSN Hub Program")) { $true } else { "gone" } }
 
       - name: Remove with data (REMOVEDATA=1)
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && env.HSN_STOPPED == '' }}
         shell: pwsh
         run: |
           . .github/workflows/installer-checks.ps1

@@ -75,6 +75,13 @@ function Wait-Until([int]$Seconds, [scriptblock]$Test) {
 }
 
 # A file's redacted copy into the uploaded logs, and its tail in the summary.
+# The job stops here: the reason in the environment (later steps skip on it) and as the error.
+function Stop-Job([string]$Why) {
+  "HSN_STOPPED=$Why" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+  Write-Host "::error title=stopped::$Why"
+  exit 1
+}
+
 function Save-Log([string]$Name, [string]$Source, [int]$Lines = 40) {
   if (-not (Test-Path -LiteralPath $Source -PathType Leaf)) {
     Write-Info $Name "not present at $Source"
@@ -93,6 +100,9 @@ function Invoke-Hosted([string]$HostedStep, [string]$HostedCommand = "") {
   $hostedOut = (& pwsh @hostedArgs 2>&1 | Out-String)
   $hostedCode = $LASTEXITCODE
   Add-Content -Path (Join-Path $HsnChecks "logs\hosted-checks.txt") -Value @("== check.ps1 $HostedStep (exit $hostedCode)", (Hide-Secrets $hostedOut)) -Encoding utf8
+  Write-Host "::group::check.ps1 $HostedStep (exit $hostedCode, whole, redacted)"
+  Write-Host (Hide-Secrets $hostedOut)
+  Write-Host "::endgroup::"
   $lastLines = (($hostedOut -split "`r?`n") | Where-Object { $_ } | Select-Object -Last 3) -join " "
   if ($hostedCode -eq 0) { Write-Pass "A8's hosted check ``$HostedStep``" (ConvertTo-OneLine $lastLines) }
   else { Write-Fail "A8's hosted check ``$HostedStep``" "exit ${hostedCode}: $lastLines" }
@@ -102,6 +112,10 @@ function Save-Text([string]$Name, [string]$Text, [int]$Lines = 40) {
   $target = Join-Path $HsnChecks "logs\$Name"
   $hidden = Hide-Secrets $Text
   Set-Content -LiteralPath $target -Value $hidden -Encoding utf8
+  # The whole of it in the log too (redacted), so a first run reads from `gh run view --log` alone.
+  Write-Host "::group::$Name (whole, redacted)"
+  Write-Host $hidden
+  Write-Host "::endgroup::"
   $tail = @($hidden -split "`r?`n" | Select-Object -Last $Lines)
   Write-Summary (@("", "<details><summary>$Name (last $Lines lines, redacted)</summary>", "", '```') + $tail + @('```', "", "</details>"))
 }

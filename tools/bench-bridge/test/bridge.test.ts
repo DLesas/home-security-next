@@ -27,7 +27,8 @@ import { BenchBridge } from "../src/bridge.ts";
 
 const python = Bun.which("python3");
 const FAKE_END = join(import.meta.dir, "fake-bench-end.py");
-const HUB_MAIN = join(import.meta.dir, "..", "..", "..", "hub", "src", "shell", "main.ts");
+// The tests' entry: `main.ts`'s, with the clock synchronised on any Linux (`hub/test/world`).
+const HUB_MAIN = join(import.meta.dir, "..", "..", "..", "hub", "test", "world", "hub-entry.ts");
 const MIGRATIONS = join(import.meta.dir, "..", "..", "..", "hub", "drizzle");
 const TRICKY = [0x0a, 0x0d, 0x11, 0x13, 0x03, 0x04, 0x7f, 0x00];
 
@@ -282,7 +283,8 @@ describe.skipIf(python === null)("the bench bridge, against the real hub", () =>
         "--app-ports",
         "0,0",
       ],
-      { stdout: "ignore", stderr: "ignore" },
+      // The hub's own words, if it does not start, are what the timeout below cannot say.
+      { stdout: "ignore", stderr: "inherit" },
     );
     running.push(() => {
       hub.kill(9);

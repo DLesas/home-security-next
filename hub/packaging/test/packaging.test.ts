@@ -184,7 +184,7 @@ describe("Windows: the service and the .msi", () => {
     // No licence page in M2, and no placeholder licence.
     expect(wxs).not.toMatch(/WixUI_Minimal|WelcomeEulaDlg|LicenseAgreementDlg|WixUILicenseRtf/u);
     expect(wxs).toContain(
-      '<Show Dialog="WelcomeDlg" Before="ProgressDlg" Condition="NOT Installed" />',
+      '<Show Dialog="override WelcomeDlg" Before="ProgressDlg" Condition="NOT Installed" />',
     );
   });
 
