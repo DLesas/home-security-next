@@ -1,6 +1,6 @@
 /**
  * A QR code as SVG (m2-design.md section 8, `qr.web.ts`'s "show a code"; wave 2's ruling: `toqr`),
- * dark on light with the four-module quiet zone the standard asks for. One path, no inline style:
+ * `ink` on `chalk` with the four-module quiet zone the standard asks for. One path, no inline style:
  * nothing the content security policy has to allow. Its text is given beside it, selectable, for a
  * person who cannot scan; scanning waits for the phone app.
  */
@@ -40,8 +40,8 @@ export function QrCode({
       height={Math.max(180, box * 4)}
       shapeRendering="crispEdges"
     >
-      <rect x={-QUIET} y={-QUIET} width={box} height={box} fill="#ffffff" />
-      <path d={path} fill="#000000" />
+      <rect x={-QUIET} y={-QUIET} width={box} height={box} className="fill-chalk" />
+      <path d={path} className="fill-ink" />
     </svg>
   );
 }

@@ -8,15 +8,23 @@
  */
 import { displayName } from "@hsn/protocol/app";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link } from "expo-router";
 import { useMemo, useState } from "react";
-import { Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
 import { listOf } from "../state/words";
-import { AddedNotices, UsbAdd } from "./devices";
+import { NewList, UsbAdd } from "./devices";
 import { useAction, useHub, useLive } from "./hub-context";
-import { Body, Button, Choice, Failure, Field, Heading, Notice, Section } from "./parts";
-import { styles } from "./theme";
+import {
+  Actions,
+  Body,
+  Button,
+  Choice,
+  Failure,
+  Field,
+  Heading,
+  Notice,
+  Section,
+  TextLink,
+} from "./parts";
 
 /** A person's name as the app sends it: trimmed and in NFC (section 7, "Names"); undefined if the hub would refuse it. */
 export function cleanName(text: string): string | undefined {
@@ -64,9 +72,7 @@ function PersonStep() {
       <Body>{t("setup.person.intro")}</Body>
       {names.length > 0 ? (
         <Notice kind="ok">
-          <Text style={styles.body}>
-            {t("setup.person.done", { names: listOf(names, i18n.language) })}
-          </Text>
+          <Body>{t("setup.person.done", { names: listOf(names, i18n.language) })}</Body>
         </Notice>
       ) : null}
       {people.data !== undefined && !people.data.ok ? <Failure outcome={people.data} /> : null}
@@ -79,14 +85,14 @@ function PersonStep() {
         testID="setup-person"
         {...(invalid ? { error: t("setup.person.error") } : {})}
       />
-      <View style={styles.row}>
+      <Actions>
         <Button
           label={t("setup.person.submit")}
           onPress={submit}
           busy={create.busy}
           testID="setup-person-submit"
         />
-      </View>
+      </Actions>
       {create.outcome !== undefined && !create.outcome.ok ? (
         <Failure outcome={create.outcome} />
       ) : null}
@@ -113,27 +119,27 @@ function SiteStep() {
   return (
     <Section label={t("setup.site.title")}>
       <Heading level={2}>{t("setup.site.title")}</Heading>
-      <Text style={styles.body} testID="setup-channel">
+      <Body testID="setup-channel">
         {channel === null
           ? t("setup.site.channelNotChosen")
           : t("setup.site.channel", { channel: t(CHANNEL_KEYS[channel] ?? CHANNEL_KEYS[0]) })}
-      </Text>
+      </Body>
       <Body muted>{t("setup.site.surveyHint")}</Body>
-      <View style={styles.row}>
+      <Actions>
         <Button
           label={t("setup.site.survey")}
           busy={survey.busy}
           onPress={() => void survey.run({})}
           testID="setup-survey"
         />
-      </View>
+      </Actions>
       {survey.outcome === undefined ? null : survey.outcome.ok ? (
         <Notice kind="ok" live="polite">
-          <Text style={styles.body}>
+          <Body>
             {t("setup.site.surveyed", {
               channel: t(CHANNEL_KEYS[survey.outcome.body.channel] ?? CHANNEL_KEYS[0]),
             })}
-          </Text>
+          </Body>
         </Notice>
       ) : (
         <Failure outcome={survey.outcome} />
@@ -147,9 +153,7 @@ function SiteStep() {
       <Body muted>{t("setup.site.rateHint")}</Body>
       {setRate.outcome === undefined ? null : setRate.outcome.ok ? (
         <Notice kind="ok" live="polite">
-          <Text style={styles.body}>
-            {t("setup.site.rateSaved", { n: setRate.outcome.body.rate })}
-          </Text>
+          <Body>{t("setup.site.rateSaved", { n: setRate.outcome.body.rate })}</Body>
         </Notice>
       ) : (
         <Failure outcome={setRate.outcome} />
@@ -180,9 +184,9 @@ export function WifiStep() {
     <Section label={t("setup.wifi.title")}>
       <Heading level={2}>{t("setup.wifi.title")}</Heading>
       <Body>{t("setup.wifi.intro")}</Body>
-      <Text style={styles.body}>
+      <Body>
         {current === "" ? t("setup.wifi.currentNone") : t("setup.wifi.current", { name: current })}
-      </Text>
+      </Body>
       <Field
         label={t("setup.wifi.nameLabel")}
         value={name}
@@ -200,17 +204,17 @@ export function WifiStep() {
         testID="setup-wifi-password"
         onSubmit={submit}
       />
-      <View style={styles.row}>
+      <Actions>
         <Button
           label={t("setup.wifi.submit")}
           onPress={submit}
           busy={save.busy}
           testID="setup-wifi-submit"
         />
-      </View>
+      </Actions>
       {save.outcome === undefined ? null : save.outcome.ok ? (
         <Notice kind="ok" live="polite">
-          <Text style={styles.body}>{t("setup.wifi.saved")}</Text>
+          <Body>{t("setup.wifi.saved")}</Body>
         </Notice>
       ) : (
         <Failure outcome={save.outcome} />
@@ -233,12 +237,12 @@ function DevicesStep() {
     <Section label={t("setup.devices.title")}>
       <Heading level={2}>{t("setup.devices.title")}</Heading>
       <Body>{t("setup.devices.intro")}</Body>
-      <Text style={styles.body} testID="setup-gateways">
+      <Body testID="setup-gateways">
         {gateways.length === 0
           ? t("setup.devices.noGateway")
           : t("setup.devices.gateways", { names: listOf(gateways, i18n.language) })}
-      </Text>
-      <AddedNotices />
+      </Body>
+      <NewList />
     </Section>
   );
 }
@@ -247,15 +251,12 @@ export function SetupSteps() {
   const { t } = useTranslation();
   return (
     <>
-      <Body>{t("setup.intro")}</Body>
       <PersonStep />
       <SiteStep />
       <WifiStep />
       <DevicesStep />
       <UsbAdd />
-      <Link href="/" style={styles.navLink}>
-        {t("setup.finish")}
-      </Link>
+      <TextLink href="/" label={t("setup.finish")} />
     </>
   );
 }
@@ -270,10 +271,8 @@ export function SetupPrompt() {
   if (people.data === undefined) return null;
   return (
     <Notice kind="info" testID="setup-prompt">
-      <Text style={styles.body}>{t("home.setupPrompt")}</Text>
-      <Link href="/setup" style={styles.navLink}>
-        {t("home.setupLink")}
-      </Link>
+      <Body>{t("home.setupPrompt")}</Body>
+      <TextLink href="/setup" label={t("home.setupLink")} />
     </Notice>
   );
 }

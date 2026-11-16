@@ -59,7 +59,7 @@ try {
     "the console's code leaves the address at once",
     !(await page.evaluate(() => location.href)).includes("#"),
   );
-  await page.getByRole("heading", { level: 1, name: "Home" }).waitFor({ timeout: 20_000 });
+  await page.getByTestId("state-field").waitFor({ timeout: 20_000 });
   await page.getByTestId("setup-prompt").waitFor();
   await axe(page, "home, before setup");
   await page.getByRole("link", { name: "Continue setup" }).click();
@@ -84,16 +84,22 @@ try {
   check("the hub's USB ports listed: none plugged in", true);
   await axe(page, "setup, done as far as boards");
   await page.getByRole("link", { name: "Home" }).first().click();
-  await page.getByRole("button", { name: "Switch to Away" }).waitFor();
-  await page.getByRole("button", { name: "Switch to Away" }).focus();
+  await page.getByRole("button", { name: "Arm away" }).waitFor();
+  await page.getByRole("button", { name: "Arm away" }).focus();
   await page.keyboard.press("Enter");
   await page.getByTestId("switch-result").waitFor();
   check(
     "switched to Away by keyboard: the hub's answer shown",
-    (await page.getByTestId("switch-result").innerText()).startsWith("Done."),
+    (await page.getByTestId("switch-result").innerText()).startsWith("Switched to Away."),
   );
+  await page.getByRole("heading", { level: 1, name: "Armed, away" }).waitFor();
+  await page.waitForTimeout(600); // The state field's 400 ms fade, before contrast is measured.
   const now = await page.getByTestId("current-mode").innerText();
-  check("the current mode reads Away (an arming event from the hub)", now === "Now: Away", now);
+  check(
+    "the state field reads Armed, away (an arming event from the hub)",
+    now === "Armed, away",
+    now,
+  );
   await axe(page, "home, switched");
 
   // ----- Every other screen, on the real hub -----
@@ -108,7 +114,8 @@ try {
   await page.getByRole("radio", { name: "Away" }).click();
   await page.getByTestId("schedule-at").fill("22:30");
   await page.getByTestId("schedule-save").click();
-  await page.getByText("Switches to Away at 22:30 · Every day").waitFor();
+  await page.getByText("Switches to Away at 22:30", { exact: true }).waitFor();
+  await page.getByText("Every day", { exact: true }).waitFor();
   check(
     "a schedule entry made, with its next run",
     (await page.getByText(/^Next: /u).count()) === 1,
@@ -129,9 +136,9 @@ try {
   await visit("/history", "History");
   await visit("/people", "People");
   await visit("/notifications", "Notifications");
-  await visit("/site", "Site settings");
+  await visit("/site", "This home");
   await page.getByTestId("site-routine-days").fill("40");
-  await page.getByRole("button", { name: "Save" }).last().click();
+  await page.getByRole("button", { name: "Save how long history is kept" }).click();
   await page.getByText("Routine records are kept 40 days").waitFor();
   check("retention set", true);
   await visit("/backup", "Backup and restore");
@@ -160,7 +167,12 @@ try {
     check("a second browser on the home network", false, "this computer has no network address");
   } else {
     await visit("/link", "Link a device");
-    await page.getByRole("radio", { name: "A new person" }).click();
+    // The hub computer's browser belongs to no one: a code for a new person is all it offers.
+    await page.getByTestId("link-new-person-only").waitFor();
+    check(
+      "the console page does not offer a device of its own",
+      (await page.getByRole("radio", { name: "Another device of mine" }).count()) === 0,
+    );
     await page.getByLabel("Their name", { exact: true }).fill("Cara");
     await page.getByTestId("link-make").click();
     // The hub names its usual port (8444) in the address whatever `--app-ports` said: this test's
@@ -178,7 +190,7 @@ try {
       "the link address's code leaves the address at once",
       !(await cara.evaluate(() => location.href)).includes("#"),
     );
-    await cara.getByRole("heading", { level: 1, name: "Home" }).waitFor({ timeout: 20_000 });
+    await cara.getByTestId("state-field").waitFor({ timeout: 20_000 });
     check("linked by a link address, over HTTPS, as a new person", true);
     await axe(cara, "home, a person's browser");
 
@@ -219,7 +231,7 @@ try {
     await axe(ben, "the hub asks the name");
     await ben.getByTestId("link-person-name").fill("Ben");
     await ben.getByTestId("link-person-submit").click();
-    await ben.getByRole("heading", { level: 1, name: "Home" }).waitFor({ timeout: 20_000 });
+    await ben.getByTestId("state-field").waitFor({ timeout: 20_000 });
     check("linked by a typed code, the name asked by the hub", true);
     await page.goto(`${hub.consoleOrigin}/people`);
     await page.getByText("Ben", { exact: true }).first().waitFor();

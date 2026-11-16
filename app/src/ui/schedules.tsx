@@ -13,7 +13,6 @@ import {
   weekdayList,
 } from "@hsn/protocol/app";
 import { useMemo, useState } from "react";
-import { Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
 import { learnConfig } from "../state/live";
 import { listOf, type Translate } from "../state/words";
@@ -21,20 +20,23 @@ import { byName, ConflictNotice, conflictOf, NotToldYet, useFieldError } from ".
 import { formatTime } from "./format";
 import { useAction, useHub, useLive } from "./hub-context";
 import {
+  Actions,
   Body,
   Button,
   CheckList,
   Choice,
   ConfirmButton,
   Done,
+  Facts,
   Failure,
   Field,
   Heading,
+  List,
+  ListItem,
   Section,
   Toggle,
 } from "./parts";
 import { cleanName } from "./setup";
-import { styles } from "./theme";
 
 type Weekday = (typeof weekday.options)[number];
 
@@ -260,7 +262,7 @@ function ScheduleEditor({
           options={targets.map((x) => ({ value: x.id, label: x.name }))}
         />
       )}
-      {wrong === "target" ? <Text style={styles.body}>{t("schedules.chooseTarget")}</Text> : null}
+      {wrong === "target" ? <Body>{t("schedules.chooseTarget")}</Body> : null}
       <Field
         label={t("schedules.at")}
         hint={t("schedules.atHint")}
@@ -305,9 +307,7 @@ function ScheduleEditor({
         />
       ) : null}
       {wrong === "days" ? (
-        <Text style={styles.body}>
-          {t(form.daysKind === "date" ? "schedules.badDate" : "schedules.chooseDays")}
-        </Text>
+        <Body>{t(form.daysKind === "date" ? "schedules.badDate" : "schedules.chooseDays")}</Body>
       ) : null}
       <Toggle
         label={t("schedules.enabled")}
@@ -316,7 +316,7 @@ function ScheduleEditor({
           set({ enabled });
         }}
       />
-      <View style={styles.row}>
+      <Actions>
         <Button
           label={t("editing.save")}
           busy={create.busy || update.busy}
@@ -330,7 +330,7 @@ function ScheduleEditor({
             onDone(false);
           }}
         />
-      </View>
+      </Actions>
       {conflict !== undefined && "action" in conflict.object ? (
         <ConflictNotice
           onUseCurrent={() => {
@@ -369,26 +369,27 @@ function ScheduleItem({
   const action = t(`schedules.does.${schedule.action}`, { target: targetName, at: schedule.at });
   const missed = schedule.missed;
   return (
-    <View role="listitem" style={styles.item} testID={`schedule-${String(schedule.id)}`}>
+    <ListItem testID={`schedule-${String(schedule.id)}`}>
       <Heading level={2}>{schedule.name}</Heading>
-      <Text style={styles.body}>{`${action} · ${daysWords(t, i18n.language, schedule.days)}`}</Text>
-      <Text style={styles.body}>
+      <Body>{action}</Body>
+      <Facts items={[daysWords(t, i18n.language, schedule.days)]} />
+      <Body>
         {!schedule.enabled
           ? t("schedules.off")
           : schedule.nextMs === null
             ? t("schedules.noNext")
             : t("schedules.next", { time: formatTime(t, i18n.language, info, schedule.nextMs) })}
-      </Text>
+      </Body>
       {missed === null ? null : (
-        <Text style={styles.body} testID={`schedule-missed-${String(schedule.id)}`}>
+        <Body testID={`schedule-missed-${String(schedule.id)}`}>
           {t("schedules.missed", {
             time: formatTime(t, i18n.language, info, missed.dueMs),
             why: t(MISSED_KEYS[missed.why]),
           })}
           {missed.count > 1 ? ` ${t("schedules.missedEarlier", { count: missed.count - 1 })}` : ""}
-        </Text>
+        </Body>
       )}
-      <View style={styles.row}>
+      <Actions>
         <Button kind="quiet" label={t("editing.edit", { name: schedule.name })} onPress={onEdit} />
         <ConfirmButton
           label={t("editing.delete", { name: schedule.name })}
@@ -410,11 +411,11 @@ function ScheduleItem({
               })
           }
         />
-      </View>
+      </Actions>
       {remove.outcome !== undefined && !remove.outcome.ok ? (
         <Failure outcome={remove.outcome} />
       ) : null}
-    </View>
+    </ListItem>
   );
 }
 
@@ -427,12 +428,11 @@ export function SchedulesScreen() {
   const [saved, setSaved] = useState(false);
   return (
     <>
-      <Body>{t("schedules.intro", { zone: info?.timeZone ?? t("common.unknown") })}</Body>
       {info !== null && !info.clockTrusted ? <Body>{t("schedules.clockWaits")}</Body> : null}
       {list.length === 0 ? <NotToldYet what="schedules" /> : null}
       {saved ? <Done text={t("editing.saved")} /> : null}
       {list.length === 0 ? null : (
-        <View role="list">
+        <List>
           {list.map((s) => (
             <ScheduleItem
               key={s.id}
@@ -443,10 +443,10 @@ export function SchedulesScreen() {
               }}
             />
           ))}
-        </View>
+        </List>
       )}
       {draft === undefined ? (
-        <View style={styles.row}>
+        <Actions>
           <Button
             label={t("schedules.add")}
             onPress={() => {
@@ -455,7 +455,7 @@ export function SchedulesScreen() {
             }}
             testID="schedule-add"
           />
-        </View>
+        </Actions>
       ) : (
         <ScheduleEditor
           key={draft.id ?? 0}

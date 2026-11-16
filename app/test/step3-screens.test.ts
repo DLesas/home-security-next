@@ -79,7 +79,7 @@ describe("groups, modes and schedules", () => {
 
   test("no group yet: said so", async () => {
     expect(textOf(await renderWith(createElement(groups.GroupsScreen), {}))).toContain(
-      "No groups yet.",
+      "No groups yet. A group says which sirens sound when its doors open.",
     );
   });
 
@@ -118,9 +118,15 @@ describe("groups, modes and schedules", () => {
         schedules: { 2: entry },
       }),
     );
-    expect(text).toContain("Switches to Night at 22:00 · on Monday and Friday");
+    expect(text).toContain("Switches to Night at 22:00 On Monday and Friday");
     expect(text).toContain("Next: Nov 16, 2026 at 10:00 PM");
     expect(text).toContain("Missed at Nov 13, 2026 at 10:00 PM: the hub was off. And 2 earlier.");
+  });
+
+  test("the schedules page: its introduction, under the title, names the hub's time zone", async () => {
+    const route = await import("../src/app/schedules");
+    const text = textOf(await renderWith(createElement(route.default), { hub: HUB }));
+    expect(text).toContain("Schedules Each entry does one thing at one time");
     expect(text).toContain("time zone (Europe/London)");
   });
 });
@@ -137,7 +143,12 @@ describe("people", () => {
   test("while user management is off, no permissions are shown (D13); on, a person with none has no access yet", async () => {
     const off = textOf(
       await renderWith(
-        createElement(people.PersonItem, { person: ben, clients: [], managing: false }),
+        createElement(people.PersonItem, {
+          person: ben,
+          clients: [],
+          managing: false,
+          onRemoved: () => undefined,
+        }),
         { devices: DEVICES },
       ),
     );
@@ -145,7 +156,12 @@ describe("people", () => {
     expect(off).not.toContain("No access yet");
     const on = textOf(
       await renderWith(
-        createElement(people.PersonItem, { person: ben, clients: [], managing: true }),
+        createElement(people.PersonItem, {
+          person: ben,
+          clients: [],
+          managing: true,
+          onRemoved: () => undefined,
+        }),
         { devices: DEVICES },
       ),
     );
@@ -177,9 +193,12 @@ describe("people", () => {
         linkedBy: 1,
       },
     ];
-    const html = await renderWith(createElement(clients.ClientItem, { client: phone, all }), {
-      session: { boot: 1, client: 2, person: 1, kind: "web", hub: "1" },
-    });
+    const html = await renderWith(
+      createElement(clients.ClientItem, { client: phone, all, onRemoved: () => undefined }),
+      {
+        session: { boot: 1, client: 2, person: 1, kind: "web", hub: "1" },
+      },
+    );
     const text = textOf(html);
     expect(text).toContain(
       "Devices Anna's phone linked in the last 30 days, removed with it unless unticked:",
@@ -249,6 +268,45 @@ describe("restore, site and connection", () => {
     expect(textOf(html)).toContain("Keep the old hub switched off");
     expect(html).not.toContain("hsn://restore/1");
     expect(html).toContain('aria-label="Go on: show the restore code"');
+  });
+
+  test("the countdown setting says it is for sensors added from now on, and where a sensor's own is changed", async () => {
+    const html = await renderWith(createElement(site.SiteScreen), {
+      site: {
+        channel: 1,
+        rate: 2,
+        countdownS: 30,
+        autoStopS: 180,
+        wifiName: "",
+        retentionRoutineDays: 30,
+        retentionEventDays: 365,
+      },
+    });
+    const text = textOf(html);
+    expect(text).toContain("sensors added from now on start with a countdown of 30 s");
+    expect(text).toContain("Countdown for sensors added from now on, in seconds");
+    expect(text).toContain("change it on that sensor's page, under Devices");
+  });
+
+  test("the history list has an accessible name", async () => {
+    const history = await import("../src/ui/history");
+    const html = await renderWith(createElement(history.HistoryScreen), { hub: HUB });
+    expect(html).toMatch(/<[^>]*role="list"[^>]*>/u);
+    expect(/<[^>]*role="list"[^>]*>/u.exec(html)?.[0]).toContain('aria-label="');
+  });
+
+  test("the hub computer's browser (no person) is offered a code for a new person only, and told why", async () => {
+    const link = await import("../src/ui/link-device");
+    const SESSION = { boot: 1, client: 1, kind: "web" as const, hub: "1" };
+    const console = await renderWith(createElement(link.LinkDeviceScreen), {
+      session: { ...SESSION, person: null, kind: "console" },
+    });
+    expect(textOf(console)).not.toContain("Another device of mine");
+    expect(textOf(console)).toContain("it can make a code only for a new person");
+    const mine = await renderWith(createElement(link.LinkDeviceScreen), {
+      session: { ...SESSION, person: 1 },
+    });
+    expect(textOf(mine)).toContain("Another device of mine");
   });
 
   test("a site move's stage and count in words", async () => {

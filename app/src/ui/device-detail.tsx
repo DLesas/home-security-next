@@ -8,14 +8,22 @@
  * The current values come with `device.show` and are shown beside each field, with the settings
  * version they make.
  */
-import { APP_OPS, type DeviceObject, deviceNameValue } from "@hsn/protocol/app";
+import { APP_OPS, deviceNameValue, type DeviceObject } from "@hsn/protocol/app";
 import { useState } from "react";
-import { Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
 import { DeviceItemFacts } from "./devices";
 import { useAction, useLive, useRead } from "./hub-context";
-import { Body, Button, ConfirmButton, Done, Failure, Field, Heading, Section } from "./parts";
-import { styles } from "./theme";
+import {
+  Actions,
+  Body,
+  Button,
+  ConfirmButton,
+  Done,
+  Failure,
+  Field,
+  Heading,
+  Section,
+} from "./parts";
 
 /** A whole number typed in a field, `learn` where the setting has it, or nothing (keep as is). */
 export function numberOrKeep(text: string, learn = false): number | "learn" | undefined | null {
@@ -90,15 +98,15 @@ function SettingsForm({
           testID={`setting-${field.key}`}
         />
       ))}
-      {bad ? <Text style={styles.body}>{t("deviceDetail.badSetting")}</Text> : null}
-      <View style={styles.row}>
+      {bad ? <Body>{t("deviceDetail.badSetting")}</Body> : null}
+      <Actions>
         <Button
           label={t("deviceDetail.saveSettings")}
           busy={save.busy}
           onPress={submit}
           testID={`save-${op}`}
         />
-      </View>
+      </Actions>
       {save.outcome === undefined ? null : save.outcome.ok ? (
         <Done text={t("deviceDetail.settingsSaved", { version: save.outcome.body.version })} />
       ) : (
@@ -123,8 +131,8 @@ function SirenTest({ siren }: { readonly siren: number }) {
         value={seconds}
         onChange={setSeconds}
       />
-      {bad ? <Text style={styles.body}>{t("deviceDetail.badSetting")}</Text> : null}
-      <View style={styles.row}>
+      {bad ? <Body>{t("deviceDetail.badSetting")}</Body> : null}
+      <Actions>
         <ConfirmButton
           label={t("deviceDetail.test")}
           question={t("deviceDetail.testQuestion")}
@@ -140,7 +148,7 @@ function SirenTest({ siren }: { readonly siren: number }) {
               void test.run({ siren, ...(typeof value === "number" ? { seconds: value } : {}) });
           }}
         />
-      </View>
+      </Actions>
       {test.outcome === undefined ? null : test.outcome.ok ? (
         <Done text={t("deviceDetail.testing", { count: test.outcome.body.seconds })} />
       ) : (
@@ -174,7 +182,7 @@ function RenameRemove({ device }: { readonly device: DeviceObject }) {
         onChange={setName}
         {...(bad ? { error: t("usb.nameError") } : {})}
       />
-      <View style={styles.row}>
+      <Actions>
         <Button
           label={t("deviceDetail.rename")}
           busy={rename.busy}
@@ -193,7 +201,7 @@ function RenameRemove({ device }: { readonly device: DeviceObject }) {
           busy={remove.busy}
           onConfirm={() => void remove.run({ device: device.id })}
         />
-      </View>
+      </Actions>
       {rename.outcome === undefined ? null : rename.outcome.ok ? (
         <Done text={t("editing.saved")} />
       ) : (
@@ -232,8 +240,10 @@ export function DeviceDetail({ id }: { readonly id: number }) {
   }
   return (
     <>
-      <Heading level={2}>{device.name}</Heading>
-      <DeviceItemFacts device={device} />
+      <Section label={device.name}>
+        <Heading level={2}>{device.name}</Heading>
+        <DeviceItemFacts device={device} />
+      </Section>
       <RenameRemove device={device} />
       {device.role === "sensor" ? (
         <>

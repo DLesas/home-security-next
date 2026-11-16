@@ -4,38 +4,20 @@
  * with (`src/entry.ts` took it out of the address first). A browser that is not linked sees the
  * link screen in place of the routes.
  */
+import "../../global.css";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { Link, Slot } from "expo-router";
+import { Slot, usePathname } from "expo-router";
 import { useEffect, useState } from "react";
-import { I18nextProvider, useTranslation } from "react-i18next";
+import { I18nextProvider } from "react-i18next";
 import { ScrollView, View } from "react-native";
 import { claimArrivedCode } from "../hub/arrival";
 import { type BrowserClient, startBrowserClient } from "../hub/browser";
 import { i18n, startI18n } from "../i18n";
-import { AlarmBanner, ConnectionNotice } from "../ui/banners";
+import { AlarmBanner, ShellNotices, useAlarmRunning } from "../ui/banners";
 import { HubProvider, useLive, useLocal } from "../ui/hub-context";
 import { LinkGate, needsLinkGate } from "../ui/link-gate";
-import { HubNotices } from "../ui/hub-notices";
-import { CriticalNotices } from "../ui/notifications";
-import { styles } from "../ui/theme";
-
-/** The screens, in section 8's order after the "done when" ones. */
-const NAV = [
-  ["/", "nav.home"],
-  ["/devices", "nav.devices"],
-  ["/groups", "nav.groups"],
-  ["/modes", "nav.modes"],
-  ["/schedules", "nav.schedules"],
-  ["/history", "nav.history"],
-  ["/people", "nav.people"],
-  ["/link", "nav.link"],
-  ["/notifications", "nav.notifications"],
-  ["/site", "nav.site"],
-  ["/backup", "nav.backup"],
-  ["/updates", "nav.updates"],
-  ["/status", "nav.status"],
-  ["/setup", "nav.setup"],
-] as const;
+import { BottomBar, Pages, Rail } from "../ui/navigation";
+import { Column } from "../ui/parts";
 
 let started: BrowserClient | undefined;
 const queries = new QueryClient({
@@ -76,33 +58,40 @@ export default function RootLayout() {
   );
 }
 
+/**
+ * Every screen: the navigation (a bar at the bottom on a phone, a column at the left from 768 px)
+ * and the content column; over the content the alarm or countdown, the notices every screen
+ * shows, and the pages of the destination the person is in. Home shows the first as its state
+ * field and the notices under it.
+ */
 function Shell() {
-  const { t } = useTranslation();
   const connection = useLive((s) => s.connection);
   const link = useLocal((s) => s.link);
+  const home = usePathname() === "/";
+  const running = useAlarmRunning();
   if (needsLinkGate(connection, link)) {
     return (
-      <ScrollView style={styles.page}>
+      <ScrollView className="flex-1 bg-limewash">
         <LinkGate />
       </ScrollView>
     );
   }
   return (
-    <ScrollView style={styles.page}>
-      <AlarmBanner />
-      <CriticalNotices />
-      <HubNotices />
-      <View role="navigation" aria-label={t("nav.label")} style={styles.nav}>
-        {NAV.map(([href, key]) => (
-          <Link key={href} href={href} style={styles.navLink}>
-            {t(key)}
-          </Link>
-        ))}
-      </View>
-      <View style={[styles.main, { paddingBottom: 0 }]}>
-        <ConnectionNotice />
-      </View>
-      <Slot />
-    </ScrollView>
+    <View className="flex-1 bg-limewash md:flex-row">
+      <Rail />
+      <ScrollView className="flex-1">
+        <Column first={home || running}>
+          {home ? null : (
+            <>
+              <AlarmBanner />
+              <ShellNotices />
+              <Pages />
+            </>
+          )}
+          <Slot />
+        </Column>
+      </ScrollView>
+      <BottomBar />
+    </View>
   );
 }

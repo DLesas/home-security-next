@@ -18,7 +18,8 @@ plugin({
     build.onLoad({ filter: /\/node_modules\/expo-router\/build\/index\.js$/u }, () => ({
       contents: `import { createElement } from ${JSON.stringify(react)};
 export function Link({ href, children }) { return createElement("a", { href }, children); }
-export function useLocalSearchParams() { return {}; }`,
+export function useLocalSearchParams() { return {}; }
+export function usePathname() { return "/"; }`,
       loader: "js",
     }));
   },

@@ -8,16 +8,14 @@
  * shown as the hub names it. Packet bodies are decoded with the browser-safe
  * `@hsn/protocol/messages` (HD 6: a body is the plaintext after the type byte).
  */
-import { type HistoryRow, historyKind } from "@hsn/protocol/app";
+import { historyKind, type HistoryRow } from "@hsn/protocol/app";
 import { decodeMessage, fromHexSafe, MessageType } from "./packets";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
 import { deviceName, type Translate } from "../state/words";
 import { formatTime } from "./format";
 import { useHub, useLive } from "./hub-context";
-import { Body, Button, Choice, Failure, Heading } from "./parts";
-import { styles } from "./theme";
+import { Actions, Body, Button, Choice, Failure, Heading, List, ListItem } from "./parts";
 
 /** Rows a page asks for ‡ (the hub allows up to 500). */
 export const PAGE_ROWS = 100;
@@ -174,7 +172,6 @@ export function HistoryScreen() {
   const exists = (key: string) => i18n.exists(key);
   return (
     <>
-      <Body>{t("history.intro")}</Body>
       <Choice
         label={t("history.kind")}
         value={kind}
@@ -196,7 +193,7 @@ export function HistoryScreen() {
       {failure === undefined ? null : <Failure outcome={failure} />}
       <Heading level={2}>{t("history.records")}</Heading>
       {pages.length === 0 && !busy ? <Body muted>{t("history.none")}</Body> : null}
-      <View role="list">
+      <List label={t("history.records")}>
         {pages.map((record, i) => {
           const at = timeOf(record);
           const time =
@@ -209,15 +206,15 @@ export function HistoryScreen() {
                   at.ms,
                 );
           return (
-            <View key={`${record.kind}-${String(i)}`} role="listitem" style={styles.item}>
-              <Text style={styles.muted}>{time}</Text>
-              <Text style={styles.body}>{rowWords(t, exists, { devices }, record)}</Text>
-            </View>
+            <ListItem key={`${record.kind}-${String(i)}`}>
+              <Body muted>{time}</Body>
+              <Body>{rowWords(t, exists, { devices }, record)}</Body>
+            </ListItem>
           );
         })}
-      </View>
+      </List>
       {next === undefined ? null : (
-        <View style={styles.row}>
+        <Actions>
           <Button
             kind="quiet"
             label={t("history.older")}
@@ -225,7 +222,7 @@ export function HistoryScreen() {
             onPress={() => void load(next)}
             testID="history-older"
           />
-        </View>
+        </Actions>
       )}
     </>
   );

@@ -1,21 +1,24 @@
-/** The home screen (m2-design.md section 8): the current mode, Away and Disarmed, each sensor's state and door. */
-import { View } from "react-native";
-import { useTranslation } from "react-i18next";
-import { ModePanel, SensorPanel } from "../ui/arming";
-import { AddedNotices } from "../ui/devices";
-import { Heading } from "../ui/parts";
+/**
+ * The home screen (docs/app-design.md "Layout"; m2-design.md section 8): the state field, then
+ * the notices every screen shows, first-time setup, what needs attention, the doors, and news.
+ */
+import { ShellNotices, useAlarmRunning } from "../ui/banners";
+import { NewList } from "../ui/devices";
+import { Doors, NeedsAttention } from "../ui/arming";
+import { Page } from "../ui/parts";
 import { SetupPrompt } from "../ui/setup";
-import { styles } from "../ui/theme";
+import { StateField } from "../ui/state-field";
 
 export default function Screen() {
-  const { t } = useTranslation();
+  // News waits while a countdown runs or the alarm sounds.
+  const running = useAlarmRunning();
   return (
-    <View role="main" style={styles.main}>
-      <Heading level={1}>{t("screens.home.title")}</Heading>
+    <Page top={<StateField />}>
+      <ShellNotices />
       <SetupPrompt />
-      <AddedNotices />
-      <ModePanel />
-      <SensorPanel />
-    </View>
+      <NeedsAttention />
+      <Doors />
+      {running ? null : <NewList />}
+    </Page>
   );
 }

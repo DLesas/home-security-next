@@ -7,11 +7,11 @@
  */
 import { RETENTION_DAYS, type SnapshotObject } from "@hsn/protocol/app";
 import { useState } from "react";
-import { Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
 import { useAction, useLive } from "./hub-context";
 import { numberOrKeep } from "./device-detail";
 import {
+  Actions,
   Body,
   Button,
   Choice,
@@ -23,7 +23,6 @@ import {
   Section,
 } from "./parts";
 import { WifiStep } from "./setup";
-import { styles } from "./theme";
 
 const CHANNELS = [0, 1, 2] as const;
 const RATES = [0, 1, 2, 3, 4, 5] as const;
@@ -53,8 +52,8 @@ function Timings({ site }: { readonly site: SnapshotObject["site"] }) {
         onChange={setAutoStop}
         testID="site-autostop"
       />
-      {bad ? <Text style={styles.body}>{t("deviceDetail.badSetting")}</Text> : null}
-      <View style={styles.row}>
+      {bad ? <Body>{t("deviceDetail.badSetting")}</Body> : null}
+      <Actions>
         <Button
           label={t("site.saveTimings")}
           busy={set.busy}
@@ -75,7 +74,7 @@ function Timings({ site }: { readonly site: SnapshotObject["site"] }) {
               });
           }}
         />
-      </View>
+      </Actions>
       {set.outcome === undefined ? null : set.outcome.ok ? (
         <Done text={t("editing.saved")} />
       ) : (
@@ -137,12 +136,12 @@ function SiteMove() {
       {move === null ? (
         <Body muted>{t("site.noMove")}</Body>
       ) : (
-        <Text style={styles.body} testID="site-move-stage">
+        <Body testID="site-move-stage">
           {`${t(STAGE_KEYS[move.stage])} ${t("site.confirmed", { confirmed: move.confirmed, total: move.total })}`}
-        </Text>
+        </Body>
       )}
       {running ? (
-        <View style={styles.row}>
+        <Actions>
           <Button
             kind="quiet"
             label={t("site.cancelMove")}
@@ -156,7 +155,7 @@ function SiteMove() {
             no={t("editing.no")}
             onConfirm={() => void change.run({ force: { yes: true } })}
           />
-        </View>
+        </Actions>
       ) : (
         <>
           <Choice
@@ -174,7 +173,7 @@ function SiteMove() {
             onChange={setRate}
             options={RATES.map((n) => ({ value: n, label: t("setup.site.rate", { n }) }))}
           />
-          <View style={styles.row}>
+          <Actions>
             <Button
               label={t("site.startMove")}
               busy={change.busy}
@@ -189,7 +188,7 @@ function SiteMove() {
               }
               testID="site-move-start"
             />
-          </View>
+          </Actions>
         </>
       )}
       {change.outcome !== undefined && !change.outcome.ok ? (
@@ -235,8 +234,8 @@ function Retention({ site }: { readonly site: SnapshotObject["site"] }) {
         onChange={setEvents}
         testID="site-event-days"
       />
-      {bad ? <Text style={styles.body}>{t("deviceDetail.badSetting")}</Text> : null}
-      <View style={styles.row}>
+      {bad ? <Body>{t("deviceDetail.badSetting")}</Body> : null}
+      <Actions>
         <Button
           label={t("site.saveRetention")}
           busy={set.busy}
@@ -255,7 +254,7 @@ function Retention({ site }: { readonly site: SnapshotObject["site"] }) {
               });
           }}
         />
-      </View>
+      </Actions>
       {set.outcome === undefined ? null : set.outcome.ok ? (
         <Done text={t("editing.saved")} />
       ) : (

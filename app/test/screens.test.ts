@@ -11,6 +11,7 @@ import { renderWith, textOf } from "./support/screens";
 
 const banners = await import("../src/ui/banners");
 const arming = await import("../src/ui/arming");
+const field = await import("../src/ui/state-field");
 const devicesUi = await import("../src/ui/devices");
 const gate = await import("../src/ui/link-gate");
 const parts = await import("../src/ui/parts");
@@ -47,8 +48,9 @@ describe("the countdown and alarm banner", () => {
     expect(html).toMatch(
       /role="alert"[^>]*aria-live="assertive"|aria-live="assertive"[^>]*role="alert"/u,
     );
-    expect(textOf(html)).toContain("Alarm: front-door");
-    expect(textOf(html)).toContain("Sirens sounding: hall-siren");
+    // One word for the sentence; what set it off, and the sirens, as detail.
+    expect(textOf(html)).toContain("Alarm Set off by front-door.");
+    expect(textOf(html)).toContain("Sirens sounding: hall-siren.");
     expect(html).toMatch(
       /role="button"[^>]*aria-label="Disarm"|aria-label="Disarm"[^>]*role="button"/u,
     );
@@ -64,7 +66,7 @@ describe("the countdown and alarm banner", () => {
       devices: { 4: FRONT },
       countdowns: { 4: { secondsLeft: 27, toldAtMs: now } },
     });
-    expect(textOf(html)).toContain("Countdown: front-door opened while armed");
+    expect(textOf(html)).toContain("Countdown front-door opened while armed.");
     expect(html).toContain('aria-live="assertive"');
     expect(html).toMatch(/aria-live="polite"[^>]*>(<[^>]+>)*30 seconds left/u);
     expect(html).toMatch(/aria-hidden="true"[^>]*>27 seconds left|27 seconds left/u);
@@ -92,20 +94,66 @@ describe("the countdown and alarm banner", () => {
 });
 
 describe("the home screen", () => {
-  test("each sensor's arming and door in words", async () => {
-    const html = await renderWith(createElement(arming.SensorPanel), {
+  test("each door: its state and its arming in words, a row in a list", async () => {
+    const html = await renderWith(createElement(arming.Doors), {
       devices: { 4: FRONT },
       sensors: {
         4: { id: 4, arm: "waitsForDoorToClose", door: "open", countdownSecondsLeft: null },
       },
     });
-    expect(textOf(html)).toContain("front-door Armed when the door closes · Door open");
+    expect(textOf(html)).toContain("front-door Open, arms when it closes");
     expect(html).toContain('role="list"');
     expect(html).toContain('role="listitem"');
   });
 
-  test("the modes this browser knows, Away and Disarmed first, each a labelled button; the mode in words", async () => {
-    const html = await renderWith(createElement(arming.ModePanel), {
+  test("during a countdown the door's row does not repeat the time left (the field shows it once)", async () => {
+    const html = await renderWith(createElement(arming.Doors), {
+      devices: { 4: FRONT },
+      sensors: { 4: { id: 4, arm: "armed", door: "open", countdownSecondsLeft: 27 } },
+      countdowns: { 4: { secondsLeft: 27, toldAtMs: Date.now() } },
+    });
+    expect(textOf(html)).toContain("front-door Open, armed");
+    expect(textOf(html)).not.toContain("seconds left");
+  });
+
+  test("no doors: says what belongs there and offers to add one", async () => {
+    const html = await renderWith(createElement(arming.Doors), {});
+    expect(textOf(html)).toContain("No doors yet.");
+    expect(html).toMatch(/<a[^>]*href="\/setup"[^>]*>Add a door<\/a>/u);
+  });
+
+  test("needs attention: only when a device has something wrong, said in words", async () => {
+    expect(await renderWith(createElement(arming.NeedsAttention), { devices: { 4: FRONT } })).toBe(
+      "",
+    );
+    const html = await renderWith(createElement(arming.NeedsAttention), {
+      devices: { 4: device(4, "front-door", "sensor", { batteryLow: true, tamperOpen: true }) },
+    });
+    expect(textOf(html)).toContain("Needs attention");
+    expect(textOf(html)).toContain("front-door Battery low, Cover open");
+  });
+
+  test("by day: Disarmed in words, Arm away first, every other mode offered", async () => {
+    const html = await renderWith(createElement(field.StateField), {
+      devices: { 4: FRONT },
+      sensors: { 4: { id: 4, arm: "disarmed", door: "closed", countdownSecondsLeft: null } },
+      mode: { mode: 2, modified: false },
+      modes: {
+        3: { id: 3, name: "Night", fixed: "no", groups: [], revision: 0 },
+        2: { id: 2, name: "Disarmed", fixed: "disarmed", groups: [], revision: 0 },
+        1: { id: 1, name: "Away", fixed: "away", groups: [], revision: 0 },
+      },
+    });
+    expect(html).toMatch(/<h1[^>]*aria-level="1"[^>]*>Disarmed</u);
+    expect(textOf(html)).toContain("Every door is closed.");
+    const order = [...html.matchAll(/<button[^>]*aria-label="([^"]+)"/gu)].map((m) => m[1]);
+    expect(order).toEqual(["Arm away", "Switch to Night"]);
+  });
+
+  test("by night: the action's name kept (Arm away, Armed, away), Disarm first", async () => {
+    const html = await renderWith(createElement(field.StateField), {
+      devices: { 4: FRONT },
+      sensors: { 4: { id: 4, arm: "armed", door: "open", countdownSecondsLeft: null } },
       mode: { mode: 1, modified: true },
       modes: {
         3: { id: 3, name: "Night", fixed: "no", groups: [], revision: 0 },
@@ -113,24 +161,56 @@ describe("the home screen", () => {
         1: { id: 1, name: "Away", fixed: "away", groups: [], revision: 0 },
       },
     });
-    expect(textOf(html)).toContain("Now: Away, changed");
-    const order = [...html.matchAll(/aria-label="Switch to ([^"]+)"/gu)].map((m) => m[1]);
-    expect(order).toEqual(["Away", "Disarmed", "Night"]);
-    expect(textOf(html)).toContain("Disarm everything I may manage");
+    expect(textOf(html)).toContain("Armed, away");
+    expect(textOf(html)).toContain("front-door is open.");
+    const order = [...html.matchAll(/<button[^>]*aria-label="([^"]+)"/gu)].map((m) => m[1]);
+    expect(order).toEqual(["Disarm", "Arm away", "Switch to Night", "Disarm what I manage"]);
+  });
+
+  test("after Disarm in a countdown: Disarmed, though the mode is still Away and the hub has not yet said the countdown ended", async () => {
+    const html = await renderWith(createElement(field.StateField), {
+      devices: { 4: FRONT },
+      sensors: { 4: { id: 4, arm: "disarmed", door: "open", countdownSecondsLeft: 20 } },
+      countdowns: { 4: { secondsLeft: 20, toldAtMs: Date.now() } },
+      mode: { mode: 1, modified: false },
+      modes: { 1: { id: 1, name: "Away", fixed: "away", groups: [], revision: 0 } },
+    });
+    expect(html).toMatch(/<h1[^>]*>Disarmed</u);
+    expect(textOf(html)).not.toContain("Countdown");
+  });
+
+  test("after the hub says the countdown ended too: still Disarmed", async () => {
+    const html = await renderWith(createElement(field.StateField), {
+      devices: { 4: FRONT },
+      sensors: { 4: { id: 4, arm: "disarmed", door: "open", countdownSecondsLeft: null } },
+      mode: { mode: 1, modified: false },
+      modes: { 1: { id: 1, name: "Away", fixed: "away", groups: [], revision: 0 } },
+    });
+    expect(html).toMatch(/<h1[^>]*>Disarmed</u);
+  });
+
+  test("one state field during a countdown", async () => {
+    const html = await renderWith(createElement(field.StateField), {
+      devices: { 4: FRONT },
+      sensors: { 4: { id: 4, arm: "armed", door: "open", countdownSecondsLeft: 20 } },
+      countdowns: { 4: { secondsLeft: 20, toldAtMs: Date.now() } },
+    });
+    expect([...html.matchAll(/data-testid="state-field"/gu)]).toHaveLength(1);
+    expect(html).toMatch(/<h1[^>]*>Countdown</u);
   });
 
   test("no modes known: said so, not guessed", async () => {
-    const html = await renderWith(createElement(arming.ModePanel), {
+    const html = await renderWith(createElement(field.StateField), {
       mode: { mode: 1, modified: false },
     });
-    expect(textOf(html)).toContain("The hub has not told this browser which modes it has");
-    expect(textOf(html)).toContain("Now: a mode this browser does not know yet");
+    expect(textOf(html)).toContain("The hub has not said which modes it has yet");
     expect(html).not.toContain("Switch to");
+    expect(html).not.toContain("Arm away");
   });
 });
 
 describe("the device list", () => {
-  test("health in words: battery, signal, silence, cover, poor link", async () => {
+  test("a row each: name, kind and battery, health in words; the whole row opens the device", async () => {
     const html = await renderWith(createElement(devicesUi.DeviceList), {
       devices: {
         4: device(4, "front-door", "sensor", { batteryLow: true, tamperOpen: true }),
@@ -138,12 +218,55 @@ describe("the device list", () => {
       },
     });
     const text = textOf(html);
-    expect(text).toContain(
-      "Sensor · Paired · Battery 64% · Signal -80 dBm · 19 °C · Firmware 1.2.0",
+    expect(text).toContain("front-door Sensor, battery 64% Battery low and Cover open");
+    expect(text).toContain("hall-siren Siren, battery 64% No problems");
+    expect(html).toContain('href="/device/4"');
+    // The whole row is the link, named by its words: name, kind and battery, state.
+    const row = /<a[^>]*href="\/device\/4"[^>]*>(.*?)<\/a>/su.exec(html)?.[1] ?? "";
+    expect(textOf(row)).toBe("front-door Sensor, battery 64% Battery low and Cover open");
+  });
+
+  test("the device's page: signal, temperature, firmware, when last heard (moved from the list)", async () => {
+    const html = await renderWith(
+      createElement(devicesUi.DeviceItemFacts, {
+        device: device(4, "front-door", "sensor", { batteryLow: true, tamperOpen: true }),
+      }),
+      {},
     );
-    expect(text).toContain("Battery low · Cover open");
-    expect(text).toContain("No problems");
+    const text = textOf(html);
+    expect(text).toContain("Battery low and Cover open");
+    expect(text).toContain("Sensor Paired Battery 64% Signal -80 dBm 19 °C Firmware 1.2.0");
     expect(text).toContain("Not heard yet");
+  });
+});
+
+describe("news and the settings index", () => {
+  test("a device just added is news: a plain row under New, with Dismiss at the right, no box", async () => {
+    const html = await renderWith(createElement(devicesUi.NewList), {
+      devices: { 9: SIREN },
+      added: [9],
+    });
+    expect(textOf(html)).toContain("New Siren hall-siren was added. Dismiss");
+    expect(html).toContain('role="listitem"');
+    expect(html).toContain('aria-label="Dismiss: Siren hall-siren was added."');
+    expect(html).not.toContain('role="status"');
+  });
+
+  test("Settings opens a list of its eight pages, each a whole-row link with what it is for", async () => {
+    const route = await import("../src/app/settings");
+    const html = await renderWith(createElement(route.default), {});
+    const hrefs = [...html.matchAll(/href="([^"]+)"/gu)].map((m) => m[1]);
+    expect(hrefs).toEqual([
+      "/people",
+      "/schedules",
+      "/site",
+      "/backup",
+      "/updates",
+      "/link",
+      "/status",
+      "/setup",
+    ]);
+    expect(textOf(html)).toContain("Schedules Arm, disarm or switch mode at times you set.");
   });
 });
 

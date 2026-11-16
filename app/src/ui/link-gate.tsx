@@ -5,15 +5,13 @@
  * the address; this screen only shows how it goes.
  */
 import { useState } from "react";
-import { Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
 import { typedSecret } from "../hub/fragment";
 import type { LinkView } from "../hub/client";
 import { LINK_FAILURE_KEYS } from "../state/words";
 import { useHub, useLive, useLocal } from "./hub-context";
-import { Body, Button, Field, Heading, Notice } from "./parts";
+import { Actions, Body, Button, Field, Notice, Page } from "./parts";
 import { cleanName } from "./setup";
-import { styles } from "./theme";
 
 /** True when this screen, not the routes, is what the browser shows. */
 export function needsLinkGate(connection: { readonly kind: string }, link: LinkView): boolean {
@@ -39,25 +37,23 @@ export function LinkGate() {
 
   if (connection.kind === "removed") {
     return (
-      <View role="main" style={styles.main}>
-        <Heading level={1}>{t("link.removedTitle")}</Heading>
+      <Page title={t("link.removedTitle")}>
         <Body>{t("link.removed")}</Body>
-        <View style={styles.row}>
+        <Actions>
           <Button
             label={t("link.linkAgain")}
             onPress={() => void hub.forget()}
             testID="link-again"
           />
-        </View>
-      </View>
+        </Actions>
+      </Page>
     );
   }
   if (connection.kind === "noStorage") {
     return (
-      <View role="main" style={styles.main}>
-        <Heading level={1}>{t("link.noStorageTitle")}</Heading>
+      <Page title={t("link.noStorageTitle")}>
         <Body>{t("link.noStorage")}</Body>
-      </View>
+      </Page>
     );
   }
 
@@ -68,8 +64,7 @@ export function LinkGate() {
       if (clean !== undefined) void hub.giveName(clean);
     };
     return (
-      <View role="main" style={styles.main}>
-        <Heading level={1}>{t("link.title")}</Heading>
+      <Page title={t("link.title")}>
         <Body>{t("link.askName")}</Body>
         <Field
           label={t("link.yourName")}
@@ -80,10 +75,10 @@ export function LinkGate() {
           testID="link-person-name"
           {...(badName ? { error: t("editing.badName") } : {})}
         />
-        <View style={styles.row}>
+        <Actions>
           <Button label={t("link.submitName")} onPress={give} testID="link-person-submit" />
-        </View>
-      </View>
+        </Actions>
+      </Page>
     );
   }
 
@@ -98,22 +93,18 @@ export function LinkGate() {
   };
 
   return (
-    <View role="main" style={styles.main}>
-      <Heading level={1}>{t("link.title")}</Heading>
+    <Page title={t("link.title")} intro={t("link.intro")}>
       {link.kind === "linking" ? (
         <Notice kind="info" live="polite" testID="link-status">
-          <Text style={styles.body}>{t("link.linking")}</Text>
+          <Body>{t("link.linking")}</Body>
         </Notice>
       ) : null}
       {link.kind === "failed" ? (
         <Notice kind="danger" live="polite" testID="link-status">
-          <Text style={styles.body}>{t(LINK_FAILURE_KEYS[link.failure])}</Text>
-          {link.from === "console" ? (
-            <Text style={styles.body}>{t("link.fromConsole")}</Text>
-          ) : null}
+          <Body>{t(LINK_FAILURE_KEYS[link.failure])}</Body>
+          {link.from === "console" ? <Body>{t("link.fromConsole")}</Body> : null}
         </Notice>
       ) : null}
-      <Body>{t("link.intro")}</Body>
       <Field
         label={t("link.codeLabel")}
         hint={t("link.codeHint")}
@@ -127,14 +118,14 @@ export function LinkGate() {
         testID="link-code"
         {...(badCode ? { error: t("link.failure.badCode") } : {})}
       />
-      <View style={styles.row}>
+      <Actions>
         <Button
           label={t("link.submit")}
           onPress={submit}
           busy={link.kind === "linking"}
           testID="link-submit"
         />
-      </View>
-    </View>
+      </Actions>
+    </Page>
   );
 }

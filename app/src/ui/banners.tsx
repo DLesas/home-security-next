@@ -1,21 +1,25 @@
 /**
- * What sits over every screen (m2-design.md sections 7 and 8): the countdown and alarm banner with
- * Disarm, and the notice that the app is out of touch with the hub.
+ * The alarm and the countdown, and the notice that the app is out of touch with the hub
+ * (m2-design.md sections 7 and 8; docs/app-design.md "The one bold thing").
  *
+ * - The alarm fills its field with `signal`; a countdown is night (`spruce`), its time in `lamp`.
+ *   On the home screen they are the state field itself; over every other screen, a band at the top.
  * - The alarm or a countdown is **announced at once** to screen readers (an assertive live region);
  *   the time left **politely**, every few seconds, while the visible count goes every second.
  * - Disarm is always offered: it is `disarm mine`, which needs no permission (D76); the hub decides
- *   what it disarms, and the banner says what it did and which triggers remain (D95).
+ *   what it disarms, and the result says what it did and which triggers remain (D95).
  * - A web page is no substitute for push: a closed tab hears nothing (section 13).
  */
-import { useEffect, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
+import type { CountdownView, LiveState } from "../state/live";
 import { deviceNames, waitingWords } from "../state/words";
 import { secondsLeft } from "./format";
-import { useAction, useHub, useLive } from "./hub-context";
-import { Button, Failure, Notice } from "./parts";
-import { styles } from "./theme";
+import { HubNotices } from "./hub-notices";
+import { CriticalNotices } from "./notifications";
+import { type Action, useAction, useHub, useLive } from "./hub-context";
+import { Actions, Button, type ButtonKind, Failure, Notice, NoticeText, Spoken } from "./parts";
 
 /** The clock, every `everyMs`, for counting down. */
 export function useNow(everyMs: number): number {
@@ -31,30 +35,101 @@ export function useNow(everyMs: number): number {
   return now;
 }
 
+/**
+ * The countdowns that are running: a disarmed sensor's countdown is over, whether or not the hub
+ * has said so yet (its "countdown ended" event may come after the arming event, or not at all).
+ */
+export function runningCountdowns(
+  state: Pick<LiveState, "countdowns" | "sensors">,
+): readonly (readonly [number, CountdownView])[] {
+  return Object.entries(state.countdowns)
+    .map(([id, c]) => [Number(id), c] as const)
+    .filter(([id]) => state.sensors[id]?.arm !== "disarmed");
+}
+
+/** Whether the alarm sounds or a countdown runs. */
+export function useAlarmRunning(): boolean {
+  return useLive((s) => s.alarm !== null || runningCountdowns(s).length > 0);
+}
+
 /** How often the time left is said to a screen reader ‡. */
 const SPOKEN_EVERY_S = 5;
 
-export function AlarmBanner() {
+export type Look = "day" | "night" | "alarm";
+
+/** The state field's three looks: its surface, its text, and its buttons. */
+export const LOOK: Readonly<
+  Record<
+    Look,
+    {
+      readonly box: string;
+      readonly text: string;
+      readonly main: ButtonKind;
+      readonly quiet: ButtonKind;
+    }
+  >
+> = {
+  day: { box: "bg-sage", text: "text-ink", main: "main", quiet: "quiet" },
+  night: { box: "bg-spruce", text: "text-limewash", main: "night", quiet: "nightQuiet" },
+  alarm: { box: "bg-signal", text: "text-limewash", main: "night", quiet: "nightQuiet" },
+};
+
+/**
+ * The field's surface. Edge to edge and square on a phone, 24 px corners from 768 px; the colour
+ * fades over 400 ms between looks, at once with reduced motion (the app's one motion).
+ */
+export function FieldSurface({
+  look,
+  children,
+}: {
+  readonly look: Look;
+  readonly children: ReactNode;
+}) {
+  return (
+    <View
+      testID="field-surface"
+      className={`-mx-6 gap-8 px-6 py-12 md:mx-0 transition-colors duration-400 motion-reduce:transition-none md:rounded-field md:px-12 ${LOOK[look].box}`}
+    >
+      {children}
+    </View>
+  );
+}
+
+/**
+ * The alarm or the countdown, with Disarm: the state field on home (`large`), a band elsewhere.
+ * Nothing when neither runs. The caller holds the disarm and says its result (`DisarmOutcome`).
+ */
+export function AlarmField({
+  large,
+  disarm,
+}: {
+  readonly large: boolean;
+  readonly disarm: Action<"disarm">;
+}) {
   const { t, i18n } = useTranslation();
   const alarm = useLive((s) => s.alarm);
   const countdowns = useLive((s) => s.countdowns);
+  const sensors = useLive((s) => s.sensors);
   const devices = useLive((s) => s.devices);
-  const disarm = useAction("disarm");
   const now = useNow(1000);
   const counting = useMemo(
     () =>
-      Object.entries(countdowns).map(([id, c]) => ({ id: Number(id), left: secondsLeft(c, now) })),
-    [countdowns, now],
+      runningCountdowns({ countdowns, sensors }).map(([id, c]) => ({
+        id,
+        left: secondsLeft(c, now),
+      })),
+    [countdowns, sensors, now],
   );
-  if (alarm === null && counting.length === 0) {
-    return disarm.outcome?.ok === true ? <DisarmResult outcome={disarm.outcome.body} /> : null;
-  }
+  if (alarm === null && counting.length === 0) return null;
+  const look: Look = alarm === null ? "night" : "alarm";
   const left = Math.min(...counting.map((c) => c.left));
   const spoken = Math.ceil(left / SPOKEN_EVERY_S) * SPOKEN_EVERY_S;
-  const headline =
+  // The sentence is one word; what set it off follows as detail, so no typed name breaks it.
+  const headline = t(alarm !== null ? "banner.alarm" : "banner.countdown");
+  const cause =
     alarm !== null
-      ? t("banner.alarm", { sensors: deviceNames(t, i18n.language, { devices }, alarm.triggers) })
-      : t("banner.countdown", {
+      ? t("banner.alarmBy", { sensors: deviceNames(t, i18n.language, { devices }, alarm.triggers) })
+      : t("banner.countdownBy", {
           sensors: deviceNames(
             t,
             i18n.language,
@@ -62,35 +137,37 @@ export function AlarmBanner() {
             counting.map((c) => c.id),
           ),
         });
+  const text = LOOK[look].text;
   return (
-    <View style={styles.banner} role="region" aria-label={headline} testID="alarm-banner">
-      <View role="alert" aria-live="assertive">
-        <Text style={styles.bannerText}>{headline}</Text>
-      </View>
-      {alarm !== null && alarm.sirens.length > 0 ? (
-        <Text style={styles.bannerText}>
-          {t("banner.alarmSirens", {
-            sirens: deviceNames(t, i18n.language, { devices }, alarm.sirens),
-          })}
-        </Text>
-      ) : null}
-      {alarm === null ? (
-        <>
-          <Text style={styles.bannerText} aria-hidden testID="countdown-left">
-            {t("home.countdown", { count: left })}
-          </Text>
-          <View
-            role="status"
-            aria-live="polite"
-            style={{ position: "absolute", width: 1, height: 1, overflow: "hidden" }}
+    <View role="region" aria-label={headline} {...(large ? {} : { testID: "alarm-banner" })}>
+      <FieldSurface look={look}>
+        <View role="alert" aria-live="assertive" className="gap-3">
+          <Text
+            {...(large ? { role: "heading", "aria-level": 1 } : {})}
+            className={`font-heavy ${large ? "text-state md:text-state-wide" : "text-section"} ${text}`}
           >
-            <Text>{t("home.countdown", { count: spoken })}</Text>
-          </View>
-        </>
-      ) : null}
-      <View style={styles.row}>
+            {headline}
+          </Text>
+          <Text className={`max-w-line font-text text-body ${text}`}>{cause}</Text>
+          {alarm !== null && alarm.sirens.length > 0 ? (
+            <Text className={`max-w-line font-text text-body ${text}`}>
+              {t("banner.alarmSirens", {
+                sirens: deviceNames(t, i18n.language, { devices }, alarm.sirens),
+              })}
+            </Text>
+          ) : null}
+        </View>
+        {alarm === null ? (
+          <>
+            <Text aria-hidden testID="countdown-left" className="font-heavy text-section text-lamp">
+              {t("home.countdown", { count: left })}
+            </Text>
+            <Spoken>{t("home.countdown", { count: spoken })}</Spoken>
+          </>
+        ) : null}
         <Button
-          kind="quiet"
+          kind={LOOK[look].main}
+          wide
           label={t("banner.disarm")}
           busy={disarm.busy}
           testID="banner-disarm"
@@ -98,42 +175,59 @@ export function AlarmBanner() {
             void disarm.run({ target: "mine" });
           }}
         />
-      </View>
-      {disarm.outcome === undefined ? null : disarm.outcome.ok ? (
-        <DisarmResult outcome={disarm.outcome.body} />
-      ) : (
-        <Failure outcome={disarm.outcome} />
-      )}
+      </FieldSurface>
     </View>
   );
 }
 
-function DisarmResult({
-  outcome,
-}: {
-  readonly outcome: {
-    readonly alarmEnded: boolean;
-    readonly alarmContinues?: { readonly triggers: readonly number[] } | undefined;
-  };
-}) {
+/** Over every screen but home (which shows it as its state field), with Disarm's result. */
+export function AlarmBanner() {
+  const disarm = useAction("disarm");
+  const running = useAlarmRunning();
+  if (!running && disarm.outcome === undefined) return null;
+  return (
+    <View className="gap-6">
+      <AlarmField large={false} disarm={disarm} />
+      <DisarmOutcome outcome={disarm.outcome} />
+    </View>
+  );
+}
+
+/**
+ * What a disarm did, said politely (D95): the alarm stopped, or which triggers go on that this
+ * person cannot disarm; else what was disarmed, or that nothing needed it.
+ */
+export function DisarmOutcome({ outcome }: { readonly outcome: Action<"disarm">["outcome"] }) {
   const { t, i18n } = useTranslation();
   const devices = useLive((s) => s.devices);
+  if (outcome === undefined) return null;
+  if (!outcome.ok) return <Failure outcome={outcome} />;
+  const names = (ids: readonly number[]) => deviceNames(t, i18n.language, { devices }, ids);
+  const body = outcome.body;
   const text =
-    outcome.alarmContinues !== undefined
-      ? t("banner.alarmContinues", {
-          sensors: deviceNames(t, i18n.language, { devices }, outcome.alarmContinues.triggers),
-        })
-      : outcome.alarmEnded
+    body.alarmContinues !== undefined
+      ? t("banner.alarmContinues", { sensors: names(body.alarmContinues.triggers) })
+      : body.alarmEnded
         ? t("banner.alarmEnded")
-        : t("banner.disarmed");
+        : body.disarmed.length === 0
+          ? t("home.nothingDisarmed")
+          : t("home.disarmed", { sensors: names(body.disarmed) });
+  const kind = body.alarmContinues === undefined ? "ok" : "warning";
   return (
-    <Notice
-      kind={outcome.alarmContinues === undefined ? "ok" : "warning"}
-      live="polite"
-      testID="disarm-result"
-    >
-      <Text style={styles.body}>{text}</Text>
+    <Notice kind={kind} live="polite" testID="disarm-result">
+      <NoticeText kind={kind}>{text}</NoticeText>
     </Notice>
+  );
+}
+
+/** The notices every screen shows: critical ones, the hub's, and the connection's. */
+export function ShellNotices() {
+  return (
+    <>
+      <CriticalNotices />
+      <HubNotices />
+      <ConnectionNotice />
+    </>
   );
 }
 
@@ -146,19 +240,19 @@ export function ConnectionNotice() {
   if (connection.kind === "waiting") {
     return (
       <Notice kind="warning" live="polite" testID="connection-notice">
-        <Text style={styles.h3}>{t("connection.outOfTouch")}</Text>
-        <Text style={styles.body}>{waitingWords(t, connection)}</Text>
+        <NoticeText kind="warning">{t("connection.outOfTouch")}</NoticeText>
+        <NoticeText kind="warning">{waitingWords(t, connection)}</NoticeText>
         {connection.mayBeRemoved ? (
           <>
-            <Text style={styles.body}>{t("connection.mayBeRemoved")}</Text>
-            <View style={styles.row}>
+            <NoticeText kind="warning">{t("connection.mayBeRemoved")}</NoticeText>
+            <Actions>
               <Button
                 kind="quiet"
                 label={t("link.linkAgain")}
                 testID="may-be-removed-link-again"
                 onPress={() => void hub.forget()}
               />
-            </View>
+            </Actions>
           </>
         ) : null}
       </Notice>
@@ -167,9 +261,9 @@ export function ConnectionNotice() {
   if (connection.kind === "connecting" || connection.kind === "loading") {
     return (
       <Notice kind="info" live="polite" testID="connection-notice">
-        <Text style={styles.body}>
+        <NoticeText kind="info">
           {t(connection.kind === "loading" ? "connection.loading" : "connection.connecting")}
-        </Text>
+        </NoticeText>
       </Notice>
     );
   }

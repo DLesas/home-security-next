@@ -4,12 +4,10 @@
  * *manage system*, the database: the last commit, what is staged, its size, whether history was
  * shortened, and what may be missing after a restart. The hub decides who sees the second part.
  */
-import { Text } from "react-native";
 import { useTranslation } from "react-i18next";
 import { formatTime } from "./format";
 import { useRead } from "./hub-context";
-import { Body, Failure, Heading, Section } from "./parts";
-import { styles } from "./theme";
+import { Body, Copyable, Failure, Heading, Section } from "./parts";
 
 export function StatusScreen() {
   const { t, i18n } = useTranslation();
@@ -26,9 +24,7 @@ export function StatusScreen() {
           <>
             <Body>{t("status.versions", { hub: hub.hub, proto: hub.proto })}</Body>
             <Body>{t("status.identity", { identity: hub.identity })}</Body>
-            <Text selectable style={[styles.body, { fontFamily: "monospace" }]}>
-              {t("status.fingerprint", { fingerprint: hub.fingerprint })}
-            </Text>
+            <Copyable>{t("status.fingerprint", { fingerprint: hub.fingerprint })}</Copyable>
             <Body>{t("status.zone", { zone: hub.timeZone })}</Body>
             <Body>{t(hub.clockTrusted ? "status.clockTrusted" : "time.untrusted")}</Body>
             <Body>{t("status.boot", { boot: hub.boot })}</Body>

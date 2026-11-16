@@ -34,6 +34,8 @@ const TYPES: Readonly<Record<string, string>> = {
   ".js": "text/javascript; charset=utf-8",
   ".json": "application/json",
   ".ico": "image/x-icon",
+  ".css": "text/css; charset=utf-8",
+  ".ttf": "font/ttf",
 };
 
 const results: { readonly name: string; readonly ok: boolean; readonly detail: string }[] = [];
@@ -262,6 +264,37 @@ const watch = (page: Page) => {
   page.on("pageerror", (e) => refusals.push(`page error: ${e.message}`));
 };
 
+/** The state field's colour, as the browser paints it. */
+async function fieldColour(page: Page): Promise<string> {
+  return page
+    .getByTestId("field-surface")
+    .first()
+    .evaluate((el) => getComputedStyle(el).backgroundColor);
+}
+const DAY = "rgb(227, 235, 229)";
+const NIGHT = "rgb(23, 56, 58)";
+const ALARM = "rgb(179, 38, 30)";
+
+/**
+ * With A7_SHOTS set to a folder: the page at 390 px and 1280 px wide, as tall as its content (the
+ * app scrolls inside its own view, so a "full page" shot would stop at the window).
+ */
+const SHOTS = process.env.A7_SHOTS;
+async function shot(page: Page, name: string): Promise<void> {
+  if (SHOTS === undefined) return;
+  for (const width of [390, 1280]) {
+    await page.setViewportSize({ width, height: 800 });
+    await page.waitForTimeout(500);
+    const tall = await page.evaluate(() =>
+      Math.max(...[...document.querySelectorAll("div")].map((d) => d.scrollHeight)),
+    );
+    await page.setViewportSize({ width, height: Math.max(800, tall + 120) });
+    await page.waitForTimeout(300);
+    await page.screenshot({ path: join(SHOTS, `${name}-${String(width)}.png`), fullPage: true });
+  }
+  await page.setViewportSize({ width: 1280, height: 800 });
+}
+
 async function axe(page: Page, screen: string): Promise<void> {
   const report = await new AxeBuilder({ page }).analyze();
   check(
@@ -281,7 +314,7 @@ check(
   !addressAfter.includes("#") && !addressAfter.includes("console="),
   addressAfter,
 );
-await page.getByRole("heading", { level: 1, name: "Home" }).waitFor({ timeout: 15_000 });
+await page.getByTestId("state-field").waitFor({ timeout: 15_000 });
 check(
   "linked as the console, a session open",
   [...hub.clients.values()].some((c) => c.kind === "console") && hub.openSessions === 1,
@@ -342,6 +375,7 @@ await page.getByRole("link", { name: "Devices" }).first().click();
 await page.getByRole("heading", { level: 1, name: "Devices" }).waitFor();
 await page.getByTestId("device-2").getByText("Battery 87%", { exact: false }).waitFor();
 await axe(page, "devices");
+await shot(page, "devices");
 
 // Home: the modes (by config events), Away with the door open confirmed, by keyboard.
 hub.emit("config", { mode: { id: 1, name: "Away", fixed: "away", groups: [], revision: 0 } });
@@ -349,8 +383,17 @@ hub.emit("config", {
   mode: { id: 2, name: "Disarmed", fixed: "disarmed", groups: [], revision: 0 },
 });
 await page.getByRole("link", { name: "Home" }).first().click();
-await page.getByRole("button", { name: "Switch to Away" }).waitFor();
-await page.getByRole("button", { name: "Switch to Away" }).focus();
+await page.getByRole("heading", { level: 1, name: "Disarmed" }).waitFor();
+check(
+  "by day, the state field is sage",
+  (await fieldColour(page)) === DAY,
+  await fieldColour(page),
+);
+await shot(page, "home-day");
+await page.getByRole("heading", { level: 2, name: "New" }).waitFor();
+await shot(page, "home-new-list");
+await page.getByRole("button", { name: "Arm away" }).waitFor();
+await page.getByRole("button", { name: "Arm away" }).focus();
 await page.keyboard.press("Enter");
 await page.getByRole("alertdialog", { name: "Confirm first" }).waitFor();
 check(
@@ -374,21 +417,41 @@ check(
 );
 doorOpen = false;
 hub.emit("arming", { sensors: [{ sensor: 2, arm: "armed" }], mode: { mode: 1, modified: false } });
-await page.getByTestId("sensor-2").getByText("Armed · Door not known yet").waitFor();
-check("each sensor's state in words, not colour", true);
+await page.getByTestId("sensor-2").getByText("Not known yet, armed").waitFor();
+check("each door's state in words, not colour", true);
+await page.getByRole("heading", { level: 1, name: "Armed, away" }).waitFor();
+await page.waitForTimeout(600); // The colour's 400 ms fade.
+check(
+  "armed, the state field is night",
+  (await fieldColour(page)) === NIGHT,
+  await fieldColour(page),
+);
+await axe(page, "home, night");
+await shot(page, "home-night");
 
 // The countdown and its banner, announced at once; then a disarm.
 hub.emit("door", { sensor: 2, open: true, atMs: Date.now() });
 hub.emit("countdown", { sensor: 2, what: "started", secondsLeft: 30, trigger: 1 });
-await page.getByRole("alert").getByText("Countdown: front-door opened while armed").waitFor();
+await page.getByRole("alert").getByText("front-door opened while armed.").waitFor();
+check(
+  "the countdown's sentence is one word, with no typed name in it",
+  (await page.getByRole("heading", { level: 1 }).innerText()) === "Countdown",
+);
+check(
+  "news waits while a countdown runs",
+  (await page.getByRole("heading", { name: "New" }).count()) === 0,
+);
 const live = await page.getByRole("alert").first().getAttribute("aria-live");
 check("the countdown is in an assertive live region", live === "assertive", String(live));
 await axe(page, "home, countdown");
+check("a countdown is night", (await fieldColour(page)) === NIGHT, await fieldColour(page));
+await shot(page, "home-countdown");
 await page.getByTestId("banner-disarm").click();
-await page.getByText("Disarmed.", { exact: true }).waitFor();
+await page.getByText("Disarmed: front-door.", { exact: true }).waitFor();
+await page.getByRole("heading", { level: 1, name: "Disarmed" }).waitFor();
 check(
-  "the countdown banner is gone after the disarm",
-  (await page.getByTestId("alarm-banner").count()) === 0,
+  "the countdown is gone from the state field after the disarm",
+  (await page.getByTestId("countdown-left").count()) === 0,
 );
 
 // The alarm.
@@ -399,15 +462,40 @@ hub.emit("alarm", {
   sirens: [],
   ended: null,
 });
-await page.getByRole("alert").getByText("Alarm: front-door").waitFor();
+await page.getByRole("alert").getByText("Set off by front-door.").waitFor();
+check(
+  "the alarm's sentence is the one word Alarm",
+  (await page.getByRole("heading", { level: 1 }).innerText()) === "Alarm",
+);
 await axe(page, "home, alarm");
+check("the alarm is signal red", (await fieldColour(page)) === ALARM, await fieldColour(page));
+await shot(page, "home-alarm");
 await page.getByTestId("banner-disarm").click();
 await page.getByText("Disarmed. The alarm has stopped.").waitFor();
+
+// Reduced motion (the browser's own emulation): the field changes look at once, without the fade.
+const fadeOf = async () =>
+  page
+    .getByTestId("field-surface")
+    .first()
+    .evaluate((el) => getComputedStyle(el).transitionProperty);
+check(
+  "normally the field's colour fades",
+  (await fadeOf()).includes("background-color"),
+  await fadeOf(),
+);
+await page.emulateMedia({ reducedMotion: "reduce" });
+check("with reduced motion it has no fade", (await fadeOf()) === "none", await fadeOf());
+hub.emit("arming", { sensors: [{ sensor: 2, arm: "armed" }], mode: { mode: 1, modified: false } });
+await page.getByRole("heading", { level: 1, name: "Armed, away", exact: true }).waitFor();
+const atOnce = await fieldColour(page);
+check("with reduced motion it turns night at once", atOnce === NIGHT, atOnce);
+await page.emulateMedia({ reducedMotion: "no-preference" });
 
 // A reload keeps the key; a second tab shares the one session.
 const before = hub.connections;
 await page.reload();
-await page.getByRole("heading", { level: 1, name: "Home" }).waitFor();
+await page.getByTestId("state-field").waitFor();
 check(
   "after a reload, still linked with the same key: a new session, no new link",
   hub.connections === before + 1 && hub.clients.size === 1,
@@ -421,6 +509,13 @@ check("two tabs, one session", hub.openSessions === 1, `${String(hub.openSession
 
 // ----- Step 3's screens: each one, by its route, with axe; a few flows on them -----
 let userManagement = false;
+// A browser of Anna's that the person will remove: the note must outlive its row.
+let oldLaptop = true;
+hub.handle("client.remove", (body) => {
+  if (body.client === 99) oldLaptop = false;
+  hub.emit("people", { clientRemoved: body.client });
+  return { ok: true, body: {} };
+});
 hub.handle("people.list", () => ({
   ok: true,
   body: {
@@ -432,15 +527,30 @@ hub.handle("people.list", () => ({
       devices: [],
       revision: 0,
     })),
-    clients: [...hub.clients.values()].map((c) => ({
-      id: c.id,
-      person: c.person,
-      kind: c.kind,
-      name: c.name,
-      createdMs: Date.now() - 1000,
-      lastSeenMs: null,
-      linkedBy: null,
-    })),
+    clients: [
+      ...[...hub.clients.values()].map((c) => ({
+        id: c.id,
+        person: c.person,
+        kind: c.kind,
+        name: c.name,
+        createdMs: Date.now() - 1000,
+        lastSeenMs: null,
+        linkedBy: null,
+      })),
+      ...(oldLaptop && people.length > 0
+        ? [
+            {
+              id: 99,
+              person: 1,
+              kind: "web" as const,
+              name: "old-laptop",
+              createdMs: Date.now() - 1000,
+              lastSeenMs: null,
+              linkedBy: null,
+            },
+          ]
+        : []),
+    ],
   },
 }));
 hub.handle("userManagement.set", (body) => {
@@ -552,12 +662,21 @@ hub.handle("device.show", (body) => {
     : { ok: true, body: { device: found, settings: { max: 180, version: 1 } } };
 });
 
-async function visit(path: string, heading: string): Promise<void> {
+async function visit(path: string, heading: string, state = "day"): Promise<void> {
   await second.goto(`${ORIGIN}${path}`);
   await second.getByRole("heading", { level: 1, name: heading }).waitFor();
-  await axe(second, `${heading} (${path})`);
+  await axe(second, `${heading} (${path}, ${state})`);
 }
+await visit("/settings", "Settings");
+await shot(second, "settings-index");
+await second.getByRole("link", { name: /^Schedules Arm, disarm/ }).click();
+await second.getByRole("heading", { level: 1, name: "Schedules" }).waitFor();
+check(
+  "a Settings page has its link back to the index",
+  (await second.getByTestId("back-to-index").getAttribute("href")) === "/settings",
+);
 await visit("/groups", "Groups");
+await shot(second, "groups-empty");
 await second.getByRole("button", { name: "Add a group" }).click();
 await second.getByTestId("group-name").fill("Downstairs");
 const sensorBox = second.getByRole("checkbox", { name: "front-door" });
@@ -580,8 +699,10 @@ await second.getByRole("button", { name: "Add a schedule entry" }).click();
 await second.getByTestId("schedule-name").fill("Bedtime");
 await second.getByRole("radio", { name: "Away" }).click();
 await second.getByTestId("schedule-at").fill("22:30");
+await shot(second, "schedules-form");
 await second.getByTestId("schedule-save").click();
-await second.getByText("Switches to Away at 22:30 · Every day").waitFor();
+await second.getByText("Switches to Away at 22:30", { exact: true }).waitFor();
+await second.getByText("Every day", { exact: true }).waitFor();
 await axe(second, "Schedules, with one");
 await visit("/history", "History");
 await second.getByText("Mode switched").waitFor();
@@ -590,25 +711,73 @@ check(
   "permissions hidden while user management is off",
   (await second.getByText("What Anna may do").count()) === 0,
 );
-await second.getByRole("checkbox", { name: "User management on" }).click();
+await second
+  .getByRole("checkbox", { name: "Let each person do only what their permissions allow" })
+  .click();
 await second.getByText("On: each person may do what their permissions allow.").waitFor();
 await second.getByText("No access yet: give this person permissions below.").waitFor();
 await axe(second, "People, user management on");
+await second.getByTestId("remove-client-99").click();
+await second.getByTestId("remove-client-99-yes").click();
+await second.getByTestId("people-removed").getByText("old-laptop was removed.").waitFor();
+check(
+  "a removal is confirmed where it outlives the removed row",
+  (await second.getByTestId("client-99").count()) === 0,
+);
 await visit("/link", "Link a device");
 await second.getByRole("radio", { name: "A code to type" }).click();
 await second.getByTestId("link-make").click();
 await second.getByTestId("link-code-made").getByText("ABCD-EFGH-JKM0").waitFor();
 await axe(second, "Link a device, a code made");
+await shot(second, "link-code");
 hub.emit("notification", critical);
 await second.getByRole("alert").getByText("Cover opened: front-door").first().waitFor();
 await visit("/notifications", "Notifications");
 await axe(second, "Notifications, a critical one");
-await visit("/site", "Site settings");
+await visit("/site", "This home");
 await visit("/backup", "Backup and restore");
 await visit("/updates", "Updates");
 await visit("/status", "Hub status");
 await visit("/device/2", "Device");
 await second.getByText("Countdown and heartbeat").waitFor();
+
+// Every screen again, armed (night: a quiet page, as by day) and with the alarm sounding (the
+// band over each): the accessibility check on each.
+const SCREENS: readonly (readonly [string, string])[] = [
+  ["/settings", "Settings"],
+  ["/devices", "Devices"],
+  ["/groups", "Groups"],
+  ["/modes", "Modes"],
+  ["/history", "History"],
+  ["/notifications", "Notifications"],
+  ["/people", "People"],
+  ["/schedules", "Schedules"],
+  ["/site", "This home"],
+  ["/backup", "Backup and restore"],
+  ["/updates", "Updates"],
+  ["/link", "Link a device"],
+  ["/status", "Hub status"],
+  ["/setup", "First-time setup"],
+  ["/device/2", "Device"],
+];
+// Events, not the snapshot: the first tab holds the session and does not read it again.
+hub.emit("arming", { sensors: [{ sensor: 2, arm: "armed" }], mode: { mode: 1, modified: false } });
+for (const [path, heading] of SCREENS) await visit(path, heading, "armed");
+await second.goto(ORIGIN);
+await second.getByRole("heading", { level: 1, name: "Armed, away", exact: true }).waitFor();
+await axe(second, "home, armed after a reload");
+hub.snapshot = { ...hub.snapshot, alarm: { startedMs: Date.now(), triggers: [2], sirens: [3] } };
+hub.emit("alarm", {
+  what: "started",
+  alarm: { startedMs: Date.now(), triggers: [2], sirens: [3] },
+  sirens: [],
+  ended: null,
+});
+for (const [path, heading] of SCREENS) {
+  await visit(path, heading, "alarm");
+  await second.getByTestId("alarm-banner").waitFor();
+}
+await shot(second, "device-alarm-band");
 
 const csp = refusals.filter((r) => r.includes("Content Security Policy") || r.includes("Refused"));
 check("the content security policy refused nothing", csp.length === 0, csp.join(" | "));

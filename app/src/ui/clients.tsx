@@ -6,13 +6,25 @@
  */
 import type { ClientObject } from "@hsn/protocol/app";
 import { useMemo, useState } from "react";
-import { Text, View } from "react-native";
+import { View } from "react-native";
 import { useTranslation } from "react-i18next";
 import { formatTime } from "./format";
 import { useAction, useLive } from "./hub-context";
-import { Body, Button, ConfirmButton, Done, Failure, Field, Heading, Toggle } from "./parts";
+import {
+  Actions,
+  Body,
+  Button,
+  ConfirmButton,
+  Done,
+  Facts,
+  Failure,
+  Field,
+  Heading,
+  ListItem,
+  Stack,
+  Toggle,
+} from "./parts";
 import { cleanName } from "./setup";
-import { styles } from "./theme";
 
 /** The removal's list: devices this one linked within the last 30 days ‡. */
 export const LINKED_WITHIN_MS = 30 * 24 * 3_600_000;
@@ -28,9 +40,12 @@ export function linkedBy(
 export function ClientItem({
   client,
   all,
+  onRemoved,
 }: {
   readonly client: ClientObject;
   readonly all: readonly ClientObject[];
+  /** Said by the list, which outlives this row: the row goes when the hub removes it. */
+  readonly onRemoved: (said: string) => void;
 }) {
   const { t, i18n } = useTranslation();
   const info = useLive((s) => s.hub);
@@ -48,12 +63,12 @@ export function ClientItem({
       : (all.find((c) => c.id === client.linkedBy)?.name ??
         t("common.clientNumber", { id: client.linkedBy }));
   return (
-    <View role="listitem" style={styles.item} testID={`client-${String(client.id)}`}>
+    <ListItem testID={`client-${String(client.id)}`}>
       <Heading level={3}>
         {self ? t("people.thisBrowser", { name: client.name }) : client.name}
       </Heading>
-      <Text style={styles.body}>
-        {[
+      <Facts
+        items={[
           t(`people.clientKind.${client.kind}`),
           client.lastSeenMs === null
             ? t("devices.neverSeen")
@@ -61,12 +76,10 @@ export function ClientItem({
                 time: formatTime(t, i18n.language, info, client.lastSeenMs),
               }),
           by === undefined ? undefined : t("people.linkedBy", { name: by }),
-        ]
-          .filter((x) => x !== undefined)
-          .join(" · ")}
-      </Text>
+        ]}
+      />
       {name === undefined ? (
-        <View style={styles.row}>
+        <Actions>
           <Button
             kind="quiet"
             label={t("people.renameClient", { name: client.name })}
@@ -74,16 +87,16 @@ export function ClientItem({
               setName(client.name);
             }}
           />
-        </View>
+        </Actions>
       ) : (
-        <View style={{ gap: 8 }}>
+        <Stack>
           <Field
             label={t("people.clientName")}
             value={name}
             onChange={setName}
             {...(badName ? { error: t("editing.badName") } : {})}
           />
-          <View style={styles.row}>
+          <Actions>
             <Button
               label={t("editing.save")}
               busy={rename.busy}
@@ -103,8 +116,8 @@ export function ClientItem({
                 setName(undefined);
               }}
             />
-          </View>
-        </View>
+          </Actions>
+        </Stack>
       )}
       {rename.outcome === undefined ? null : rename.outcome.ok ? (
         <Done text={t("editing.saved")} />
@@ -115,7 +128,7 @@ export function ClientItem({
         <View
           role="group"
           aria-label={t("people.alsoTitle", { name: client.name })}
-          style={{ gap: 2 }}
+          className="gap-1"
         >
           <Body>{t("people.alsoTitle", { name: client.name })}</Body>
           {linked.map((c) => (
@@ -130,7 +143,7 @@ export function ClientItem({
           ))}
         </View>
       )}
-      <View style={styles.row}>
+      <Actions>
         <ConfirmButton
           label={t("people.removeClient", { name: client.name })}
           question={
@@ -142,14 +155,16 @@ export function ClientItem({
           no={t("editing.no")}
           busy={remove.busy}
           testID={`remove-client-${String(client.id)}`}
-          onConfirm={() => void remove.run({ client: client.id, also: ticked })}
+          onConfirm={() =>
+            void remove.run({ client: client.id, also: ticked }).then((o) => {
+              if (o.ok) onRemoved(t("people.clientRemoved", { name: client.name }));
+            })
+          }
         />
-      </View>
-      {remove.outcome === undefined ? null : remove.outcome.ok ? (
-        <Done text={t("people.removed")} />
-      ) : (
+      </Actions>
+      {remove.outcome === undefined || remove.outcome.ok ? null : (
         <Failure outcome={remove.outcome} />
       )}
-    </View>
+    </ListItem>
   );
 }

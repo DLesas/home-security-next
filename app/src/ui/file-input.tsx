@@ -3,8 +3,8 @@
  * bytes are read here and sent as `fileChunk` requests (`hub/files.ts`); they never enter the store.
  */
 import { useId } from "react";
-import { Text, View } from "react-native";
-import { styles } from "./theme";
+import { View } from "react-native";
+import { Label } from "./parts";
 
 export function FileInput({
   label,
@@ -19,16 +19,14 @@ export function FileInput({
 }) {
   const id = useId();
   return (
-    <View style={{ gap: 4 }}>
-      <Text style={styles.h3} nativeID={`${id}-label`}>
-        {label}
-      </Text>
+    <View className="gap-2">
+      <Label id={`${id}-label`}>{label}</Label>
       <input
         type="file"
         aria-label={label}
         accept={accept}
         data-testid={testID}
-        style={{ fontSize: 16, minHeight: 44 }}
+        className="min-h-target font-text text-body text-ink"
         onChange={(event) => {
           const file = event.currentTarget.files?.[0];
           if (file === undefined) return;

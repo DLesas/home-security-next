@@ -6,10 +6,12 @@
   "description": "The app: one codebase for the web build (M2) and the phone (M3), on Expo (docs/m2-design.md section 8).",
   "main": "src/entry.ts",
   "scripts": {
-    "export:web": "expo export --platform web --output-dir dist && bun scripts/csp.ts dist",
+    "export:web": "expo export --platform web --output-dir dist && bun scripts/fonts.ts dist && bun scripts/csp.ts dist",
     "e2e": "playwright test --config e2e/playwright.config.ts"
   },
   "dependencies": {
+    "@expo-google-fonts/atkinson-hyperlegible-mono": "0.4.1",
+    "@expo-google-fonts/atkinson-hyperlegible-next": "0.4.1",
     "@expo/metro-runtime": "58.0.17",
     "@hookform/resolvers": "7.0.6",
     "@hsn/protocol": "workspace:*",
@@ -19,22 +21,31 @@
     "expo-linking": "58.0.17",
     "expo-router": "58.0.31",
     "expo-status-bar": "58.0.5",
+    "expo-system-ui": "58.0.7",
     "i18next": "27.1.1",
+    "nativewind": "5.0.0-rc.1",
     "react": "19.3.0",
     "react-dom": "19.3.0",
-    "toqr": "0.1.1",
     "react-hook-form": "7.92.0",
     "react-i18next": "18.0.1",
     "react-native": "0.88.1",
+    "react-native-css": "3.1.0-rc.1",
+    "react-native-reanimated": "4.7.1",
     "react-native-safe-area-context": "5.11.1",
     "react-native-screens": "4.30.1",
     "react-native-web": "0.21.4",
+    "react-native-worklets": "0.13.1",
+    "toqr": "0.1.1",
     "zustand": "5.1.0"
   },
   "devDependencies": {
     "@axe-core/playwright": "4.14.0",
     "@playwright/test": "1.65.1",
+    "@tailwindcss/postcss": "4.1.12",
     "@types/node": "26.6.6",
-    "@types/react": "19.3.0"
+    "@types/react": "19.3.0",
+    "lightningcss": "1.30.1",
+    "postcss": "8.5.33",
+    "tailwindcss": "4.1.12"
   }
 }

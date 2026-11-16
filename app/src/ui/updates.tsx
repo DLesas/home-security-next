@@ -5,14 +5,22 @@
  * runs, which the hub says when it answers. Updates through the relay are M4's.
  */
 import { useState } from "react";
-import { Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
 import { sendFile, uploadJob } from "../hub/files";
 import { FileInput } from "./file-input";
 import { formatTime } from "./format";
 import { useAction, useHub, useLive, useRead } from "./hub-context";
-import { Body, Button, ConfirmButton, Done, Failure, Heading, Notice, Section } from "./parts";
-import { styles } from "./theme";
+import {
+  Actions,
+  Body,
+  Button,
+  ConfirmButton,
+  Done,
+  Failure,
+  Heading,
+  Notice,
+  Section,
+} from "./parts";
 
 const LAST_KEYS = {
   none: "updates.last.none",
@@ -61,7 +69,7 @@ export function UpdatesScreen() {
             )}
             {data.switching ? (
               <Notice kind="warning">
-                <Text style={styles.body}>{t("updates.switching")}</Text>
+                <Body>{t("updates.switching")}</Body>
               </Notice>
             ) : null}
             <Body>
@@ -70,7 +78,7 @@ export function UpdatesScreen() {
                 : `${t(LAST_KEYS[data.lastResult])} ${t("updates.lastAt", { time: formatTime(t, i18n.language, info, data.lastResultMs) })}`}
             </Body>
             {data.staged === null ? null : (
-              <View style={styles.row}>
+              <Actions>
                 <ConfirmButton
                   label={t("updates.approve", { version: data.staged })}
                   question={t("updates.approveQuestion", { version: data.staged })}
@@ -85,7 +93,7 @@ export function UpdatesScreen() {
                   busy={cancel.busy}
                   onPress={() => void cancel.run({})}
                 />
-              </View>
+              </Actions>
             )}
           </>
         )}

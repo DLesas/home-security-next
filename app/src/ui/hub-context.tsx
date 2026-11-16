@@ -42,7 +42,7 @@ export interface Action<N extends AppOpName> {
   readonly busy: boolean;
   readonly outcome: RequestOutcome<N> | undefined;
   run(body: AppOpBody<N>): Promise<RequestOutcome<N>>;
-  clear(): void;
+  readonly clear: () => void;
 }
 
 /** One operation a screen sends, at most one at a time, with its last outcome. */

@@ -1,16 +1,18 @@
 /** The schedules screen (m2-design.md section 8): see `ui/schedules.tsx`. */
-import { View } from "react-native";
 import { useTranslation } from "react-i18next";
 import { SchedulesScreen } from "../ui/schedules";
-import { Heading } from "../ui/parts";
-import { styles } from "../ui/theme";
+import { useLive } from "../ui/hub-context";
+import { Page } from "../ui/parts";
 
 export default function Screen() {
   const { t } = useTranslation();
+  const zone = useLive((s) => s.hub?.timeZone);
   return (
-    <View role="main" style={styles.main}>
-      <Heading level={1}>{t("screens.schedules.title")}</Heading>
+    <Page
+      title={t("screens.schedules.title")}
+      intro={t("schedules.intro", { zone: zone ?? t("common.unknown") })}
+    >
       <SchedulesScreen />
-    </View>
+    </Page>
   );
 }

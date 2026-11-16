@@ -35,7 +35,7 @@
       "title": "Notifications"
     },
     "site": {
-      "title": "Site settings"
+      "title": "This home"
     },
     "backup": {
       "title": "Backup and restore"
@@ -48,6 +48,9 @@
     },
     "device": {
       "title": "Device"
+    },
+    "settings": {
+      "title": "Settings"
     }
   },
   "nav": {
@@ -62,10 +65,13 @@
     "people": "People",
     "link": "Link a device",
     "notifications": "Notifications",
-    "site": "Site",
+    "site": "This home",
     "backup": "Backup",
     "updates": "Updates",
-    "status": "Hub status"
+    "status": "Hub status",
+    "activity": "Activity",
+    "settings": "Settings",
+    "within": "Pages in {{destination}}"
   },
   "common": {
     "busy": "Working…",
@@ -83,7 +89,7 @@
     "clientNumber": "device {{id}}"
   },
   "connection": {
-    "loading": "Opening this browser's key…",
+    "loading": "Getting ready…",
     "connecting": "Connecting to the hub…",
     "open": "Connected to the hub.",
     "mayBeRemoved": "The hub has refused this browser several times for over a minute. It may have been removed from the hub.",
@@ -93,7 +99,7 @@
     "failure": {
       "unreachable": "The hub cannot be reached.",
       "refused": "The hub did not accept this browser. It may be busy, or this browser may have been removed.",
-      "notOurHub": "Something answered with a key that is not this hub's.",
+      "notOurHub": "Something on the network answered in place of your hub, so nothing was sent to it.",
       "protocol": "The hub's answer could not be read.",
       "timeout": "The hub did not answer in time.",
       "keyFailed": "This browser's key could not be used.",
@@ -146,7 +152,7 @@
     },
     "needsConfirmation": "Some sensors need your confirmation first.",
     "conflict": "Someone else changed this meanwhile. It is shown as it is now.",
-    "seqTooLow": "The hub did not take this request. Try again.",
+    "seqTooLow": "The hub did not take that. Try again.",
     "notFound": "That {{what}} no longer exists.",
     "notFoundWhat": {
       "person": "person",
@@ -195,7 +201,7 @@
       "offline": "Not connected to the hub, so nothing was sent. Try again when it is back.",
       "lost": "The connection dropped before the hub answered. Try again.",
       "badReply": "The hub's answer could not be read.",
-      "storage": "This browser could not save its request number, so nothing was sent.",
+      "storage": "This browser could not save what it needs to send safely, so nothing was sent.",
       "removed": "This browser was removed from the hub.",
       "notLinked": "This browser is not linked to the hub.",
       "tabClosed": "The tab that was talking to the hub closed before it answered, so it is not known whether the hub did it.",
@@ -217,26 +223,29 @@
     "closed": "Door closed"
   },
   "home": {
-    "mode": "Mode",
-    "current": "Now: {{mode}}",
-    "currentChanged": "Now: {{mode}}, changed",
-    "noMode": "no mode",
-    "unknownMode": "a mode this browser does not know yet",
-    "switchTo": "Switch to {{mode}}",
-    "modesUnknown": "The hub has not told this browser which modes it has, so they cannot be shown here yet.",
-    "switched": "Done. Armed: {{armed}}. Disarmed: {{disarmed}}.",
     "waiting_one": "{{sensors}} will arm when its door closes.",
     "waiting_other": "{{sensors}} will arm when their doors close.",
     "lowBatteryArmed": "Armed with a low battery: {{sensors}}.",
-    "disarmMine": "Disarm everything I may manage",
     "disarmed": "Disarmed: {{sensors}}.",
     "nothingDisarmed": "Nothing needed disarming.",
-    "sensors": "Sensors",
-    "noSensors": "No sensors yet.",
     "countdown_one": "{{count}} second left",
     "countdown_other": "{{count}} seconds left",
     "setupPrompt": "First-time setup is not finished.",
-    "setupLink": "Continue setup"
+    "setupLink": "Continue setup",
+    "needsAttention": "Needs attention",
+    "doors": "Doors",
+    "noDoors": "No doors yet. A door sensor is added by plugging its board into the hub.",
+    "addDoor": "Add a door",
+    "doorState": "{{door}}, {{arm}}",
+    "doorOpen": "Open",
+    "doorClosed": "Closed",
+    "doorUnknown": "Not known yet",
+    "armArmed": "armed",
+    "armDisarmed": "disarmed",
+    "armWaits": "arms when it closes",
+    "switchedTo": "Switched to {{mode}}.",
+    "armedNow": "Armed: {{sensors}}.",
+    "disarmedNow": "Disarmed: {{sensors}}."
   },
   "confirm": {
     "title": "Confirm first",
@@ -246,13 +255,15 @@
     "cancel": "Do not arm"
   },
   "banner": {
-    "alarm": "Alarm: {{sensors}}",
-    "alarmSirens": "Sirens sounding: {{sirens}}",
-    "countdown": "Countdown: {{sensors}} opened while armed",
+    "alarm": "Alarm",
+    "alarmSirens": "Sirens sounding: {{sirens}}.",
+    "countdown": "Countdown",
     "disarm": "Disarm",
     "alarmEnded": "Disarmed. The alarm has stopped.",
     "alarmContinues": "Your sensors are disarmed, but the alarm continues: {{sensors}} cannot be disarmed by you.",
-    "disarmed": "Disarmed."
+    "disarmed": "Disarmed.",
+    "alarmBy": "Set off by {{sensors}}.",
+    "countdownBy": "{{sensors}} opened while armed."
   },
   "added": {
     "gateway": "Gateway {{name}} was added on its own.",
@@ -293,7 +304,8 @@
     },
     "gatewayOffline": "Offline",
     "gatewayOnline": "Online",
-    "details": "Details and settings of {{name}}"
+    "row": "{{kind}}, battery {{percent}}%",
+    "rowNoBattery": "{{kind}}, no battery reading"
   },
   "usb": {
     "title": "Add a board over USB",
@@ -302,19 +314,19 @@
     "none": "No board is plugged in.",
     "port": "Port {{port}}",
     "noIdentity": "The board has not said what it is yet.",
-    "paired": {
-      "no": "Not paired",
-      "toThisHub": "Already paired to this hub",
-      "toAnotherHub": "Paired to another hub"
-    },
-    "development": "Development build",
-    "chip": "Chip {{chip}}",
     "nameLabel": "Name for the board on {{port}}",
     "nameHint": "1 to 64 characters, no spaces, like front-door.",
     "nameError": "Use 1 to 64 characters with no spaces.",
     "roleLabel": "What the board on {{port}} is",
     "add": "Add the board on {{port}}",
-    "added": "{{name}} was added."
+    "added": "{{name}} was added.",
+    "pairedShort": {
+      "no": "not paired",
+      "toThisHub": "already paired to this hub",
+      "toAnotherHub": "paired to another hub"
+    },
+    "line": "{{role}}, {{paired}}, firmware {{firmware}}, chip {{chip}}.",
+    "lineDevelopment": "{{role}}, {{paired}}, firmware {{firmware}} (a development build), chip {{chip}}."
   },
   "setup": {
     "intro": "Set up the hub in four steps. Each is saved as soon as it is done.",
@@ -364,7 +376,7 @@
     "finish": "Go to the home screen"
   },
   "editing": {
-    "save": "Save",
+    "save": "Save changes",
     "cancel": "Cancel",
     "edit": "Change {{name}}",
     "delete": "Delete {{name}}",
@@ -376,9 +388,9 @@
     "useCurrent": "Show the current version",
     "usedBy": "Used by: {{schedules}}.",
     "notToldYet": {
-      "groups": "No groups yet.",
-      "modes": "No modes yet.",
-      "schedules": "No schedule entries yet."
+      "groups": "No groups yet. A group says which sirens sound when its doors open.",
+      "modes": "No modes of your own yet. A mode arms the groups you choose, like Night.",
+      "schedules": "No schedule entries yet. An entry arms, disarms or switches mode at a time you set."
     }
   },
   "days": {
@@ -464,9 +476,9 @@
     "date": "Date",
     "dateHint": "Like 2026-12-24.",
     "badDate": "Use a date like 2026-12-24.",
-    "enabled": "On",
-    "onceOn": "once on {{date}}",
-    "onDays": "on {{days}}",
+    "enabled": "Run this entry",
+    "onceOn": "Once, on {{date}}",
+    "onDays": "On {{days}}",
     "does": {
       "switchMode": "Switches to {{target}} at {{at}}",
       "arm": "Arms {{target}} at {{at}}",
@@ -595,7 +607,13 @@
       "backup_written": "Backup written",
       "backup_failed": "Backup failed",
       "data_folder_was_open": "The data folder was open when the hub started",
-      "update_refused": "Update refused"
+      "update_refused": "Update refused",
+      "client_sessions": "A device's connections that day",
+      "sleep_not_prevented": "The hub computer may go to sleep: the hub could not keep it awake. Turn off sleep in the computer's power settings.",
+      "package_behind": "The hub is newer than the hsn program installed on this computer, so some hsn commands may be missing. Install the newer hsn package to fix it.",
+      "data_folder_open": "The hub's data folder lets other accounts on this computer in, and the hub cannot close it by itself, so the hsn command cannot reach the hub. Reinstall the hub, or have an administrator run it once, to fix it.",
+      "data_folder_denies": "The data folder's permissions block the hub, administrators or the system. This will stop the hub, or its removal, working later. Have an administrator remove that entry from the folder's permissions.",
+      "restore_waiting": "A restore is waiting but could not be put in place. The hub is still running on what it had before, and will try again the next time it starts."
     }
   },
   "record": {
@@ -689,14 +707,13 @@
     "userManagement": "User management",
     "userManagementOff": "Off: everyone may do everything, and permissions are not shown.",
     "userManagementOn": "On: each person may do what their permissions allow.",
-    "userManagementSwitch": "User management on",
+    "userManagementSwitch": "Let each person do only what their permissions allow",
     "noAccess": "No access yet: give this person permissions below.",
     "name": "Name",
     "rename": "Rename {{name}}",
     "remove": "Remove {{name}}",
     "removeQuestion": "Remove {{name}}? Their devices are removed too and can no longer see or change anything. Their history stays.",
     "yesRemove": "Yes, remove",
-    "removed": "Removed.",
     "add": "Add a person",
     "addButton": "Add this person",
     "added": "{{name}} was added. Link a device for them next.",
@@ -723,7 +740,9 @@
     "removeClientQuestion_other": "Remove {{name}}, and the {{count}} devices ticked above that it linked? They can no longer see or change anything.",
     "removeSelfQuestion": "Remove this browser? It will no longer see or change anything until it is linked again.",
     "alsoTitle": "Devices {{name}} linked in the last 30 days, removed with it unless unticked:",
-    "alsoRemove": "Also remove {{name}}"
+    "alsoRemove": "Also remove {{name}}",
+    "clientRemoved": "{{name}} was removed.",
+    "personRemoved": "{{name}} was removed, with their devices."
   },
   "linkDevice": {
     "intro": "Make a code for another device. It works once, links at once, and expires.",
@@ -739,7 +758,7 @@
       "code": "A code to type",
       "qr": "A QR code, for a phone"
     },
-    "invite": "For someone not here now (valid 24 hours)",
+    "invite": "Keep the code for 24 hours, for someone not here now",
     "make": "Make the code",
     "madeTitle": "The code",
     "urlHow": "Open this address in the other browser on the home network:",
@@ -751,7 +770,8 @@
     "cancel": "Cancel this code",
     "cancelled": "The code was cancelled.",
     "qrHow": "Scan this with the other device's camera:",
-    "qrLabel": "The QR code that links the other device"
+    "qrLabel": "The QR code that links the other device",
+    "newPersonOnly": "This is the hub computer's browser, which belongs to no one, so it can make a code only for a new person."
   },
   "deviceDetail": {
     "unknown": "This device is not known to this browser.",
@@ -799,13 +819,13 @@
     "now": "Now: {{value}}."
   },
   "site": {
-    "timingsTitle": "Countdown and automatic stop",
-    "timingsNow": "Now: a countdown of {{countdown}} s; sirens stop by themselves after {{autoStop}} s.",
-    "countdown": "Countdown, seconds",
-    "countdownHint": "0 to 255.",
+    "timingsTitle": "Countdown for new sensors, and automatic stop",
+    "timingsNow": "Now: sensors added from now on start with a countdown of {{countdown}} s; sirens stop by themselves after {{autoStop}} s.",
+    "countdown": "Countdown for sensors added from now on, in seconds",
+    "countdownHint": "0 to 255. A sensor already added keeps its own countdown: change it on that sensor's page, under Devices.",
     "autoStop": "Automatic stop, seconds",
     "autoStopHint": "1 to 65535.",
-    "saveTimings": "Save",
+    "saveTimings": "Save timings",
     "radioTitle": "Radio",
     "radioFixed": "Fixed once the first device is paired; after that, move the site below.",
     "channel": "Channel",
@@ -828,11 +848,11 @@
     "startMove": "Start the move",
     "retentionTitle": "History kept",
     "retention": "Routine records are kept {{routine}} days, events {{events}} days.",
-    "retentionGuard": "Whatever is set here, the hub shortens history by size if its database grows too large.",
+    "retentionGuard": "Whatever is set here, the hub shortens history if it grows too large for its storage.",
     "routineDays": "Days to keep routine records (readings)",
     "eventDays": "Days to keep events",
     "daysHint": "{{min}} to {{max}}.",
-    "saveRetention": "Save"
+    "saveRetention": "Save how long history is kept"
   },
   "backup": {
     "statusTitle": "Backups",
@@ -852,7 +872,7 @@
     "hourLabel": "Daily hour",
     "hourHint": "0 to 23.",
     "keepLabel": "How many to keep",
-    "saveSettings": "Save",
+    "saveSettings": "Save backup settings",
     "now": "Back up now",
     "started": "A backup was started; its result shows here when it is done.",
     "exportTitle": "Export to this browser",
@@ -928,8 +948,8 @@
     "lastCommit": "Last written {{time}}.",
     "staged_one": "{{count}} record waiting to be written.",
     "staged_other": "{{count}} records waiting to be written.",
-    "sizeUnknown": "Database size not known.",
-    "size": "Database: {{megabytes}} MB.",
+    "sizeUnknown": "How much is stored is not known yet.",
+    "size": "Stored history and settings: {{megabytes}} MB.",
     "shortened": "History was shortened to keep the database within its size.",
     "missing": "Records from {{time}} may be missing after a restart."
   },
@@ -942,5 +962,38 @@
     "databaseRecovered": "The hub can save changes again.",
     "databaseSize": "The hub's records are near their size limit: the oldest history will be shortened.",
     "historyShortened": "History was shortened to keep the hub's records within their size."
+  },
+  "field": {
+    "disarmed": "Disarmed",
+    "armedAway": "Armed, away",
+    "armedMode": "Armed, {{mode}}",
+    "armed": "Armed",
+    "armAway": "Arm away",
+    "disarm": "Disarm",
+    "switchTo": "Switch to {{mode}}",
+    "allClosed": "Every door is closed.",
+    "open_one": "{{doors}} is open.",
+    "open_other": "{{doors}} are open.",
+    "unknown": "Not known yet: {{doors}}.",
+    "waiting_one": "{{doors}} arms when its door closes.",
+    "waiting_other": "{{doors}} arm when their doors close.",
+    "noDoors": "No doors yet.",
+    "changed": "Some doors were armed or disarmed by hand since.",
+    "disarmMine": "Disarm what I manage",
+    "modesUnknown": "The hub has not said which modes it has yet, so they cannot be offered here."
+  },
+  "news": {
+    "title": "New",
+    "dismiss": "Dismiss: {{text}}"
+  },
+  "settingsIndex": {
+    "people": "Who lives here, what each person may do, and their phones and browsers.",
+    "schedules": "Arm, disarm or switch mode at times you set.",
+    "site": "The home's name and time zone, the Wi-Fi, and how long history is kept.",
+    "backup": "Save a copy of the settings, or restore one on a new hub.",
+    "updates": "New software for the hub and the devices.",
+    "link": "Make a code to link another phone or browser.",
+    "status": "What the hub is running and how it is doing.",
+    "setup": "The first steps: your name, the Wi-Fi and the first devices."
   }
 }

@@ -12,14 +12,25 @@ import {
   type OptionalCategory,
 } from "@hsn/protocol/app";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
 import { learnPrefs, markRead } from "../state/live";
 import { deviceName, type Translate } from "../state/words";
 import { formatTime } from "./format";
 import { useAction, useHub, useLive, useRead } from "./hub-context";
-import { Body, Button, Done, Failure, Heading, Notice, Section, Toggle } from "./parts";
-import { styles } from "./theme";
+import {
+  Actions,
+  Body,
+  Button,
+  Done,
+  Facts,
+  Failure,
+  Heading,
+  List,
+  ListItem,
+  Notice,
+  Section,
+  Toggle,
+} from "./parts";
 
 type Devices = Parameters<typeof deviceName>[1];
 
@@ -50,19 +61,17 @@ function NotificationItem({
     n.atMs,
   );
   return (
-    <View role="listitem" style={styles.item} testID={`notification-${String(n.seq)}`}>
-      <Text style={styles.muted}>
-        {[
+    <ListItem testID={`notification-${String(n.seq)}`}>
+      <Facts
+        items={[
           at,
           n.critical ? t("notifications.critical") : undefined,
           n.read ? t("notifications.read") : t("notifications.unread"),
-        ]
-          .filter((x) => x !== undefined)
-          .join(" · ")}
-      </Text>
-      <Text style={styles.body}>{notificationWords(t, { devices }, n)}</Text>
+        ]}
+      />
+      <Body>{notificationWords(t, { devices }, n)}</Body>
       {n.read ? null : (
-        <View style={styles.row}>
+        <Actions>
           <Button
             kind="quiet"
             label={t("notifications.markRead")}
@@ -70,9 +79,9 @@ function NotificationItem({
               onRead(n.seq);
             }}
           />
-        </View>
+        </Actions>
       )}
-    </View>
+    </ListItem>
   );
 }
 
@@ -98,7 +107,7 @@ function Categories() {
           }}
         />
       ))}
-      <View style={styles.row}>
+      <Actions>
         <Button
           label={t("notifications.saveCategories")}
           busy={prefs.busy}
@@ -112,7 +121,7 @@ function Categories() {
             })
           }
         />
-      </View>
+      </Actions>
       {prefs.outcome === undefined ? null : prefs.outcome.ok ? (
         <Done text={t("editing.saved")} />
       ) : (
@@ -137,13 +146,13 @@ function BrowserNotifications() {
       ) : permission === "denied" ? (
         <Body>{t("notifications.browserDenied")}</Body>
       ) : (
-        <View style={styles.row}>
+        <Actions>
           <Button
             kind="quiet"
             label={t("notifications.browserAsk")}
             onPress={() => void Notification.requestPermission().then(setPermission)}
           />
-        </View>
+        </Actions>
       )}
     </Section>
   );
@@ -180,7 +189,7 @@ export function NotificationsScreen() {
         {list.data !== undefined && !list.data.ok ? <Failure outcome={list.data} /> : null}
         {items.length === 0 ? <Body muted>{t("notifications.none")}</Body> : null}
         {unread.length === 0 ? null : (
-          <View style={styles.row}>
+          <Actions>
             <Button
               kind="quiet"
               label={t("notifications.markAllRead")}
@@ -190,10 +199,10 @@ export function NotificationsScreen() {
               }}
               testID="mark-all-read"
             />
-          </View>
+          </Actions>
         )}
         {read.outcome !== undefined && !read.outcome.ok ? <Failure outcome={read.outcome} /> : null}
-        <View role="list">
+        <List>
           {items.map((n) => (
             <NotificationItem
               key={n.seq}
@@ -203,7 +212,7 @@ export function NotificationsScreen() {
               }}
             />
           ))}
-        </View>
+        </List>
       </Section>
       <Categories />
       <BrowserNotifications />
@@ -258,11 +267,9 @@ export function CriticalNotices() {
     <Notice kind="danger" live="assertive" testID="critical-notices">
       <Heading level={2}>{t("notifications.criticalTitle")}</Heading>
       {critical.map((n) => (
-        <Text key={n.seq} style={styles.body}>
-          {notificationWords(t, { devices }, n)}
-        </Text>
+        <Body key={n.seq}>{notificationWords(t, { devices }, n)}</Body>
       ))}
-      <View style={styles.row}>
+      <Actions>
         <Button
           kind="quiet"
           label={t("notifications.markRead")}
@@ -274,7 +281,7 @@ export function CriticalNotices() {
             });
           }}
         />
-      </View>
+      </Actions>
       {read.outcome !== undefined && !read.outcome.ok ? <Failure outcome={read.outcome} /> : null}
     </Notice>
   );

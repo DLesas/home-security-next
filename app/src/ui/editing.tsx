@@ -5,12 +5,10 @@
  * are sent, and the hub refuses what it refuses.
  */
 import type { AppError } from "@hsn/protocol/app";
-import { Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
 import type { LocalFault } from "../hub/faults";
 import { INVALID_KEYS } from "../state/words";
-import { Button, Notice } from "./parts";
-import { styles } from "./theme";
+import { Actions, Body, Button, Notice } from "./parts";
 
 type Failed =
   | { readonly ok: false; readonly error: AppError }
@@ -39,15 +37,15 @@ export function ConflictNotice({ onUseCurrent }: { readonly onUseCurrent: () => 
   const { t } = useTranslation();
   return (
     <Notice kind="warning" live="polite" testID="conflict">
-      <Text style={styles.body}>{t("editing.conflict")}</Text>
-      <View style={styles.row}>
+      <Body>{t("editing.conflict")}</Body>
+      <Actions>
         <Button
           kind="quiet"
           label={t("editing.useCurrent")}
           onPress={onUseCurrent}
           testID="use-current"
         />
-      </View>
+      </Actions>
     </Notice>
   );
 }
@@ -59,12 +57,8 @@ export function byName<T extends { readonly name: string; readonly id: number }>
   return [...items].sort((a, b) => a.name.localeCompare(b.name) || a.id - b.id);
 }
 
-/** Said when there are none yet. */
+/** An empty list: what belongs in it, in plain words; the screen's add button follows it. */
 export function NotToldYet({ what }: { readonly what: "groups" | "modes" | "schedules" }) {
   const { t } = useTranslation();
-  return (
-    <Notice kind="info" testID={`not-told-${what}`}>
-      <Text style={styles.body}>{t(`editing.notToldYet.${what}`)}</Text>
-    </Notice>
-  );
+  return <Body testID={`not-told-${what}`}>{t(`editing.notToldYet.${what}`)}</Body>;
 }

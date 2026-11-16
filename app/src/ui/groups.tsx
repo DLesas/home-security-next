@@ -7,7 +7,6 @@
  */
 import type { GroupObject } from "@hsn/protocol/app";
 import { useMemo, useState } from "react";
-import { Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
 import { learnConfig } from "../state/live";
 import { listOf } from "../state/words";
@@ -15,6 +14,7 @@ import { cleanName } from "./setup";
 import { byName, ConflictNotice, conflictOf, NotToldYet, useFieldError } from "./editing";
 import { useAction, useHub, useLive } from "./hub-context";
 import {
+  Actions,
   Body,
   Button,
   CheckList,
@@ -24,9 +24,10 @@ import {
   Failure,
   Field,
   Heading,
+  List,
+  ListItem,
   Section,
 } from "./parts";
-import { styles } from "./theme";
 
 interface Draft {
   readonly id: number | undefined;
@@ -145,11 +146,9 @@ function GroupEditor({
         />
       )}
       {noSiren || sirensError !== undefined ? (
-        <Text style={styles.body} testID="group-no-siren">
-          {t("groups.atLeastOneSiren")}
-        </Text>
+        <Body testID="group-no-siren">{t("groups.atLeastOneSiren")}</Body>
       ) : null}
-      <View style={styles.row}>
+      <Actions>
         <Button
           label={t("editing.save")}
           busy={create.busy || update.busy}
@@ -163,7 +162,7 @@ function GroupEditor({
             onDone(false);
           }}
         />
-      </View>
+      </Actions>
       {conflict !== undefined && "sensors" in conflict.object ? (
         <ConflictNotice
           onUseCurrent={() => {
@@ -206,21 +205,21 @@ function GroupItem({
       ? remove.outcome.error.detail.refs
       : undefined;
   return (
-    <View role="listitem" style={styles.item} testID={`group-${String(group.id)}`}>
+    <ListItem testID={`group-${String(group.id)}`}>
       <Heading level={2}>{group.name}</Heading>
-      <Text style={styles.body}>
+      <Body>
         {group.sensors.length === 0
           ? t("groups.noSensors")
           : t("groups.sensorsAre", { sensors: names(group.sensors) })}
-      </Text>
-      <Text style={styles.body}>
+      </Body>
+      <Body>
         {group.sirens === "all"
           ? t("groups.soundsAll")
           : t("groups.soundsThese", {
               sirens: group.sirens.length === 0 ? t("common.none") : names(group.sirens),
             })}
-      </Text>
-      <View style={styles.row}>
+      </Body>
+      <Actions>
         <Button kind="quiet" label={t("editing.edit", { name: group.name })} onPress={onEdit} />
         <ConfirmButton
           label={t("editing.delete", { name: group.name })}
@@ -238,7 +237,7 @@ function GroupItem({
             })
           }
         />
-      </View>
+      </Actions>
       {remove.outcome !== undefined && !remove.outcome.ok ? (
         <Failure outcome={remove.outcome} />
       ) : null}
@@ -252,7 +251,7 @@ function GroupItem({
           })}
         </Body>
       )}
-    </View>
+    </ListItem>
   );
 }
 
@@ -264,11 +263,10 @@ export function GroupsScreen() {
   const [saved, setSaved] = useState(false);
   return (
     <>
-      <Body>{t("groups.intro")}</Body>
       {list.length === 0 ? <NotToldYet what="groups" /> : null}
       {saved ? <Done text={t("editing.saved")} /> : null}
       {list.length === 0 ? null : (
-        <View role="list">
+        <List>
           {list.map((group) => (
             <GroupItem
               key={group.id}
@@ -279,10 +277,10 @@ export function GroupsScreen() {
               }}
             />
           ))}
-        </View>
+        </List>
       )}
       {draft === undefined ? (
-        <View style={styles.row}>
+        <Actions>
           <Button
             label={t("groups.add")}
             onPress={() => {
@@ -291,7 +289,7 @@ export function GroupsScreen() {
             }}
             testID="group-add"
           />
-        </View>
+        </Actions>
       ) : (
         <GroupEditor
           key={draft.id ?? 0}

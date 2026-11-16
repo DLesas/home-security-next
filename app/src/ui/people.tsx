@@ -8,12 +8,13 @@
  */
 import type { ClientObject, PersonObject } from "@hsn/protocol/app";
 import { useMemo, useState } from "react";
-import { Text, View } from "react-native";
+import { View } from "react-native";
 import { useTranslation } from "react-i18next";
 import { ClientItem } from "./clients";
 import { byName, ConflictNotice, conflictOf, useFieldError } from "./editing";
 import { useAction, useLive, useRead } from "./hub-context";
 import {
+  Actions,
   Body,
   Button,
   ConfirmButton,
@@ -21,11 +22,13 @@ import {
   Failure,
   Field,
   Heading,
+  List,
+  ListItem,
   Section,
+  Stack,
   Toggle,
 } from "./parts";
 import { cleanName } from "./setup";
-import { styles } from "./theme";
 
 interface Grants {
   readonly devices: readonly {
@@ -80,7 +83,7 @@ function Permissions({ person }: { readonly person: PersonObject }) {
     <View
       role="group"
       aria-label={t("people.permissionsOf", { name: person.name })}
-      style={{ gap: 4 }}
+      className="gap-2"
     >
       <Heading level={3}>{t("people.permissionsOf", { name: person.name })}</Heading>
       <Toggle
@@ -100,8 +103,8 @@ function Permissions({ person }: { readonly person: PersonObject }) {
       {list.map((d) => {
         const g = grants.devices.find((x) => x.device === d.id);
         return (
-          <View key={d.id} style={styles.row}>
-            <Text style={[styles.body, { minWidth: 140 }]}>{d.name}</Text>
+          <View key={d.id} role="group" aria-label={d.name} className="gap-1">
+            <Body>{d.name}</Body>
             <Toggle
               label={t("people.manageDevice", { name: d.name })}
               value={g?.manage === true}
@@ -119,13 +122,13 @@ function Permissions({ person }: { readonly person: PersonObject }) {
           </View>
         );
       })}
-      <View style={styles.row}>
+      <Actions>
         <Button
           label={t("people.savePermissions", { name: person.name })}
           busy={set.busy}
           onPress={() => void set.run({ person: person.id, ...grants, ifRevision: revision })}
         />
-      </View>
+      </Actions>
       {conflict !== undefined && "manageUsers" in conflict.object ? (
         <ConflictNotice
           onUseCurrent={() => {
@@ -149,10 +152,13 @@ export function PersonItem({
   person,
   clients,
   managing,
+  onRemoved,
 }: {
   readonly person: PersonObject;
   readonly clients: readonly ClientObject[];
   readonly managing: boolean;
+  /** Said by the list, which outlives this row. */
+  readonly onRemoved: (said: string) => void;
 }) {
   const { t } = useTranslation();
   const rename = useAction("person.rename");
@@ -162,11 +168,11 @@ export function PersonItem({
   const nameError = useFieldError(rename.outcome, "name");
   const own = clients.filter((c) => c.person === person.id);
   return (
-    <View role="listitem" style={styles.item} testID={`person-${String(person.id)}`}>
+    <ListItem testID={`person-${String(person.id)}`}>
       <Heading level={2}>{person.name}</Heading>
       {managing && hasNoAccess(person) ? <Body>{t("people.noAccess")}</Body> : null}
       {name === undefined ? (
-        <View style={styles.row}>
+        <Actions>
           <Button
             kind="quiet"
             label={t("people.rename", { name: person.name })}
@@ -180,11 +186,15 @@ export function PersonItem({
             yes={t("people.yesRemove")}
             no={t("editing.no")}
             busy={remove.busy}
-            onConfirm={() => void remove.run({ person: person.id, ifRevision: person.revision })}
+            onConfirm={() =>
+              void remove.run({ person: person.id, ifRevision: person.revision }).then((o) => {
+                if (o.ok) onRemoved(t("people.personRemoved", { name: person.name }));
+              })
+            }
           />
-        </View>
+        </Actions>
       ) : (
-        <View style={{ gap: 8 }}>
+        <Stack>
           <Field
             label={t("people.name")}
             value={name}
@@ -195,7 +205,7 @@ export function PersonItem({
                 ? {}
                 : { error: nameError })}
           />
-          <View style={styles.row}>
+          <Actions>
             <Button
               label={t("editing.save")}
               busy={rename.busy}
@@ -217,8 +227,8 @@ export function PersonItem({
                 setName(undefined);
               }}
             />
-          </View>
-        </View>
+          </Actions>
+        </Stack>
       )}
       {rename.outcome !== undefined && !rename.outcome.ok && nameError === undefined ? (
         <Failure outcome={rename.outcome} />
@@ -229,12 +239,12 @@ export function PersonItem({
       {managing ? <Permissions key={person.revision} person={person} /> : null}
       <Heading level={3}>{t("people.devicesOf", { name: person.name })}</Heading>
       {own.length === 0 ? <Body muted>{t("people.noClients")}</Body> : null}
-      <View role="list">
+      <List>
         {own.map((c) => (
-          <ClientItem key={c.id} client={c} all={clients} />
+          <ClientItem key={c.id} client={c} all={clients} onRemoved={onRemoved} />
         ))}
-      </View>
-    </View>
+      </List>
+    </ListItem>
   );
 }
 
@@ -257,7 +267,7 @@ function AddPerson() {
             ? {}
             : { error: nameError })}
       />
-      <View style={styles.row}>
+      <Actions>
         <Button
           label={t("people.addButton")}
           busy={create.busy}
@@ -270,7 +280,7 @@ function AddPerson() {
               });
           }}
         />
-      </View>
+      </Actions>
       {create.outcome === undefined ? null : create.outcome.ok ? (
         <Done text={t("people.added", { name: create.outcome.body.name })} />
       ) : nameError === undefined ? (
@@ -287,9 +297,12 @@ export function PeopleScreen() {
   const data = list.data?.ok === true ? list.data.body : undefined;
   const people = useMemo(() => byName(data?.people ?? []), [data]);
   const console = useMemo(() => (data?.clients ?? []).filter((c) => c.person === null), [data]);
+  const [removed, setRemoved] = useState<string | undefined>();
   return (
     <>
       {list.data !== undefined && !list.data.ok ? <Failure outcome={list.data} /> : null}
+      {/* Above the list, so it stays when the removed row goes. */}
+      {removed === undefined ? null : <Done text={removed} testID="people-removed" />}
       {data === undefined ? null : (
         <Section label={t("people.userManagement")}>
           <Heading level={2}>{t("people.userManagement")}</Heading>
@@ -307,24 +320,25 @@ export function PeopleScreen() {
           ) : null}
         </Section>
       )}
-      <View role="list">
+      <List>
         {people.map((p) => (
           <PersonItem
             key={p.id}
             person={p}
             clients={data?.clients ?? []}
             managing={data?.userManagement === true}
+            onRemoved={setRemoved}
           />
         ))}
-      </View>
+      </List>
       {console.length === 0 ? null : (
         <Section label={t("people.console")}>
           <Heading level={2}>{t("people.console")}</Heading>
-          <View role="list">
+          <List>
             {console.map((c) => (
-              <ClientItem key={c.id} client={c} all={data?.clients ?? []} />
+              <ClientItem key={c.id} client={c} all={data?.clients ?? []} onRemoved={setRemoved} />
             ))}
-          </View>
+          </List>
         </Section>
       )}
       <AddPerson />

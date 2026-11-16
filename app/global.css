@@ -1,0 +1,103 @@
+/*
+ * The app's configuration in CSS (Tailwind 4, NativeWind v5): the imports the guide gives, the
+ * tokens of docs/app-design.md, and the bundled font files the hub serves (font-src 'self').
+ * Nothing else: no selector-based rules.
+ */
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/preflight.css" layer(base);
+@import "tailwindcss/utilities.css";
+
+@import "nativewind/theme";
+
+@theme {
+  /* Colour: only the design's tokens exist. */
+  --color-*: initial;
+  --color-transparent: transparent;
+  --color-limewash: #f4f6f3;
+  --color-chalk: #ffffff;
+  --color-sage: #e3ebe5;
+  --color-ink: #16292a;
+  --color-stone: #536462;
+  --color-line: #d5dcd7;
+  --color-spruce: #17383a;
+  --color-lamp: #f2b441;
+  --color-signal: #b3261e;
+  --color-ochre: #7a4e00;
+  --color-ochre-surface: #fbf1d3;
+  --color-fern: #1f6b3a;
+  --color-fern-surface: #e6f2e8;
+
+  /* Spacing: 4, 8, 12, 16, 24, 32, 48, 64, 96 px, and a target's and a row's least height. */
+  --spacing-*: initial;
+  /* The base unit Tailwind's own functions need (NativeWind's theme uses it); use the steps below. */
+  --spacing: 4px;
+  --spacing-0: 0px;
+  --spacing-1: 4px;
+  --spacing-2: 8px;
+  --spacing-3: 12px;
+  --spacing-4: 16px;
+  --spacing-6: 24px;
+  --spacing-8: 32px;
+  --spacing-12: 48px;
+  --spacing-16: 64px;
+  --spacing-24: 96px;
+  --spacing-target: 48px;
+  --spacing-row: 56px;
+  --spacing-rail: 240px;
+  --spacing-column: 640px;
+  --spacing-line: 65ch;
+
+  /* Type: one family per weight, named as the files are (the same names serve the phone, M3). */
+  --font-*: initial;
+  --font-text: "AtkinsonHyperlegibleNext_400Regular";
+  --font-strong: "AtkinsonHyperlegibleNext_600SemiBold";
+  --font-heavy: "AtkinsonHyperlegibleNext_700Bold";
+  --font-code: "AtkinsonHyperlegibleMono_400Regular";
+  --text-*: initial;
+  --text-state: 44px;
+  --text-state--line-height: 48px;
+  --text-state--letter-spacing: -0.02em;
+  --text-state-wide: 64px;
+  --text-state-wide--line-height: 68px;
+  --text-state-wide--letter-spacing: -0.02em;
+  --text-title: 32px;
+  --text-title--line-height: 40px;
+  --text-section: 22px;
+  --text-section--line-height: 30px;
+  --text-body: 17px;
+  --text-body--line-height: 26px;
+  --text-small: 15px;
+  --text-small--line-height: 22px;
+
+  /* Corners. */
+  --radius-*: initial;
+  --radius-input: 10px;
+  --radius-button: 12px;
+  --radius-notice: 12px;
+  --radius-field: 24px;
+
+  /* Width: phone below 768 px, wide from it. */
+  --breakpoint-*: initial;
+  --breakpoint-md: 768px;
+}
+
+@font-face {
+  font-family: "AtkinsonHyperlegibleNext_400Regular";
+  src: url("/fonts/AtkinsonHyperlegibleNext_400Regular.ttf") format("truetype");
+  font-display: swap;
+}
+@font-face {
+  font-family: "AtkinsonHyperlegibleNext_600SemiBold";
+  src: url("/fonts/AtkinsonHyperlegibleNext_600SemiBold.ttf") format("truetype");
+  font-display: swap;
+}
+@font-face {
+  font-family: "AtkinsonHyperlegibleNext_700Bold";
+  src: url("/fonts/AtkinsonHyperlegibleNext_700Bold.ttf") format("truetype");
+  font-display: swap;
+}
+@font-face {
+  font-family: "AtkinsonHyperlegibleMono_400Regular";
+  src: url("/fonts/AtkinsonHyperlegibleMono_400Regular.ttf") format("truetype");
+  font-display: swap;
+}

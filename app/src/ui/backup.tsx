@@ -10,7 +10,6 @@
  */
 import type { AppError, AppOpReply } from "@hsn/protocol/app";
 import { useState } from "react";
-import { Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
 import { downloadFile, sendFile, uploadJob } from "../hub/files";
 import { realTimers } from "../hub/wire";
@@ -18,9 +17,20 @@ import { FileInput } from "./file-input";
 import { QrCode } from "./qr";
 import { formatTime } from "./format";
 import { useAction, useHub, useLive, useRead } from "./hub-context";
-import { Body, Button, Choice, Done, Failure, Field, Heading, Notice, Section } from "./parts";
+import {
+  Actions,
+  Body,
+  Button,
+  Choice,
+  Copyable,
+  Done,
+  Failure,
+  Field,
+  Heading,
+  Notice,
+  Section,
+} from "./parts";
 import { numberOrKeep } from "./device-detail";
-import { styles } from "./theme";
 
 const RESULT_KEYS = {
   ok: "backup.result.ok",
@@ -61,7 +71,7 @@ function Status() {
           </Body>
           {data.due ? (
             <Notice kind="warning">
-              <Text style={styles.body}>{t("backup.due")}</Text>
+              <Body>{t("backup.due")}</Body>
             </Notice>
           ) : null}
         </>
@@ -80,8 +90,8 @@ function Status() {
         onChange={setHour}
       />
       <Field label={t("backup.keepLabel")} value={keep} onChange={setKeep} />
-      {bad ? <Text style={styles.body}>{t("deviceDetail.badSetting")}</Text> : null}
-      <View style={styles.row}>
+      {bad ? <Body>{t("deviceDetail.badSetting")}</Body> : null}
+      <Actions>
         <Button
           label={t("backup.saveSettings")}
           busy={settings.busy}
@@ -110,7 +120,7 @@ function Status() {
           onPress={() => void now.run({})}
           testID="backup-now"
         />
-      </View>
+      </Actions>
       {settings.outcome === undefined ? null : settings.outcome.ok ? (
         <Done text={t("editing.saved")} />
       ) : (
@@ -167,19 +177,19 @@ function Export() {
       />
       <Body>{t("backup.exportBackupIs")}</Body>
       <Body>{t("backup.exportHistoryIs")}</Body>
-      <View style={styles.row}>
+      <Actions>
         <Button
           label={t("backup.export")}
           busy={busy}
           onPress={() => void run()}
           testID="backup-export"
         />
-      </View>
+      </Actions>
       {result === undefined ? null : result.ok ? (
         <Done text={t(history ? "backup.exportedHistory" : "backup.exported")} />
       ) : "fault" in result ? (
         <Notice kind="danger" live="polite">
-          <Text style={styles.body}>{t(`backup.downloadFault.${result.fault}`)}</Text>
+          <Body>{t(`backup.downloadFault.${result.fault}`)}</Body>
         </Notice>
       ) : (
         <Failure outcome={result} />
@@ -226,26 +236,26 @@ export function RestoreOffer({ offer }: { readonly offer: AppOpReply<"restore.st
   const [goOn, setGoOn] = useState(false);
   return (
     <Notice kind="warning" live="polite" testID="restore-offer">
-      <Text style={styles.body}>
+      <Body>
         {t("backup.fileFrom", {
           identity: offer.identity,
           made: formatTime(t, i18n.language, info, offer.madeMs),
         })}
-      </Text>
-      <Text style={styles.body}>
+      </Body>
+      <Body>
         {t("backup.peopleAge", { time: formatTime(t, i18n.language, info, offer.lastChangeMs) })}
-      </Text>
-      <Text style={styles.body}>{t("backup.oldHubOff")}</Text>
+      </Body>
+      <Body>{t("backup.oldHubOff")}</Body>
       {goOn ? (
         <>
-          <Text style={styles.body}>{t("backup.scanWithPhone")}</Text>
+          <Body>{t("backup.scanWithPhone")}</Body>
           <QrCode text={offer.qr} label={t("backup.qrLabel")} testID="restore-qr-code" />
-          <Text selectable style={[styles.muted, { fontFamily: "monospace" }]} testID="restore-qr">
+          <Copyable size="small" testID="restore-qr">
             {offer.qr}
-          </Text>
+          </Copyable>
         </>
       ) : (
-        <View style={styles.row}>
+        <Actions>
           <Button
             label={t("backup.goOn")}
             onPress={() => {
@@ -253,7 +263,7 @@ export function RestoreOffer({ offer }: { readonly offer: AppOpReply<"restore.st
             }}
             testID="restore-go-on"
           />
-        </View>
+        </Actions>
       )}
     </Notice>
   );
@@ -303,9 +313,7 @@ function Restore() {
       {start.outcome !== undefined && !start.outcome.ok ? (
         restoreRefusal(start.outcome) === "badFile" ? (
           <Notice kind="danger" live="polite" testID="restore-bad-file">
-            <Text style={styles.body}>
-              {t(historyFile ? "backup.historyNotBackup" : "backup.damaged")}
-            </Text>
+            <Body>{t(historyFile ? "backup.historyNotBackup" : "backup.damaged")}</Body>
           </Notice>
         ) : (
           <Failure outcome={start.outcome} />

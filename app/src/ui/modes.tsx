@@ -6,14 +6,14 @@
  */
 import type { ModeObject } from "@hsn/protocol/app";
 import { useMemo, useState } from "react";
-import { Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
 import { learnConfig } from "../state/live";
 import { listOf } from "../state/words";
-import { sortedModes } from "./arming";
+import { sortedModes } from "./state-field";
 import { byName, ConflictNotice, conflictOf, NotToldYet, useFieldError } from "./editing";
 import { useAction, useHub, useLive } from "./hub-context";
 import {
+  Actions,
   Body,
   Button,
   CheckList,
@@ -22,10 +22,11 @@ import {
   Failure,
   Field,
   Heading,
+  List,
+  ListItem,
   Section,
 } from "./parts";
 import { cleanName } from "./setup";
-import { styles } from "./theme";
 
 interface Draft {
   readonly id: number | undefined;
@@ -100,7 +101,7 @@ function ModeEditor({
           options={groups.map((g) => ({ value: g.id, label: g.name }))}
         />
       )}
-      <View style={styles.row}>
+      <Actions>
         <Button
           label={t("editing.save")}
           busy={create.busy || update.busy}
@@ -114,7 +115,7 @@ function ModeEditor({
             onDone(false);
           }}
         />
-      </View>
+      </Actions>
       {conflict !== undefined && "fixed" in conflict.object ? (
         <ConflictNotice
           onUseCurrent={() => {
@@ -157,12 +158,12 @@ function ModeItem({ mode, onEdit }: { readonly mode: ModeObject; readonly onEdit
       ? remove.outcome.error.detail.refs
       : undefined;
   return (
-    <View role="listitem" style={styles.item} testID={`mode-${String(mode.id)}`}>
+    <ListItem testID={`mode-${String(mode.id)}`}>
       <Heading level={2}>{mode.name}</Heading>
-      <Text style={styles.body}>{what}</Text>
-      {current ? <Text style={styles.body}>{t("modes.current")}</Text> : null}
+      <Body>{what}</Body>
+      {current ? <Body>{t("modes.current")}</Body> : null}
       {mode.fixed === "no" ? (
-        <View style={styles.row}>
+        <Actions>
           <Button kind="quiet" label={t("editing.edit", { name: mode.name })} onPress={onEdit} />
           <ConfirmButton
             label={t("editing.delete", { name: mode.name })}
@@ -184,7 +185,7 @@ function ModeItem({ mode, onEdit }: { readonly mode: ModeObject; readonly onEdit
               })
             }
           />
-        </View>
+        </Actions>
       ) : (
         <Body muted>{t("modes.fixed")}</Body>
       )}
@@ -201,7 +202,7 @@ function ModeItem({ mode, onEdit }: { readonly mode: ModeObject; readonly onEdit
           })}
         </Body>
       )}
-    </View>
+    </ListItem>
   );
 }
 
@@ -213,11 +214,10 @@ export function ModesScreen() {
   const [saved, setSaved] = useState(false);
   return (
     <>
-      <Body>{t("modes.intro")}</Body>
       {list.length === 0 ? <NotToldYet what="modes" /> : null}
       {saved ? <Done text={t("editing.saved")} /> : null}
       {list.length === 0 ? null : (
-        <View role="list">
+        <List>
           {list.map((mode) => (
             <ModeItem
               key={mode.id}
@@ -228,10 +228,10 @@ export function ModesScreen() {
               }}
             />
           ))}
-        </View>
+        </List>
       )}
       {draft === undefined ? (
-        <View style={styles.row}>
+        <Actions>
           <Button
             label={t("modes.add")}
             onPress={() => {
@@ -240,7 +240,7 @@ export function ModesScreen() {
             }}
             testID="mode-add"
           />
-        </View>
+        </Actions>
       ) : (
         <ModeEditor
           key={draft.id ?? 0}

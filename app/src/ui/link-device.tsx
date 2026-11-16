@@ -10,13 +10,23 @@
  */
 import { displayName } from "@hsn/protocol/app";
 import { useState } from "react";
-import { Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
 import { useNow } from "./banners";
 import { QrCode } from "./qr";
-import { useAction } from "./hub-context";
-import { Body, Button, Choice, Done, Failure, Field, Heading, Section, Toggle } from "./parts";
-import { styles } from "./theme";
+import { useAction, useLive } from "./hub-context";
+import {
+  Actions,
+  Body,
+  Button,
+  Choice,
+  Copyable,
+  Done,
+  Failure,
+  Field,
+  Heading,
+  Section,
+  Toggle,
+} from "./parts";
 
 type Form = "url" | "code" | "qr";
 
@@ -24,7 +34,10 @@ export function LinkDeviceScreen() {
   const { t } = useTranslation();
   const create = useAction("link.create");
   const cancel = useAction("link.cancel");
-  const [kind, setKind] = useState<"ownDevice" | "newPerson">("ownDevice");
+  // The hub computer's browser belongs to no person: it has no "device of mine" to link.
+  const noOne = useLive((s) => s.session !== null && s.session.person === null);
+  const [chosen, setKind] = useState<"ownDevice" | "newPerson">("ownDevice");
+  const kind = noOne ? "newPerson" : chosen;
   const [form, setForm] = useState<Form>("url");
   const [invite, setInvite] = useState(false);
   const [name, setName] = useState("");
@@ -54,18 +67,21 @@ export function LinkDeviceScreen() {
   };
   return (
     <>
-      <Body>{t("linkDevice.intro")}</Body>
       <Section label={t("linkDevice.makeTitle")}>
         <Heading level={2}>{t("linkDevice.makeTitle")}</Heading>
-        <Choice
-          label={t("linkDevice.forWhom")}
-          value={kind}
-          onChange={setKind}
-          options={[
-            { value: "ownDevice", label: t("linkDevice.ownDevice") },
-            { value: "newPerson", label: t("linkDevice.newPerson") },
-          ]}
-        />
+        {noOne ? (
+          <Body testID="link-new-person-only">{t("linkDevice.newPersonOnly")}</Body>
+        ) : (
+          <Choice
+            label={t("linkDevice.forWhom")}
+            value={kind}
+            onChange={setKind}
+            options={[
+              { value: "ownDevice", label: t("linkDevice.ownDevice") },
+              { value: "newPerson", label: t("linkDevice.newPerson") },
+            ]}
+          />
+        )}
         {kind === "newPerson" ? (
           <Field
             label={t("linkDevice.personName")}
@@ -86,14 +102,14 @@ export function LinkDeviceScreen() {
           ]}
         />
         <Toggle label={t("linkDevice.invite")} value={invite} onChange={setInvite} />
-        <View style={styles.row}>
+        <Actions>
           <Button
             label={t("linkDevice.make")}
             busy={create.busy}
             onPress={make}
             testID="link-make"
           />
-        </View>
+        </Actions>
         {create.outcome !== undefined && !create.outcome.ok ? (
           <Failure outcome={create.outcome} />
         ) : null}
@@ -104,30 +120,24 @@ export function LinkDeviceScreen() {
           {made.url === undefined ? null : (
             <>
               <Body>{t("linkDevice.urlHow")}</Body>
-              <Text selectable style={[styles.body, { fontFamily: "monospace" }]} testID="link-url">
-                {made.url}
-              </Text>
+              <Copyable testID="link-url">{made.url}</Copyable>
             </>
           )}
           {made.code === undefined ? null : (
             <>
               <Body>{t("linkDevice.codeHow")}</Body>
-              <Text
-                selectable
-                style={[styles.h1, { fontFamily: "monospace" }]}
-                testID="link-code-made"
-              >
+              <Copyable size="title" testID="link-code-made">
                 {made.code}
-              </Text>
+              </Copyable>
             </>
           )}
           {made.qr === undefined ? null : (
             <>
               <Body>{t("linkDevice.qrHow")}</Body>
               <QrCode text={made.qr} label={t("linkDevice.qrLabel")} testID="link-qr-code" />
-              <Text selectable style={[styles.muted, { fontFamily: "monospace" }]} testID="link-qr">
+              <Copyable size="small" testID="link-qr">
                 {made.qr}
-              </Text>
+              </Copyable>
             </>
           )}
           <Body>
@@ -136,7 +146,7 @@ export function LinkDeviceScreen() {
               : t("linkDevice.expired")}
           </Body>
           <Body muted>{t("linkDevice.once")}</Body>
-          <View style={styles.row}>
+          <Actions>
             <Button
               kind="quiet"
               label={t("linkDevice.cancel")}
@@ -144,7 +154,7 @@ export function LinkDeviceScreen() {
               onPress={() => void cancel.run({ token: made.token })}
               testID="link-cancel"
             />
-          </View>
+          </Actions>
         </Section>
       )}
       {cancel.outcome === undefined ? null : cancel.outcome.ok ? (

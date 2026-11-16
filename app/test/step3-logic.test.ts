@@ -89,9 +89,9 @@ describe("a schedule entry", () => {
     });
   });
   test("days read Monday first, whatever order the hub kept", () => {
-    expect(daysWords(t, "en", ["sun", "mon", "wed"])).toBe("on Monday, Wednesday, and Sunday");
+    expect(daysWords(t, "en", ["sun", "mon", "wed"])).toBe("On Monday, Wednesday, and Sunday");
     expect(daysWords(t, "en", "everyDay")).toBe("Every day");
-    expect(daysWords(t, "en", { date: "2026-12-24" })).toBe("once on December 24, 2026");
+    expect(daysWords(t, "en", { date: "2026-12-24" })).toBe("Once, on December 24, 2026");
   });
 });
 
@@ -314,7 +314,7 @@ describe("files", () => {
 
 describe("rules the review found untested", () => {
   test("arm anyway confirms exactly what the hub named", async () => {
-    const { confirmationFor } = await import("../src/ui/arming");
+    const { confirmationFor } = await import("../src/ui/state-field");
     expect(confirmationFor({ openDoors: [4], lowBattery: [] })).toEqual({
       openDoors: true,
       lowBattery: false,

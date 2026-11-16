@@ -4,12 +4,10 @@
  * said politely once, over every screen, until dismissed; a failing database stays said until the
  * hub says it recovered, since changes are refused meanwhile.
  */
-import { Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
 import { dismissHubNotice, type HubWhat } from "../state/live";
 import { useHub, useLive } from "./hub-context";
-import { Button, Notice } from "./parts";
-import { styles } from "./theme";
+import { Actions, Body, Button, Notice, Stack } from "./parts";
 
 export const HUB_NOTICE_KEYS: Readonly<Record<HubWhat, string>> = {
   updateStaged: "hubNotice.updateStaged",
@@ -30,10 +28,10 @@ export function HubNotices() {
   const shown = notices.filter((n) => n.what !== "databaseFailing");
   if (!failing && shown.length === 0) return null;
   return (
-    <View style={[styles.main, { paddingBottom: 0 }]}>
+    <Stack>
       {failing ? (
         <Notice kind="danger" live="polite" testID="database-failing">
-          <Text style={styles.body}>{t(HUB_NOTICE_KEYS.databaseFailing)}</Text>
+          <Body>{t(HUB_NOTICE_KEYS.databaseFailing)}</Body>
         </Notice>
       ) : null}
       {shown.map((n) => (
@@ -43,8 +41,8 @@ export function HubNotices() {
           live="polite"
           testID={`hub-notice-${n.what}`}
         >
-          <Text style={styles.body}>{t(HUB_NOTICE_KEYS[n.what])}</Text>
-          <View style={styles.row}>
+          <Body>{t(HUB_NOTICE_KEYS[n.what])}</Body>
+          <Actions>
             <Button
               kind="quiet"
               label={t("common.dismiss")}
@@ -52,9 +50,9 @@ export function HubNotices() {
                 hub.live.setState(dismissHubNotice(hub.live.getState(), n.what), true);
               }}
             />
-          </View>
+          </Actions>
         </Notice>
       ))}
-    </View>
+    </Stack>
   );
 }
