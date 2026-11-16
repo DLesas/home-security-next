@@ -282,7 +282,20 @@ export function openNamedFileForReading(
   const opened = wrap(`open ${path}`, () =>
     open(path, GENERIC_READ, FILE_SHARE_READ, FILE_FLAG_OPEN_REPARSE_POINT),
   );
-  if (opened.isErr()) return err(failed(opened.error));
+  if (opened.isErr()) {
+    // A folder cannot be opened as a file (CreateFileW needs backup semantics for one, which a
+    // file read does not ask for): say which it is (run 43866716434).
+    const attributes = wrap(`look at ${path}`, () => win32().kernel.GetFileAttributesW(wide(path)));
+    const folder =
+      attributes.isOk() &&
+      attributes.value !== INVALID_FILE_ATTRIBUTES &&
+      (attributes.value & FILE_ATTRIBUTE_DIRECTORY) !== 0;
+    return err(
+      folder
+        ? { kind: "notAFile", message: `${path} is a folder, not a file` }
+        : failed(opened.error),
+    );
+  }
   const handle = opened.value;
   const close = (): void => {
     win32().kernel.CloseHandle(handle);

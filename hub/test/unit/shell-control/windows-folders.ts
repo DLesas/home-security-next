@@ -3,6 +3,7 @@
  * `.github/workflows/windows-control-socket.yml`): set with the system's own `icacls`, by
  * well-known SIDs so nothing depends on the system's language, as spike W2 set them.
  */
+import { dlopen, FFIType } from "bun:ffi";
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
@@ -13,7 +14,7 @@ import {
   HUB_SERVICE_SID,
   parseSid,
   type RunMode,
-  SYSTEM_SID,
+  topShapeSddl,
 } from "../../../src/shell/control/windows-acl.ts";
 import { WINDOWS_CALLS } from "../../../src/shell/safe/control-socket-windows.ts";
 
@@ -47,12 +48,14 @@ export function ownSid(): string {
 
 /**
  * Makes `path` a top folder of the shape the installer sets (m2-design.md section 9, "The top
- * folders"), with the system's own `icacls`, independently of the hub's own code: owner
- * Administrators, inheritance off, Administrators and SYSTEM in full control of it and its
- * contents, and `service` (the real `NT SERVICE\HSNHub` by default) with list, add a file, add a
- * folder, traverse, read attributes, read the list and synchronize on the folder itself (RD, WD,
- * AD, X, RA, RC, S: 0x001200a7) and inherit-only full control of what is inside. `extra` adds
- * entries (`*<sid>:<rights>`), to make it open. The steps fail on the first `icacls` that fails.
+ * folders"), as A8's `tree.ps1` sets it: the SDDL text (`topShapeSddl`, the text of
+ * `hub-folder.sddl`) turned into a descriptor by Windows itself
+ * (`ConvertStringSecurityDescriptorToSecurityDescriptorW`), not by the hub's own byte builder,
+ * and set on the folder's handle by `SetKernelObjectSecurity`. Not `icacls`: it will not grant a
+ * SID it cannot name, and `NT SERVICE\HSNHub` has no name on a runner where the service is not
+ * installed (run 43866716434: "No mapping between account names and security IDs was done").
+ * `extra` adds SDDL entries, `(A;…)` after the shape's and `(D;…)` before them, to make it open
+ * or add a deny. `out` says what failed.
  */
 export function shapeFolder(
   path: string,
@@ -60,20 +63,68 @@ export function shapeFolder(
   extra: readonly string[] = [],
 ): Ran {
   mkdirSync(path, { recursive: true });
-  const steps: string[][] = [
-    ["/inheritance:r", "/grant:r", `*${ADMINISTRATORS_SID}:(OI)(CI)F`, `*${SYSTEM_SID}:(OI)(CI)F`],
-    ["/grant", `*${service}:(RD,WD,AD,X,RA,RC,S)`],
-    ["/grant", `*${service}:(OI)(CI)(IO)F`],
-    ...extra.map((entry) => ["/grant", entry]),
-    ["/setowner", `*${ADMINISTRATORS_SID}`],
-  ];
-  const outs: string[] = [];
-  for (const step of steps) {
-    const ran = icacls(path, ...step);
-    outs.push(ran.out);
-    if (ran.code !== 0) return { code: ran.code, out: outs.join(" / ") };
+  const shape = topShapeSddl(service);
+  const at = shape.indexOf("(");
+  const denies = extra.filter((entry) => entry.startsWith("(D;")).join("");
+  const allows = extra.filter((entry) => !entry.startsWith("(D;")).join("");
+  const sddl = `${shape.slice(0, at)}${denies}${shape.slice(at)}${allows}`;
+  const advapi = dlopen("advapi32.dll", {
+    ConvertStringSecurityDescriptorToSecurityDescriptorW: {
+      args: [FFIType.ptr, FFIType.u32, FFIType.ptr, FFIType.ptr],
+      returns: FFIType.i32,
+    },
+    SetKernelObjectSecurity: {
+      args: [FFIType.i64, FFIType.u32, FFIType.u64],
+      returns: FFIType.i32,
+    },
+  }).symbols;
+  const kernel = dlopen("kernel32.dll", {
+    CreateFileW: {
+      args: [
+        FFIType.ptr,
+        FFIType.u32,
+        FFIType.u32,
+        FFIType.ptr,
+        FFIType.u32,
+        FFIType.u32,
+        FFIType.ptr,
+      ],
+      returns: FFIType.i64,
+    },
+    CloseHandle: { args: [FFIType.i64], returns: FFIType.i32 },
+    LocalFree: { args: [FFIType.u64], returns: FFIType.u64 },
+    GetLastError: { args: [], returns: FFIType.u32 },
+  }).symbols;
+  const wide = (text: string) => Buffer.from(`${text}\0`, "utf16le");
+  const descriptor = new BigUint64Array(1);
+  const size = new Uint32Array(1);
+  if (
+    advapi.ConvertStringSecurityDescriptorToSecurityDescriptorW(wide(sddl), 1, descriptor, size) ===
+    0
+  )
+    return {
+      code: kernel.GetLastError(),
+      out: `ConvertStringSecurityDescriptorToSecurityDescriptorW refused ${sddl}`,
+    };
+  const sd = descriptor[0] ?? 0n;
+  // READ_CONTROL | WRITE_DAC | WRITE_OWNER; share all; OPEN_EXISTING; backup semantics, no follow.
+  const handle = kernel.CreateFileW(wide(path), 0x000e_0000, 7, null, 3, 0x0220_0000, null);
+  if (handle === -1n) {
+    const code = kernel.GetLastError();
+    kernel.LocalFree(sd);
+    return { code, out: `CreateFileW ${path} failed` };
   }
-  return { code: 0, out: outs.join(" / ") };
+  // OWNER | DACL; the descriptor's own control bits carry "protected".
+  const set = advapi.SetKernelObjectSecurity(handle, 0x5, sd);
+  const code = set === 0 ? kernel.GetLastError() : 0;
+  kernel.CloseHandle(handle);
+  kernel.LocalFree(sd);
+  return { code, out: set === 0 ? `SetKernelObjectSecurity ${path} failed with ${code}` : sddl };
+}
+
+/** "made" when a folder was made as asked, else what failed, for a test's expectation. */
+export function made(ran: Ran): string {
+  return ran.code === 0 ? "made" : `code ${String(ran.code)}: ${ran.out}`;
 }
 
 /** A folder as Windows makes it: its list inherited from the folder above. */

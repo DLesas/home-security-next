@@ -30,13 +30,13 @@ import {
 import { WINDOWS_CALLS } from "../../../src/shell/safe/control-socket-windows.ts";
 import { RawClient } from "./support.ts";
 import {
-  icacls,
   isWindows,
   junction,
   listVerdict,
   lockFolderTo,
   ordinaryFolder,
   removeTree,
+  made,
   shapeFolder,
   runProgram,
   system32,
@@ -104,11 +104,11 @@ afterAll(async () => {
 });
 
 describe.skipIf(!isWindows)("Windows itself, an administrator's run: real access lists", () => {
-  test("a folder of the installer's shape, made by icacls: the rule reads it as the shape, it opens, answers, its socket owned by Administrators", async () => {
+  test("a folder of the installer's shape, made from its SDDL by Windows: the rule reads it as the shape, it opens, answers, its socket owned by Administrators", async () => {
     const folder = join(BASE, "shaped");
-    const made = shapeFolder(folder);
-    row("icacls makes the installer's shape", made.code === 0 ? "yes" : made.out);
-    expect(made.code).toBe(0);
+    const shaped = made(shapeFolder(folder));
+    row("Windows' SDDL converter makes the installer's shape", shaped);
+    expect(shaped).toBe("made");
     const verdict = topNow(folder);
     row("the hub's rule on the icacls-made shape", verdict);
     expect(verdict).toBe("closed");
@@ -179,7 +179,7 @@ describe.skipIf(!isWindows)("Windows itself, an administrator's run: real access
 
   test("the shape with Users added: closed by the run, Users gone", async () => {
     const folder = join(BASE, "users");
-    expect(shapeFolder(folder, HUB_SERVICE_SID, ["*S-1-5-32-545:(OI)(CI)(RX)"]).code).toBe(0);
+    expect(made(shapeFolder(folder, HUB_SERVICE_SID, ["(A;OICI;0x1200a9;;;BU)"]))).toBe("made");
     expect(topNow(folder)).toContain("it lets in Users (S-1-5-32-545)");
     warnings.splice(0);
     const { message } = await open(join(folder, "control.sock"));
@@ -191,11 +191,11 @@ describe.skipIf(!isWindows)("Windows itself, an administrator's run: real access
 
   test("the shape with a deny entry: opens as it is", async () => {
     const folder = join(BASE, "deny");
-    expect(shapeFolder(folder).code).toBe(0);
-    expect(icacls(folder, "/deny", "*S-1-5-32-545:(OI)(CI)(W)").code).toBe(0);
+    // A deny entry for Guests: accepted by the rule, and it denies the runner nothing.
+    expect(made(shapeFolder(folder, HUB_SERVICE_SID, ["(D;OICI;FA;;;BG)"]))).toBe("made");
     warnings.splice(0);
     const { message } = await open(join(folder, "control.sock"));
-    row("the shape plus a deny entry for Users", message);
+    row("the shape plus a deny entry for Guests", message);
     expect(message).toBe("opened");
     expect(warnings).toEqual([]);
   });
@@ -248,7 +248,7 @@ describe.skipIf(!isWindows)("Windows itself, an administrator's run: real access
 
   test("an old socket file left by a killed process is removed and replaced", async () => {
     const folder = join(BASE, "stale");
-    expect(shapeFolder(folder).code).toBe(0);
+    expect(made(shapeFolder(folder))).toBe("made");
     const socket = join(folder, "control.sock");
     const script = `require("net").createServer().listen(${JSON.stringify(socket)}, () => process.kill(process.pid, "SIGKILL"))`;
     spawnSync(process.execPath, ["-e", script]);
@@ -260,7 +260,7 @@ describe.skipIf(!isWindows)("Windows itself, an administrator's run: real access
 
   test("a running hub's socket is not taken over; a file at the path is refused and left", async () => {
     const folder = join(BASE, "running");
-    expect(shapeFolder(folder).code).toBe(0);
+    expect(made(shapeFolder(folder))).toBe("made");
     const socket = join(folder, "control.sock");
     expect((await open(socket)).message).toBe("opened");
     const second = await windowsSocketSteps(WINDOWS_CALLS, { warn }).prepare(socket);
@@ -268,7 +268,7 @@ describe.skipIf(!isWindows)("Windows itself, an administrator's run: real access
       "another hub is running on this socket",
     );
     const other = join(BASE, "file");
-    expect(shapeFolder(other).code).toBe(0);
+    expect(made(shapeFolder(other))).toBe("made");
     writeFileSync(join(other, "control.sock"), "not a socket");
     const refused = await open(join(other, "control.sock"));
     expect(refused.message).toBe("something that is not a socket is at the socket's path");

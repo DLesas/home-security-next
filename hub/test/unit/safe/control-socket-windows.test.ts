@@ -47,6 +47,7 @@ import {
   ordinaryFolder,
   removeTree,
   runProgram,
+  made,
   shapeFolder,
   system32,
 } from "../shell-control/windows-folders.ts";
@@ -111,7 +112,7 @@ describe.skipIf(!isWindows)("on Windows, against the system's own tools", () => 
 
   test("a folder icacls made in the installer's shape reads as exactly that shape", () => {
     const folder = join(BASE, "shaped");
-    expect(shapeFolder(folder).code).toBe(0);
+    expect(made(shapeFolder(folder))).toBe("made");
     const descriptor = descriptorOf(folder);
     expect(descriptor.owner).toBe(ADMINISTRATORS_SID);
     expect(descriptor.control & SE_DACL_PROTECTED).toBe(SE_DACL_PROTECTED);
@@ -151,13 +152,15 @@ describe.skipIf(!isWindows)("on Windows, against the system's own tools", () => 
 
   test("inheritFromParent drops an object's own entries and leaves what it inherits", () => {
     const folder = join(BASE, "inherit");
-    expect(shapeFolder(folder).code).toBe(0);
+    // Shaped for the runner's own account as the service: icacls, used next to plant an entry,
+    // works only with accounts it can name, and NT SERVICE\HSNHub has no name on the runner.
+    expect(made(shapeFolder(folder, own()))).toBe("made");
     const file = join(folder, "planted.txt");
     writeFileSync(file, "x");
-    expect(icacls(file, "/grant", "*S-1-1-0:(R)").code).toBe(0);
+    expect(made(icacls(file, "/grant", "*S-1-1-0:(R)"))).toBe("made");
     expect(entries(file).some(([, sid]) => sid === "S-1-1-0")).toBe(true);
-    const made = WINDOWS_CALLS.inheritFromParent(file, EMPTY_ACL);
-    expect(made.isOk() ? "made" : made.error.message).toBe("made");
+    const inherited = WINDOWS_CALLS.inheritFromParent(file, EMPTY_ACL);
+    expect(inherited.isOk() ? "made" : inherited.error.message).toBe("made");
     expect(entries(file).some(([, sid]) => sid === "S-1-1-0")).toBe(false);
     expect(entries(file).every(([, , flags]) => ((flags as number) & INHERITED_ACE) !== 0)).toBe(
       true,
@@ -186,7 +189,7 @@ describe.skipIf(!isWindows)("on Windows, against the system's own tools", () => 
 
   test("an AF_UNIX socket file: the AF_UNIX tag, its list read, and its peer this process", async () => {
     const folder = join(BASE, "socket");
-    expect(shapeFolder(folder).code).toBe(0);
+    expect(made(shapeFolder(folder))).toBe("made");
     const path = join(folder, "probe.sock");
     const server = createServer();
     await new Promise<void>((resolve) => server.listen(path, resolve));
@@ -267,7 +270,7 @@ describe.skipIf(!isWindows)("on Windows, hsn.exe's calls (control-socket-hsn.ts)
     const aFolder = openNamedFileForReading(named, []);
     expect(aFolder.isErr() ? aFolder.error.kind : "opened").toBe("notAFile");
     const tree = join(BASE, "tree");
-    expect(shapeFolder(tree).code).toBe(0);
+    expect(made(shapeFolder(tree))).toBe("made");
     writeFileSync(join(tree, "hub.db"), "x");
     const inside = openNamedFileForReading(join(tree, "hub.db"), [tree]);
     expect(inside.isErr() ? inside.error.kind : "opened").toBe("insideHubTree");
@@ -335,7 +338,7 @@ describe.skipIf(!isWindows)("on Windows, hsn.exe's calls (control-socket-hsn.ts)
 
   test("an export refused: a hub tree, a link as target or folder", () => {
     const tree = join(BASE, "tree2");
-    expect(shapeFolder(tree).code).toBe(0);
+    expect(made(shapeFolder(tree))).toBe("made");
     const inside = beginExport(join(tree, "b.hsnb"), [tree]);
     expect(inside.isErr() ? inside.error.kind : "begun").toBe("insideHubTree");
     const mine = join(BASE, "mine2");

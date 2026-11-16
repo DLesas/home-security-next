@@ -46,6 +46,7 @@ import {
 import {
   icacls,
   isWindows,
+  made,
   shapeFolder,
   lockFolderTo,
   listVerdict,
@@ -279,10 +280,10 @@ beforeAll(() => {
   copyFileSync(process.execPath, join(BIN, "bun.exe"));
   expect(icacls(BIN, "/grant", "*S-1-5-32-545:(OI)(CI)RX").code).toBe(0);
   expect(icacls(OUT, "/grant", "*S-1-5-32-545:(OI)(CI)M").code).toBe(0);
-  const made = ensureOtherUser(password);
-  expect(made.code).toBe(0);
+  const account = ensureOtherUser(password);
+  expect(account.code).toBe(0);
   hubAccount.sid = parseSid(WINDOWS_CALLS.processSid()._unsafeUnwrap(), 0)._unsafeUnwrap().sid;
-  expect(shapeFolder(LOCKED).code).toBe(0);
+  expect(made(shapeFolder(LOCKED))).toBe("made");
   expect(lockFolderTo(ADMINS_ONLY, [ADMINISTRATORS, SYSTEM]).code).toBe(0);
   ordinaryFolder(OPEN);
   ordinaryFolder(EMPTY);
@@ -440,10 +441,10 @@ describe.skipIf(!enabled)("Windows: the real hub's command socket, reached by hs
   test("as the service (a stand-in account): a top folder of its shape opens; what is inside is made to inherit", async () => {
     const standIn = sidOfAccount(OTHER_USER);
     row("the second account's SID (the stand-in service account)", "a SID", standIn);
-    expect(shapeFolder(STAND_IN_SHAPED, standIn).code).toBe(0);
+    expect(made(shapeFolder(STAND_IN_SHAPED, standIn))).toBe("made");
     const planted = join(STAND_IN_SHAPED, "planted.txt");
     writeFileSync(planted, "made by an administrator, with an entry for Everyone of its own");
-    expect(icacls(planted, "/grant", "*S-1-1-0:(R)").code).toBe(0);
+    expect(made(icacls(planted, "/grant", "*S-1-1-0:(R)"))).toBe("made");
     const result = await runHelper("other", "windows-steps-as.ts", "steps-shaped", [
       STAND_IN_SHAPED,
     ]);
@@ -464,10 +465,10 @@ describe.skipIf(!enabled)("Windows: the real hub's command socket, reached by hs
 
   test("as the service (a stand-in account): an open top folder is refused with data_folder_open and left as it was; what is inside is made to inherit", async () => {
     const standIn = sidOfAccount(OTHER_USER);
-    expect(shapeFolder(STAND_IN_OPEN, standIn, ["*S-1-5-32-545:(OI)(CI)(RX)"]).code).toBe(0);
+    expect(made(shapeFolder(STAND_IN_OPEN, standIn, ["(A;OICI;0x1200a9;;;BU)"]))).toBe("made");
     const planted = join(STAND_IN_OPEN, "planted.txt");
     writeFileSync(planted, "x");
-    expect(icacls(planted, "/grant", "*S-1-1-0:(R)").code).toBe(0);
+    expect(made(icacls(planted, "/grant", "*S-1-1-0:(R)"))).toBe("made");
     const topBefore = listVerdict(STAND_IN_OPEN, { top: true, mode: "service" }, standIn);
     const result = await runHelper("other", "windows-steps-as.ts", "steps-open", [STAND_IN_OPEN]);
     row(
@@ -492,8 +493,8 @@ describe.skipIf(!enabled)("Windows: the real hub's command socket, reached by hs
 
   test("the real hub as the service (a stand-in account): refuses an open top folder with data_folder_open; opens its shape, and hsn's peer check finds it", async () => {
     const standIn = sidOfAccount(OTHER_USER);
-    expect(shapeFolder(STAND_IN_HUB_OPEN, standIn, ["*S-1-5-32-545:(OI)(CI)(RX)"]).code).toBe(0);
-    expect(shapeFolder(STAND_IN_HUB, standIn).code).toBe(0);
+    expect(made(shapeFolder(STAND_IN_HUB_OPEN, standIn, ["(A;OICI;0x1200a9;;;BU)"]))).toBe("made");
+    expect(made(shapeFolder(STAND_IN_HUB, standIn))).toBe("made");
     const hubArgs = (folder: string) => [
       "--data",
       folder,
