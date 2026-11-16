@@ -52,6 +52,13 @@ export const HISTORY_FORMAT = "hsn-history/1";
 /** The first bytes of every history file: how `restore` knows one (section 9). */
 export const HISTORY_MAGIC = `{"format":"${HISTORY_FORMAT}"`;
 
+/**
+ * At most about this many bytes of lines written in one piece ‡ (section 3's pieces of about
+ * 256 KB): a page of large rows ends its piece early, so a piece's work does not grow with a
+ * row's size.
+ */
+export const HISTORY_PIECE_BYTES = 256 * 1024;
+
 /** The history file's name for this hub at this time. */
 export function historyName(identity: Uint8Array, ms: number): string {
   return `hsn-${formatIdentity(identity)}-${stampOf(ms)}-history.jsonl`;
@@ -123,6 +130,8 @@ export class HistoryExport {
   #sent = 0;
   #bytes = 0;
   #lines = 0;
+  /** Every line's bytes so far, the first included: what a piece's work is bounded by. */
+  #lineBytes = 0;
   #hash: Hash = createHash("sha256");
   #ended: FileOutcome | undefined;
 
@@ -142,6 +151,11 @@ export class HistoryExport {
   /** The lines written so far, the first included. */
   get lines(): number {
     return this.#lines;
+  }
+
+  /** The bytes of lines written so far. */
+  get lineBytes(): number {
+    return this.#lineBytes;
   }
 
   /** The highest `seq` the file holds records up to. */
@@ -231,7 +245,9 @@ export class HistoryExport {
       this.#fill(empty);
       return undefined;
     }
+    const startBytes = this.#lineBytes;
     for (let written = 0; written < HISTORY_ROWS_PER_PAGE; written++) {
+      if (this.#lineBytes - startBytes >= HISTORY_PIECE_BYTES) break;
       let next: Page | undefined;
       for (const page of this.#pages) {
         if (page.at >= page.rows.length) {
@@ -320,6 +336,7 @@ export class HistoryExport {
     const bytes = this.#encoder.encode(`${JSON.stringify(value)}\n`);
     this.#pending.push(bytes);
     this.#pendingBytes += bytes.length;
+    this.#lineBytes += bytes.length;
     this.#lines += 1;
   }
 

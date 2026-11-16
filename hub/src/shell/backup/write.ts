@@ -14,7 +14,7 @@
  * The key is in the job and nowhere else: never logged, never in a message, never beside the file.
  */
 import type { Database } from "bun:sqlite";
-import { closeSync, fsyncSync, openSync, writeSync } from "node:fs";
+import { closeSync, fdatasyncSync, fsyncSync, openSync, writeSync } from "node:fs";
 import { join } from "node:path";
 import { sha256 } from "@noble/hashes/sha2.js";
 import {
@@ -132,6 +132,7 @@ export class BackupPieces {
   #name = "";
   #identity: Uint8Array = new Uint8Array();
   #bytes = 0;
+  #sealedPieces: number[] = [];
   #pruning: string[] = [];
   #ended: FileOutcome | undefined;
 
@@ -144,6 +145,11 @@ export class BackupPieces {
 
   get phase(): BackupPhase {
     return this.#phase;
+  }
+
+  /** The sealed bytes each `seal` piece wrote and synced, for the tests' bound on a piece's work. */
+  get sealedPieces(): readonly number[] {
+    return this.#sealedPieces;
   }
 
   #temporary(): string {
@@ -241,7 +247,11 @@ export class BackupPieces {
       return { kind: "failed", reason: "io", message: `the backup could not be sealed: ${sealed}` };
     let done = 0;
     while (done < sealed.length) done += writeSync(fd, sealed, done, sealed.length - done);
+    // Each piece's bytes reach the disk with the piece, so the last sync has one piece to flush,
+    // not the whole file (hosted Linux, 4 cores: a whole-file sync was a long turn).
+    fdatasyncSync(fd);
     this.#bytes += sealed.length;
+    this.#sealedPieces.push(sealed.length);
     if (stream.done) this.#phase = "sync";
     return undefined;
   }

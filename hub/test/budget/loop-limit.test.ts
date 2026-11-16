@@ -10,21 +10,23 @@
  * one sensor reporting faster than about every 82 ms (72 ms and the gateway's 20 ms "too late")
  * cannot have every report answered, whatever the hub does. Every 100 ms, each one is.
  *
- * - **Always (work, not time):** every door report sent is recorded and answered: each has a
- *   reply in `tx_event` whose outcome is Sent, none "radio busy" or "too late" (an event reply goes
- *   too late only if the hub held the report for about 1.5 s, the sensor's listening time at DR5,
- *   so a loaded machine does not fail it, a job done in one piece of that length does). And the
- *   order of the hub's
- *   own records shows the reports taken while a backup ran: door reports recorded after the
- *   `backup.now` request's record and before its `backup_written`. A backup done in one piece
- *   leaves none between. The two exports run too, and every report sent meanwhile is recorded,
- *   but their order cannot be shown: an export writes no record when it ends, and the order in
- *   which the test receives the gateway's frames and the export's lines is the sockets' (a
- *   one-piece export still arrives interleaved). Reported as a FROZEN-CHANGE.
- * - **Opt-in (`HSN_TIMING=1`, run alone):** the loop does not expose a turn's duration (reported
- *   as a FROZEN-CHANGE), so the 20 ms ‡ a turn cannot be asserted as such. What is asserted
- *   instead is section 3's consequence: a report is taken within about 50 ms of leaving the
- *   gateway, by the hub's own record of taking it (`rx_event.at_ms`) against the time it was sent.
+ * What a home can do (m2-design.md section 3, "The one piece that is not bounded"): a backup and a
+ * configuration export begin with one read of the whole configuration, kept by decision, so the
+ * configuration here is of a home's size with headroom (`PEOPLE` below), and what is large is the
+ * history, which grows in a real home and whose export's pieces must stay bounded.
+ *
+ * - **Always:** every door report sent is recorded and answered, each with a reply in `tx_event`
+ *   whose outcome is Sent, none "radio busy" or "too late" (the primary guard: a job that holds the
+ *   loop leaves the reports to be answered in a burst, and the gateway's one radio answers some
+ *   "radio busy"; an event reply goes too late only past about 1.5 s, so a loaded machine does
+ *   not fail it). And the hub's own longest turn during each job (`longestTurnMs` in `hsn status`,
+ *   reset when read) is under `LONGEST_TURN_BOUND_MS`, a bound for a loaded machine that a job
+ *   done in one piece passes many times over.
+ * - **Printed, not asserted:** the longest turn at the start (the hub opening its database, before
+ *   it listens: exempt by section 3), the core count, the jobs' windows, any reply not sent.
+ * - **Opt-in (`HSN_TIMING=1`, run alone):** section 3's 20 ms ‡ for each job's longest turn, and a
+ *   report taken within about 50 ms of leaving the gateway, by the hub's own record of taking it
+ *   (`rx_event.at_ms`) against the time it was sent.
  *
  * Not here: staging (the hub carries no publisher key in M2's builds, so a real hub refuses every
  * release before its pieces: `PUBLISHER_KEYS` is empty, and no option admits the test key), and
@@ -45,7 +47,7 @@ import {
   sealPacket,
 } from "@hsn/protocol";
 import { Session } from "../../cli/client.ts";
-import { bootId, deviceId } from "../../src/core/model/ids.ts";
+import { bootId, deviceId, recordSeq } from "../../src/core/model/ids.ts";
 import { mono } from "../../src/core/model/time.ts";
 import { DEFAULT_RULES } from "../../src/core/model/rules.ts";
 import { DeviceState, TxOutcome } from "../../src/core/model/rows.ts";
@@ -75,13 +77,27 @@ const SENSOR_KEY = new Uint8Array(16).map((_, i) => 0x90 + i);
 /** One report every 100 ms: the gateway's radio answers every one (see above). */
 const REPORT_EVERY_MS = 100;
 /**
- * Door reports the hub must record between the backup's request and its end: at least one (4 were
- * measured here, 0 with the backup done in one piece). The primary guard is the reply outcomes:
- * a job that holds the loop leaves the reports to be answered in a burst, and the gateway answers
- * some "radio busy". This one says, by the hub's own records, that the backup ran while reports
- * came; a higher count would depend on the machine's speed.
+ * People in the configuration: 4,000 with a 400-character name each, about 2 MB of configuration,
+ * some ten times a real home's 150 to 200 KB (section 3): headroom, and the single read of the
+ * whole configuration that starts a backup and a configuration export stays within a home's reach.
  */
-const AT_LEAST_DURING = 1;
+const PEOPLE = 4_000;
+/**
+ * The history of an earlier boot: 300,000 routine records (small) and 4,000 hub events with 4 KB
+ * of detail each (large lines), so the export with history runs for many report intervals in
+ * pieces of about 256 KB of lines.
+ */
+const HISTORY_ROUTINE = 300_000;
+const HISTORY_LARGE = 4_000;
+const LARGE_DETAIL_BYTES = 4096;
+/**
+ * The hub's longest turn during a job, always asserted: 250 ms, the bound A8's piece tests use for
+ * a loaded machine. A piece of 256 KB takes a few milliseconds here and some tens on a hosted
+ * machine of four cores; a whole job in one turn takes from hundreds of milliseconds to seconds.
+ */
+const LONGEST_TURN_BOUND_MS = 250;
+/** Section 3's limit a turn ‡, asserted only with `HSN_TIMING=1`. */
+const TURN_LIMIT_MS = 20;
 /** How often the bench lets the gateway deliver its due transmit results. */
 const PUMP_MS = 5;
 const START_TIMEOUT_MS = 20_000;
@@ -159,13 +175,24 @@ function seed(dataDir: string, backups: string): void {
   s.writer.stage(ops.map((op) => ({ kind: "write", durability: "now", op })));
   s.writer.flush("now")._unsafeUnwrap();
   s.db.transaction(() => {
-    const filler = "x".repeat(500);
-    for (let i = 1; i <= 200_000; i++)
+    const filler = "x".repeat(400);
+    for (let i = 1; i <= PEOPLE; i++)
       s.db.run(`INSERT INTO people VALUES (?, ?, 0, NULL, 0)`, [i, `person ${i} ${filler}`]);
   })();
   // The folder chosen already, with nothing due: the only backup is the one the test asks for.
   s.db.run(`UPDATE backup_state SET folder = ?`, [backups]);
-  writeOlderRows(s, { routinePerDay: 200_000, eventPerDay: 0 }, bootId(s.boot.id - 1));
+  const earlier = bootId(s.boot.id - 1);
+  writeOlderRows(s, { routinePerDay: HISTORY_ROUTINE, eventPerDay: 0 }, earlier);
+  s.db.transaction(() => {
+    const detail = JSON.stringify({ note: "y".repeat(LARGE_DETAIL_BYTES) });
+    for (let k = 0; k < HISTORY_LARGE; k++)
+      s.db.run(`INSERT INTO hub_events VALUES (?, ?, 1, 'info', 'test', 'large', ?, ?)`, [
+        recordSeq(earlier, HISTORY_ROUTINE + k) ?? 0,
+        Date.now() - 86_400_000 + k,
+        `a large record ${k}`,
+        detail,
+      ]);
+  })();
   s.writer.stop()._unsafeUnwrap();
   // Closed for certain before the hub opens it: `close()` alone may defer it, and the hub then
   // finds the database locked (as on a Linux runner).
@@ -452,23 +479,9 @@ describe("door reports while the hub writes whole files (section 3, the loop's t
     await endProcesses();
 
     const s = store(dataDir);
-    const seqOf = (sql: string): number =>
-      s.db.query<{ seq: number }, []>(sql).get()?.seq ?? Number.NaN;
-    const start = seqOf(
-      `SELECT max(seq) AS seq FROM commands WHERE kind = 'op' AND args LIKE '%"op":"backup.now"%'`,
-    );
-    // The backup's end: the first `backup_written` after its request.
-    const end = seqOf(
-      `SELECT min(seq) AS seq FROM hub_events WHERE code = 'backup_written' AND seq > ${start}`,
-    );
     const doors = s.db
       .query<{ n: number }, [number]>(`SELECT count(*) AS n FROM rx_event WHERE device_id = ?`)
       .get(SENSOR)?.n;
-    const duringBackup = s.db
-      .query<{ n: number }, [number, number, number]>(
-        `SELECT count(*) AS n FROM rx_event WHERE device_id = ? AND seq > ? AND seq < ?`,
-      )
-      .get(SENSOR, start, end)?.n;
     const taken = s.db
       .query<{ counter: number; at_ms: number }, [number]>(
         `SELECT counter, at_ms FROM rx_event WHERE device_id = ?`,
@@ -493,14 +506,12 @@ describe("door reports while the hub writes whole files (section 3, the loop's t
     s.db.close(true);
     // The backup asked for was written.
     expect(written).toBeGreaterThanOrEqual(1);
-    expect(Number.isFinite(end)).toBe(true);
     const answers = bench.seen;
     console.log(
       `${bench.sent} door reports sent, ${doors} recorded, ${answers.length} answered; ` +
-        `${duringBackup} recorded during the backup; ` +
         `configuration export ${configuration} bytes, history export ${history} bytes`,
     );
-    // The measuring run's figures: the hub's own longest turn in each phase, the machine's cores,
+    // The figures: the hub's own longest turn in each phase (the start's printed only), the cores,
     // and when each reply that was not sent was recorded, against the jobs' windows.
     console.log(
       `longest turn (ms): ${JSON.stringify(turns)}; cores: ${String(availableParallelism())} ` +
@@ -510,11 +521,15 @@ describe("door reports while the hub writes whole files (section 3, the loop's t
     // Every report is recorded (each is a new door change) and answered: its reply was sent.
     expect(doors).toBe(bench.sent);
     expect(replies).toEqual([{ outcome: TxOutcome.Sent, n: bench.sent }]);
-    // None waited for a whole job: the hub took reports between each job's pieces.
-    expect(duringBackup).toBeGreaterThanOrEqual(AT_LEAST_DURING);
-    // Each export ran long enough to span many chunks of 48 KB ‡ (many pieces).
-    expect(configuration).toBeGreaterThan(100 * 48 * 1024);
-    expect(history).toBeGreaterThan(100 * 48 * 1024);
+    // The exports ran: the configuration's (of a home's size), and the history's, which spans
+    // hundreds of chunks of 48 KB ‡ and so many pieces.
+    expect(configuration).toBeGreaterThan(48 * 1024);
+    expect(history).toBeGreaterThan(300 * 48 * 1024);
+    // No turn of the hub held the loop long during any job, by its own measure.
+    const held = (["backup", "configurationExport", "historyExport"] as const).filter(
+      (job) => !((turns[job] ?? Number.POSITIVE_INFINITY) <= LONGEST_TURN_BOUND_MS),
+    );
+    expect(held).toEqual([]);
     if (TIMING) {
       // From a report leaving the gateway to the hub's own record of taking it (`at_ms`, on the
       // same computer's clock): section 3's "within about 50 ms" behind a piece and a commit.
@@ -522,6 +537,12 @@ describe("door reports while the hub writes whole files (section 3, the loop's t
       const longest = Math.max(...waits);
       console.log(`longest wait for a report to be taken: ${longest} ms`);
       expect(longest).toBeLessThanOrEqual(TAKEN_WITHIN_MS);
+      // Section 3's 20 ms ‡ a turn, during every job.
+      expect(
+        (["backup", "configurationExport", "historyExport"] as const).filter(
+          (job) => !((turns[job] ?? Number.POSITIVE_INFINITY) <= TURN_LIMIT_MS),
+        ),
+      ).toEqual([]);
     }
   }, 180_000);
 });
