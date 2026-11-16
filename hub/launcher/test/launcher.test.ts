@@ -5,14 +5,13 @@
  * version removed, and the rollbacks: on an exit before health, on a hang, and with the
  * pre-migration copy put back.
  */
-import { afterAll, beforeEach, describe, expect, test } from "bun:test";
+import { afterAll, beforeEach, describe, expect, setDefaultTimeout, test } from "bun:test";
 import {
   chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
-  readlinkSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -23,7 +22,6 @@ import { Backoff } from "../src/backoff.ts";
 import { Launcher, type LauncherOptions, STATUS_FILE } from "../src/launcher.ts";
 import { installPaths, isVersionName, parseLauncherState, parseSwitchNote } from "../src/layout.ts";
 import { parseLauncherArgs } from "../src/main.ts";
-import { selectVersion } from "../src/select.ts";
 
 const FAKE_HUB = join(import.meta.dir, "fake-hub.ts");
 const RULES = {
@@ -32,6 +30,9 @@ const RULES = {
   restartMeExitCode: 70,
 };
 const folders: string[] = [];
+// Real child processes: on a machine running the whole suite a start can take seconds; the
+// waits below (`until`, 8 s) bound each test, not the runner's 5 s default.
+setDefaultTimeout(20_000);
 
 afterAll(async () => {
   await endProcesses();
@@ -39,28 +40,42 @@ afterAll(async () => {
 });
 
 interface Install {
-  readonly prefix: string;
+  /** The package's tree: `packaged/<version>/`. */
+  readonly packageRoot: string;
+  /** The hub's program tree: `staged/<version>/`, `state/`. */
+  readonly programRoot: string;
   readonly data: string;
 }
 
 let install: Install;
 
-/** An install folder with these versions, each a fake hub, and a data folder. */
-function installWith(versions: readonly string[]): Install {
+/** The two trees with these versions, each a fake hub, and a data folder. */
+function installWith(packaged: readonly string[], staged: readonly string[] = []): Install {
   const root = mkdtempSync(join(tmpdir(), "hsn-launcher-"));
   folders.push(root);
-  const prefix = join(root, "prefix");
+  const packageRoot = join(root, "package");
+  const programRoot = join(root, "program");
   const data = join(root, "data");
-  mkdirSync(join(prefix, "state"), { recursive: true });
+  mkdirSync(join(packageRoot, "packaged"), { recursive: true });
+  mkdirSync(join(programRoot, "state"), { recursive: true });
   mkdirSync(data, { recursive: true });
-  for (const version of versions) {
-    const bin = join(prefix, "versions", version, "bin");
+  const all = [
+    ...packaged.map((v) => join(packageRoot, "packaged", v)),
+    ...staged.map((v) => join(programRoot, "staged", v)),
+  ];
+  for (const folder of all) {
+    const version = folder.split(/[\\/]/u).at(-1) ?? "";
+    const bin = join(folder, "bin");
     mkdirSync(bin, { recursive: true });
     const program = join(bin, "hsn-hub");
     writeFileSync(program, `#!/bin/sh\nexec "${process.execPath}" "${FAKE_HUB}" ${version} "$@"\n`);
     chmodSync(program, 0o755);
   }
-  return { prefix, data };
+  return { packageRoot, programRoot, data };
+}
+
+function paths(): ReturnType<typeof installPaths> {
+  return installPaths(install.programRoot, install.packageRoot);
 }
 
 function plan(version: string, steps: readonly object[]): void {
@@ -73,19 +88,20 @@ function startsLog(): string[] {
 }
 
 function state(): ReturnType<typeof parseLauncherState> {
-  return parseLauncherState(readFileSync(installPaths(install.prefix).launcherFile, "utf8"));
+  return parseLauncherState(readFileSync(paths().launcherFile, "utf8"));
 }
 
 function current(version: string, previous: string | null = null): void {
   writeFileSync(
-    installPaths(install.prefix).launcherFile,
+    paths().launcherFile,
     JSON.stringify({ current: version, previous, trial: null, rolledBack: null }),
   );
 }
 
 function launcher(options: Partial<LauncherOptions> = {}): Launcher {
   return new Launcher({
-    prefix: install.prefix,
+    packageRoot: install.packageRoot,
+    programRoot: install.programRoot,
     dataDir: install.data,
     rules: RULES,
     healthyWithinMs: 1500,
@@ -167,12 +183,26 @@ describe("the notes", () => {
   });
 
   test("the arguments", () => {
-    expect(parseLauncherArgs(["--prefix", "/p", "--data", "/d", "--", "--port", "0"])).toEqual({
-      prefix: "/p",
-      dataDir: "/d",
-      hubArgs: ["--port", "0"],
-    });
-    expect(parseLauncherArgs(["--data", "/d"])).toBe("--prefix needs the install folder");
+    expect(
+      parseLauncherArgs([
+        "--package",
+        "/k",
+        "--program",
+        "/p",
+        "--data",
+        "/d",
+        "--",
+        "--port",
+        "0",
+      ]),
+    ).toEqual({ packageRoot: "/k", programRoot: "/p", dataDir: "/d", hubArgs: ["--port", "0"] });
+    expect(parseLauncherArgs(["--program", "/p", "--data", "/d"])).toBe(
+      "--package needs the package's tree",
+    );
+    // No installer chooses a version any more (section 9, "The privilege boundary").
+    expect(
+      parseLauncherArgs(["--package", "/k", "--program", "/p", "--data", "/d", "--select", "1"]),
+    ).toBe("unknown argument --select");
   });
 });
 
@@ -264,7 +294,7 @@ describe("restarts", () => {
   });
 
   test("a program that cannot start is a failure, retried with the backoff", async () => {
-    current("2.0.0");
+    rmSync(join(install.packageRoot, "packaged", "1.0.0", "bin", "hsn-hub"));
     const l = launcher();
     const ran = l.run();
     await Bun.sleep(400);
@@ -273,19 +303,23 @@ describe("restarts", () => {
     expect(l.starts).toBe(0);
   });
 
-  test("with no state, the one installed version is current, and current points at it", async () => {
+  test("with no state, the newest packaged version is current, with no trial", async () => {
     plan("1.0.0", [{ exit: 0 }]);
     expect(await launcher().run()).toBe(0);
-    expect(state()).toEqual({ current: "1.0.0", previous: null, trial: null, rolledBack: null });
-    expect(readlinkSync(installPaths(install.prefix).current)).toBe(
-      join(install.prefix, "versions", "1.0.0"),
-    );
+    expect(state()).toEqual({
+      current: "1.0.0",
+      previous: null,
+      trial: null,
+      rolledBack: null,
+      failed: [],
+    });
   });
 });
 
 describe("updates", () => {
   beforeEach(() => {
-    install = installWith(["0.9.0", "1.0.0", "1.1.0"]);
+    // 1.0.0 the package's; 0.9.0 and 1.1.0 staged by the hub (1.1.0 not yet switched to).
+    install = installWith(["1.0.0"], ["0.9.0", "1.1.0"]);
     current("1.0.0", "0.9.0");
     writeFileSync(join(install.data, "hub.db"), "the database of 1.0.0");
   });
@@ -296,13 +330,17 @@ describe("updates", () => {
     const l = launcher();
     const ran = l.run();
     expect(await until(() => state()?.trial === null && state()?.current === "1.1.0")).toBe(true);
-    expect(state()).toEqual({ current: "1.1.0", previous: "1.0.0", trial: null, rolledBack: null });
-    expect(existsSync(join(install.prefix, "versions", "0.9.0"))).toBe(false);
-    expect(existsSync(join(install.prefix, "versions", "1.0.0"))).toBe(true);
-    expect(existsSync(installPaths(install.prefix).switchFile)).toBe(false);
-    expect(readlinkSync(installPaths(install.prefix).current)).toBe(
-      join(install.prefix, "versions", "1.1.0"),
-    );
+    expect(state()).toEqual({
+      current: "1.1.0",
+      previous: "1.0.0",
+      trial: null,
+      rolledBack: null,
+      failed: [],
+    });
+    // The hub's tree pruned; the package's never touched.
+    expect(existsSync(join(install.programRoot, "staged", "0.9.0"))).toBe(false);
+    expect(existsSync(join(install.packageRoot, "packaged", "1.0.0"))).toBe(true);
+    expect(existsSync(paths().switchFile)).toBe(false);
     l.stop();
     expect(await ran).toBe(0);
     expect(startsLog()).toEqual(["1.0.0 1", "1.1.0 1", "1.1.0 clean"]);
@@ -356,6 +394,30 @@ describe("updates", () => {
     expect(await ran).toBe(0);
   });
 
+  test("rollback puts back only a whole copy new since the trial began: a leftover hub.db.copying never, and hub.db stays", async () => {
+    writeFileSync(join(install.data, "hub.db.before-1"), "an older copy");
+    plan("1.0.0", [{ switchTo: "1.1.0" }, { hang: true }]);
+    plan("1.1.0", [{ leftover: true, exit: 71 }]);
+    const l = launcher();
+    const ran = l.run();
+    expect(await until(() => startsLog().length === 3)).toBe(true);
+    expect(readFileSync(join(install.data, "hub.db"), "utf8")).toBe("the database of 1.0.0");
+    expect(readFileSync(join(install.data, "hub.db.copying"), "utf8")).toBe("half a cop");
+    l.stop();
+    expect(await ran).toBe(0);
+  });
+
+  test("no copy made at all (nothing to migrate, or stopped before): nothing put back", async () => {
+    plan("1.0.0", [{ switchTo: "1.1.0" }, { hang: true }]);
+    plan("1.1.0", [{ exit: 1 }]);
+    const l = launcher();
+    const ran = l.run();
+    expect(await until(() => startsLog().length === 3)).toBe(true);
+    expect(readFileSync(join(install.data, "hub.db"), "utf8")).toBe("the database of 1.0.0");
+    l.stop();
+    expect(await ran).toBe(0);
+  });
+
   test("a copy that was there before the switch is not put back", async () => {
     writeFileSync(join(install.data, "hub.db.before-1"), "an older copy");
     plan("1.0.0", [{ switchTo: "1.1.0" }, { hang: true }]);
@@ -394,25 +456,150 @@ describe("updates", () => {
   });
 });
 
-describe("an installer's choice of version", () => {
-  test("the version put in becomes current, the one before is kept, a third removed", () => {
-    install = installWith(["0.9.0", "1.0.0", "1.1.0"]);
-    current("1.0.0", "0.9.0");
-    expect(selectVersion(install.prefix, "1.1.0").isOk()).toBe(true);
-    expect(state()).toEqual({ current: "1.1.0", previous: "1.0.0", trial: null, rolledBack: null });
-    expect(existsSync(join(install.prefix, "versions", "0.9.0"))).toBe(false);
-    expect(readlinkSync(installPaths(install.prefix).current)).toBe(
-      join(install.prefix, "versions", "1.1.0"),
-    );
-    // Again with the same version (a reinstall): nothing lost.
-    expect(selectVersion(install.prefix, "1.1.0").isOk()).toBe(true);
-    expect(state()?.previous).toBe("1.0.0");
+describe('a package\'s version (section 9, "The privilege boundary")', () => {
+  test("a newer packaged version: on trial at the next start, told so; healthy as an update is, it stays", async () => {
+    install = installWith(["1.0.0", "1.1.0"]);
+    current("1.0.0");
+    writeFileSync(join(install.data, "hub.db.before-1"), "an older copy");
+    // The hub's shell writes healthy.json for a package's trial as for an update (notes.ts).
+    plan("1.1.0", [{ healthy: true }]);
+    const seen: (ReturnType<typeof state> | undefined)[] = [];
+    const envs: Readonly<Record<string, string | undefined>>[] = [];
+    const l = launcher({
+      spawn: (command, env) => {
+        seen.push(state());
+        envs.push(env);
+        return spawnTracked([...command], {
+          env,
+          stdin: "ignore",
+          stdout: "ignore",
+          stderr: "ignore",
+        });
+      },
+    });
+    const ran = l.run();
+    expect(await until(() => state()?.trial === null && state()?.current === "1.1.0")).toBe(true);
+    expect(seen[0]?.trial).toMatchObject({ version: "1.1.0", from: "1.0.0", byPackage: true });
+    expect(seen[0]?.trial?.copiesBefore.map((c) => c.name)).toEqual(["hub.db.before-1"]);
+    expect(envs[0]?.HSN_PACKAGE_TRIAL).toBe("1.1.0");
+    expect(state()).toEqual({
+      current: "1.1.0",
+      previous: "1.0.0",
+      trial: null,
+      rolledBack: null,
+      failed: [],
+    });
+    l.stop();
+    expect(await ran).toBe(0);
   });
 
-  test("a version that is not installed, or not a version's name, is refused", () => {
+  test("a packaged version that fails its first start: rolled back, its copy put back, never tried again", async () => {
+    install = installWith(["1.0.0", "1.1.0"]);
+    current("1.0.0");
+    writeFileSync(join(install.data, "hub.db"), "the database of 1.0.0");
+    plan("1.1.0", [{ migrate: 4, exit: 78 }]);
+    plan("1.0.0", [{ exit: 3 }, { hang: true }]);
+    const l = launcher();
+    const ran = l.run();
+    expect(await until(() => startsLog().length === 3)).toBe(true);
+    // After the rollback 1.0.0 fails once and is restarted: 1.1.0 is not tried again.
+    expect(startsLog()).toEqual(["1.1.0 1", "1.0.0 1", "1.0.0 2"]);
+    expect(state()).toMatchObject({
+      current: "1.0.0",
+      trial: null,
+      rolledBack: { from: "1.1.0" },
+      failed: ["1.1.0"],
+    });
+    expect(readFileSync(join(install.data, "hub.db"), "utf8")).toBe("the database of 1.0.0");
+    l.stop();
+    expect(await ran).toBe(0);
+  });
+
+  test("a packaged version that runs but never becomes healthy: rolled back after the 60 s (here 1.5 s)", async () => {
+    install = installWith(["1.0.0", "1.1.0"]);
+    current("1.0.0");
+    plan("1.1.0", [{ hang: true }]);
+    plan("1.0.0", [{ hang: true }]);
+    const l = launcher();
+    const ran = l.run();
+    // The new version is stopped (its "clean" line), then the old one started.
+    expect(await until(() => startsLog().includes("1.0.0 1"), 6000)).toBe(true);
+    expect(state()).toMatchObject({ current: "1.0.0", rolledBack: { from: "1.1.0" } });
+    l.stop();
+    expect(await ran).toBe(0);
+  });
+
+  test("a version the hub staged but has not switched to never runs by itself", async () => {
+    install = installWith(["1.0.0"], ["2.0.0"]);
+    current("1.0.0");
+    plan("1.0.0", [{ exit: 0 }]);
+    expect(await launcher().run()).toBe(0);
+    expect(startsLog()).toEqual(["1.0.0 1"]);
+  });
+
+  test("the hub is told both trees: HSN_PROGRAM and HSN_PACKAGE", async () => {
     install = installWith(["1.0.0"]);
-    expect(selectVersion(install.prefix, "2.0.0").isErr()).toBe(true);
-    expect(selectVersion(install.prefix, "../x").isErr()).toBe(true);
+    plan("1.0.0", [{ exit: 0 }]);
+    const envs: Readonly<Record<string, string | undefined>>[] = [];
+    const l = launcher({
+      spawn: (command, env) => {
+        envs.push(env);
+        return spawnTracked([...command], {
+          env,
+          stdin: "ignore",
+          stdout: "ignore",
+          stderr: "ignore",
+        });
+      },
+    });
+    expect(await l.run()).toBe(0);
+    expect(envs[0]).toMatchObject({
+      HSN_PROGRAM: install.programRoot,
+      HSN_PACKAGE: install.packageRoot,
+    });
+  });
+
+  test("the same version in both trees runs from the package's", async () => {
+    install = installWith(["1.0.0"], ["1.0.0"]);
+    current("1.0.0");
+    plan("1.0.0", [{ exit: 0 }]);
+    const commands: string[] = [];
+    const l = launcher({
+      spawn: (command, env) => {
+        commands.push(command[0] ?? "");
+        return spawnTracked([...command], {
+          env,
+          stdin: "ignore",
+          stdout: "ignore",
+          stderr: "ignore",
+        });
+      },
+    });
+    expect(await l.run()).toBe(0);
+    expect(commands[0]?.startsWith(join(install.packageRoot, "packaged"))).toBe(true);
+  });
+
+  test("a current version no tree holds any more gives way to the newest packaged one", async () => {
+    install = installWith(["1.2.0"]);
+    current("1.0.0");
+    plan("1.2.0", [{ exit: 0 }]);
+    expect(await launcher().run()).toBe(0);
+    expect(startsLog()).toEqual(["1.2.0 1"]);
+    expect(state()?.current).toBe("1.2.0");
+  });
+
+  test("the launcher never writes the package's tree", async () => {
+    install = installWith(["1.0.0", "1.1.0"]);
+    current("1.0.0");
+    plan("1.1.0", [{ exit: 1 }]);
+    plan("1.0.0", [{ exit: 0 }]);
+    chmodSync(install.packageRoot, 0o555);
+    chmodSync(join(install.packageRoot, "packaged"), 0o555);
+    const l = launcher();
+    expect(await l.run()).toBe(0);
+    expect(startsLog()).toEqual(["1.1.0 1", "1.0.0 1"]);
+    chmodSync(join(install.packageRoot, "packaged"), 0o755);
+    chmodSync(install.packageRoot, 0o755);
   });
 });
 
@@ -424,8 +611,10 @@ describe("as a process", () => {
       [
         Bun.argv[0] ?? "bun",
         join(import.meta.dir, "..", "src", "main.ts"),
-        "--prefix",
-        install.prefix,
+        "--package",
+        install.packageRoot,
+        "--program",
+        install.programRoot,
         "--data",
         install.data,
       ],

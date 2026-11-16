@@ -27,6 +27,7 @@ import {
   writeSync,
 } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
+import { dirname } from "node:path";
 import { err, ok, Result, ResultAsync } from "neverthrow";
 import type { HubError, HubErrorKind } from "../../core/model/errors.ts";
 import { errorFrom, thrownCode } from "./thrown.ts";
@@ -149,6 +150,65 @@ export function replaceDurably<K extends HubErrorKind>(
       closeSync(fd);
     }
     renameSync(temporary, path);
+  });
+}
+
+/**
+ * Puts a file written beside its final name in place, durably: the file synced, renamed over
+ * `path`, and the folder synced, so a power cut leaves either nothing at `path` (or what was
+ * there) or the whole file, never a part of it. On Windows a folder cannot be opened to sync; the
+ * rename itself is then the last step.
+ */
+export function placeDurably<K extends HubErrorKind>(
+  caller: FsCaller<K>,
+  temporary: string,
+  path: string,
+): Result<void, FsError<K>> {
+  return attempt(caller, `put ${temporary} in place as ${path}`, () => {
+    const fd = openSync(temporary, "r+");
+    try {
+      fsyncSync(fd);
+    } finally {
+      closeSync(fd);
+    }
+    renameSync(temporary, path);
+    if (process.platform === "win32") return;
+    const folder = openSync(dirname(path), "r");
+    try {
+      fsyncSync(folder);
+    } finally {
+      closeSync(folder);
+    }
+  });
+}
+
+/**
+ * Takes every permission for the group and others off everything inside `root`, as the account
+ * that owns it (m2-design.md section 9, "The privilege boundary": the hub tightens its own trees'
+ * contents at every start). A link is never followed and never changed: only plain files and
+ * folders are, and a folder is entered only by its own entry, found by `lstat`. Returns how many
+ * entries it changed. macOS and Linux; on Windows the lists are A11's (`control/windows.ts`).
+ */
+export function tightenContents<K extends HubErrorKind>(
+  caller: FsCaller<K>,
+  root: string,
+): Result<number, FsError<K>> {
+  return attempt(caller, `tighten what is inside ${root}`, () => {
+    let changed = 0;
+    const walk = (folder: string): void => {
+      for (const entry of readdirSync(folder, { withFileTypes: true })) {
+        const path = `${folder}/${entry.name}`;
+        const stats = lstatSync(path);
+        if (stats.isSymbolicLink() || !(stats.isFile() || stats.isDirectory())) continue;
+        if ((stats.mode & 0o077) !== 0) {
+          chmodSync(path, stats.mode & 0o7700);
+          changed += 1;
+        }
+        if (stats.isDirectory()) walk(path);
+      }
+    };
+    walk(root);
+    return changed;
   });
 }
 

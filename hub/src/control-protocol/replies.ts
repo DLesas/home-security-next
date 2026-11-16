@@ -79,6 +79,12 @@ const statusResult = z
     databaseBytes: z.int().min(0).nullable(),
     /** Whether the size guard is shortening history to stay within the disk limit. */
     historyShortened: z.boolean(),
+    /**
+     * The longest turn of the loop since the hub started or since the last `hsn status`, in
+     * milliseconds (section 3's limit per turn): the shell fills it in, and reading it starts
+     * the count again. Always 0 under lockstep, so runs never differ by it.
+     */
+    longestTurnMs: z.number().min(0),
   })
   .readonly();
 

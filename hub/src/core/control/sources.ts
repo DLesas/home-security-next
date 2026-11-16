@@ -133,6 +133,7 @@ function status(view: HubState, now: Now): StatusResult {
     stagedItems: 0,
     databaseBytes: null,
     historyShortened: false,
+    longestTurnMs: 0,
   };
 }
 

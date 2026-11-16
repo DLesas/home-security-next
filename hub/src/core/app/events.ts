@@ -277,15 +277,6 @@ export function eventsOf(sending: Sending, ctx: Context, message: Internal): voi
     );
     return;
   }
-  if (message.kind === "countdownCancelled") {
-    const sensor = message.sensor;
-    sending.event(view, "countdown", (_session, actor) =>
-      mayView(view, actor, sensor)
-        ? { sensor, what: "cancelled", secondsLeft: 0, trigger: message.cause }
-        : undefined,
-    );
-    return;
-  }
   if (message.kind === "auditRecord") {
     decisionEvents(sending, ctx, message.record);
     recordEvents(sending, view, message.record);

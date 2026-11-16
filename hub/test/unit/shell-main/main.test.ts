@@ -3,7 +3,7 @@
  * starts it refuses, and a clean stop. A crash is the `kill -9` layer's (`test/crash/kill.test.ts`).
  */
 import { afterAll, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { socketPath } from "../../../cli/paths.ts";
 import { DEFAULT_RULES } from "../../../src/core/model/rules.ts";
@@ -79,14 +79,17 @@ describe("starts it refuses (section 10)", () => {
     const file = join(root, "not-a-folder");
     writeFileSync(file, "x");
     expect(
-      await runHub({
-        dataDir: file,
-        port: 0,
-        serial: [],
-        watchUsb: false,
-        lockstep: undefined,
-        appPorts: { lan: 0, console: 0 },
-      }),
+      await runHub(
+        {
+          dataDir: file,
+          port: 0,
+          serial: [],
+          watchUsb: false,
+          lockstep: undefined,
+          appPorts: { lan: 0, console: 0 },
+        },
+        { publisherKeys: [] },
+      ),
     ).toBe(78);
   });
 
@@ -116,6 +119,13 @@ describe("a clean stop (section 7)", () => {
     const code = await hub.exited;
     expect(up).toBe(true);
     expect(code).toBe(0);
+    // The clean stop checkpointed and closed `hub.db`: its write-ahead log empty or gone (macOS's
+    // SQLite keeps the empty file), so a switch's last step finds the database whole (section 9).
+    const wal = join(dataDir, "hub.db-wal");
+    expect(existsSync(wal) ? statSync(wal).size : 0).toBe(0);
+    // The hub's process makes its files its own alone (umask 077, section 9).
+    if (process.platform !== "win32")
+      expect(statSync(join(dataDir, "hub.db")).mode & 0o077).toBe(0);
   }, 20_000);
 
   test("SIGTERM as soon as the process runs, while it starts: still a clean stop", async () => {

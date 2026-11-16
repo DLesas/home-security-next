@@ -7,19 +7,12 @@
  * request's reply, into a temporary file renamed when the hash matches.
  */
 import { createHash } from "node:crypto";
-import {
-  lstatSync,
-  mkdirSync,
-  readdirSync,
-  readFileSync,
-  renameSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { lstatSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { FILE_CHUNKS } from "@hsn/protocol/app";
 import { err, ok, Result } from "neverthrow";
 import type { ChunkLine, ControlError, ReplyLine } from "../src/control-protocol/index.ts";
 import type { ClientError, Session } from "./client.ts";
+import { directFiles, type NamedFiles } from "./named-files.ts";
 
 /** A command that carries a file, as `hsn`'s command line gives it. */
 export type FileCommand =
@@ -46,30 +39,12 @@ export interface FileIo {
   /** Asks a question and gives the answer's line. */
   readonly ask: (question: string) => Promise<string>;
   readonly nowMs: () => number;
+  /**
+   * How the named file is opened (`named-files.ts`): as this account, or, under `sudo`, through
+   * the invoking user's helper (`file-helper.ts`). Directly when not given.
+   */
+  readonly files?: NamedFiles;
 }
-
-const readFile = Result.fromThrowable(
-  (path: string) => new Uint8Array(readFileSync(path)),
-  (e) => `cannot read the file: ${e instanceof Error ? e.message : String(e)}`,
-);
-const writeFile = Result.fromThrowable(
-  (path: string, bytes: Uint8Array) => {
-    writeFileSync(path, bytes, { mode: 0o600 });
-  },
-  (e) => `cannot write the file: ${e instanceof Error ? e.message : String(e)}`,
-);
-const rename = Result.fromThrowable(
-  (from: string, to: string) => {
-    renameSync(from, to);
-  },
-  (e) => `cannot rename the file: ${e instanceof Error ? e.message : String(e)}`,
-);
-const remove = Result.fromThrowable(
-  (path: string) => {
-    rmSync(path, { force: true });
-  },
-  () => undefined,
-);
 
 // ----- The hub's data folder, for what a refused connection means (client.ts) -----
 
@@ -234,7 +209,7 @@ export async function runFileCommand(
 ): Promise<Result<FileDone, FileFailure>> {
   switch (command.kind) {
     case "updateInstall": {
-      const file = readFile(command.path);
+      const file = await (io.files ?? directFiles).read(command.path);
       if (file.isErr()) return err({ kind: "file", message: file.error });
       const uploaded = await upload(session, actor, file.value, timeoutMs);
       if (uploaded.isErr()) return err(uploaded.error);
@@ -248,7 +223,7 @@ export async function runFileCommand(
       return staged.map((body) => [`staged: version ${String(field(body, "version"))}`]);
     }
     case "restore": {
-      const file = readFile(command.path);
+      const file = await (io.files ?? directFiles).read(command.path);
       if (file.isErr()) return err({ kind: "file", message: file.error });
       const uploaded = await upload(session, actor, file.value, timeoutMs);
       if (uploaded.isErr()) return err(uploaded.error);
@@ -321,12 +296,15 @@ export async function runFileCommand(
           kind: "file",
           message: "the export arrived with a gap, a wrong total or a wrong hash",
         });
-      const temporary = `${command.path}.part`;
-      const written = writeFile(temporary, bytes).andThen(() => rename(temporary, command.path));
-      if (written.isErr()) {
-        remove(temporary).unwrapOr(undefined);
-        return err({ kind: "file", message: written.error });
-      }
+      // Written beside the target, exclusively, never through a link, renamed once the hash
+      // matches (`named-files.ts`); as the person under `sudo` (`file-helper.ts`).
+      const written = await (io.files ?? directFiles).write(
+        command.path,
+        new Uint8Array(bytes),
+        end.sha256,
+        io.out,
+      );
+      if (written.isErr()) return err({ kind: "file", message: written.error });
       return ok([`exported ${bytes.length} bytes to ${command.path}`]);
     }
   }

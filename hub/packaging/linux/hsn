@@ -1,3 +1,7 @@
 #!/bin/sh
-# `hsn` (hub-design.md section 9), for administrators: `sudo hsn …` (m2-design.md section 9, W2).
-HSN_DATA_DIR=/var/lib/hsn-hub exec /opt/hsn-hub/current/bin/hsn-hub cli "$@"
+# `hsn` on the path (m2-design.md section 9, W2, "The privilege boundary"), for administrators:
+# `sudo hsn …`. The package's own `hsn` executable, root's, in the package's tree, with the data
+# folder named so nothing from the environment or the working folder chooses it.
+set -eu
+cd /
+exec /usr/lib/hsn-hub/bin/hsn --data /var/lib/hsn-hub "$@"

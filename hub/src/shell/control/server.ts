@@ -92,6 +92,8 @@ export interface ControlServerOptions {
   /** A device's id by its name, from the core's registry, for `--follow --device`. */
   readonly deviceIdOf: (name: string) => number | undefined;
   readonly writerStatus: () => WriterStatus;
+  /** The loop's longest turn since the last read (`HubLoop.takeLongestTurnMs`); 0 without it. */
+  readonly longestTurnMs?: () => number;
   /** Also told of each rejected line, after it reached the core (tests watch it). */
   readonly onRejected?: (rejection: Rejection) => void;
   /**
@@ -100,10 +102,15 @@ export interface ControlServerOptions {
    */
   readonly steps?: SocketSteps;
   /**
-   * Told `data_folder_was_open` when the Windows steps find the data folder open (m2-design.md
-   * section 9); standard error when not given.
+   * Told `data_folder_open` or `data_folder_was_open` when the Windows steps find a top folder
+   * open (m2-design.md section 9); standard error when not given.
    */
   readonly onWarning?: WarningSink;
+  /**
+   * Windows: the hub's other top folders, checked as the data folder is (the program folder,
+   * m2-design.md section 9, "The privilege boundary"); none elsewhere.
+   */
+  readonly otherTopFolders?: readonly string[];
   /**
    * The shell's one counter of connections, shared with the app listeners (m2-design.md section
    * 6): each control connection is a `ConnId`, so an upload on it is `UploadRef {conn, job}`.
@@ -173,7 +180,9 @@ export class UnixControlServer implements Control {
    * the listener is closed again, so a socket that failed its check never serves.
    */
   static open(options: ControlServerOptions): ResultAsync<UnixControlServer, HubError> {
-    const steps = options.steps ?? socketStepsFor(process.platform, options.onWarning);
+    const steps =
+      options.steps ??
+      socketStepsFor(process.platform, options.onWarning, options.otherTopFolders ?? []);
     return steps.prepare(options.socketPath).andThen(() => {
       const server = createServer();
       const instance = new UnixControlServer(options, steps, server);
@@ -476,6 +485,7 @@ export class UnixControlServer implements Control {
         stagedItems: status.stagedItems,
         databaseBytes: status.databaseBytes,
         historyShortened: status.historyShortened,
+        longestTurnMs: this.#options.longestTurnMs?.() ?? 0,
       },
     };
   }

@@ -3,9 +3,15 @@
  * small program the service manager starts, which starts the hub and turns a broken update into a
  * short outage instead of a dead hub.
  *
- * - It runs `<prefix>/versions/<current>/bin/hsn-hub --data <folder> …` and restarts it on any
- *   exit but 0, with the backoff of `backoff.ts`. It exits only for a clean stop (0): when the
- *   service manager stops it, or when the hub stopped cleanly by itself.
+ * - It runs the current version's `bin/hsn-hub --data <folder> …`, from the package's tree or the
+ *   hub's (`layout.ts`), as the hub's account, and restarts it on any exit but 0, with the backoff
+ *   of `backoff.ts`. It exits only for a clean stop (0): when the service manager stops it, or
+ *   when the hub stopped cleanly by itself.
+ * - **Which version** (section 9, "The privilege boundary"): at each start the newest packaged
+ *   version not marked failed; a newer one than the version that ran is put on trial as after a
+ *   switch (a package's upgrade needs no elevated step). A version the hub staged runs only once
+ *   the hub switched to it (`switch.json`), so an update staged but not approved never runs
+ *   (SPEC-QUESTION in the report: the section says "the newest present in either tree").
  * - **A switch.** The hub writes `switch.json` and exits 70 (`shell/update/`). The launcher puts the
  *   new version on trial: `current` is the new one, the pre-migration copies in the data folder are
  *   noted, and the new version is started.
@@ -24,15 +30,15 @@ import { join } from "node:path";
 import { err, ok, Result, type Result as R } from "neverthrow";
 import { LAUNCHER, UPDATES } from "../../src/shell/m2-values.ts";
 import { Backoff, type BackoffRules, type Next } from "./backoff.ts";
+import { copiesIn } from "./copies.ts";
 import {
   copyDurably,
   isFolder,
   type IoError,
+  makeFolder,
   names,
-  pointLink,
   readText,
   removePath,
-  stamp,
   writeDurably,
 } from "./io.ts";
 import {
@@ -44,25 +50,38 @@ import {
   parseHealthyNote,
   parseLauncherState,
   parseSwitchNote,
-  programOf,
+  programIn,
+  isNewerVersion,
+  type Tree,
+  versionFolder,
   type Trial,
 } from "./layout.ts";
 
 /** The database's file and its companions (HD 6). */
 const DATABASE = "hub.db";
-const BEFORE_PREFIX = `${DATABASE}.before-`;
 
-/** Starts the hub: its command, and its environment (the parent's with `HSN_PREFIX`). */
+/** Starts the hub: its command, and its environment (the parent's with `HSN_PROGRAM`, the hub's program tree). */
 export type Spawn = (
   command: readonly string[],
   env: Readonly<Record<string, string | undefined>>,
 ) => Subprocess;
 
 /** Tells the hub where it is installed, for its notes to the launcher (`layout.ts`). */
-export const PREFIX_VARIABLE = "HSN_PREFIX";
+export const PROGRAM_VARIABLE = "HSN_PROGRAM";
+/**
+ * The package's tree, for the hub to read the package's own version (`<package>/version`) and
+ * warn `package_behind` when it runs a newer one (section 9, "Only a package changes what runs
+ * elevated").
+ */
+export const PACKAGE_VARIABLE = "HSN_PACKAGE";
+/** Set to the version when the launcher starts it on a package's trial (`#start`). */
+export const PACKAGE_TRIAL_VARIABLE = "HSN_PACKAGE_TRIAL";
 
 export interface LauncherOptions {
-  readonly prefix: string;
+  /** The package's tree, root's: `packaged/`, `installed`. */
+  readonly packageRoot: string;
+  /** The hub's program tree: `staged/`, `state/`. */
+  readonly programRoot: string;
   readonly dataDir: string;
   /** More arguments for the hub, after `--data <folder>`. */
   readonly hubArgs?: readonly string[];
@@ -161,7 +180,7 @@ export class Launcher {
 
   constructor(options: LauncherOptions) {
     this.#options = options;
-    this.#paths = installPaths(options.prefix);
+    this.#paths = installPaths(options.programRoot, options.packageRoot);
     this.#backoff = new Backoff(options.rules ?? LAUNCHER);
     this.#log =
       options.log ??
@@ -207,10 +226,11 @@ export class Launcher {
         this.#log(`cannot start: ${loaded.error}`);
         return 1;
       }
+      if (loaded.value.trial === null && this.#packageChoice(loaded.value)) continue;
       const state = loaded.value;
       const trial = state.trial;
       const started = performance.now();
-      const child = this.#start(trial?.version ?? state.current);
+      const child = this.#start(trial?.version ?? state.current, trial);
       let waited: Waited = "exited";
       let code: number | null = null;
       if (child !== undefined) {
@@ -301,37 +321,117 @@ export class Launcher {
       const state = parseLauncherState(text.value);
       return state === undefined ? err(`${this.#paths.launcherFile} is not valid`) : ok(state);
     }
-    // No state yet (a fresh install): the one version installed.
-    const versions = names(this.#paths.versions);
-    if (versions.isErr()) return err(versions.error.message);
-    const found = versions.value.filter(isVersionName);
-    if (found.length !== 1) return err(`no launcher state, and ${found.length} versions installed`);
+    // No state yet (a fresh install): the newest packaged version.
+    const newest = this.#newestPackaged([]);
+    if (newest.isErr()) return err(newest.error.message);
+    if (newest.value === undefined)
+      return err(`no launcher state, and no version in ${this.#paths.packaged}`);
     const first: LauncherState = {
-      current: found[0] ?? "",
+      current: newest.value,
       previous: null,
       trial: null,
       rolledBack: null,
+      failed: [],
     };
     const saved = this.#save(first);
     return saved.isErr() ? err(saved.error.message) : ok(first);
   }
 
+  /** The state written durably, its folder made first (the hub's program tree, its own). */
   #save(state: LauncherState): R<void, IoError> {
-    return writeDurably(this.#paths.launcherFile, `${JSON.stringify(state)}\n`).andThen(() =>
-      // `current` follows the state, for `hsn` on PATH; the state is the truth.
-      pointLink(this.#paths.current, join(this.#paths.versions, state.current)).orElse((error) => {
-        this.#log(`current not pointed at ${state.current}: ${error.message}`);
-        return ok(undefined);
-      }),
+    return makeFolder(this.#paths.state).andThen(() =>
+      writeDurably(this.#paths.launcherFile, `${JSON.stringify(state)}\n`),
     );
   }
 
-  #start(version: string): Subprocess | undefined {
-    const program = programOf(this.#paths, version, this.#options.platform);
+  /** Which tree holds a version with its program: the package's first (it wins a tie). */
+  #locate(version: string): Tree | undefined {
+    if (!isVersionName(version)) return undefined;
+    for (const tree of ["packaged", "staged"] as const)
+      if (isFolder(versionFolder(this.#paths, tree, version)).unwrapOr(false)) return tree;
+    return undefined;
+  }
+
+  /** The newest packaged version not marked failed, if any. */
+  #newestPackaged(failed: readonly string[]): R<string | undefined, IoError> {
+    return names(this.#paths.packaged).map((found) =>
+      found
+        .filter((name) => isVersionName(name) && !failed.includes(name))
+        .reduce<string | undefined>(
+          (best, name) => (best === undefined || isNewerVersion(name, best) ? name : best),
+          undefined,
+        ),
+    );
+  }
+
+  /**
+   * At a start with no trial (section 9, "Which version runs"): a packaged version newer than the
+   * one that ran goes on trial, as after a switch, with the data folder's copies noted for its
+   * rollback; a current version no tree holds any more gives way to the newest packaged one.
+   * Whether the state changed.
+   */
+  #packageChoice(state: LauncherState): boolean {
+    const newest = this.#newestPackaged(state.failed).unwrapOr(undefined);
+    if (newest === undefined) return false;
+    if (this.#locate(state.current) === undefined) {
+      this.#log(`${state.current} is gone; ${newest} is current`);
+      const saved = this.#save({ ...state, current: newest, previous: null, trial: null });
+      return saved.isOk();
+    }
+    if (!isNewerVersion(newest, state.current)) return false;
+    const copies = this.#copies();
+    if (copies.isErr()) {
+      this.#log(`${newest} not tried: ${copies.error.message}`);
+      return false;
+    }
+    removePath(this.#paths.healthyFile).match(
+      () => undefined,
+      (error) => {
+        this.#log(`healthy.json not removed: ${error.message}`);
+      },
+    );
+    const saved = this.#save({
+      ...state,
+      current: newest,
+      previous: state.current,
+      trial: { version: newest, from: state.current, copiesBefore: copies.value, byPackage: true },
+      rolledBack: null,
+    });
+    if (saved.isErr()) {
+      this.#log(`${newest} not tried: ${saved.error.message}`);
+      return false;
+    }
+    this.#log(`the package brought ${newest}: switching from ${state.current}`);
+    return true;
+  }
+
+  /**
+   * Starts a version. On a package's trial the hub is told so (`HSN_PACKAGE_TRIAL`): its core
+   * records no `update_healthy` for a switch it did not make, so the shell writes `healthy.json`
+   * at the same point as for an update, after its first commit with its listeners open
+   * (`shell/update/notes.ts`, `healthyIn`), and the trial is judged by that one sign for both.
+   */
+  #start(version: string, trial: Trial | null): Subprocess | undefined {
+    const tree = this.#locate(version);
+    const program = programIn(
+      versionFolder(this.#paths, tree ?? "packaged", version),
+      this.#options.platform,
+    );
     const command = [program, "--data", this.#options.dataDir, ...(this.#options.hubArgs ?? [])];
     const spawn = this.#options.spawn ?? defaultSpawn;
+    // The launcher's own environment never says "package trial" for it: only this start does.
+    const inherited = Object.fromEntries(
+      Object.entries(process.env).filter(([name]) => name !== PACKAGE_TRIAL_VARIABLE),
+    );
+    const onPackageTrial = trial?.byPackage === true && trial.version === version;
+    const env: Record<string, string | undefined> = {
+      ...inherited,
+      [PROGRAM_VARIABLE]: this.#paths.programRoot,
+      [PACKAGE_VARIABLE]: this.#paths.packageRoot,
+      ...(onPackageTrial ? { [PACKAGE_TRIAL_VARIABLE]: version } : {}),
+    };
     const started = Result.fromThrowable(
-      () => spawn(command, { ...process.env, [PREFIX_VARIABLE]: this.#paths.prefix }),
+      () => spawn(command, env),
       (thrown) => (thrown instanceof Error ? thrown.message : String(thrown)),
     )();
     if (started.isErr()) {
@@ -372,25 +472,33 @@ export class Launcher {
   #trialPassed(trial: Trial | null): R<void, IoError> {
     if (trial === null) return ok(undefined);
     this.#log(`version ${trial.version} is healthy`);
+    const failed = this.#load()
+      .map((s) => s.failed)
+      .unwrapOr([]);
     const next: LauncherState = {
       current: trial.version,
       previous: trial.from,
       trial: null,
       rolledBack: null,
+      failed,
     };
     return this.#save(next)
       .andThen(() => removePath(this.#paths.healthyFile))
       .andThen(() => this.#prune(next));
   }
 
-  /** At most two versions: the current and the one before it (section 9). */
+  /**
+   * The hub's tree pruned (section 9): staged versions other than the current and the one before
+   * it removed, and so those older than the newest packaged one. The package's tree is the
+   * package's to prune; the launcher never writes it.
+   */
   #prune(state: LauncherState): R<void, IoError> {
     const kept = new Set([state.current, state.previous]);
-    return names(this.#paths.versions).andThen((found) =>
+    return names(this.#paths.staged).andThen((found) =>
       Result.combine(
         found
           .filter((name) => isVersionName(name) && !kept.has(name))
-          .map((name) => removePath(join(this.#paths.versions, name))),
+          .map((name) => removePath(versionFolder(this.#paths, "staged", name))),
       ).map(() => undefined),
     );
   }
@@ -404,7 +512,7 @@ export class Launcher {
     if (removed.isErr()) this.#log(`switch.json not removed: ${removed.error.message}`);
     const to = note?.to;
     if (to === undefined || to === state.current) return false;
-    if (!isFolder(join(this.#paths.versions, to)).unwrapOr(false)) {
+    if (this.#locate(to) === undefined) {
       this.#log(`switch to ${to} refused: it is not installed`);
       return false;
     }
@@ -419,8 +527,9 @@ export class Launcher {
     const trial: LauncherState = {
       current: to,
       previous: state.current,
-      trial: { version: to, from: state.current, copiesBefore: copies.value },
+      trial: { version: to, from: state.current, copiesBefore: copies.value, byPackage: false },
       rolledBack: null,
+      failed: state.failed.filter((v) => v !== to),
     };
     const saved = this.#save(trial);
     if (saved.isErr()) {
@@ -431,40 +540,43 @@ export class Launcher {
     return true;
   }
 
-  /** The pre-migration copies in the data folder now (HD 6, "Migrations"). */
+  /** The whole pre-migration copies in the data folder now (`copies.ts`). */
   #copies(): R<readonly CopySeen[], IoError> {
-    return names(this.#options.dataDir).andThen((found) =>
-      Result.combine(
-        found
-          .filter((name) => name.startsWith(BEFORE_PREFIX))
-          .map((name) =>
-            stamp(join(this.#options.dataDir, name)).map((s) =>
-              s === undefined ? undefined : { name, mtimeMs: s.mtimeMs, size: s.size },
-            ),
-          ),
-      ).map((all) => all.filter((c): c is CopySeen => c !== undefined)),
-    );
+    return copiesIn(this.#options.dataDir);
   }
 
   /**
    * Back to the old version (section 9, step 5): the new version's pre-migration copy put back
-   * when it made one, losing only what the failed start wrote, then `current` pointed back.
+   * when it made one, losing only what the failed start wrote, then the version that ran before
+   * current again, in whichever tree it is; the failed one is never chosen again by itself.
    */
   #rollback(trial: Trial, reason: string): void {
     this.#log(`rolling back from ${trial.version} to ${trial.from}: ${reason}`);
     const restored = this.#restoreCopy(trial.copiesBefore);
     if (restored.isErr())
       this.#log(`the database copy was not put back: ${restored.error.message}`);
+    const failed = this.#load()
+      .map((s) => s.failed)
+      .unwrapOr([]);
     const back: LauncherState = {
       current: trial.from,
       previous: null,
       trial: null,
       rolledBack: { from: trial.version, reason },
+      failed: [...failed.filter((v) => v !== trial.version), trial.version],
     };
     const saved = this.#save(back);
     if (saved.isErr()) this.#log(`the rollback was not saved: ${saved.error.message}`);
   }
 
+  /**
+   * The copy the new version made before migrating, put back. Only a whole copy counts
+   * (`copies.ts`): a leftover temporary file is ignored. With no new whole copy nothing is put
+   * back and `hub.db` stays as it is: the new version made no copy only when it had nothing to
+   * migrate or stopped before its migration (the copy is made, synced and renamed first), so
+   * `hub.db` is still the old version's. Were it migrated all the same, the old version refuses
+   * it (exit 78) and the launcher goes on retrying and saying so (`launcher-status.json`).
+   */
   #restoreCopy(before: readonly CopySeen[]): R<void, IoError> {
     return this.#copies().andThen((now) => {
       const fresh = now

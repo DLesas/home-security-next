@@ -3,8 +3,8 @@
  * questions": the `record`, `health`, `config` and `hub` events), and `notify`'s notifications:
  *
  * - `config`: every successful answer to a configuration operation (a group, a mode, a schedule),
- *   whoever asked (an app, `hsn`, a schedule), so `hsn`'s changes are announced too; and the site's
- *   settings after `site`'s own requests are answered. Sent to every session subscribed to `config`.
+ *   whoever asked (an app, `hsn`, a schedule), so `hsn`'s changes are announced too. Sent to every
+ *   session subscribed to `config`. The site's settings are `changes.ts`'s.
  * - `site`: the move's stage, at every `siteMove`, to those with *manage system* (as
  *   `site.changeStatus`).
  * - `health`: from `health`'s and the device modules' decisions, to those who may view the device.
@@ -24,7 +24,7 @@ import {
 } from "@hsn/protocol/app";
 import type { AuditRecord } from "../model/audit.ts";
 import type { CommitOutcome } from "../model/events.ts";
-import type { ClientId, RequestId } from "../model/ids.ts";
+import type { ClientId } from "../model/ids.ts";
 import type { AnswerTo, Internal, OpOutcome } from "../model/messages.ts";
 import type { HubState } from "../model/state.ts";
 import { hasGlobal, liveClient, mayView } from "../people/view.ts";
@@ -33,7 +33,7 @@ import { deviceById } from "../registry/view.ts";
 import { Role } from "@hsn/protocol";
 import type { Sending } from "./events.ts";
 import { recordFor } from "./history.ts";
-import { siteMoveObject, siteObject } from "./objects.ts";
+import { siteMoveObject } from "./objects.ts";
 
 /** Where an answer goes, as a key. */
 export function answerKey(answerTo: AnswerTo): string {
@@ -113,20 +113,6 @@ function configBody(op: AppOp, reply: unknown) {
     default:
       return undefined;
   }
-}
-
-/** A request to `site` answered: on success, the site's settings as a `config` event. */
-export function siteAnswered(
-  sending: Sending,
-  view: HubState,
-  request: RequestId,
-  succeeded: boolean,
-): void {
-  if (!sending.slice.siteAsked.has(request)) return;
-  const siteAsked = new Set(sending.slice.siteAsked);
-  siteAsked.delete(request);
-  sending.slice = { ...sending.slice, siteAsked };
-  if (succeeded) sending.event(view, "config", () => ({ site: siteObject(view) }));
 }
 
 /** The move's stage changed (`siteMove`): a `site` event to those with manage system. */

@@ -1,14 +1,33 @@
 #!/bin/sh
-# The .deb's postrm: uninstalling keeps the data folder (section 9); `apt purge` removes it, the
-# program's versions and the hub's account.
+# The .deb's postrm (m2-design.md section 9, "Uninstalling" and "The privilege boundary"):
+# - remove: the package's own tree goes whole (the versions it kept, the marker); the hub's two
+#   trees stay.
+# - purge (`apt purge hsn-hub`, which asks first): with the service stopped and every process of
+#   the hub's account ended, each hub tree removed whole by GNU `rm -rf`, which removes a link as
+#   a link and never follows one; then the account.
 set -eu
+PKG=/usr/lib/hsn-hub
 case "$1" in
   remove)
     systemctl daemon-reload || true
+    rm -rf "$PKG"
     ;;
   purge)
+    systemctl stop hsn-hub.service hsn-hub-inhibit.service 2>/dev/null || true
     systemctl daemon-reload || true
-    rm -rf /opt/hsn-hub /var/lib/hsn-hub
+    rm -rf "$PKG"
+    if getent passwd hsn >/dev/null; then
+      tries=0
+      while pgrep -u hsn >/dev/null 2>&1; do
+        tries=$((tries + 1))
+        if [ "$tries" -gt 30 ]; then
+          echo "hsn-hub: the hub's processes did not end; its data is kept" >&2
+          exit 1
+        fi
+        sleep 1
+      done
+    fi
+    rm -rf /var/lib/hsn-hub /var/lib/hsn-hub-program
     if getent passwd hsn >/dev/null; then deluser --system hsn || true; fi
     ;;
 esac

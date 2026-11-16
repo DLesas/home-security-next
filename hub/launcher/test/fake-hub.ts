@@ -7,10 +7,13 @@
  * - `{"exit": c, "afterMs": t}`: exits with `c` after `t` ms;
  * - `{"hang": true, "ignoreTerm": b}`: runs until SIGTERM (exits 0, writing `<version> clean`),
  *   or with `ignoreTerm` until killed;
- * - `{"healthy": true}`: writes `healthy.json` in `$HSN_PREFIX/state/`, then hangs as above;
+ * - `{"healthy": true}`: writes `healthy.json` in `$HSN_PROGRAM/state/`, then hangs as above;
  * - `{"switchTo": v}`: writes `switch.json` for `v`, then exits 70, as the hub's switch does;
  * - `{"migrate": n}` with any of the above: first copies `hub.db` to `hub.db.before-<n>`, then
  *   writes `migrated by <version>` into `hub.db` and a `hub.db-wal`, as a migration would.
+ * - `{"leftover": true}` with any of the above: a start cut off while copying, leaving half a copy
+ *   under its temporary name `hub.db.copying` (`shell/storage/migrations.ts`) and `hub.db` not
+ *   migrated.
  */
 import { appendFileSync, copyFileSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -23,12 +26,13 @@ interface Plan {
   readonly healthy?: boolean;
   readonly switchTo?: string;
   readonly migrate?: number;
+  readonly leftover?: boolean;
 }
 
 const version = process.argv[2] ?? "?";
 const dataIndex = process.argv.indexOf("--data");
 const data = process.argv[dataIndex + 1] ?? ".";
-const prefix = process.env.HSN_PREFIX ?? ".";
+const prefix = process.env.HSN_PROGRAM ?? ".";
 const log = join(data, "starts.log");
 const starts = readFileSync(log, { encoding: "utf8", flag: "a+" })
   .split("\n")
@@ -42,6 +46,8 @@ if (plan.migrate !== undefined) {
   writeFileSync(join(data, "hub.db"), `migrated by ${version}`);
   writeFileSync(join(data, "hub.db-wal"), "wal of the migrated database");
 }
+
+if (plan.leftover === true) writeFileSync(join(data, "hub.db.copying"), "half a cop");
 
 function hang(): void {
   process.on("SIGTERM", () => {

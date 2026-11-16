@@ -731,6 +731,66 @@ describe("what is raised before any session: a restore, a healthy update, a roll
   });
 });
 
+describe('a restore waiting (section 9, "A swap that did not happen")', () => {
+  let k = 0;
+  const waiting = (reason: string): Internal => {
+    k += 1;
+    return {
+      kind: "auditRecord",
+      durability: "now",
+      record: {
+        kind: "hubEvent",
+        row: {
+          seq: rec(900 + k),
+          atMs: 0,
+          clockOk: true,
+          level: "critical",
+          origin: "shell",
+          code: "restore_waiting",
+          message: "a restore is waiting and could not be put in place",
+          detail: JSON.stringify({ reason }),
+        },
+      },
+    };
+  };
+  const unreadKinds = (runner: Runner<"notify">) =>
+    unreadFor({ ...runner.view, notify: runner.slice }, ANNA, WALL0).map((o) => o.kind);
+
+  test("one critical notification, written now, to manage system, with the reason", () => {
+    const runner = notify({
+      userManagement: true,
+      prefs: [{ client: ANNA_LAPTOP, categories: 0 }],
+    });
+    const out = runner.run(waiting("walInUse"));
+    const rows = notifications(out);
+    expect(rows.map((r) => [r.row.kind, r.row.category, r.row.critical, r.durability])).toEqual([
+      ["restore_waiting", "hub", true, "now"],
+    ]);
+    expect(recipientsIn(out)).toEqual([ANNA]);
+    // Not to be turned off: every client of Anna's and the console, none of Ben's.
+    expect(clientsTold(out)).toEqual([CONSOLE, ANNA_LAPTOP, ANNA_PHONE]);
+    expect(new TextDecoder().decode(rows[0]?.row.detail ?? new Uint8Array())).toBe(
+      JSON.stringify({ reason: "walInUse" }),
+    );
+  });
+
+  test("refused again at a later start: one more, so one per start; gone once the restore is in", () => {
+    const first = notify({ userManagement: true });
+    const rows = notifications(first.run(waiting("walInUse"))).map((r) => r.row);
+    // The next start, on the old database: its snapshot brings the first back, and the shell's
+    // warning raises the start's own.
+    const second = notify({ userManagement: true, notifications: rows });
+    const again = notifications(second.run(waiting("walInUse")));
+    expect(again).toHaveLength(1);
+    expect(unreadKinds(second)).toEqual(["restore_waiting", "restore_waiting"]);
+    // The swap goes in: the start is on the restored database, whose notifications are its own
+    // (a backup holds no history), and `restored` is recorded.
+    const restored = notify({ userManagement: true });
+    notifications(restored.run(decisionRecord("restored", { device: null })));
+    expect(unreadKinds(restored)).toEqual(["restored"]);
+  });
+});
+
 describe("operations", () => {
   test("notifications.read marks once; a notification not the person's is notFound", () => {
     const runner = notify({ userManagement: true });

@@ -20,16 +20,21 @@ trap 'rm -rf "$work"' EXIT
 bun "$repo/hub/packaging/shared/build-program.ts" --target "$target" --out "$work/program" >/dev/null
 version=$(cat "$work/program/version")
 root="$work/root"
-mkdir -p "$root/DEBIAN" "$root/opt/hsn-hub/versions" "$root/usr/lib/hsn-hub" "$root/lib/systemd/system" "$root/usr/bin"
-cp -R "$work/program/versions/$version" "$root/opt/hsn-hub/versions/$version"
-install -m 0755 "$work/program/launcher/hsn-launcher" "$root/usr/lib/hsn-hub/hsn-launcher"
-install -m 0755 "$here/../shared/secure-data-folder.sh" "$root/usr/lib/hsn-hub/secure-data-folder.sh"
-install -m 0755 "$here/../shared/open-setup-page.sh" "$root/usr/lib/hsn-hub/open-setup-page.sh"
-printf '%s\n' "$version" > "$root/usr/lib/hsn-hub/version"
+pkg="$root/usr/lib/hsn-hub"
+mkdir -p "$root/DEBIAN" "$pkg/packaged" "$pkg/bin" "$root/lib/systemd/system" "$root/usr/bin"
+# The package's tree (section 9, "The privilege boundary"): root's; dpkg owns this version only.
+cp -R "$work/program/versions/$version" "$pkg/packaged/$version"
+install -m 0755 "$work/program/bin/hsn-launcher" "$pkg/bin/hsn-launcher"
+install -m 0755 "$work/program/bin/hsn" "$pkg/bin/hsn"
+for script in prepare-hub-folder.sh open-setup-page.sh prune-packaged.sh; do
+  install -m 0755 "$here/../shared/$script" "$pkg/$script"
+done
+printf '%s\n' "$version" > "$pkg/version"
 install -m 0644 "$here/hsn-hub.service" "$root/lib/systemd/system/hsn-hub.service"
+install -m 0644 "$here/hsn-hub-inhibit.service" "$root/lib/systemd/system/hsn-hub-inhibit.service"
 install -m 0755 "$here/hsn" "$root/usr/bin/hsn"
 sed -e "s/@VERSION@/$version/" -e "s/@ARCH@/$arch/" "$here/debian/control.in" > "$root/DEBIAN/control"
-for script in postinst prerm postrm; do install -m 0755 "$here/debian/$script" "$root/DEBIAN/$script"; done
+for script in preinst postinst prerm postrm; do install -m 0755 "$here/debian/$script" "$root/DEBIAN/$script"; done
 mkdir -p "$out"
 dpkg-deb --root-owner-group --build "$root" "$out/hsn-hub_${version}_${arch}.deb"
 echo "$out/hsn-hub_${version}_${arch}.deb"

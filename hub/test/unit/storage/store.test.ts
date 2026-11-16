@@ -22,7 +22,11 @@ import {
   lastUncaught,
   recordUncaught,
 } from "../../../src/shell/storage/fatal.ts";
-import { backupPath } from "../../../src/shell/storage/migrations.ts";
+import {
+  backupPath,
+  type CopyStop,
+  migrateAtStart,
+} from "../../../src/shell/storage/migrations.ts";
 import { LOG_LIMIT } from "../../../src/shell/storage/reader.ts";
 import { admitSend } from "../../../src/shell/storage/send-gate.ts";
 import { readSetting, settingsFor } from "../../../src/shell/storage/settings.ts";
@@ -77,8 +81,8 @@ describe("SQLite's settings (section 5)", () => {
     checkpoint_fullfsync: process.platform === "darwin" ? 1 : 0,
     wal_autocheckpoint: 0,
     journal_size_limit: 8 * 1024 * 1024,
-    // The size guard's hard stop: 240 MB of 4 KB pages (section 6).
-    max_page_count: 61_440,
+    // The size guard's hard stop: 283 MB of 4 KB pages (section 6; D112 as amended).
+    max_page_count: 72_448,
     page_size: 4096,
     cache_size: -4096,
     temp_store: 2,
@@ -109,6 +113,28 @@ describe("SQLite's settings (section 5)", () => {
         DESIGN[setting.pragma],
       ]);
     }
+  });
+
+  test("a database opened under the old marks gets the new hard stop at its next open", () => {
+    // `max_page_count` belongs to the connection, not the file: it is set at every open.
+    store.db.close();
+    const old = openTestStore(dir.path, clock, {
+      rules: {
+        ...DEFAULT_RULES,
+        persistence: {
+          ...DEFAULT_RULES.persistence,
+          sizeGuard: { ...DEFAULT_RULES.persistence.sizeGuard, hardStopBytes: 240 * 1024 * 1024 },
+        },
+      },
+    });
+    expect(old.db.query<{ max_page_count: number }, []>("PRAGMA max_page_count").get()).toEqual({
+      max_page_count: 61_440,
+    });
+    old.db.close();
+    store = openTestStore(dir.path, clock);
+    expect(store.db.query<{ max_page_count: number }, []>("PRAGMA max_page_count").get()).toEqual({
+      max_page_count: 72_448,
+    });
   });
 
   test("a page size SQLite cannot give is refused, not ignored", () => {
@@ -596,6 +622,102 @@ describe("migrations (section 6)", () => {
     expect(readdirSync(dir.path).filter((name) => name.includes(".before-"))).toEqual([
       `${DATABASE_FILE}.before-${CODE_MIGRATIONS}`,
     ]);
+  });
+
+  describe("killed during the copy: never more than one copy, never a partial one under a copy's name (wave 2)", () => {
+    const db = () => join(dir.path, DATABASE_FILE);
+    const names = () => readdirSync(dir.path).filter((n) => n.startsWith(`${DATABASE_FILE}.`));
+    const copies = () => names().filter((n) => n.includes(".before-"));
+    /** The start of a migration, stopped where a kill would stop it. */
+    function killedAt(stop: CopyStop, folder: string): void {
+      store.db.close();
+      const open = new Database(db());
+      migrateAtStart(open, db(), folder, stop)._unsafeUnwrap();
+      open.close();
+    }
+    const holdsRows = (path: string) => {
+      const copy = new Database(path, { readonly: true });
+      const n = copy.query<{ n: number }, []>("SELECT count(*) AS n FROM devices").get()?.n;
+      copy.close();
+      return n;
+    };
+    /** The database still the version before's: the migration's column is not there. */
+    const unmigrated = () => {
+      const open = new Database(db(), { readonly: true });
+      const columns = open
+        .query<{ name: string }, []>("PRAGMA table_info(devices)")
+        .all()
+        .map((c) => c.name);
+      open.close();
+      return !columns.includes("note");
+    };
+    /** The next start, which finishes the copy and the migration. */
+    function nextStart(folder: string): void {
+      store = openTestStore(dir.path, clock, { migrations: folder });
+      expect(store.migrations.ran).toEqual([CODE_MIGRATIONS]);
+      expect(names().some((n) => n.endsWith(".copying"))).toBe(false);
+      expect(copies()).toEqual([`${DATABASE_FILE}.before-${CODE_MIGRATIONS}`]);
+      expect(holdsRows(backupPath(db(), CODE_MIGRATIONS))).toBe(1);
+    }
+
+    test("once the older copies are gone: no copy, the database not migrated; the next start finishes", () => {
+      fillEveryTable();
+      writeFileSync(`${db()}.before-0`, "an older copy");
+      const folder = withMigration("ALTER TABLE `devices` ADD `note` text;");
+      killedAt("pruned", folder);
+      // What the launcher would find: no whole copy, so it puts nothing back; `hub.db` is the old one.
+      expect(copies()).toEqual([]);
+      expect(unmigrated()).toBe(true);
+      nextStart(folder);
+    });
+
+    test("in the middle of the copy: only the temporary file, never taken for a copy; the next start finishes", () => {
+      fillEveryTable();
+      writeFileSync(`${db()}.before-0`, "an older copy");
+      const folder = withMigration("ALTER TABLE `devices` ADD `note` text;");
+      killedAt("copied", folder);
+      expect(names()).toEqual([`${DATABASE_FILE}.copying`]);
+      expect(unmigrated()).toBe(true);
+      // Even a partial one: a kill in the middle of VACUUM.
+      writeFileSync(`${db()}.copying`, "half a database");
+      nextStart(folder);
+    });
+
+    test("once placed, before the migration: the one whole copy; the next start makes it again", () => {
+      fillEveryTable();
+      writeFileSync(`${db()}.before-0`, "an older copy");
+      const folder = withMigration("ALTER TABLE `devices` ADD `note` text;");
+      killedAt("placed", folder);
+      expect(copies()).toEqual([`${DATABASE_FILE}.before-${CODE_MIGRATIONS}`]);
+      expect(holdsRows(backupPath(db(), CODE_MIGRATIONS))).toBe(1);
+      expect(unmigrated()).toBe(true);
+      nextStart(folder);
+    });
+
+    test("a leftover temporary file goes at a start with nothing to migrate too", () => {
+      writeFileSync(`${db()}.copying`, "half a database");
+      store.db.close();
+      store = openTestStore(dir.path, clock);
+      expect(store.migrations.backup).toBeUndefined();
+      expect(names().some((n) => n.endsWith(".copying"))).toBe(false);
+    });
+  });
+
+  test("the restore's way back, hub.db.before-restore, is not an older copy: a migration leaves it", () => {
+    const db = join(dir.path, DATABASE_FILE);
+    writeFileSync(`${db}.before-0`, "an older copy");
+    writeFileSync(`${db}.before-restore`, "the database before a restore");
+    store.db.close();
+    const folder = withMigration("ALTER TABLE `devices` ADD `note` text;");
+    store = openTestStore(dir.path, clock, { migrations: folder });
+    expect(
+      readdirSync(dir.path)
+        .filter((name) => name.includes(".before-"))
+        .toSorted(),
+    ).toEqual(
+      [`${DATABASE_FILE}.before-${CODE_MIGRATIONS}`, `${DATABASE_FILE}.before-restore`].toSorted(),
+    );
+    expect(readFileSync(`${db}.before-restore`, "utf8")).toBe("the database before a restore");
   });
 
   test("one that only adds a table is copied first too: a rollback needs the copy (step 1, wave 2)", () => {

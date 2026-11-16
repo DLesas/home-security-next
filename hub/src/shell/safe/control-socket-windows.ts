@@ -12,18 +12,27 @@
  * process already has loaded. The bytes are parsed in TypeScript (`control/windows-acl.ts`), not
  * here, so a mistake there shows in tests on every system.
  *
- * One call writes: `setProtectedList`, the list the hub sets on a data folder it finds open
- * (m2-design.md section 9). It opens the folder by handle with `FILE_FLAG_OPEN_REPARSE_POINT`,
- * refuses the handle if it is a link (so a folder swapped for a junction after the check is never
- * followed), and sets the list on that handle with `SetSecurityInfo` as a protected list; Windows
- * passes its inheritable entries on to what the folder holds.
+ Four calls write (m2-design.md section 9, "The privilege boundary"):
+ * - `setTopShape`, run only by an administrator's run of the hub: a top folder's owner and list,
+ *   on the folder's own handle (opened with `FILE_FLAG_OPEN_REPARSE_POINT`, refused if it is a
+ *   link), by `SetKernelObjectSecurity`, which sets that one object and walks nothing. Not
+ *   `SetSecurityInfo`: on the hosted runner (run 43692823106) it passed the new list on into the
+ *   folder's contents, and no elevated step may touch what is inside a hub tree.
+ * - `inheritFromParent`, run only as the service account, on what is inside its own tree: the
+ *   object's list made "inherited only" (`SetNamedSecurityInfoW`, unprotected, no entry of its
+ *   own), so it takes the top folder's list. Only after the walk has refused every link inside.
+ * - `createFolder`, for an administrator's run on a computer with no data folder yet: the
+ *   folder made with the shape from its first moment, so everything made in it inherits it.
+ * - `defaultOwnerAdministrators`: this process's token makes what it creates owned by
+ *   Administrators (an administrator's run of the hub, so its socket file is not owned by the
+ *   person, whose unelevated programs could rewrite its list).
  *
  * Each object is opened with `FILE_FLAG_OPEN_REPARSE_POINT`, so a link is read as itself and
  * never followed, and an AF_UNIX socket file (a reparse point `stat` cannot open: spike W2) is
  * read too. The libraries are opened at the first call, never at import, so the module loads on
  * every system.
  */
-import { dlopen, FFIType, toArrayBuffer } from "bun:ffi";
+import { dlopen, FFIType, ptr, toArrayBuffer } from "bun:ffi";
 import { Result } from "neverthrow";
 import type { HubError } from "../../core/model/errors.ts";
 import { folderNames } from "./fs.ts";
@@ -62,8 +71,19 @@ export interface WindowsCalls {
   readonly volume: (path: string) => Result<Volume, HubError>;
   /** The names in a folder. */
   readonly list: (path: string) => Result<readonly string[], HubError>;
-  /** Sets `acl` (an `ACL`'s bytes) as the folder's protected list; refuses a link. */
-  readonly setProtectedList: (path: string, acl: Uint8Array) => Result<void, HubError>;
+  /** Whether this process's token holds Administrators enabled (an elevated administrator). */
+  readonly isAdministrator: () => Result<boolean, HubError>;
+  /** Sets a folder's owner and list from a self-relative descriptor, on its handle; refuses a link. */
+  readonly setTopShape: (path: string, descriptor: Uint8Array) => Result<void, HubError>;
+  /** Makes the object's list inherited only: no entry of its own, inheritance on. */
+  readonly inheritFromParent: (path: string, emptyAcl: Uint8Array) => Result<void, HubError>;
+  /** What this process creates from now on is owned by Administrators (`sid`'s bytes). */
+  readonly defaultOwnerAdministrators: (sid: Uint8Array) => Result<void, HubError>;
+  /**
+   * Makes a folder with a self-relative descriptor from its first moment (`CreateDirectoryW`);
+   * false when something is already there, which is left as it is.
+   */
+  readonly createFolder: (path: string, descriptor: Uint8Array) => Result<boolean, HubError>;
 }
 
 const KERNEL32 = {
@@ -102,6 +122,7 @@ const KERNEL32 = {
   GetDriveTypeW: { args: [FFIType.ptr], returns: FFIType.u32 },
   GetCurrentProcess: { args: [], returns: FFIType.i64 },
   GetFileInformationByHandle: { args: [FFIType.i64, FFIType.ptr], returns: FFIType.i32 },
+  CreateDirectoryW: { args: [FFIType.ptr, FFIType.ptr], returns: FFIType.i32 },
 } as const;
 
 const ADVAPI32 = {
@@ -118,9 +139,13 @@ const ADVAPI32 = {
     ],
     returns: FFIType.u32,
   },
-  SetSecurityInfo: {
+  SetKernelObjectSecurity: {
+    args: [FFIType.i64, FFIType.u32, FFIType.ptr],
+    returns: FFIType.i32,
+  },
+  SetNamedSecurityInfoW: {
     args: [
-      FFIType.i64, // handle
+      FFIType.ptr, // pObjectName
       FFIType.u32, // ObjectType
       FFIType.u32, // SecurityInfo
       FFIType.ptr, // psidOwner
@@ -129,6 +154,11 @@ const ADVAPI32 = {
       FFIType.ptr, // pSacl
     ],
     returns: FFIType.u32,
+  },
+  CheckTokenMembership: { args: [FFIType.i64, FFIType.ptr, FFIType.ptr], returns: FFIType.i32 },
+  SetTokenInformation: {
+    args: [FFIType.i64, FFIType.u32, FFIType.ptr, FFIType.u32],
+    returns: FFIType.i32,
   },
   GetSecurityDescriptorLength: { args: [FFIType.u64], returns: FFIType.u32 },
   OpenProcessToken: { args: [FFIType.i64, FFIType.u32, FFIType.ptr], returns: FFIType.i32 },
@@ -160,7 +190,10 @@ const ERROR_FILE_NOT_FOUND = 2;
 const ERROR_PATH_NOT_FOUND = 3;
 const READ_CONTROL = 0x0002_0000;
 const WRITE_DAC = 0x0004_0000;
-const PROTECTED_DACL_SECURITY_INFORMATION = 0x8000_0000;
+const WRITE_OWNER = 0x0008_0000;
+const UNPROTECTED_DACL_SECURITY_INFORMATION = 0x2000_0000;
+const TOKEN_ADJUST_DEFAULT = 0x80;
+const TOKEN_OWNER_CLASS = 4;
 const FILE_ATTRIBUTE_REPARSE_POINT = 0x400;
 /** sizeof(BY_HANDLE_FILE_INFORMATION); dwFileAttributes is its first field. */
 const HANDLE_INFORMATION_BYTES = 52;
@@ -179,6 +212,11 @@ const FIND_DATA_BYTES = 592;
 const FIND_DATA_RESERVED0 = 36;
 /** Room for a volume's root path, in UTF-16 units. */
 const PATH_UNITS = 1024;
+
+/** Administrators' SID, S-1-5-32-544, as bytes. */
+const ADMINISTRATORS_SID_BYTES = new Uint8Array([
+  1, 2, 0, 0, 0, 0, 0, 5, 0x20, 0, 0, 0, 0x20, 2, 0, 0,
+]);
 
 /** A Win32 failure, by its error code. */
 class Win32Failure extends Error {
@@ -260,11 +298,11 @@ function securityDescriptor(path: string): Uint8Array {
   }
 }
 
-function setProtectedList(path: string, acl: Uint8Array): void {
+function setTopShape(path: string, descriptor: Uint8Array): void {
   const { kernel, advapi } = win32();
   const file = kernel.CreateFileW(
     wide(path),
-    READ_CONTROL | WRITE_DAC,
+    READ_CONTROL | WRITE_DAC | WRITE_OWNER,
     FILE_SHARE_ALL,
     null,
     OPEN_EXISTING,
@@ -279,18 +317,78 @@ function setProtectedList(path: string, acl: Uint8Array): void {
     const found = new DataView(information.buffer).getUint32(0, true);
     if ((found & FILE_ATTRIBUTE_REPARSE_POINT) !== 0)
       throw new Error(`${path} is a link: its list is not set`);
-    const failed = advapi.SetSecurityInfo(
-      file,
-      SE_FILE_OBJECT,
-      DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
-      null,
-      null,
-      acl,
-      null,
-    );
-    if (failed !== 0) throw new Win32Failure("SetSecurityInfo", failed);
+    // The descriptor's own control bits carry "protected" (SE_DACL_PROTECTED).
+    if (
+      advapi.SetKernelObjectSecurity(
+        file,
+        OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION,
+        descriptor,
+      ) === 0
+    )
+      throw new Win32Failure("SetKernelObjectSecurity", kernel.GetLastError());
   } finally {
     kernel.CloseHandle(file);
+  }
+}
+
+function inheritFromParent(path: string, emptyAcl: Uint8Array): void {
+  const { advapi } = win32();
+  const failed = advapi.SetNamedSecurityInfoW(
+    wide(path),
+    SE_FILE_OBJECT,
+    DACL_SECURITY_INFORMATION | UNPROTECTED_DACL_SECURITY_INFORMATION,
+    null,
+    null,
+    emptyAcl,
+    null,
+  );
+  if (failed !== 0) throw new Win32Failure("SetNamedSecurityInfoW", failed);
+}
+
+/** sizeof(SECURITY_ATTRIBUTES) on x64, and where its descriptor pointer lies. */
+const SECURITY_ATTRIBUTES_BYTES = 24;
+const ERROR_ALREADY_EXISTS = 183;
+
+function createFolder(path: string, descriptor: Uint8Array): boolean {
+  const { kernel } = win32();
+  const attributes = new Uint8Array(SECURITY_ATTRIBUTES_BYTES);
+  const view = new DataView(attributes.buffer);
+  view.setUint32(0, SECURITY_ATTRIBUTES_BYTES, true); // nLength
+  view.setBigUint64(8, BigInt(ptr(descriptor)), true); // lpSecurityDescriptor; bInheritHandle 0
+  if (kernel.CreateDirectoryW(wide(path), attributes) !== 0) return true;
+  const code = kernel.GetLastError();
+  if (code === ERROR_ALREADY_EXISTS) return false;
+  throw new Win32Failure("CreateDirectoryW", code);
+}
+
+function isAdministrator(sid: Uint8Array): boolean {
+  const { kernel, advapi } = win32();
+  const member = new Int32Array(1);
+  // No token: the calling thread's (or process's) own, as an elevated prompt holds it.
+  if (advapi.CheckTokenMembership(0n, sid, member) === 0)
+    throw new Win32Failure("CheckTokenMembership", kernel.GetLastError());
+  return (member[0] ?? 0) !== 0;
+}
+
+function defaultOwnerAdministrators(sid: Uint8Array): void {
+  const { kernel, advapi } = win32();
+  const handle = new BigInt64Array(1);
+  if (
+    advapi.OpenProcessToken(
+      kernel.GetCurrentProcess(),
+      TOKEN_QUERY | TOKEN_ADJUST_DEFAULT,
+      handle,
+    ) === 0
+  )
+    throw new Win32Failure("OpenProcessToken", kernel.GetLastError());
+  const token = handle[0] ?? INVALID_HANDLE;
+  try {
+    // TOKEN_OWNER { PSID Owner }: a pointer to `sid`, which stays alive through the call.
+    const owner = new BigUint64Array([BigInt(ptr(sid))]);
+    if (advapi.SetTokenInformation(token, TOKEN_OWNER_CLASS, owner, owner.byteLength) === 0)
+      throw new Win32Failure("SetTokenInformation", kernel.GetLastError());
+  } finally {
+    kernel.CloseHandle(token);
   }
 }
 
@@ -340,8 +438,22 @@ export const WINDOWS_CALLS: WindowsCalls = {
   findEntry: (path) => wrap(`look at ${path}`, () => findEntry(path)),
   volume: (path) => wrap(`read the volume of ${path}`, () => volume(path)),
   list: (path) => folderNames({ kind: "control", origin: ORIGIN }, path),
-  setProtectedList: (path, acl) =>
-    wrap(`set the access list of ${path}`, () => {
-      setProtectedList(path, acl);
+  isAdministrator: () =>
+    wrap("tell whether the hub runs as an elevated administrator", () =>
+      isAdministrator(ADMINISTRATORS_SID_BYTES),
+    ),
+  setTopShape: (path, descriptor) =>
+    wrap(`set the owner and access list of ${path}`, () => {
+      setTopShape(path, descriptor);
+    }),
+  inheritFromParent: (path, emptyAcl) =>
+    wrap(`make ${path} inherit its access list`, () => {
+      inheritFromParent(path, emptyAcl);
+    }),
+  createFolder: (path, descriptor) =>
+    wrap(`make the folder ${path}`, () => createFolder(path, descriptor)),
+  defaultOwnerAdministrators: (sid) =>
+    wrap("make what the hub creates owned by Administrators", () => {
+      defaultOwnerAdministrators(sid);
     }),
 };

@@ -7,6 +7,7 @@
  */
 import {
   closeSync,
+  copyFileSync,
   fsyncSync,
   openSync,
   readdirSync,
@@ -105,6 +106,39 @@ export function writeDurably(
     .andThen(() => syncFolder(dirname(path)));
   if (written.isErr()) removeQuietly(temporary);
   return written;
+}
+
+/** Syncs a file's contents to disk. */
+export function syncFile(path: string): Result<void, FileError> {
+  return call(`sync ${path}`, () => {
+    const fd = openSync(path, "r+");
+    const synced = Result.fromThrowable(
+      () => {
+        fsyncSync(fd);
+      },
+      fileError(`sync ${path}`),
+    )();
+    closeSync(fd);
+    return synced;
+  }).andThen((synced) => synced);
+}
+
+/**
+ * A copy of the file at `from` as `to`: written beside it, synced, renamed into place, the folder
+ * synced, so `to` is whole or absent and `from` is untouched. Not a hard link: SQLite refuses a
+ * database file with two names (`SQLITE_IOERR_VNODE` on macOS).
+ */
+export function copyDurably(from: string, to: string): Result<void, FileError> {
+  const temporary = `${to}.new`;
+  removeQuietly(temporary);
+  const copied = call(`copy ${from}`, () => {
+    copyFileSync(from, temporary);
+  })
+    .andThen(() => syncFile(temporary))
+    .andThen(() => rename(temporary, to))
+    .andThen(() => syncFolder(dirname(to)));
+  if (copied.isErr()) removeQuietly(temporary);
+  return copied;
 }
 
 /** Removes a file if it is there; a failure is ignored (a temporary file left after a failure). */

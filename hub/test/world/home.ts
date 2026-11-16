@@ -67,9 +67,11 @@ import { KeyStoreCipher } from "../../src/shell/cipher/device-cipher.ts";
 import {
   type ChannelEffect,
   HubLoop,
+  type LoopPorts,
   type LoopWriter,
   type TurnSummary,
 } from "../../src/shell/loop.ts";
+import type { Calendar } from "../../src/core/model/calendar.ts";
 import { MemoryKeyStore } from "../../src/shell/storage/keys.ts";
 import { PAGE_SIZE } from "../../src/shell/storage/settings.ts";
 import { DATABASE_FILE, openStore, type OpenedStore } from "../../src/shell/storage/store.ts";
@@ -116,6 +118,10 @@ export interface HomeSpec {
   /** The seed of every random choice: entropy, drifts, door times, crash points. */
   readonly seed?: number;
   readonly rules?: HubRules;
+  /** The core's calendar; the unbuilt one (no schedule ever due) when left out. */
+  readonly calendar?: Calendar;
+  /** The loop's file jobs (backups, exports, restores, updates); none when left out. */
+  readonly files?: LoopPorts["files"];
 }
 
 /** Section 5's home A: 10 sensors, 4 sirens; one gateway. */
@@ -550,7 +556,7 @@ export class Home {
       {
         cipher: new KeyStoreCipher(keys),
         rules: this.rules,
-        calendar: UNBUILT_CALENDAR,
+        calendar: this.spec.calendar ?? UNBUILT_CALENDAR,
         sha256: nodeSha256,
       },
       {
@@ -579,6 +585,7 @@ export class Home {
             if (!this.#dead) this.app.push(effect);
           },
         },
+        ...(this.spec.files === undefined ? {} : { files: this.spec.files }),
       },
     );
     this.onOpen?.(store);

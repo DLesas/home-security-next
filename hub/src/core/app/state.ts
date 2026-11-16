@@ -83,12 +83,28 @@ export interface AppSlice {
   readonly seen: PeopleSeen | undefined;
   /** The registry's slice and its devices as app last saw them, for `device` events. */
   readonly registrySeen: unknown;
+  /**
+   * The alarm's countdowns and the site's row as app last saw them (by identity), and the site as
+   * last told: each change becomes its event, whatever caused it (`changes.ts`).
+   */
+  readonly countdownsSeen: ReadonlyMap<DeviceId, unknown> | undefined;
+  readonly siteRowSeen: unknown;
+  readonly siteSent: string | undefined;
   readonly devicesSeen: ReadonlyMap<DeviceId, DeviceRow>;
   /** Handshakes refused in the last hour, by address (`clientRefused`): memory only. */
   readonly refused: ReadonlyMap<
     string,
     { readonly since: Mono; readonly count: number; readonly warned: boolean }
   >;
+  /** Today's sessions per client (`sessions-day.ts`): memory only; undefined before the first. */
+  readonly sessionDay:
+    | {
+        readonly date: string;
+        /** The wall time of the next local midnight, when the calendar can tell. */
+        readonly endsMs: number | undefined;
+        readonly counts: ReadonlyMap<ClientId, ClientDay>;
+      }
+    | undefined;
   /** A run of failed commits is under way: told once at its start, and once when it ends. */
   readonly databaseFailing: boolean;
   /** The shell's `hubFacts`, the latest (section 2): undefined until the first. */
@@ -98,8 +114,13 @@ export interface AppSlice {
    * schedule), by where their answer goes: each answered with success is a `config` event.
    */
   readonly configAsked: ReadonlyMap<string, AppOp>;
-  /** Requests to change the site's settings (`site`'s own messages), by number, for `config`. */
-  readonly siteAsked: ReadonlySet<RequestId>;
+}
+
+/** One client's sessions today: how many, the first one's start, the last moment seen. */
+export interface ClientDay {
+  readonly sessions: number;
+  readonly firstMs: number;
+  readonly lastMs: number;
 }
 
 /** The hub's facts, as the shell gives them (`hubFacts`, section 2). */
@@ -127,10 +148,13 @@ export const EMPTY_APP_SLICE: AppSlice = {
   readings: new Map(),
   seen: undefined,
   registrySeen: undefined,
+  countdownsSeen: undefined,
+  siteRowSeen: undefined,
+  siteSent: undefined,
   devicesSeen: new Map(),
   refused: new Map(),
+  sessionDay: undefined,
   databaseFailing: false,
   facts: undefined,
   configAsked: new Map(),
-  siteAsked: new Set(),
 };

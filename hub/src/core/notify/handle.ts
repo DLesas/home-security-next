@@ -104,6 +104,8 @@ function aboutOf(ctx: Context, device: DeviceId | null, classified: Classified):
 // ——— Raising ———
 
 interface Raising {
+  /** What the notification's `detail` holds: a hub event's own detail (its reason), or none. */
+  readonly detail: Uint8Array | null;
   readonly kind: string;
   readonly device: DeviceId | null;
   readonly cause: Seq | null;
@@ -161,7 +163,7 @@ function raise(slice: NotifySlice, ctx: Context, raising: Raising): Step {
       deviceId: raising.device,
       causeSeq: raising.cause,
       recipients: recipientBytes(people),
-      detail: null,
+      detail: raising.detail,
     };
     // Critical: written now by notify (section 7); everything else with the routine batch.
     const durability: Durability = classified.critical ? "now" : "routine";
@@ -214,6 +216,7 @@ function onRecord(slice: NotifySlice, ctx: Context, record: AuditRecord): Step {
       classified,
       people: undefined,
       except: undefined,
+      detail: null,
     });
   }
   if (record.kind === "hubEvent") {
@@ -226,6 +229,7 @@ function onRecord(slice: NotifySlice, ctx: Context, record: AuditRecord): Step {
       classified,
       people: undefined,
       except: undefined,
+      detail: record.row.detail === null ? null : new TextEncoder().encode(record.row.detail),
     });
   }
   return unchanged(slice);
@@ -421,6 +425,7 @@ export const handleNotify: Handler<"notify"> = (slice, message, ctx) => {
         classified: NEW_CLIENT,
         people: message.person === null ? [] : [message.person],
         except: message.client,
+        detail: null,
       });
     case "clientRemoved": {
       if (!slice.prefs.has(message.client)) return unchanged(slice);

@@ -1,0 +1,18 @@
+#!/bin/sh
+# The .deb's preinst: an upgrade keeps the version it replaces (m2-design.md section 9, "A package
+# upgrade keeps the previous version"). dpkg removes the old package's files once the new ones are
+# in, so the old packaged version is copied aside first, inside the package's own root-owned tree,
+# and postinst puts it back beside the new one. Nothing of the hub's trees is touched.
+set -eu
+PKG=/usr/lib/hsn-hub
+case "$1" in
+  upgrade)
+    old=${2:-}
+    if [ -n "$old" ] && [ -d "$PKG/packaged/$old" ] && [ ! -L "$PKG/packaged/$old" ]; then
+      rm -rf "$PKG/kept"
+      mkdir -p "$PKG/kept"
+      cp -a "$PKG/packaged/$old" "$PKG/kept/$old"
+    fi
+    ;;
+esac
+exit 0

@@ -1,0 +1,18 @@
+# Sleep held off while the hub runs (m2-design.md section 9, "Sleep prevention", HB28): as root,
+# so polkit is never asked, and bound to the hub's unit, which starts it. The hub checks
+# `systemd-inhibit --list` for this entry and warns `sleep_not_prevented` without it. No
+# environment file, and no working folder in a hub tree.
+[Unit]
+Description=HSN Hub: keeps the computer from sleeping while the hub runs
+BindsTo=hsn-hub.service
+After=hsn-hub.service
+
+[Service]
+Type=simple
+WorkingDirectory=/
+ExecStart=/usr/bin/systemd-inhibit --what=sleep:idle "--who=HSN Hub" "--why=the alarm must keep running" --mode=block /usr/bin/sleep infinity
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=hsn-hub.service

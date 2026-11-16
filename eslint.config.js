@@ -209,6 +209,27 @@ export default defineConfig(
     },
   },
 
+  // The app styles with class names from the theme (NativeWind v5, docs/app-design.md), never
+  // `StyleSheet` (section 11, wave 2: the product owner's choice). Its probe mirrors app/src.
+  {
+    files: ["app/src/**/*.{ts,tsx}", `${PROBES}/app/src/**/*.ts`],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          paths: [
+            {
+              name: "react-native",
+              importNames: ["StyleSheet"],
+              message:
+                "Style with class names from the theme (docs/app-design.md), through the parts in app/src/ui/parts.tsx.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+
   // Every Result is used (section 10).
   {
     files: ["hub/**/*.ts", "tools/**/*.ts"],
@@ -350,10 +371,11 @@ export default defineConfig(
           patterns: [
             onlyFrom(
               "cli-import",
-              "The CLI may import control-protocol, @hsn/protocol, node:net and neverthrow, never core, shell or db (section 1).",
+              "The CLI may import control-protocol, @hsn/protocol, node:net and neverthrow, never core, shell or db (section 1), but the shell's two Windows files for hsn (section 9).",
               [
                 OWN_FOLDER,
                 "\\.\\./src/control-protocol/(?!.*\\.\\.)",
+                "^\\.\\./src/shell/safe/control-socket-(peer|hsn)\\.ts$",
                 PROTOCOL,
                 "node:net$",
                 NEVERTHROW,
@@ -365,10 +387,19 @@ export default defineConfig(
     },
   },
   // ... and, for the commands that carry a file (m2-design.md section 6), `files.ts` reads and
-  // writes the user's file (node:fs, node:crypto) and `qr.ts` draws the restore's code (toqr).
+  // writes the user's file (node:fs, node:crypto) and `qr.ts` draws the restore's code (toqr);
+  // `named-files.ts` opens a named file without following links, `elevated.ts` drops root and
+  // reads the ids, `file-helper.ts` is the person's helper (section 9, "The privilege boundary").
   // The rest of the CLI still never touches a file, so it cannot open the database.
   {
-    files: hubAndProbes("cli/files.ts", "cli/qr.ts"),
+    files: hubAndProbes(
+      "cli/files.ts",
+      "cli/qr.ts",
+      "cli/named-files.ts",
+      "cli/elevated.ts",
+      "cli/file-helper.ts",
+      "cli/windows-files.ts",
+    ),
     rules: {
       "no-restricted-imports": [
         "error",
@@ -376,13 +407,15 @@ export default defineConfig(
           patterns: [
             onlyFrom(
               "cli-import",
-              "cli/files.ts and cli/qr.ts may import as the CLI does, and node:fs, node:crypto and toqr (m2-design.md section 6).",
+              "cli/files.ts, cli/qr.ts and the named-file and elevation files may import as the CLI does, and node:fs, node:crypto, node:path and toqr (m2-design.md sections 6 and 9).",
               [
                 OWN_FOLDER,
                 "\\.\\./src/control-protocol/(?!.*\\.\\.)",
                 PROTOCOL,
                 "node:fs$",
                 "node:crypto$",
+                "node:path$",
+                "^\\.\\./src/shell/safe/control-socket-hsn\\.ts$",
                 "toqr$",
                 NEVERTHROW,
               ],

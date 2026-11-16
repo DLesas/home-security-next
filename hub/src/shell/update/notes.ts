@@ -10,20 +10,20 @@
  * - **Health**: once a commit holds the `update_healthy` decision, `healthy.json` naming the
  *   version, which ends the launcher's trial.
  *
- * The install's prefix comes from the launcher, in `HSN_PREFIX`; a hub run by hand has none and
- * cannot switch.
+ * The hub's program tree (`staged/`, `state/`, section 9 "The privilege boundary") comes from the
+ * launcher, in `HSN_PROGRAM`; a hub run by hand has none and cannot stage or switch.
  */
 import { join } from "node:path";
 import { err, ok, type Result } from "neverthrow";
 import { installPaths, isVersionName } from "../../../launcher/src/layout.ts";
-import { PREFIX_VARIABLE } from "../../../launcher/src/launcher.ts";
+import { PACKAGE_TRIAL_VARIABLE, PROGRAM_VARIABLE } from "../../../launcher/src/launcher.ts";
 import type { AuditRecord } from "../../core/model/audit.ts";
 import type { FileOutcome } from "../../core/model/events.ts";
 import { exists, writeDurably } from "../backup/files.ts";
 
-/** The install's prefix, from the launcher; undefined when the hub was not started by one. */
+/** The hub's program tree, from the launcher; undefined when the hub was not started by one. */
 export function prefixFrom(env: Readonly<Record<string, string | undefined>>): string | undefined {
-  const prefix = env[PREFIX_VARIABLE];
+  const prefix = env[PROGRAM_VARIABLE];
   return prefix === undefined || prefix === "" ? undefined : prefix;
 }
 
@@ -45,15 +45,26 @@ export function requestSwitch(
       message: "not started by the launcher: no install to switch",
     });
   const paths = installPaths(prefix);
-  if (!isVersionName(version) || !exists(join(paths.versions, version)))
+  if (!isVersionName(version) || !exists(join(paths.staged, version)))
     return err({ kind: "failed", reason: "io", message: `${version} is not installed` });
   const note = new TextEncoder().encode(`${JSON.stringify({ to: version })}\n`);
   const written = writeDurably(paths.switchFile, `${paths.switchFile}.new`, note);
   return written.isErr() ? err({ kind: "failed", ...written.error }) : ok(undefined);
 }
 
-/** The version a committed `update_healthy` names, if these records hold one. */
-export function healthyIn(records: readonly AuditRecord[]): string | undefined {
+/**
+ * The version a commit makes healthy, if any: the one a committed `update_healthy` names (an
+ * update's trial); or, on a package's trial (the launcher's `HSN_PACKAGE_TRIAL`, naming this
+ * version), the first commit at all, since the core records no `update_healthy` for a switch it
+ * did not make. The caller writes `healthy.json` once its listeners are open too
+ * (`app-wiring.ts`), so both trials pass on one sign: migrated, booted, a commit made, listening.
+ */
+export function healthyIn(
+  records: readonly AuditRecord[],
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): string | undefined {
+  const packageTrial = env[PACKAGE_TRIAL_VARIABLE];
+  if (packageTrial !== undefined && isVersionName(packageTrial)) return packageTrial;
   for (const record of records) {
     if (
       record.kind === "decision" &&

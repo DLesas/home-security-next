@@ -1,31 +1,45 @@
 #!/bin/sh
-# The .deb's postinst (m2-design.md section 9, Linux): the hub's account, the data folder's access
-# (at install and at every upgrade), the program selected, the service enabled and started, the
-# firewall, and on a fresh install the setup page or, with no desktop session, the first code.
+# The .deb's postinst (m2-design.md section 9, Linux, and "The privilege boundary"), as root: the
+# hub's account, each hub tree's top folder (never its contents), the packaged versions, the
+# services, the firewall, the `installed` marker, and on a fresh install the setup page through
+# the package's own `hsn`. It never runs the hub's program, never recurses into a hub tree and
+# never chooses a version: the launcher does, as the hub's account, at its next start.
 set -eu
-PREFIX=/opt/hsn-hub
+PKG=/usr/lib/hsn-hub
 DATA=/var/lib/hsn-hub
-LAUNCHER=/usr/lib/hsn-hub/hsn-launcher
-VERSION=$(cat /usr/lib/hsn-hub/version)
+PROGRAM=/var/lib/hsn-hub-program
+VERSION=$(cat "$PKG/version")
 [ "$1" = "configure" ] || exit 0
 
+# Fresh means this package was never installed here: its root-owned marker, not the hub's files.
 fresh=yes
-[ -e "$DATA/hub.db" ] && fresh=no
+[ -e "$PKG/installed" ] && fresh=no
 
 if ! getent passwd hsn >/dev/null; then
   adduser --system --group --home "$DATA" --no-create-home --shell /usr/sbin/nologin hsn
 fi
+# The USB port: dialout as the account's supplementary group only; the data folder is hsn:hsn.
 getent group dialout >/dev/null && usermod -a -G dialout hsn
 
-/usr/lib/hsn-hub/secure-data-folder.sh "$DATA" hsn hsn
-mkdir -p "$PREFIX/state"
-chown -R hsn:hsn "$PREFIX"
-chmod 0755 "$PREFIX"
-"$LAUNCHER" --prefix "$PREFIX" --select "$VERSION"
-chown -h hsn:hsn "$PREFIX/current"
+"$PKG/prepare-hub-folder.sh" "$DATA" hsn hsn
+"$PKG/prepare-hub-folder.sh" "$PROGRAM" hsn hsn
+
+# The version this package replaced, kept aside by preinst, beside the new one; then at most two.
+if [ -d "$PKG/kept" ]; then
+  for kept in "$PKG"/kept/*; do
+    [ -d "$kept" ] || continue
+    name=$(basename "$kept")
+    [ "$name" = "$VERSION" ] || { rm -rf "$PKG/packaged/$name"; mv "$kept" "$PKG/packaged/$name"; }
+  done
+  rm -rf "$PKG/kept"
+fi
+"$PKG/prune-packaged.sh" "$PKG/packaged" "$VERSION"
+
+touch "$PKG/installed"
+chmod 0644 "$PKG/installed"
 
 systemctl daemon-reload
-systemctl enable hsn-hub.service
+systemctl enable hsn-hub.service hsn-hub-inhibit.service
 systemctl restart hsn-hub.service
 
 # The two LAN ports and mDNS, when ufw is on (section 9, "Firewall").
@@ -36,16 +50,16 @@ if command -v ufw >/dev/null && ufw status 2>/dev/null | grep -q "Status: active
 fi
 
 [ "$fresh" = yes ] || exit 0
-PROGRAM="$PREFIX/current/bin/hsn-hub"
-# The person who ran the installer, in their own desktop session, unelevated (D62, HB19).
-user=${SUDO_USER:-}
-if [ -n "$user" ] && [ "$user" != root ] && [ -S "/run/user/$(id -u "$user")/bus" ]; then
-  if /usr/lib/hsn-hub/open-setup-page.sh "$PROGRAM" "$DATA" "$user"; then exit 0; fi
+# A silent install (no person: no terminal, or a non-interactive front end) makes no token.
+if [ "${DEBIAN_FRONTEND:-}" = noninteractive ] || ! [ -t 1 ]; then
+  echo "hsn-hub: installed. Run \`sudo hsn open\` to link the first browser or phone."
+  exit 0
 fi
-# No desktop: the first linking code, the home-network address and the certificate (D62).
-code=$(HSN_DATA_DIR="$DATA" "$PROGRAM" cli op link.create '{"kind":{"newPerson":{}},"form":"code"}' 2>/dev/null || true)
-info=$(HSN_DATA_DIR="$DATA" "$PROGRAM" cli op hub.info 2>/dev/null || true)
-echo "hsn-hub: installed. Link the first browser or phone with:"
-echo "  $code"
-echo "  hub: $info"
+# The person who ran the installer: their own desktop session, unelevated (D62, HB19); with none,
+# `hsn open` prints the first linking code, the address and the fingerprint.
+user=${SUDO_USER:-}
+if [ -z "$user" ] || [ "$user" = root ] || [ ! -S "/run/user/$(id -u "$user")/bus" ]; then user=""; fi
+if ! "$PKG/open-setup-page.sh" /usr/bin/hsn "$user"; then
+  echo "hsn-hub: installed, but the first code could not be shown: run \`sudo hsn open\`." >&2
+fi
 exit 0

@@ -70,6 +70,7 @@ describe("the hub's facts come before any client, with the listeners' real ports
       }),
       report: (error: HubError) => reports.push(error),
       history: { rows: () => ok([]), staged: () => [] },
+      publisherKeys: [],
     };
     // The signing keys first, as `main.ts` makes them.
     (await ensureHubKeys(store.snapshot.hubKeys, store.writer))._unsafeUnwrap();

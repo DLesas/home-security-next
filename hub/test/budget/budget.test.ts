@@ -1,49 +1,65 @@
 /**
- * The write budget (hub-design.md section 11, "Write budget"; section 5, "Budget"; D112, HB35):
- * a simulated day of home A and of home B on the whole hub (every real module, the loop of
- * section 4, the real writer on a real SQLite file, scripted gateways, sensors and sirens),
- * counting commits and the bytes of every WAL frame, failing above section 5's limits; a second
- * day with a five-minute alarm, allowed 300 more commits; the file's size projected at D57's
- * retention; a faulty device's warnings costing no more than their 60 an hour; and reads that
- * never commit.
+ * The write budget (hub-design.md section 11, "Write budget"; section 5, "Budget"; D112, HB35;
+ * m2-design.md sections 3 and 10): a simulated day of homes A, B and C on the whole hub (every
+ * real module, the loop of section 4, the real writer on a real SQLite file, scripted gateways,
+ * sensors and sirens), counting commits and the bytes of every WAL frame, failing above the
+ * limits; a second day with a five-minute alarm, allowed 300 more commits; the file's size
+ * projected at D57's retention; the same days with M2's household (`day.ts`), whose sessions,
+ * snapshots, history and notification reads never commit; a faulty device's warnings costing no
+ * more than their 60 an hour; and `hsn`'s reads that never commit.
+ *
+ * Every limit is on work (commits, frames, rows, bytes), never on wall time, so a loaded machine
+ * cannot make it flake.
  */
 import { afterAll, describe, expect, test } from "bun:test";
-import { DAY, Home, HOME_A, HOME_B, type HomeSpec, HOUR, MINUTE, SECOND } from "../world/home.ts";
+import { HOME_A, HOME_B, type HomeSpec, MINUTE, SECOND, Home, HOUR } from "../world/home.ts";
 import { DAY_TEST_TIMEOUT_MS, DAYS_TEST_TIMEOUT_MS } from "../world/timeouts.ts";
-import { bootId } from "../../src/core/model/ids.ts";
-import { mono } from "../../src/core/model/time.ts";
-import {
-  type DayMeasured,
-  measureDay,
-  type OlderRows,
-  WAL_LIMIT_MB,
-  writeOlderRows,
-} from "./run.ts";
+import { type Day, day } from "./day.ts";
+import { WAL_LIMIT_MB } from "./run.ts";
+import { DEFAULT_RULES } from "../../src/core/model/rules.ts";
 
-/** Section 5's budget a day: commits, megabytes of WAL frames, the file at D57's retention. */
+/** The design's rule for every line (wave 3): the measured figure plus 10%, rounded up ‡. */
+const lineOf = (measured: number): number => Math.ceil(measured * 1.1);
+/**
+ * The budget a day: commits, megabytes of WAL frames, the file at D57's retention (home C: its
+ * database pages, the size guard's measure). Each line is the larger of the day without M2 and
+ * the day with M2's household, measured on 2026-11-15 (Bun 1.4.2, this file's seeds, the daily
+ * `client_sessions` record built, the day run past midnight), plus 10%. The figures before the
+ * rule, the design's: A 800, 20, 70; B 1,400, 35, 120; C 2,400 ‡, 60 ‡, 210.
+ */
 const BUDGET = {
-  A: { commits: 800, megabytes: 20, fileMegabytes: 70 },
-  B: { commits: 1400, megabytes: 35, fileMegabytes: 120 },
+  A: { commits: lineOf(519), megabytes: lineOf(17.42), fileMegabytes: lineOf(69.12) },
+  B: { commits: lineOf(939), megabytes: lineOf(29.52), fileMegabytes: lineOf(119.14) },
+  // The WAL's line is the designer's 80 MB ‡, not the rule's (68.18 measured).
+  C: { commits: lineOf(1680), megabytes: 80, fileMegabytes: lineOf(229.9) },
 } as const;
 /** An alarm adds a commit a second for its five minutes (section 5). */
 const ALARM_EXTRA_COMMITS = 300;
-/** Routine and event rows a day, from section 5's "Database size" table. */
-const OLDER: Record<"A" | "B" | "C", OlderRows> = {
-  A: { routinePerDay: 21_330, eventPerDay: 450 },
-  B: { routinePerDay: 32_890, eventPerDay: 1_300 },
-  // A 64-sensor home: twice home B's rows and more, laid out as the day's retention deletes them.
-  C: { routinePerDay: 70_000, eventPerDay: 2_700 },
-};
-/** A 64-sensor home with 8 sirens and 3 gateways: the largest site the size guard's marks allow for. */
-const HOME_C = { name: "C", sensors: 64, sirens: 8, gateways: 3 } as const;
 /**
- * The size guard's lower mark, where trimming stops (section 6): a home at D57's retention stays
- * under it, so it would lose nothing of that retention if trimming ever ran.
+ * What M2's household may add to a day's commits: section 3 counts about 15 (6 actions, 4
+ * schedule runs, 5 edits); this household makes 6 switches, 4 runs and 6 edits, and a chosen
+ * folder's warning that it is on the data disk. Twice section 3's figure is the line: anything
+ * near it means a read, a session or a notification has started to commit.
  */
-const SIZE_GUARD_STOP_MB = 210;
+const M2_EXTRA_COMMITS = 30;
+/** The largest site the size guard's marks allow for (section 6): 64 sensors, 8 sirens, 3 gateways. */
+const HOME_C: HomeSpec = { name: "C", sensors: 64, sirens: 8, gateways: 3 };
+/**
+ * The size guard's marks (section 6; D112 as amended by the product owner, in `DEFAULT_RULES`):
+ * trimming stops under the lower, starts above the upper, and the database stops at the hard
+ * stop. Home C's database at D57's retention, with M2's household, must stay under the lower mark,
+ * so trimming never takes any of that retention.
+ */
+const SIZE_GUARD_MARKS_MB = {
+  lower: DEFAULT_RULES.persistence.sizeGuard.stopBytes / (1024 * 1024),
+  upper: DEFAULT_RULES.persistence.sizeGuard.startBytes / (1024 * 1024),
+  hardStop: DEFAULT_RULES.persistence.sizeGuard.hardStopBytes / (1024 * 1024),
+} as const;
 
+const days: Day[] = [];
 const homes: Home[] = [];
 afterAll(() => {
+  for (const d of days) d.home.close();
   for (const home of homes) home.close();
 });
 
@@ -51,132 +67,142 @@ function must(result: { isErr(): boolean; error?: { message: string } }): void {
   expect(result.isErr() ? (result.error?.message ?? "stalled") : "ok").toBe("ok");
 }
 
-/** Warnings and worse a day, as section 5's "Commits a day" assumes. */
-const WARNINGS = { A: 20, B: 30, C: 60 } as const;
+async function measured(spec: HomeSpec, options: Parameters<typeof day>[1]): Promise<Day> {
+  const d = await day(spec, options);
+  days.push(d);
+  return d;
+}
 
-/**
- * Section 5's day of `spec`: each sensor's door opens 10 times (20 door events and their
- * retries), by morning (06:00 to 07:55) and evening (18:05 to 21:55) while disarmed; armed at
- * 07:59 and 17:59 with a 30-second countdown each time, disarmed in time (leaving and coming
- * home); the warnings logged by the sirens spread over the day. Heartbeats, link checks and
- * their replies, siren reports on both paths and gateway statuses are the devices' own. With
- * `alarm`, armed again at 22:00 and a five-minute alarm from 23:00.
- */
-async function day(spec: HomeSpec, alarm: boolean): Promise<DayMeasured> {
+/** The file's figure the budget limits: home C's database pages, A's and B's file with its WAL. */
+function fileMegabytes(spec: HomeSpec, d: Day): number {
+  const file = d.measured.projectedFileMegabytes;
+  return spec.name === "C" ? file - WAL_LIMIT_MB : file;
+}
+
+describe.each([HOME_A, HOME_B, HOME_C])("a day of home $name (section 5)", (spec) => {
   const name = spec.name as "A" | "B" | "C";
-  const home = await Home.create({ ...spec, seed: 5 }, (store) => {
-    // Written by the boot before the day's, so their numbers are below every one of the day's.
-    writeOlderRows(store, OLDER[name], bootId(store.boot.id - 1));
-  });
-  homes.push(home);
-  home.scriptDesignDoors(10, [
-    [6 * HOUR, 7 * HOUR + 55 * MINUTE],
-    [18 * HOUR + 5 * MINUTE, 21 * HOUR + 55 * MINUTE],
-  ]);
-  const actions: { at: number; act: () => void }[] = [];
-  for (const at of [8 * HOUR, 18 * HOUR]) {
-    actions.push({
-      at: at - MINUTE,
-      act: () => {
-        home.command({ kind: "arm", sensors: "all", continue: true });
-      },
-    });
-    home.sensor("door-1")?.door(mono(at), true);
-    home.sensor("door-1")?.door(mono(at + 10 * SECOND), false);
-    actions.push({
-      at: at + 20 * SECOND,
-      act: () => {
-        home.command({ kind: "disarm", sensors: "all" });
-      },
-    });
-  }
-  const warnings = WARNINGS[name];
-  for (let w = 0; w < warnings; w++) {
-    actions.push({
-      at: Math.floor(((w + 0.5) * DAY) / warnings),
-      act: () => {
-        home.sirens[w % home.sirens.length]?.siren.log(2, 9, "battery low");
-      },
-    });
-  }
-  if (alarm) {
-    actions.push({
-      at: 22 * HOUR,
-      act: () => {
-        home.command({ kind: "arm", sensors: "all", continue: false });
-      },
-    });
-    home.sensor("door-1")?.door(mono(23 * HOUR), true);
-    home.sensor("door-1")?.door(mono(23 * HOUR + 20 * SECOND), false);
-  }
-  for (const action of actions.toSorted((a, b) => a.at - b.at)) {
-    must(home.advanceTo(action.at));
-    action.act();
-  }
-  must(home.advanceTo(DAY));
-  // The two countdowns ended in time; the alarm, if asked for, came.
-  expect(home.decisions("countdown_started").length).toBeGreaterThanOrEqual(alarm ? 3 : 2);
-  expect(home.decisions("alarm")).toHaveLength(alarm ? 1 : 0);
-  const store = home.store;
-  expect(store).toBeDefined();
-  if (store === undefined) return measureDayless();
-  const measured = measureDay(store, store.boot.id);
-  console.log(
-    `home ${name}${alarm ? " with an alarm" : ""} on the whole hub: ${measured.commits} commits ` +
-      `(${JSON.stringify(measured.byReason)}), ${measured.walFrames} WAL frames = ${measured.megabytes.toFixed(1)} MB, ` +
-      `${measured.routineRows} routine and ${measured.eventRows} event rows, ` +
-      `${measured.projectedFileMegabytes.toFixed(0)} MB at D57's retention; rows by table ${JSON.stringify(measured.rowsByTable)}`,
-  );
-  return measured;
-}
-
-function measureDayless(): DayMeasured {
-  return {
-    commits: Number.POSITIVE_INFINITY,
-    byReason: {} as DayMeasured["byReason"],
-    walFrames: 0,
-    checkpointedFrames: 0,
-    megabytes: Number.POSITIVE_INFINITY,
-    routineRows: 0,
-    eventRows: 0,
-    projectedFileMegabytes: Number.POSITIVE_INFINITY,
-    rowsByTable: {},
-  };
-}
-
-describe.each([HOME_A, HOME_B])("a day of home $name (section 5)", (spec) => {
-  const budget = BUDGET[spec.name as "A" | "B"];
-  let quiet: DayMeasured;
+  const budget = BUDGET[name];
+  const timeout = name === "C" ? DAYS_TEST_TIMEOUT_MS : DAY_TEST_TIMEOUT_MS;
+  let quiet: Day;
 
   test(
     `commits at most ${budget.commits} times`,
     async () => {
-      quiet = await day(spec, false);
-      expect(quiet.commits).toBeLessThanOrEqual(budget.commits);
+      quiet = await measured(spec, {});
+      expect(quiet.measured.commits).toBeLessThanOrEqual(budget.commits);
       // Every commit is one of section 5's rules; the routine flushes at most one per five minutes.
-      expect(quiet.byReason.due).toBeLessThanOrEqual(288);
-      expect(quiet.byReason.size).toBe(0);
+      expect(quiet.measured.byReason.due).toBeLessThanOrEqual(288);
+      expect(quiet.measured.byReason.size).toBe(0);
     },
-    DAY_TEST_TIMEOUT_MS,
+    timeout,
   );
 
-  test(`writes at most ${budget.megabytes} MB of WAL frames`, () => {
-    expect(quiet.megabytes).toBeLessThanOrEqual(budget.megabytes);
+  const walLine = budget.megabytes;
+  test(`writes at most ${walLine} MB of WAL frames`, () => {
+    expect(quiet.measured.megabytes).toBeLessThanOrEqual(walLine);
     // The frames counted commit by commit are those the checkpoints report.
-    expect(quiet.checkpointedFrames).toBe(quiet.walFrames);
+    expect(quiet.measured.checkpointedFrames).toBe(quiet.measured.walFrames);
   });
 
-  test(`at D57's retention, the file stays under ${budget.fileMegabytes} MB`, () => {
-    expect(quiet.projectedFileMegabytes).toBeLessThanOrEqual(budget.fileMegabytes);
+  test(`at D57's retention, ${name === "C" ? "the database stays under" : "the file stays under"} ${budget.fileMegabytes} MB`, () => {
+    expect(fileMegabytes(spec, quiet)).toBeLessThanOrEqual(budget.fileMegabytes);
   });
 
   test(
+    "with M2's household: within the budget, M2 adding at most its share, reads committing nothing",
+    async () => {
+      const busy = await measured(spec, { m2: true });
+      const m2 = busy.m2;
+      expect(m2).toBeDefined();
+      if (m2 === undefined) return;
+      // The household's day happened: every request answered, the four entries run, the switches.
+      expect(m2.asked).toBe(13);
+      expect(m2.answered).toBe(m2.asked);
+      expect(m2.scheduleRuns).toBe(4);
+      expect(m2.switches).toBeGreaterThanOrEqual(6 + 2);
+      expect(m2.historyReads).toBe(m2.sessions);
+      // The day's session records: one for each of the 7 clients that connected, past midnight.
+      expect(m2.sessionRecords).toBe(7);
+      expect(m2.notifications).toBeGreaterThan(0);
+      expect(m2.reads).toBeGreaterThan(0);
+      // The backup at the change and the daily one were written, each outside `hub.db`.
+      expect(m2.backups.written).toBeGreaterThanOrEqual(2);
+      expect(m2.backups.failed).toBe(0);
+      // Sessions, snapshots, subscriptions, history, notification reads and `hub.status`: no commit.
+      expect(m2.readCosts.length).toBeGreaterThan(6 * m2.sessions);
+      expect(m2.readCosts.filter((r) => r.commits !== 0)).toEqual([]);
+      // Within the home's budget, and M2 adding no more than its share.
+      expect(busy.measured.commits).toBeLessThanOrEqual(budget.commits);
+      expect(busy.measured.commits - quiet.measured.commits).toBeLessThanOrEqual(M2_EXTRA_COMMITS);
+      expect(busy.measured.byReason.size).toBe(0);
+      expect(busy.measured.megabytes).toBeLessThanOrEqual(walLine);
+      expect(fileMegabytes(spec, busy)).toBeLessThanOrEqual(budget.fileMegabytes);
+      // Home C's database pages stay under the size guard's lower mark: nothing of D57's retention
+      // is ever trimmed.
+      if (name === "C") expect(fileMegabytes(spec, busy)).toBeLessThan(SIZE_GUARD_MARKS_MB.lower);
+      console.log(
+        `home ${name}: M2 adds ${busy.measured.commits - quiet.measured.commits} commits, ` +
+          `${(busy.measured.megabytes - quiet.measured.megabytes).toFixed(2)} MB of WAL, ` +
+          `${(busy.measured.projectedFileMegabytes - quiet.measured.projectedFileMegabytes).toFixed(2)} MB at retention; ` +
+          `${m2.notifications} notifications, ${m2.reads} read, ${m2.backups.written} backups; ` +
+          (name === "C"
+            ? `database ${fileMegabytes(spec, busy).toFixed(1)} MB against the size guard's marks ` +
+              `${SIZE_GUARD_MARKS_MB.lower}, ${SIZE_GUARD_MARKS_MB.upper}, ${SIZE_GUARD_MARKS_MB.hardStop}`
+            : `${(budget.fileMegabytes - fileMegabytes(spec, busy)).toFixed(1)} MB under the line`),
+      );
+    },
+    timeout,
+  );
+
+  test.if(name !== "C")(
     `with a five-minute alarm, at most ${ALARM_EXTRA_COMMITS} commits more`,
     async () => {
-      const loud = await day(spec, true);
-      expect(loud.commits).toBeLessThanOrEqual(budget.commits + ALARM_EXTRA_COMMITS);
-      expect(loud.commits - quiet.commits).toBeGreaterThanOrEqual(ALARM_EXTRA_COMMITS - 30);
-      expect(loud.megabytes).toBeLessThanOrEqual(budget.megabytes);
+      const loud = await measured(spec, { alarm: true });
+      expect(loud.measured.commits).toBeLessThanOrEqual(budget.commits + ALARM_EXTRA_COMMITS);
+      expect(loud.measured.commits - quiet.measured.commits).toBeGreaterThanOrEqual(
+        ALARM_EXTRA_COMMITS - 30,
+      );
+      expect(loud.measured.megabytes).toBeLessThanOrEqual(budget.megabytes);
+    },
+    timeout,
+  );
+});
+
+describe("the warning that no folder is chosen (m2-design.md sections 3 and 9, D112)", () => {
+  test(
+    "is raised once, at the first change a backup would hold, in one 'now' commit; never again",
+    () => {
+      const quiet = days.find((d) => d.home.spec.name === "A" && d.m2 === undefined);
+      expect(quiet).toBeDefined();
+      if (quiet === undefined) return;
+      const h = quiet.home;
+      // A day with no change a backup holds raises nothing (so section 3's first-day 245 is 244).
+      expect(h.decisions("backup_no_folder")).toHaveLength(0);
+      const rename = (from: string, to: string): void => {
+        const request = h.command({ kind: "deviceRename", from, to });
+        expect(h.replyTo(request)?.ok).toBe(true);
+      };
+      const commits = h.commitLog.length;
+      rename("door-1", "front");
+      expect(h.decisions("backup_no_folder")).toHaveLength(1);
+      // The warning went in the rename's own commit: one "now" commit for both.
+      const held = h.commitLog
+        .slice(commits)
+        .filter((c) =>
+          c.items.some(
+            (i) =>
+              i.kind === "record" &&
+              i.record.kind === "decision" &&
+              i.record.row.kind === "backup_no_folder",
+          ),
+        );
+      expect(held).toHaveLength(1);
+      rename("door-2", "back");
+      must(h.advanceBy(10 * MINUTE));
+      must(h.restart("clean"));
+      rename("door-3", "side");
+      must(h.advanceBy(HOUR));
+      expect(h.decisions("backup_no_folder")).toHaveLength(1);
     },
     DAY_TEST_TIMEOUT_MS,
   );
@@ -198,13 +224,10 @@ describe("a faulty device (section 5, the warning cap)", () => {
       const store = home.store;
       if (store === undefined) return;
       const before = store.writer.stats.commits;
-      const quietHour = (): void => {
-        for (let s = 1; s <= 3600; s++) {
-          home.siren("siren-1")?.log(2, 9, "fault");
-          must(home.advanceBy(SECOND));
-        }
-      };
-      quietHour();
+      for (let s = 1; s <= 3600; s++) {
+        home.siren("siren-1")?.log(2, 9, "fault");
+        must(home.advanceBy(SECOND));
+      }
       const commits = store.writer.stats.commits - before;
       // 60 warnings and the one that says the cap was reached; a routine flush every 5 minutes.
       expect(commits).toBeLessThanOrEqual(61 + 12 + 2);
@@ -249,21 +272,5 @@ describe("reads never commit (sections 3 and 11)", () => {
       expect(staged).toHaveLength(3 * 360);
     },
     DAY_TEST_TIMEOUT_MS,
-  );
-});
-
-describe("the largest site the size guard is set for (section 6)", () => {
-  test(
-    `a 64-sensor home (8 sirens, 3 gateways) stays under ${SIZE_GUARD_STOP_MB} MB at D57's retention`,
-    async () => {
-      const day64 = await day(HOME_C, false);
-      // The marks measure the database's pages in use; the WAL (at most 8 MB) is a share of its own.
-      const database = day64.projectedFileMegabytes - WAL_LIMIT_MB;
-      console.log(
-        `home C: ${database.toFixed(1)} MB of database pages at D57's retention, ${day64.projectedFileMegabytes.toFixed(1)} MB with the WAL`,
-      );
-      expect(database).toBeLessThan(SIZE_GUARD_STOP_MB);
-    },
-    DAYS_TEST_TIMEOUT_MS,
   );
 });

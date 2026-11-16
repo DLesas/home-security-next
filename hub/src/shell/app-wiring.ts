@@ -112,6 +112,11 @@ export interface AppWiringOptions {
   readonly report: (error: HubError) => void;
   /** `history.query`'s pages: the committed rows and the writer's staged records (section 7). */
   readonly history: HistorySource;
+  /**
+   * The publisher keys a release must be signed by: `PUBLISHER_KEYS`, passed by `main.ts`'s own
+   * entry; a test's entry passes `TEST_PUBLISHER_KEY` (section 9, "Hub updates").
+   */
+  readonly publisherKeys: readonly Uint8Array[];
 }
 
 /** The keys and the stores made before the boot event. */
@@ -360,6 +365,7 @@ export class AppSide {
       prefix: prefixFrom(this.#options.env),
       switchBlockedBy: () => switchBlockedBy(state()),
       stagingWanted: (staging) => stagingJob(state()) === staging,
+      publisherKeys: this.#options.publisherKeys,
       // A history export begins after what is staged is flushed, as `hsn log` does (section 7).
       flush: () => this.#options.writer.flush("log").mapErr((e) => e.message),
       nowMs: this.#options.nowMs,

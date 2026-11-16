@@ -1,53 +1,118 @@
 <!--
-  The .msi (m2-design.md section 9, Windows), for WiX Toolset 5 (`wix build`), built by
-  build-msi.ps1 with -d Version=<v> -d ProgramDir=<build-program's out> -d LauncherDir=<staged>.
-  Unsigned: SmartScreen warns on first run (section 12). Per machine, elevated.
+  The .msi (m2-design.md section 9, Windows, and "The privilege boundary"), for WiX Toolset 5
+  (`wix build`), built by build-msi.ps1 with -d Version=<v> -d ProgramDir=<build-program's out>
+  -d BinDir=<staged bin\> -d PrepareUpgrade=<prepare-upgrade.ps1, encoded>. Unsigned: SmartScreen
+  warns on first run (section 12). Per machine, elevated.
+
+  The package's tree, %ProgramFiles%\HSN Hub: packaged\<version>\ (this one; the one before it is
+  kept by prepare-upgrade.ps1 and install-service.ps1), bin\ (the launcher, WinSW and its XML,
+  hsn, the installer's scripts) and version. The hub's trees in %ProgramData% are never part of
+  the package: install-service.ps1 sets their top folders only.
 -->
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
      xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui"
      xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
   <Package Name="HSN Hub" Manufacturer="HSN" Version="$(Version)" Scope="perMachine"
            UpgradeCode="6B2B8A2E-4C0F-4F7B-9B57-5E1C3A9D2F41">
-    <MajorUpgrade DowngradeErrorMessage="A newer HSN Hub is already installed." />
+    <!-- Inside the transaction, so the version kept aside before the old files go comes back. -->
+    <MajorUpgrade Schedule="afterInstallInitialize"
+                  DowngradeErrorMessage="A newer HSN Hub is already installed." />
     <MediaTemplate EmbedCab="yes" />
 
     <StandardDirectory Id="ProgramFiles64Folder">
-      <Directory Id="PREFIX" Name="HSN Hub">
-        <Directory Id="VERSIONS" Name="versions">
+      <Directory Id="PACKAGE" Name="HSN Hub">
+        <Directory Id="PACKAGED" Name="packaged">
           <Directory Id="VERSIONDIR" Name="$(Version)" />
         </Directory>
+        <Directory Id="BIN" Name="bin">
+          <Component Id="Bin" Guid="0E9D3C7A-8E0B-4E35-A0E3-2B6F1C4D5A71">
+            <File Source="$(BinDir)\hsn-launcher.exe" />
+            <File Source="$(BinDir)\HSNHub.exe" />
+            <File Source="$(BinDir)\HSNHub.xml" />
+            <File Source="$(BinDir)\WinSW-LICENSE.txt" />
+            <File Source="$(BinDir)\hsn.exe" />
+            <File Source="$(BinDir)\tree.ps1" />
+            <File Source="$(BinDir)\install-service.ps1" />
+            <File Source="$(BinDir)\uninstall-service.ps1" />
+            <File Source="$(BinDir)\remove-with-data.ps1" />
+            <File Source="$(BinDir)\hub-folder.sddl" />
+            <Environment Id="PathToHsn" Name="PATH" Value="[BIN]" Part="last" Action="set" System="yes" />
+          </Component>
+        </Directory>
+        <Component Id="VersionFile" Guid="3C1A6E2B-7D4F-4C8A-9E21-6B5D0F7A8C13">
+          <File Source="$(BinDir)\version" />
+        </Component>
       </Directory>
-      <Directory Id="LAUNCHERDIR" Name="HSN Hub Launcher">
-        <Component Id="Launcher" Guid="0E9D3C7A-8E0B-4E35-A0E3-2B6F1C4D5A71">
-          <File Source="$(LauncherDir)\hsn-launcher.exe" />
-          <File Source="$(LauncherDir)\HSNHub.exe" />
-          <File Source="$(LauncherDir)\HSNHub.xml" />
-          <File Source="$(LauncherDir)\WinSW-LICENSE.txt" />
-          <File Source="$(LauncherDir)\hsn.cmd" />
-          <File Source="$(LauncherDir)\install-service.ps1" />
-          <File Source="$(LauncherDir)\uninstall-service.ps1" />
-          <Environment Id="PathToHsn" Name="PATH" Value="[LAUNCHERDIR]" Part="last" Action="set" System="yes" />
+    </StandardDirectory>
+
+    <!-- The Start menu: "HSN Hub setup" runs hsn open, asking for elevation once; "Remove HSN Hub
+         and its data" confirms, then removes with REMOVEDATA=1 (section 9). -->
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="MENU" Name="HSN Hub">
+        <Component Id="Menu" Guid="9A4F2C61-3B7E-4D58-8C0A-1E6D5B2F7A94">
+          <Shortcut Id="Setup" Name="HSN Hub setup" Target="[System64Folder]WindowsPowerShell\v1.0\powershell.exe"
+                    Arguments="-NoProfile -WindowStyle Hidden -Command &quot;Start-Process -Verb RunAs -FilePath '[BIN]hsn.exe' -ArgumentList '--data','[CommonAppDataFolder]HSN Hub','open'&quot;" />
+          <Shortcut Id="RemoveWithData" Name="Remove HSN Hub and its data" Target="[System64Folder]WindowsPowerShell\v1.0\powershell.exe"
+                    Arguments="-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File &quot;[BIN]remove-with-data.ps1&quot; -ProductCode [ProductCode]" />
+          <RemoveFolder Id="RemoveMenu" On="uninstall" />
+          <RegistryValue Root="HKLM" Key="Software\HSN Hub\Menu" Name="installed" Type="integer" Value="1" KeyPath="yes" />
         </Component>
       </Directory>
     </StandardDirectory>
 
     <Feature Id="Hub">
-      <ComponentRef Id="Launcher" />
+      <ComponentRef Id="Bin" />
+      <ComponentRef Id="VersionFile" />
+      <ComponentRef Id="Menu" />
       <Files Include="$(ProgramDir)\versions\$(Version)\**" Directory="VERSIONDIR" />
     </Feature>
 
-    <!-- An upgrade: the running launcher and hub stopped before their files change. -->
-    <CustomAction Id="StopService" Directory="TARGETDIR" Execute="deferred" Impersonate="no"
-                  Return="ignore" ExeCommand="sc.exe stop HSNHub" />
-    <CustomAction Id="InstallService" Directory="LAUNCHERDIR" Execute="deferred" Impersonate="no"
-                  Return="check"
-                  ExeCommand="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;[LAUNCHERDIR]install-service.ps1&quot; -Version $(Version) -UserSid &quot;[UserSID]&quot; -LocalAppData &quot;[LocalAppDataFolder]&quot;" />
-    <CustomAction Id="UninstallService" Directory="LAUNCHERDIR" Execute="deferred" Impersonate="no"
+    <!-- An upgrade: the service stopped (waiting until it has) and the packaged versions kept aside
+         before the old product's files are removed; the new package's files are not on disk yet,
+         so the script is passed encoded. -->
+    <CustomAction Id="PrepareUpgrade" Directory="TARGETDIR" Execute="deferred" Impersonate="no"
                   Return="ignore"
-                  ExeCommand="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;[LAUNCHERDIR]uninstall-service.ps1&quot;" />
+                  ExeCommand="powershell.exe -NoProfile -ExecutionPolicy Bypass -EncodedCommand $(PrepareUpgrade)" />
+    <!-- UILevel 5 is the full interface: anything less is a silent install, with no token and no
+         page. The trailing "." keeps the folder's backslash from escaping the closing quote. -->
+    <CustomAction Id="InstallService" Directory="BIN" Execute="deferred" Impersonate="no"
+                  Return="check"
+                  ExeCommand="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;[BIN]install-service.ps1&quot; -Version $(Version) -UILevel [UILevel] -UserSid &quot;[UserSID]&quot; -LocalAppData &quot;[LocalAppDataFolder].&quot;" />
+    <CustomAction Id="UninstallService" Directory="BIN" Execute="deferred" Impersonate="no"
+                  Return="ignore"
+                  ExeCommand="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;[BIN]uninstall-service.ps1&quot; -RemoveData &quot;[REMOVEDATA]&quot;" />
     <!-- The Finish dialog's "Open the setup page", ticked: the page's path, from the installer's own
          interface, as the installing person, unelevated (section 9). -->
-    <ui:WixUI Id="WixUI_Minimal" />
+    <!-- No licence page in M2 (the product's licence is the product owner's to choose): WiX's own
+         dialogs, as its minimal set uses them, with WelcomeDlg in place of its licence dialog. -->
+    <UI Id="HsnUI">
+      <TextStyle Id="WixUI_Font_Normal" FaceName="Tahoma" Size="8" />
+      <TextStyle Id="WixUI_Font_Bigger" FaceName="Tahoma" Size="12" />
+      <TextStyle Id="WixUI_Font_Title" FaceName="Tahoma" Size="9" Bold="yes" />
+      <Property Id="DefaultUIFont" Value="WixUI_Font_Normal" />
+      <Property Id="WixUI_Mode" Value="Minimal" />
+      <DialogRef Id="ErrorDlg" />
+      <DialogRef Id="FatalError" />
+      <DialogRef Id="FilesInUse" />
+      <DialogRef Id="MsiRMFilesInUse" />
+      <DialogRef Id="PrepareDlg" />
+      <DialogRef Id="ProgressDlg" />
+      <DialogRef Id="ResumeDlg" />
+      <DialogRef Id="UserExit" />
+      <DialogRef Id="WelcomeDlg" />
+      <Publish Dialog="ExitDialog" Control="Finish" Event="EndDialog" Value="Return" Order="999" />
+      <Publish Dialog="WelcomeDlg" Control="Next" Event="NewDialog" Value="VerifyReadyDlg" />
+      <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="WelcomeDlg" Condition="NOT Installed" />
+      <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="MaintenanceTypeDlg" Condition="Installed" />
+      <Publish Dialog="MaintenanceWelcomeDlg" Control="Next" Event="NewDialog" Value="MaintenanceTypeDlg" />
+      <Publish Dialog="MaintenanceTypeDlg" Control="RepairButton" Event="NewDialog" Value="VerifyReadyDlg" />
+      <Publish Dialog="MaintenanceTypeDlg" Control="RemoveButton" Event="NewDialog" Value="VerifyReadyDlg" />
+      <Publish Dialog="MaintenanceTypeDlg" Control="Back" Event="NewDialog" Value="MaintenanceWelcomeDlg" />
+      <InstallUISequence>
+        <Show Dialog="WelcomeDlg" Before="ProgressDlg" Condition="NOT Installed" />
+      </InstallUISequence>
+    </UI>
+    <UIRef Id="WixUI_Common" />
     <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOXTEXT" Value="Open the setup page" />
     <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOX" Value="1" />
     <Property Id="WixShellExecTarget" Value="[LocalAppDataFolder]HSN Hub\setup.html" />
@@ -59,7 +124,7 @@
     </UI>
 
     <InstallExecuteSequence>
-      <Custom Action="StopService" Before="InstallFiles" Condition="Installed OR WIX_UPGRADE_DETECTED" />
+      <Custom Action="PrepareUpgrade" Before="RemoveExistingProducts" Condition="WIX_UPGRADE_DETECTED" />
       <Custom Action="UninstallService" Before="RemoveFiles" Condition="REMOVE=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE" />
       <Custom Action="InstallService" Before="InstallFinalize" Condition="NOT REMOVE=&quot;ALL&quot;" />
     </InstallExecuteSequence>

@@ -1,3 +1,14 @@
 #!/bin/sh
-# `hsn` (hub-design.md section 9), for administrators: `sudo hsn …` (m2-design.md section 9, W2).
-HSN_DATA_DIR="/Library/Application Support/HSN Hub" exec /usr/local/hsn-hub/current/bin/hsn-hub cli "$@"
+# `hsn` on the path (m2-design.md section 9, W2, "The privilege boundary"), for administrators:
+# `sudo hsn …`. The package's own `hsn` executable, root's, in the package's tree, with the data
+# folder named so nothing from the environment or the working folder chooses it; `sudo hsn
+# uninstall [--remove-data]` is the package's own uninstaller (section 9, "Uninstalling").
+set -eu
+case "${1:-}" in
+  uninstall)
+    shift
+    exec /usr/local/hsn-hub/uninstall.sh "$@"
+    ;;
+esac
+cd /
+exec /usr/local/hsn-hub/bin/hsn --data "/Library/Application Support/HSN Hub" "$@"

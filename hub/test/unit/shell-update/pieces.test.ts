@@ -72,8 +72,8 @@ afterAll(() => {
 
 function prefix(name: string): string {
   const p = join(root, name);
-  mkdirSync(join(p, "versions", "0.1.0", "bin"), { recursive: true });
-  mkdirSync(join(p, "versions", "0.0.9", "bin"), { recursive: true });
+  mkdirSync(join(p, "staged", "0.1.0", "bin"), { recursive: true });
+  mkdirSync(join(p, "staged", "0.0.9", "bin"), { recursive: true });
   mkdirSync(join(p, "state"), { recursive: true });
   writeFileSync(
     installPaths(p).launcherFile,
@@ -111,7 +111,7 @@ describe("staging a 112 MB program in pieces", () => {
       expect(job.bytesRead - read).toBeLessThanOrEqual(STAGING_PIECE_BYTES);
       read = job.bytesRead;
       if (phase === "copy" && job.phase === "copy") {
-        const made = readdirSync(join(p, "versions", ".staging-9.0.0"), { recursive: true }).length;
+        const made = readdirSync(join(p, "staged", ".staging-9.0.0"), { recursive: true }).length;
         expect(made - madeBefore).toBeLessThanOrEqual(STAGING_FILES_PER_PIECE + 3);
         madeBefore = made;
       }
@@ -127,7 +127,7 @@ describe("staging a 112 MB program in pieces", () => {
     expect(longest).toBeLessThan(LOADED_BOUND_MS);
     for (const path of ["bin/hsn-hub", "web/f0.js", "web/f199.js", "drizzle/0000.sql"])
       expect(
-        Buffer.from(readFileSync(join(p, "versions", "9.0.0", path))).equals(
+        Buffer.from(readFileSync(join(p, "staged", "9.0.0", path))).equals(
           readFileSync(join(source, path)),
         ),
       ).toBe(true);
@@ -161,7 +161,7 @@ describe("staging a 112 MB program in pieces", () => {
         byPhase.set(phase, [...(byPhase.get(phase) ?? []), took]);
         // Pass 2 makes at most so many files a piece (a card pays for each).
         if (phase === "copy" && job.phase === "copy") {
-          const made = readdirSync(join(p, "versions", ".staging-9.0.0"), {
+          const made = readdirSync(join(p, "staged", ".staging-9.0.0"), {
             recursive: true,
           }).length;
           expect(made - madeBefore).toBeLessThanOrEqual(STAGING_FILES_PER_PIECE + 3);
@@ -188,12 +188,12 @@ describe("staging a 112 MB program in pieces", () => {
       // Byte for byte the version's folder.
       for (const path of ["bin/hsn-hub", "web/f0.js", "web/f199.js", "drizzle/0000.sql"])
         expect(
-          Buffer.from(readFileSync(join(p, "versions", "9.0.0", path))).equals(
+          Buffer.from(readFileSync(join(p, "staged", "9.0.0", path))).equals(
             readFileSync(join(source, path)),
           ),
         ).toBe(true);
-      expect(readdirSync(join(p, "versions", "9.0.0", "web"))).toHaveLength(200);
-      expect(readdirSync(join(p, "versions")).toSorted()).toEqual(["0.1.0", "9.0.0"]);
+      expect(readdirSync(join(p, "staged", "9.0.0", "web"))).toHaveLength(200);
+      expect(readdirSync(join(p, "staged")).toSorted()).toEqual(["0.1.0", "9.0.0"]);
     },
     60_000,
   );
@@ -207,9 +207,9 @@ describe("staging a 112 MB program in pieces", () => {
       for (let i = 0; i < 20; i++) expect(job.next()).toBeUndefined();
       expect(job.phase).toBe(pass);
       // Pass 1 writes nothing; pass 2 writes into the folder beside.
-      expect(existsSync(join(p, "versions", ".staging-9.0.0"))).toBe(pass === "copy");
+      expect(existsSync(join(p, "staged", ".staging-9.0.0"))).toBe(pass === "copy");
       expect(job.abort("the hub is stopping")).toMatchObject({ kind: "failed", reason: "io" });
-      expect(readdirSync(join(p, "versions")).toSorted()).toEqual(["0.0.9", "0.1.0"]);
+      expect(readdirSync(join(p, "staged")).toSorted()).toEqual(["0.0.9", "0.1.0"]);
       expect(job.next()).toMatchObject({ kind: "failed" });
     },
   );
@@ -222,6 +222,6 @@ describe("staging a 112 MB program in pieces", () => {
     for (let i = 0; i < 20; i++) job.next();
     wanted = false;
     expect(job.next()).toMatchObject({ kind: "failed", message: "staging was cancelled" });
-    expect(readdirSync(join(p, "versions")).toSorted()).toEqual(["0.0.9", "0.1.0"]);
+    expect(readdirSync(join(p, "staged")).toSorted()).toEqual(["0.0.9", "0.1.0"]);
   });
 });

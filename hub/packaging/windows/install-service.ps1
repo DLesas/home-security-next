@@ -1,64 +1,66 @@
-# install-service.ps1 -Version <v> [-UserSid <S-1-5-…> -LocalAppData <folder>]
+# install-service.ps1 -Version <v> [-UILevel <n> -UserSid <S-1-5-…> -LocalAppData <folder>]
 #
-# The .msi's deferred, elevated custom action (m2-design.md section 9, Windows; spikes W2, W3), at
-# install and at every upgrade:
+# The .msi's deferred, elevated custom action at install and at every upgrade (m2-design.md
+# section 9, Windows, and "The privilege boundary"), run from the package's tree only:
 #   1. the service registered by WinSW, under NT SERVICE\HSNHub, start type automatic;
-#   2. the data folder's access list: protected, full control for NT SERVICE\HSNHub, Administrators
-#      (S-1-5-32-544) and SYSTEM (S-1-5-18), nothing else, on the folder and everything in it;
-#   3. the program folder writable by the service account (it unpacks updates there), the
-#      launcher's folder readable only;
-#   4. this version selected by the launcher;
-#   5. the firewall's rules for the two LAN ports and mDNS;
-#   6. the service started; on a fresh install the first console page written for the installing
-#      user (below); and the event log's source "HSN Hub", which the launcher writes failures to.
+#   2. the package's tree, %ProgramFiles%\HSN Hub: the service account may read and run it only;
+#      the version this package replaced kept beside the new one, then at most two;
+#   3. each hub tree's top folder (%ProgramData%\HSN Hub, %ProgramData%\HSN Hub Program) made or
+#      checked and its access list set on that folder alone (tree.ps1): never its contents;
+#   4. the firewall's rules for the two LAN ports and mDNS;
+#   5. the event log's source "HSN Hub", the service started;
+#   6. on a fresh install (the registry's marker, not the hub's files), with a person at the full
+#      interface, the first console page written for the installing user through the package's
+#      own hsn. A silent install (any interface below the full one) makes no token and no page.
+# It never runs anything from a hub tree and never chooses a version: the launcher does, as the
+# service account, at its next start.
 param(
   [Parameter(Mandatory = $true)][string]$Version,
+  [int]$UILevel = 2,
   [string]$UserSid = "",
   [string]$LocalAppData = ""
 )
 $ErrorActionPreference = "Stop"
+. (Join-Path $PSScriptRoot "tree.ps1")
 $Service = "HSNHub"
 $Account = "NT SERVICE\HSNHub"
-$Prefix = Join-Path $env:ProgramFiles "HSN Hub"
-$LauncherDir = Join-Path $env:ProgramFiles "HSN Hub Launcher"
+$Package = Join-Path $env:ProgramFiles "HSN Hub"
+$Bin = Join-Path $Package "bin"
 $Data = Join-Path $env:ProgramData "HSN Hub"
-$fresh = -not (Test-Path (Join-Path $Data "hub.db"))
+$Program = Join-Path $env:ProgramData "HSN Hub Program"
+$Marker = "HKLM:\Software\HSN Hub"
+$fresh = -not ((Get-ItemProperty -Path $Marker -Name Installed -ErrorAction SilentlyContinue).Installed -eq 1)
 
 # 1. The service.
 & sc.exe query $Service *> $null
 if ($LASTEXITCODE -ne 0) {
-  & (Join-Path $LauncherDir "HSNHub.exe") install
+  & (Join-Path $Bin "HSNHub.exe") install
   if ($LASTEXITCODE -ne 0) { throw "WinSW could not install the service" }
 }
 & sc.exe config $Service obj= $Account start= auto | Out-Null
 if ($LASTEXITCODE -ne 0) { throw "sc.exe config failed" }
 
-# 2. The data folder's access list: set here at every install and upgrade, whatever was there.
-New-Item -ItemType Directory -Force -Path $Data | Out-Null
-$sid = (New-Object System.Security.Principal.NTAccount($Account)).Translate([System.Security.Principal.SecurityIdentifier])
-$admins = New-Object System.Security.Principal.SecurityIdentifier("S-1-5-32-544")
-$system = New-Object System.Security.Principal.SecurityIdentifier("S-1-5-18")
-$acl = New-Object System.Security.AccessControl.DirectorySecurity
-$acl.SetAccessRuleProtection($true, $false)
-$acl.SetOwner($admins)
-foreach ($who in @($sid, $admins, $system)) {
-  $rule = New-Object System.Security.AccessControl.FileSystemAccessRule($who, "FullControl", "ContainerInherit,ObjectInherit", "None", "Allow")
-  $acl.AddAccessRule($rule)
+# 2. The package's tree: Administrators' and SYSTEM's; the service account reads and runs it.
+& icacls.exe $Package /grant "${Account}:(OI)(CI)RX" /Q | Out-Null
+if ($LASTEXITCODE -ne 0) { throw "icacls on $Package failed" }
+$packaged = Join-Path $Package "packaged"
+$kept = Join-Path $Package "kept"
+if (Test-Path -LiteralPath $kept) {
+  foreach ($old in Get-ChildItem -LiteralPath $kept -Directory) {
+    $to = Join-Path $packaged $old.Name
+    if (-not (Test-Path -LiteralPath $to)) { Move-Item -LiteralPath $old.FullName -Destination $to }
+  }
+  Remove-TreeSafely $kept
 }
-Set-Acl -Path $Data -AclObject $acl
-# Everything inside takes only what the folder gives: no entry of its own survives.
-Get-ChildItem -LiteralPath $Data -Recurse -Force | ForEach-Object { & icacls.exe $_.FullName /reset /Q | Out-Null }
+$others = @(Get-ChildItem -LiteralPath $packaged -Directory | Where-Object { $_.Name -ne $Version -and $_.Name -match '^\d+\.\d+\.\d+' } |
+  Sort-Object { [version]($_.Name -replace '[-+].*$', '') } -Descending)
+foreach ($extra in ($others | Select-Object -Skip 1)) { Remove-TreeSafely $extra.FullName }
 
-# 3. The program folder and the launcher's.
-New-Item -ItemType Directory -Force -Path (Join-Path $Prefix "state") | Out-Null
-& icacls.exe $Prefix /grant "${Account}:(OI)(CI)M" /Q | Out-Null
-& icacls.exe $LauncherDir /grant "${Account}:(OI)(CI)RX" /Q | Out-Null
+# 3. The hub's two trees: their top folders only.
+Set-HubTopFolder $Data
+Set-HubTopFolder $Program
 
-# 4. This version.
-& (Join-Path $LauncherDir "hsn-launcher.exe") --prefix $Prefix --select $Version
-if ($LASTEXITCODE -ne 0) { throw "the launcher could not select $Version" }
-
-# 5. The firewall.
+# 4. The firewall.
 $rules = @(
   @{ Name = "HSN Hub devices"; Protocol = "TCP"; Port = "8443" },
   @{ Name = "HSN Hub apps"; Protocol = "TCP"; Port = "8444" },
@@ -67,19 +69,37 @@ $rules = @(
 foreach ($r in $rules) {
   & netsh.exe advfirewall firewall delete rule name="$($r.Name)" | Out-Null
   & netsh.exe advfirewall firewall add rule name="$($r.Name)" dir=in action=allow protocol=$($r.Protocol) localport=$($r.Port) profile=private,domain | Out-Null
+  if ($LASTEXITCODE -ne 0) { throw "the firewall rule $($r.Name) failed" }
 }
 
-# 6. The event log's source, the service started, the setup page on a fresh install.
-& eventcreate.exe /L APPLICATION /SO "HSN Hub" /T INFORMATION /ID 1 /D "HSN Hub $Version installed" | Out-Null
+# 5. The event log's source, the marker, the service started.
+if (-not [System.Diagnostics.EventLog]::SourceExists("HSN Hub")) {
+  [System.Diagnostics.EventLog]::CreateEventSource("HSN Hub", "Application")
+}
+New-Item -Path $Marker -Force | Out-Null
+Set-ItemProperty -Path $Marker -Name Installed -Value 1 -Type DWord
 & sc.exe start $Service | Out-Null
 if (-not $fresh) { exit 0 }
-# The setup page (section 9): the token asked for here, elevated, and written into the installing
-# user's own folder, which only that user, SYSTEM and Administrators can read; the Finish dialog
-# opens the page's path from the installer's interface, unelevated. Nothing secret is on a command
-# line. A silent install passes no user, and opens nothing.
-if ($UserSid -eq "" -or $LocalAppData -eq "") { exit 0 }
-$socket = Join-Path $Data "control.sock"
-for ($i = 0; $i -lt 60 -and -not (Test-Path $socket); $i++) { Start-Sleep -Seconds 1 }
-$program = Join-Path $Prefix "current\bin\hsn-hub.exe"
-& $program installer-page --data $Data --sid $UserSid --folder (Join-Path $LocalAppData "HSN Hub") | Out-Null
+
+# 6. The setup page, only with a person at the full interface (UILevel 5): the token asked for
+# through the package's own hsn, elevated, and written into the installing user's own folder,
+# which only that user, SYSTEM and Administrators can read; the Finish dialog opens the page's
+# path from the installer's interface, unelevated. Nothing secret is on a command line.
+if ($UILevel -lt 5 -or $UserSid -eq "" -or $LocalAppData -eq "") { exit 0 }
+$hsn = Join-Path $Bin "hsn.exe"
+for ($i = 0; $i -lt 60; $i++) {
+  & $hsn --data $Data status *> $null
+  if ($LASTEXITCODE -eq 0) { break }
+  Start-Sleep -Seconds 1
+}
+# The folder arrives with a trailing "." (hsn-hub.wix.xml: a trailing backslash would escape the
+# closing quote).
+$folder = Join-Path ($LocalAppData.TrimEnd('.').TrimEnd('\')) "HSN Hub"
+# The package's own program, root's (Administrators'), never a version the hub staged.
+$own = Join-Path $Package "packaged\$Version\bin\hsn-hub.exe"
+& $own installer-page --data $Data --sid $UserSid --folder $folder
+if ($LASTEXITCODE -ne 0) {
+  # The install stands: the page is the person's to open later from the Start menu.
+  Write-Warning "the setup page could not be written; use the Start menu's HSN Hub setup"
+}
 exit 0

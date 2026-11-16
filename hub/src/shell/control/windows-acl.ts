@@ -1,33 +1,38 @@
 /**
- * The access-list rule of the control socket on Windows (hub-design.md section 9; m2-design.md
- * section 9, W2; docs/spikes/W2-W3-windows-socket-and-service.md): pure, over the bytes of a
- * self-relative security descriptor, so it is tested on every system with access lists given as
- * data.
+ * The access-list rules of the hub's folders on Windows (m2-design.md section 9, "The privilege
+ * boundary" and "The top folders"; W2; docs/spikes/W2-W3-windows-socket-and-service.md): pure,
+ * over the bytes of self-relative security descriptors, so they are tested on every system with
+ * access lists given as data.
  *
- * What spike W2 proved decides it. Everyone holds "bypass traverse checking", so a folder's list
- * does not keep anyone from walking through it; what keeps a second account out of the socket is
- * the socket file's own list, which it takes from the folder's inheritable entries when it is
- * made. In an ordinary folder the second account got in. So the folder's list is the whole
- * protection, and the rule is strict:
+ * Spike W2 proved that the folder's list is what keeps another account out of the socket (the
+ * socket file takes its list from the folder's inheritable entries). The security review then
+ * made the hub's account unable to rewrite that list: an owner can always rewrite a list, so the
+ * top folders are owned by Administrators, and the hub's service account may add to a top folder
+ * but never delete it, re-permission it or take it.
  *
- * - **Allowed accounts**: the hub's own account (its process's SID), Administrators (S-1-5-32-544)
- *   and SYSTEM (S-1-5-18), and no one else (m2-design.md section 9: only administrators use
- *   `hsn`, from an elevated prompt; no user's SID is recorded, no group made).
- * - **Every allow entry** names one of them, whatever its mask, inherit-only entries included
- *   (CREATOR OWNER is refused: it is not one of them).
- * - **Deny entries** are accepted whoever they name: they only take access away.
- * - **Any other kind of entry** (object, callback, conditional, anything this file does not read)
- *   is refused.
- * - **The owner** is one of the allowed accounts: an owner can always rewrite the list.
- * - **No list at all** (a NULL DACL: everyone may enter) is refused.
- * - **The folder's list is protected and holds no inherited entry**: otherwise it depends on
- *   folders above, which the hub does not check and which can change after it has (a change
- *   above flows down). The socket file's list is inherited from the folder by design, so for it
- *   inherited entries are expected; every other rule is the same.
+ * **A top folder** (the data folder, the program folder) has exactly this shape, `topShape`:
+ * - its owner is Administrators or SYSTEM;
+ * - its list is protected (nothing inherited from `%ProgramData%`) and holds no inherited entry;
+ * - Administrators and SYSTEM each have one entry of full control of the folder and its contents
+ *   (`FILE_ALL_ACCESS`, object and container inherit);
+ * - the hub's service account has two entries: on the folder itself exactly list, add a file, add
+ *   a folder, traverse, read attributes, read the list and synchronize (`SERVICE_TOP_RIGHTS`,
+ *   0x001200a7), and an inherit-only full control of the files and folders inside;
+ * - nothing else: any other account or group, any other right, any entry of another kind is
+ *   refused, and so is the service account owning the folder or holding `DELETE`, `WRITE_DAC` or
+ *   `WRITE_OWNER` on it. Deny entries are accepted whoever they name: they only take access away.
+ * Run by an administrator by hand, the hub accepts the same shape with the service account's two
+ * entries absent (a computer with no service yet); the administrator's own account is never
+ * accepted, since its unelevated programs hold it too. A deny entry for the service account,
+ * Administrators or SYSTEM is accepted and warned of (`deniedAccounts`).
+ *
+ * **What is inside** (the socket file, the hub's files), `contentProblems`: owned by
+ * Administrators, SYSTEM or the service account; entries, inherited or not, only for those three.
  *
  * Every read is bounded: bytes the system hands over are checked against their own lengths
  * before any is read, so a malformed descriptor is an error, never a read past its end.
  */
+import { createHash } from "node:crypto";
 import { err, ok, Result } from "neverthrow";
 
 export const SYSTEM_SID = "S-1-5-18";
@@ -86,12 +91,6 @@ export interface Descriptor {
   readonly owner: string | undefined;
   /** Null when there is no list at all: everyone may enter. */
   readonly dacl: readonly Ace[] | null;
-}
-
-/** The account the socket admits besides Administrators and SYSTEM. */
-export interface Accounts {
-  /** The hub's own account: the SID of its process. */
-  readonly hub: string;
 }
 
 /** A SID as text, `S-1-5-21-…`, as `ConvertSidToStringSidW` writes it. */
@@ -179,9 +178,54 @@ export function parseDescriptor(bytes: Uint8Array): Result<Descriptor, string> {
   return parseAcl(bytes, daclAt).map((dacl) => ({ control, owner: owner.value, dacl }));
 }
 
+/** The service's name, and so its virtual account `NT SERVICE\HSNHub` (section 9). */
+export const HUB_SERVICE_NAME = "HSNHub";
+
+/**
+ * A service's own SID, as Windows derives it (`sc showsid`): S-1-5-80 and the SHA-1 of the
+ * service's name in upper case, UTF-16LE, read as five little-endian 32-bit numbers.
+ */
+export function serviceSid(name: string): string {
+  const digest = createHash("sha1").update(Buffer.from(name.toUpperCase(), "utf16le")).digest();
+  const view = new DataView(digest.buffer, digest.byteOffset, digest.byteLength);
+  return `S-1-5-80-${[0, 4, 8, 12, 16].map((at) => view.getUint32(at, true)).join("-")}`;
+}
+
+/** `NT SERVICE\HSNHub`. */
+export const HUB_SERVICE_SID = serviceSid(HUB_SERVICE_NAME);
+
+/** File and standard access rights (winnt.h). */
+export const FILE_LIST_DIRECTORY = 0x0001;
+export const FILE_ADD_FILE = 0x0002;
+export const FILE_ADD_SUBDIRECTORY = 0x0004;
+export const FILE_TRAVERSE = 0x0020;
+export const FILE_READ_ATTRIBUTES = 0x0080;
+export const DELETE = 0x0001_0000;
+export const READ_CONTROL = 0x0002_0000;
+export const WRITE_DAC = 0x0004_0000;
+export const WRITE_OWNER = 0x0008_0000;
+export const SYNCHRONIZE = 0x0010_0000;
+/** FILE_ALL_ACCESS, SDDL's `FA`. */
+export const FILE_ALL_ACCESS = 0x001f_01ff;
+/** The service account's rights on a top folder itself (section 9), 0x001200a7. */
+export const SERVICE_TOP_RIGHTS =
+  FILE_LIST_DIRECTORY |
+  FILE_ADD_FILE |
+  FILE_ADD_SUBDIRECTORY |
+  FILE_TRAVERSE |
+  FILE_READ_ATTRIBUTES |
+  READ_CONTROL |
+  SYNCHRONIZE;
+
+const FULL_INHERIT = OBJECT_INHERIT_ACE | CONTAINER_INHERIT_ACE;
+const INSIDE_ONLY = FULL_INHERIT | INHERIT_ONLY_ACE;
+
+/** Who the hub runs as: the service, or an administrator by hand. */
+export type RunMode = "service" | "administrator";
+
 /** A SID as a person reads it: `Users (S-1-5-32-545)`, or the SID alone. */
-export function nameOf(sid: string, accounts?: Accounts): string {
-  if (accounts?.hub === sid) return `the hub's account (${sid})`;
+export function nameOf(sid: string, service?: string): string {
+  if (service === sid) return `the hub's service account (${sid})`;
   const name = NAMES[sid];
   return name === undefined ? sid : `${name} (${sid})`;
 }
@@ -190,69 +234,157 @@ function hex(value: number, digits: number): string {
   return `0x${value.toString(16).padStart(digits, "0")}`;
 }
 
-/** The only accounts the folder and the socket may admit, in the order the hub writes them. */
-export function allowedSids(accounts: Accounts): readonly string[] {
-  return [accounts.hub, ADMINISTRATORS_SID, SYSTEM_SID];
-}
+const isAdministratorsOrSystem = (sid: string): boolean =>
+  sid === ADMINISTRATORS_SID || sid === SYSTEM_SID;
 
-function allowedSet(accounts: Accounts): ReadonlySet<string> {
-  return new Set(allowedSids(accounts));
-}
-
-/** Whether the owner is one of the allowed accounts: setting the list cannot change an owner. */
-export function ownerAllowed(descriptor: Descriptor, accounts: Accounts): boolean {
-  return descriptor.owner !== undefined && allowedSet(accounts).has(descriptor.owner);
-}
+/** What a right on the folder itself would let the service account do. */
+const FORBIDDEN: readonly [number, string][] = [
+  [DELETE, "DELETE (it could delete or rename the folder)"],
+  [WRITE_DAC, "WRITE_DAC (it could rewrite the list)"],
+  [WRITE_OWNER, "WRITE_OWNER (it could take the folder)"],
+];
 
 /**
- * What in a descriptor breaks the rule (the top of this file), each as a person reads it; none
- * when it holds. `folder` is true for the data folder, false for the socket file.
+ * What in a top folder's descriptor is not the shape (the top of this file), each as a person
+ * reads it; none when it is.
  */
-export function descriptorProblems(
+export function topFolderProblems(
   descriptor: Descriptor,
-  accounts: Accounts,
-  folder: boolean,
+  service: string,
+  mode: RunMode,
 ): readonly string[] {
-  const allowed = allowedSet(accounts);
   const problems: string[] = [];
   if (descriptor.owner === undefined) problems.push("it has no owner");
-  else if (!allowed.has(descriptor.owner))
-    problems.push(`its owner is ${nameOf(descriptor.owner, accounts)}, who can change the list`);
+  else if (descriptor.owner === service)
+    problems.push(`its owner is ${nameOf(service, service)}, which could rewrite the list`);
+  else if (!isAdministratorsOrSystem(descriptor.owner))
+    problems.push(`its owner is ${nameOf(descriptor.owner, service)}, who can change the list`);
   if (descriptor.dacl === null) {
     problems.push("it has no access list at all, so everyone may enter");
     return problems;
   }
-  if (folder && (descriptor.control & SE_DACL_PROTECTED) === 0)
+  if ((descriptor.control & SE_DACL_PROTECTED) === 0)
     problems.push("it takes entries from the folder above (inheritance is on)");
+  const full = new Map<string, number>([
+    [ADMINISTRATORS_SID, 0],
+    [SYSTEM_SID, 0],
+  ]);
+  const onFolder: Ace[] = [];
+  const inside: Ace[] = [];
   for (const ace of descriptor.dacl) {
-    if (ace.kind === "other") {
+    if (ace.kind === "other" || ace.sid === undefined) {
       problems.push(`it has an entry of a kind the hub does not read (type ${hex(ace.type, 2)})`);
       continue;
     }
-    if (folder && (ace.flags & INHERITED_ACE) !== 0 && ace.sid !== undefined)
-      problems.push(`it has an entry inherited from above, for ${nameOf(ace.sid, accounts)}`);
-    if (ace.kind === "allow" && ace.sid !== undefined && !allowed.has(ace.sid))
+    if ((ace.flags & INHERITED_ACE) !== 0) {
+      problems.push(`it has an entry inherited from above, for ${nameOf(ace.sid, service)}`);
+      continue;
+    }
+    if (ace.kind === "deny") continue;
+    if (isAdministratorsOrSystem(ace.sid)) {
+      if (ace.flags === FULL_INHERIT && ace.mask === FILE_ALL_ACCESS)
+        full.set(ace.sid, (full.get(ace.sid) ?? 0) + 1);
+      else
+        problems.push(
+          `${nameOf(ace.sid, service)} has an entry of access ${hex(ace.mask, 8)}, flags ${hex(ace.flags, 2)}, not full control of the folder and its contents`,
+        );
+      continue;
+    }
+    if (ace.sid === service) {
+      if ((ace.flags & INHERIT_ONLY_ACE) === 0) onFolder.push(ace);
+      else inside.push(ace);
+      continue;
+    }
+    problems.push(
+      `it lets in ${nameOf(ace.sid, service)} (access ${hex(ace.mask, 8)}${(ace.flags & INHERIT_ONLY_ACE) !== 0 ? ", passed on to what is made inside" : ""})`,
+    );
+  }
+  for (const [sid, count] of full)
+    if (count !== 1)
       problems.push(
-        `it lets in ${nameOf(ace.sid, accounts)} (access ${hex(ace.mask, 8)}${(ace.flags & INHERIT_ONLY_ACE) !== 0 ? ", passed on to what is made inside" : ""})`,
+        count === 0
+          ? `it does not give ${nameOf(sid)} full control of the folder and its contents`
+          : `it gives ${nameOf(sid)} full control in ${count} entries, not one`,
       );
+  if (mode === "administrator" && onFolder.length === 0 && inside.length === 0) return problems;
+  const who = nameOf(service, service);
+  for (const ace of onFolder)
+    for (const [right, what] of FORBIDDEN)
+      if ((ace.mask & right) !== 0) problems.push(`${who} holds ${what} on the folder itself`);
+  const exact = onFolder.length === 1 ? onFolder[0] : undefined;
+  if (exact?.flags !== 0 || exact.mask !== SERVICE_TOP_RIGHTS)
+    problems.push(
+      `${who} has ${onFolder.length === 0 ? "no entry" : onFolder.map((a) => `access ${hex(a.mask, 8)}, flags ${hex(a.flags, 2)}`).join(" and ")} on the folder itself, not exactly list, add a file, add a folder, traverse, read attributes, read the list and synchronize (${hex(SERVICE_TOP_RIGHTS, 8)}) on the folder alone`,
+    );
+  const within = inside.length === 1 ? inside[0] : undefined;
+  if (within?.flags !== INSIDE_ONLY || within.mask !== FILE_ALL_ACCESS)
+    problems.push(
+      `${who} has ${inside.length === 0 ? "no entry" : inside.map((a) => `access ${hex(a.mask, 8)}, flags ${hex(a.flags, 2)}`).join(" and ")} for what is inside, not one inherit-only entry of full control of the files and folders inside`,
+    );
+  return problems;
+}
+
+/**
+ * The accounts among the service account, Administrators and SYSTEM that a deny entry of a top
+ * folder names. Accepted by the rule (they only take access away), but each may stop the hub or
+ * the uninstaller later, so the hub warns of them at start.
+ */
+export function deniedAccounts(descriptor: Descriptor, service: string): readonly string[] {
+  const named = new Set<string>();
+  for (const ace of descriptor.dacl ?? [])
+    if (
+      ace.kind === "deny" &&
+      ace.sid !== undefined &&
+      (ace.sid === service || isAdministratorsOrSystem(ace.sid))
+    )
+      named.add(ace.sid);
+  return [...named];
+}
+
+/**
+ * What in the descriptor of something inside a top folder (the socket file, the hub's files) is
+ * not as the top folder hands down: an owner or an entry for anyone but Administrators, SYSTEM
+ * and the service account, no list, or an entry of a kind the hub does not read.
+ */
+export function contentProblems(descriptor: Descriptor, service: string): readonly string[] {
+  const allowed = (sid: string): boolean => isAdministratorsOrSystem(sid) || sid === service;
+  const problems: string[] = [];
+  if (descriptor.owner === undefined) problems.push("it has no owner");
+  else if (!allowed(descriptor.owner))
+    problems.push(`its owner is ${nameOf(descriptor.owner, service)}, who can change the list`);
+  if (descriptor.dacl === null) {
+    problems.push("it has no access list at all, so everyone may enter");
+    return problems;
+  }
+  for (const ace of descriptor.dacl) {
+    if (ace.kind === "other" || ace.sid === undefined)
+      problems.push(`it has an entry of a kind the hub does not read (type ${hex(ace.type, 2)})`);
+    else if (ace.kind === "allow" && !allowed(ace.sid))
+      problems.push(`it lets in ${nameOf(ace.sid, service)} (access ${hex(ace.mask, 8)})`);
   }
   return problems;
 }
 
-/** The descriptor's bytes read and checked: the problems found, or why it could not be read. */
-export function checkDescriptor(
+/** A top folder's descriptor bytes read and judged: the problems, or why it could not be read. */
+export function checkTopFolder(
   bytes: Uint8Array,
-  accounts: Accounts,
-  folder: boolean,
+  service: string,
+  mode: RunMode,
 ): Result<void, readonly string[]> {
   const parsed = parseDescriptor(bytes);
   if (parsed.isErr()) return err([`it cannot be read (${parsed.error})`]);
-  const problems = descriptorProblems(parsed.value, accounts, folder);
+  const problems = topFolderProblems(parsed.value, service, mode);
   return problems.length === 0 ? ok(undefined) : err(problems);
 }
 
-/** FILE_ALL_ACCESS: what the installer's list gives each allowed account (m2-design.md section 9). */
-export const FILE_ALL_ACCESS = 0x001f_01ff;
+/** The same for something inside a top folder. */
+export function checkContent(bytes: Uint8Array, service: string): Result<void, readonly string[]> {
+  const parsed = parseDescriptor(bytes);
+  if (parsed.isErr()) return err([`it cannot be read (${parsed.error})`]);
+  const problems = contentProblems(parsed.value, service);
+  return problems.length === 0 ? ok(undefined) : err(problems);
+}
+
 const ACL_REVISION = 2;
 
 /** A SID's bytes from its text; an error for text that is not a SID. */
@@ -283,32 +415,74 @@ export function sidToBytes(sid: string): Result<Uint8Array, string> {
   return ok(bytes);
 }
 
-/**
- * The list the hub sets on an open data folder (m2-design.md section 9), the installer's: full
- * control for each allowed account, passed on to everything inside, and nothing else. Set as a
- * protected list, so nothing from above is added to it.
- */
-export function protectedAcl(accounts: Accounts): Result<Uint8Array, string> {
-  return Result.combine(allowedSids(accounts).map(sidToBytes)).map(aclOf);
+/** One allow entry for an `ACL`. */
+interface AllowEntry {
+  readonly sid: Uint8Array;
+  readonly flags: number;
+  readonly mask: number;
 }
 
-function aclOf(bodies: readonly Uint8Array[]): Uint8Array {
+/** An `ACL`'s bytes from its allow entries, in order. */
+export function aclBytes(entries: readonly AllowEntry[]): Uint8Array {
   const size =
-    ACL_HEADER_BYTES + bodies.reduce((sum, sid) => sum + ACE_HEADER_BYTES + 4 + sid.length, 0);
+    ACL_HEADER_BYTES + entries.reduce((sum, e) => sum + ACE_HEADER_BYTES + 4 + e.sid.length, 0);
   const acl = new Uint8Array(size);
   const view = new DataView(acl.buffer);
   acl[0] = ACL_REVISION;
   view.setUint16(2, size, true);
-  view.setUint16(4, bodies.length, true);
+  view.setUint16(4, entries.length, true);
   let at = ACL_HEADER_BYTES;
-  for (const sid of bodies) {
-    const aceSize = ACE_HEADER_BYTES + 4 + sid.length;
+  for (const entry of entries) {
+    const aceSize = ACE_HEADER_BYTES + 4 + entry.sid.length;
     acl[at] = ACCESS_ALLOWED_ACE_TYPE;
-    acl[at + 1] = OBJECT_INHERIT_ACE | CONTAINER_INHERIT_ACE;
+    acl[at + 1] = entry.flags;
     view.setUint16(at + 2, aceSize, true);
-    view.setUint32(at + 4, FILE_ALL_ACCESS, true);
-    acl.set(sid, at + 8);
+    view.setUint32(at + 4, entry.mask, true);
+    acl.set(entry.sid, at + 8);
     at += aceSize;
   }
   return acl;
+}
+
+/** An empty `ACL`: with the list unprotected, an object holds only what it inherits. */
+export const EMPTY_ACL = aclBytes([]);
+
+/** A self-relative descriptor of an owner and a protected list. */
+function protectedDescriptor(owner: Uint8Array, acl: Uint8Array): Uint8Array {
+  const bytes = new Uint8Array(DESCRIPTOR_HEADER_BYTES + owner.length + acl.length);
+  const view = new DataView(bytes.buffer);
+  bytes[0] = 1;
+  view.setUint16(2, SE_SELF_RELATIVE | SE_DACL_PRESENT | SE_DACL_PROTECTED, true);
+  view.setUint32(4, DESCRIPTOR_HEADER_BYTES, true);
+  view.setUint32(16, DESCRIPTOR_HEADER_BYTES + owner.length, true);
+  bytes.set(owner, DESCRIPTOR_HEADER_BYTES);
+  bytes.set(acl, DESCRIPTOR_HEADER_BYTES + owner.length);
+  return bytes;
+}
+
+/**
+ * A top folder's shape as a self-relative descriptor (the top of this file): what an
+ * administrator's run of the hub sets on an open top folder, and what the installer sets.
+ */
+export function topShape(service: string): Result<Uint8Array, string> {
+  return Result.combine([
+    sidToBytes(ADMINISTRATORS_SID),
+    sidToBytes(SYSTEM_SID),
+    sidToBytes(service),
+  ]).map(([administrators, system, account]) =>
+    protectedDescriptor(
+      administrators,
+      aclBytes([
+        { sid: administrators, flags: FULL_INHERIT, mask: FILE_ALL_ACCESS },
+        { sid: system, flags: FULL_INHERIT, mask: FILE_ALL_ACCESS },
+        { sid: account, flags: 0, mask: SERVICE_TOP_RIGHTS },
+        { sid: account, flags: INSIDE_ONLY, mask: FILE_ALL_ACCESS },
+      ]),
+    ),
+  );
+}
+
+/** The same shape in SDDL, for the installer (A8). */
+export function topShapeSddl(service: string): string {
+  return `O:BAD:P(A;OICI;FA;;;BA)(A;OICI;FA;;;SY)(A;;${hex(SERVICE_TOP_RIGHTS, 8)};;;${service})(A;OICIIO;FA;;;${service})`;
 }

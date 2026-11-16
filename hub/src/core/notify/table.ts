@@ -140,9 +140,20 @@ export function classifyDecision(
   }
 }
 
-/** The hub events of the table: the hub has a problem with its disk (section 7). */
+/** The hub events of the table: the disk's (section 7), and a restore waiting (section 9). */
 export function classifyHubEvent(code: string): Classified | undefined {
-  return code === "commit_failed" || code === "history_shortened" ? row("disk", false) : undefined;
+  switch (code) {
+    case "commit_failed":
+    case "history_shortened":
+      return row("disk", false);
+    // A restore the phone was told succeeded and that could not be put in place (section 9, "A
+    // swap that did not happen"): critical, the hub itself as a restore done is, so `hub`, to
+    // manage system, not to be turned off. Critical, so told at every start that raises it.
+    case "restore_waiting":
+      return row("hub", true);
+    default:
+      return undefined;
+  }
 }
 
 /** A new client linked to a person (section 7, "People and permissions"): cannot be turned off ‡. */

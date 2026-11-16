@@ -6,7 +6,8 @@
  * command (a small script naming the data folder) calls.
  */
 import { runCli } from "../../cli/main.ts";
-import { parseMainArgs, runHub } from "../../src/shell/main.ts";
+import { hubUmask, parseMainArgs, runHub } from "../../src/shell/main.ts";
+import { PUBLISHER_KEYS } from "../../src/shell/update/publisher-keys.ts";
 import { parseInstallerPageArgs, writeInstallerPage } from "./installer-page.ts";
 
 /** Which of the two a command line asks for. */
@@ -64,7 +65,10 @@ async function hub(argv: readonly string[]): Promise<number> {
     process.stderr.write(`hub: ${options}\n`);
     return 2;
   }
-  return runHub(options);
+  // Step 0 owner: the process's files the hub's alone (`hubUmask`); and (E) the compiled-in
+  // keys, and only they; nothing on the command line or in the environment can add one.
+  hubUmask();
+  return runHub(options, { publisherKeys: PUBLISHER_KEYS });
 }
 
 if (import.meta.main) {

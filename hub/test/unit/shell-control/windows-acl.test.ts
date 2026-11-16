@@ -1,55 +1,87 @@
 /**
- * The Windows access-list rule (`shell/control/windows-acl.ts`), on every system, with access
+ * The Windows access-list rules (`shell/control/windows-acl.ts`), on every system, with access
  * lists given as data: the descriptor's bytes parsed as Windows lays them out (one vector written
- * out by hand, the rest built by `windows-data.ts`), each part of the rule shown to refuse what
- * it must and to let through what it must, every bound of the parser broken on its own, thousands
- * of byte strings read without a throw, and the list the hub sets on an open folder.
+ * out by hand, the rest built by `windows-data.ts`); the top folders' shape (m2-design.md section
+ * 9, "The top folders") shown to accept exactly itself and to refuse each way of differing from
+ * it, as the service and by hand; what is inside; every bound of the parser broken on its own;
+ * thousands of byte strings read without a throw; and the shape the hub and the installer set.
  */
 import { describe, expect, test } from "bun:test";
 import {
   ADMINISTRATORS_SID,
-  allowedSids,
-  checkDescriptor,
+  checkContent,
+  checkTopFolder,
+  deniedAccounts,
+  DELETE,
   FILE_ALL_ACCESS,
-  parseAcl,
-  protectedAcl,
-  sidToBytes,
+  HUB_SERVICE_SID,
   INHERIT_ONLY_ACE,
-  INHERITED_ACE,
   parseDescriptor,
   parseSid,
+  type RunMode,
   SE_DACL_PRESENT,
   SE_DACL_PROTECTED,
   SE_SELF_RELATIVE,
+  SERVICE_TOP_RIGHTS,
+  serviceSid,
+  sidToBytes,
+  SYNCHRONIZE,
   SYSTEM_SID,
+  topShape,
+  topShapeSddl,
+  WRITE_DAC,
+  WRITE_OWNER,
 } from "../../../src/shell/control/windows-acl.ts";
 import {
+  adminAces,
   CREATOR_OWNER_SID,
+  contentAces,
+  contentDescriptor,
   descriptorBytes,
   EVERYONE_SID,
   FULL,
-  HUB_SID,
-  USER_SID,
-  lockedAces,
+  INHERITED,
+  INSIDE_ONLY,
   OI_CI,
   READ_CONTROL,
-  descriptorWithAcl,
+  SERVICE_SID,
+  serviceAces,
+  shapeAces,
   sidBytes,
-  socketAces,
+  USER_SID,
   USERS_SID,
 } from "./windows-data.ts";
 
-const HUB = { hub: HUB_SID };
-
-/** The folder's problems, or "accepted". */
-function folder(bytes: Uint8Array, accounts: { hub: string } = HUB) {
-  const checked = checkDescriptor(bytes, accounts, true);
+/** A top folder's problems as `mode` judges them, or "accepted". */
+function top(bytes: Uint8Array, mode: RunMode = "service", service = SERVICE_SID): string {
+  const checked = checkTopFolder(bytes, service, mode);
   return checked.isOk() ? "accepted" : checked.error.join("; ");
 }
 
-function socket(bytes: Uint8Array, accounts = HUB) {
-  const checked = checkDescriptor(bytes, accounts, false);
+function content(bytes: Uint8Array): string {
+  const checked = checkContent(bytes, SERVICE_SID);
   return checked.isOk() ? "accepted" : checked.error.join("; ");
+}
+
+/** Both modes' verdicts. */
+const both = (bytes: Uint8Array): readonly string[] => [
+  top(bytes, "service"),
+  top(bytes, "administrator"),
+];
+
+/**
+ * A fixed layout for the parser's tests: owner SYSTEM (12 bytes) at 20, the list at 32, its
+ * first entry the service's (a SID of 6 sub-authorities), its last SYSTEM's (20 bytes).
+ */
+function layout(): Uint8Array {
+  return descriptorBytes({
+    owner: SYSTEM_SID,
+    dacl: [
+      { kind: "allow", sid: SERVICE_SID, flags: INSIDE_ONLY, mask: FULL },
+      { kind: "allow", sid: ADMINISTRATORS_SID, flags: OI_CI, mask: FULL },
+      { kind: "allow", sid: SYSTEM_SID, flags: OI_CI, mask: FULL },
+    ],
+  });
 }
 
 describe("reading a security descriptor as Windows lays it out", () => {
@@ -77,19 +109,19 @@ describe("reading a security descriptor as Windows lays it out", () => {
       dacl: [{ kind: "allow", sid: SYSTEM_SID, flags: OI_CI, mask: FULL }],
     });
     expect(built).toEqual(bytes);
-    expect(folder(bytes)).toBe("accepted");
+    expect(parseDescriptor(bytes).isOk()).toBe(true);
   });
 
   test("SIDs as ConvertSidToStringSidW writes them, a large authority in hexadecimal", () => {
     expect(parseSid(sidBytes(USER_SID), 0)._unsafeUnwrap().sid).toBe(USER_SID);
-    expect(parseSid(sidBytes(HUB_SID), 0)._unsafeUnwrap().sid).toBe(HUB_SID);
+    expect(parseSid(sidBytes(SERVICE_SID), 0)._unsafeUnwrap().sid).toBe(SERVICE_SID);
     const big = new Uint8Array([1, 1, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 7, 0, 0, 0]);
     expect(parseSid(big, 0)._unsafeUnwrap().sid).toBe("S-1-0x010203040506-7");
   });
 
   test("a SID that claims more than its entry holds is refused, not read from the next entry", () => {
-    const bytes = descriptorBytes();
-    // The first entry's SID (the hub's, 6 sub-authorities) at 20 + 12 + 8 + 8: claim 7.
+    const bytes = layout();
+    // The first entry's SID (the service's, 6 sub-authorities) at 20 + 12 + 8 + 8: claim 7.
     const at = 20 + 12 + 8 + 8;
     expect(bytes[at + 1]).toBe(6);
     bytes[at + 1] = 7;
@@ -98,7 +130,7 @@ describe("reading a security descriptor as Windows lays it out", () => {
   });
 
   test("bytes that are not a descriptor are refused, never read past their end", () => {
-    const good = descriptorBytes();
+    const good = layout();
     const cases: [string, Uint8Array][] = [
       ["too short", good.slice(0, 19)],
       ["cut inside the list", good.slice(0, good.length - 3)],
@@ -110,148 +142,276 @@ describe("reading a security descriptor as Windows lays it out", () => {
       ["an entry larger than its list", Uint8Array.from(good, (b, i) => (i === 42 ? 0xff : b))],
     ];
     for (const [what, bytes] of cases) {
-      expect(`${what}: ${folder(bytes)}`).toContain(`${what}: it cannot be read`);
+      expect(`${what}: ${top(bytes)}`).toContain(`${what}: it cannot be read`);
     }
   });
 });
 
-describe("the data folder's list (W2: it is the whole protection)", () => {
-  test("the hub's account, Administrators and SYSTEM, protected: accepted", () => {
-    expect(folder(descriptorBytes({ owner: ADMINISTRATORS_SID }))).toBe("accepted");
-    expect(folder(descriptorBytes({ owner: HUB_SID }))).toBe("accepted");
-    expect(folder(descriptorBytes({ owner: SYSTEM_SID, dacl: [] }))).toBe("accepted");
+describe('a top folder\'s shape (m2-design.md section 9, "The top folders")', () => {
+  test("exactly the shape is accepted, owned by Administrators or SYSTEM, as the service and by hand", () => {
+    expect(both(descriptorBytes())).toEqual(["accepted", "accepted"]);
+    expect(both(descriptorBytes({ owner: SYSTEM_SID }))).toEqual(["accepted", "accepted"]);
+    // The order of the entries does not matter.
+    expect(both(descriptorBytes({ dacl: [...shapeAces()].reverse() }))).toEqual([
+      "accepted",
+      "accepted",
+    ]);
   });
 
-  test("any allow entry for another account is refused and named, whatever its mask", () => {
+  test("by hand, the shape without the service account's entries is accepted; as the service it is not", () => {
+    const bytes = descriptorBytes({ dacl: adminAces() });
+    expect(top(bytes, "administrator")).toBe("accepted");
+    expect(top(bytes, "service")).toContain("has no entry on the folder itself");
+    expect(top(bytes, "service")).toContain("no entry for what is inside");
+  });
+
+  test("by hand, one of the service account's two entries without the other is refused", () => {
+    for (const one of serviceAces())
+      expect(top(descriptorBytes({ dacl: [...adminAces(), one] }), "administrator")).not.toBe(
+        "accepted",
+      );
+  });
+
+  test("any other account or group is refused and named, whatever its rights, as the service and by hand", () => {
     for (const [sid, name] of [
       [USERS_SID, "Users (S-1-5-32-545)"],
       [EVERYONE_SID, "Everyone (S-1-1-0)"],
       ["S-1-5-11", "Authenticated Users (S-1-5-11)"],
+      [CREATOR_OWNER_SID, "CREATOR OWNER (S-1-3-0)"],
       [USER_SID, USER_SID],
     ] as const) {
-      for (const mask of [FULL, READ_CONTROL]) {
+      for (const [flags, mask] of [
+        [OI_CI, FULL],
+        [0, READ_CONTROL],
+        [INSIDE_ONLY, FULL],
+      ] as const) {
         const bytes = descriptorBytes({
-          dacl: [...lockedAces(), { kind: "allow", sid, flags: OI_CI, mask }],
+          dacl: [...shapeAces(), { kind: "allow", sid, flags, mask }],
         });
-        expect(folder(bytes)).toContain(`it lets in ${name}`);
+        for (const verdict of both(bytes)) expect(verdict).toContain(`it lets in ${name}`);
       }
     }
   });
 
-  test("an inherit-only entry is refused too: it is passed on to the socket file", () => {
+  test("by hand, the administrator's own account in the list is refused: its unelevated programs hold it", () => {
+    const bytes = descriptorBytes({
+      dacl: [...shapeAces(), { kind: "allow", sid: USER_SID, flags: OI_CI, mask: FULL }],
+    });
+    expect(top(bytes, "administrator")).toContain(`it lets in ${USER_SID}`);
+  });
+
+  test("the service account owning the folder is refused: it could rewrite the list", () => {
+    for (const verdict of both(descriptorBytes({ owner: SERVICE_SID })))
+      expect(verdict).toContain(
+        `its owner is the hub's service account (${SERVICE_SID}), which could rewrite the list`,
+      );
+  });
+
+  test("any other owner, or none, is refused", () => {
+    expect(top(descriptorBytes({ owner: USER_SID }))).toBe(
+      `its owner is ${USER_SID}, who can change the list`,
+    );
+    expect(top(descriptorBytes({ owner: USERS_SID }))).toContain("its owner is Users");
+    expect(top(descriptorBytes({ owner: null }))).toBe("it has no owner");
+  });
+
+  test("DELETE, WRITE_DAC or WRITE_OWNER for the service account on the folder itself is refused, each named", () => {
+    for (const [right, what] of [
+      [DELETE, "DELETE"],
+      [WRITE_DAC, "WRITE_DAC"],
+      [WRITE_OWNER, "WRITE_OWNER"],
+    ] as const) {
+      const bytes = descriptorBytes({
+        dacl: [
+          ...adminAces(),
+          { kind: "allow", sid: SERVICE_SID, flags: 0, mask: SERVICE_TOP_RIGHTS | right },
+          serviceAces()[1] ?? serviceAces()[0] ?? { kind: "allow", sid: SERVICE_SID },
+        ],
+      });
+      for (const verdict of both(bytes))
+        expect(verdict).toContain(`the hub's service account (${SERVICE_SID}) holds ${what}`);
+    }
+  });
+
+  test("the service account's rights on the folder itself must be exactly the seven, no more and no fewer", () => {
+    for (const mask of [
+      SERVICE_TOP_RIGHTS & ~SYNCHRONIZE,
+      SERVICE_TOP_RIGHTS | 0x0008,
+      FILE_ALL_ACCESS,
+      0x001200a9,
+    ]) {
+      const bytes = descriptorBytes({
+        dacl: [
+          ...adminAces(),
+          { kind: "allow", sid: SERVICE_SID, flags: 0, mask },
+          ...serviceAces().slice(1),
+        ],
+      });
+      expect(top(bytes)).toContain(
+        "not exactly list, add a file, add a folder, traverse, read attributes, read the list and synchronize (0x001200a7)",
+      );
+    }
+  });
+
+  test("the service account's rights on the folder passed on to what is inside are refused", () => {
     const bytes = descriptorBytes({
       dacl: [
-        ...lockedAces(),
-        { kind: "allow", sid: CREATOR_OWNER_SID, flags: OI_CI | INHERIT_ONLY_ACE },
+        ...adminAces(),
+        { kind: "allow", sid: SERVICE_SID, flags: OI_CI, mask: SERVICE_TOP_RIGHTS },
+        ...serviceAces().slice(1),
       ],
     });
-    expect(folder(bytes)).toContain(
-      "it lets in CREATOR OWNER (S-1-3-0) (access 0x001f01ff, passed on to what is made inside)",
+    expect(top(bytes)).toContain("on the folder itself, not exactly");
+  });
+
+  test("the service account's full control of what is inside must be one inherit-only entry of full control", () => {
+    for (const [flags, mask] of [
+      [INSIDE_ONLY, SERVICE_TOP_RIGHTS],
+      [0x01 | INHERIT_ONLY_ACE, FULL],
+      [0x02 | INHERIT_ONLY_ACE, FULL],
+      [INSIDE_ONLY, 0x10000000],
+    ] as const) {
+      const bytes = descriptorBytes({
+        dacl: [
+          ...adminAces(),
+          ...serviceAces().slice(0, 1),
+          { kind: "allow", sid: SERVICE_SID, flags, mask },
+        ],
+      });
+      expect(top(bytes)).toContain(
+        "not one inherit-only entry of full control of the files and folders inside",
+      );
+    }
+    const twice = descriptorBytes({ dacl: [...shapeAces(), ...serviceAces().slice(1)] });
+    expect(top(twice)).toContain("for what is inside, not one inherit-only entry");
+  });
+
+  test("Administrators or SYSTEM without exactly one entry of full control of the folder and its contents is refused", () => {
+    expect(top(descriptorBytes({ dacl: shapeAces().slice(1) }))).toContain(
+      "it does not give Administrators (S-1-5-32-544) full control of the folder and its contents",
+    );
+    expect(top(descriptorBytes({ dacl: [...shapeAces(), ...adminAces().slice(1)] }))).toContain(
+      "it gives SYSTEM (S-1-5-18) full control in 2 entries, not one",
+    );
+    const partial = descriptorBytes({
+      dacl: [
+        { kind: "allow", sid: ADMINISTRATORS_SID, flags: 0, mask: FULL },
+        ...shapeAces().slice(1),
+      ],
+    });
+    expect(top(partial)).toContain(
+      "Administrators (S-1-5-32-544) has an entry of access 0x001f01ff, flags 0x00",
     );
   });
 
-  test("deny entries are accepted whoever they name: they only take access away", () => {
-    const bytes = descriptorBytes({
-      dacl: [
-        { kind: "deny", sid: EVERYONE_SID, flags: OI_CI, mask: FULL },
-        { kind: "deny", sid: USERS_SID, mask: READ_CONTROL },
-        ...lockedAces(),
-      ],
-    });
-    expect(folder(bytes)).toBe("accepted");
-  });
-
-  test("a deny entry does not excuse an allow entry for the same account", () => {
-    const bytes = descriptorBytes({
-      dacl: [
-        { kind: "deny", sid: USERS_SID, flags: OI_CI },
-        ...lockedAces(),
-        { kind: "allow", sid: USERS_SID, flags: OI_CI },
-      ],
-    });
-    expect(folder(bytes)).toContain("it lets in Users");
-  });
-
-  test("a list that takes entries from the folder above is refused, even with only the right accounts", () => {
-    const bytes = descriptorBytes({ control: SE_SELF_RELATIVE | SE_DACL_PRESENT });
-    expect(folder(bytes)).toBe("it takes entries from the folder above (inheritance is on)");
-  });
-
-  test("an inherited entry is refused, even for an allowed account and in a protected list", () => {
-    const bytes = descriptorBytes({
-      dacl: [...lockedAces(), { kind: "allow", sid: SYSTEM_SID, flags: INHERITED_ACE }],
-    });
-    expect(folder(bytes)).toBe("it has an entry inherited from above, for SYSTEM (S-1-5-18)");
-  });
-
-  test("no list at all lets everyone in, and is refused", () => {
-    expect(folder(descriptorBytes({ dacl: null }))).toContain("no access list at all");
-    const absent = descriptorBytes({ control: SE_SELF_RELATIVE | SE_DACL_PROTECTED });
-    expect(folder(absent)).toContain("no access list at all");
-  });
-
-  test("an owner who is not an allowed account is refused: an owner can rewrite the list", () => {
-    expect(folder(descriptorBytes({ owner: USERS_SID }))).toBe(
-      "its owner is Users (S-1-5-32-545), who can change the list",
+  test("a list that takes entries from the folder above, or an inherited entry, is refused", () => {
+    expect(top(descriptorBytes({ control: SE_SELF_RELATIVE | SE_DACL_PRESENT }))).toBe(
+      "it takes entries from the folder above (inheritance is on)",
     );
-    expect(folder(descriptorBytes({ owner: null }))).toBe("it has no owner");
+    const inherited = descriptorBytes({
+      dacl: [...shapeAces(), { kind: "allow", sid: SYSTEM_SID, flags: INHERITED, mask: FULL }],
+    });
+    expect(top(inherited)).toBe("it has an entry inherited from above, for SYSTEM (S-1-5-18)");
   });
 
-  test("an entry of a kind the rule does not read is refused (object, callback, conditional)", () => {
+  test("no list at all is refused", () => {
+    expect(top(descriptorBytes({ dacl: null }))).toContain("no access list at all");
+    expect(top(descriptorBytes({ control: SE_SELF_RELATIVE | SE_DACL_PROTECTED }))).toContain(
+      "no access list at all",
+    );
+  });
+
+  test("an entry of a kind the rules do not read is refused (object, callback, conditional)", () => {
     for (const type of [0x05, 0x09, 0x0b, 0x02, 0x11]) {
-      const bytes = descriptorBytes({ dacl: [...lockedAces(), { kind: type, sid: SYSTEM_SID }] });
-      expect(folder(bytes)).toContain(
+      const bytes = descriptorBytes({ dacl: [...shapeAces(), { kind: type, sid: SYSTEM_SID }] });
+      expect(top(bytes)).toContain(
         `an entry of a kind the hub does not read (type 0x${type.toString(16).padStart(2, "0")})`,
       );
     }
   });
 
-  test("the hub's account is the process's: the same list for another account is refused", () => {
-    const other = "S-1-5-21-1-2-3-1002";
-    expect(folder(descriptorBytes(), { hub: other })).toContain(`it lets in ${HUB_SID}`);
+  test("deny entries are accepted whoever they name, and excuse no allow entry", () => {
+    const deny = descriptorBytes({
+      dacl: [
+        { kind: "deny", sid: EVERYONE_SID, flags: OI_CI },
+        { kind: "deny", sid: SERVICE_SID, mask: DELETE },
+        ...shapeAces(),
+      ],
+    });
+    expect(both(deny)).toEqual(["accepted", "accepted"]);
+    const excused = descriptorBytes({
+      dacl: [
+        { kind: "deny", sid: USERS_SID, flags: OI_CI },
+        ...shapeAces(),
+        { kind: "allow", sid: USERS_SID, flags: OI_CI },
+      ],
+    });
+    expect(top(excused)).toContain("it lets in Users");
+  });
+
+  test("the shape names one service account: the same list with another's is refused", () => {
+    expect(top(descriptorBytes(), "service", HUB_SERVICE_SID)).toContain(
+      `it lets in ${SERVICE_SID}`,
+    );
   });
 
   test("every problem is named at once", () => {
     const bytes = descriptorBytes({
       owner: USERS_SID,
       control: SE_SELF_RELATIVE | SE_DACL_PRESENT,
-      dacl: [{ kind: "allow", sid: EVERYONE_SID, flags: INHERITED_ACE }],
+      dacl: [...shapeAces(), { kind: "allow", sid: EVERYONE_SID, flags: INHERITED }],
     });
-    expect(folder(bytes).split("; ")).toEqual([
+    expect(top(bytes).split("; ")).toEqual([
       "its owner is Users (S-1-5-32-545), who can change the list",
       "it takes entries from the folder above (inheritance is on)",
       "it has an entry inherited from above, for Everyone (S-1-1-0)",
-      "it lets in Everyone (S-1-1-0) (access 0x001f01ff)",
     ]);
   });
 });
 
-describe("the socket file's list (read back after listening)", () => {
-  const inherited = SE_SELF_RELATIVE | SE_DACL_PRESENT;
-
-  test("inherited from a locked folder: accepted", () => {
-    expect(
-      socket(descriptorBytes({ owner: HUB_SID, dacl: socketAces(), control: inherited })),
-    ).toBe("accepted");
-  });
-
-  test("another account in it, or an owner who is not allowed, or no list: refused", () => {
-    const withUsers = descriptorBytes({
-      owner: HUB_SID,
-      control: inherited,
-      dacl: [...socketAces(), { kind: "allow", sid: USERS_SID, flags: INHERITED_ACE }],
-    });
-    expect(socket(withUsers)).toContain("it lets in Users");
-    expect(
-      socket(descriptorBytes({ owner: USERS_SID, dacl: socketAces(), control: inherited })),
-    ).toContain("its owner is Users");
-    expect(socket(descriptorBytes({ owner: HUB_SID, dacl: null }))).toContain(
-      "no access list at all",
+describe("deny entries that may stop the hub later", () => {
+  test("those naming the service account, Administrators or SYSTEM are named, once each; others are not", () => {
+    const parsed = parseDescriptor(
+      descriptorBytes({
+        dacl: [
+          { kind: "deny", sid: SERVICE_SID, mask: DELETE },
+          { kind: "deny", sid: SERVICE_SID, mask: WRITE_DAC },
+          { kind: "deny", sid: ADMINISTRATORS_SID, mask: DELETE },
+          { kind: "deny", sid: EVERYONE_SID },
+          ...shapeAces(),
+        ],
+      }),
+    )._unsafeUnwrap();
+    expect(deniedAccounts(parsed, SERVICE_SID)).toEqual([SERVICE_SID, ADMINISTRATORS_SID]);
+    expect(deniedAccounts(parseDescriptor(descriptorBytes())._unsafeUnwrap(), SERVICE_SID)).toEqual(
+      [],
     );
   });
 });
 
-/** Each bound the parser checks, broken on its own: the exact error, never a read past the end. */
+describe("what is inside a top folder (the socket file, the hub's files)", () => {
+  test("inherited from the shape, owned by the service, Administrators or SYSTEM: accepted", () => {
+    for (const owner of [SERVICE_SID, ADMINISTRATORS_SID, SYSTEM_SID])
+      expect(content(contentDescriptor(owner))).toBe("accepted");
+  });
+
+  test("another account in it, an owner who is not one of the three, or no list: refused", () => {
+    const withUsers = descriptorBytes({
+      owner: SERVICE_SID,
+      control: SE_SELF_RELATIVE | SE_DACL_PRESENT,
+      dacl: [...contentAces(), { kind: "allow", sid: USERS_SID, flags: INHERITED }],
+    });
+    expect(content(withUsers)).toContain("it lets in Users");
+    expect(content(contentDescriptor(USER_SID))).toContain(`its owner is ${USER_SID}`);
+    expect(content(descriptorBytes({ owner: SERVICE_SID, dacl: null }))).toContain(
+      "no access list at all",
+    );
+    expect(
+      content(descriptorBytes({ owner: SERVICE_SID, dacl: [{ kind: 0x09, sid: SYSTEM_SID }] })),
+    ).toContain("a kind the hub does not read");
+  });
+});
+
 describe("every read is bounded (bytes from the system cross a security boundary)", () => {
   const parse = (bytes: Uint8Array): string => {
     const parsed = parseDescriptor(bytes);
@@ -259,11 +419,11 @@ describe("every read is bounded (bytes from the system cross a security boundary
   };
   const view = (bytes: Uint8Array) =>
     new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  /** The default descriptor: header 20, owner SYSTEM (12 bytes) at 20, the list at 32. */
+  /** `layout()`: header 20, owner SYSTEM (12 bytes) at 20, the list at 32. */
   const OWNER_AT = 20;
   const ACL_AT = 32;
   const FIRST_ACE = ACL_AT + 8;
-  const good = () => descriptorBytes();
+  const good = layout;
 
   test("a descriptor shorter than its header", () => {
     for (let n = 0; n < 20; n++)
@@ -359,27 +519,26 @@ describe("every read is bounded (bytes from the system cross a security boundary
     };
   }
 
-  /** Every way the rule is asked: as a folder's list and as the socket file's. */
+  /** Every way the rules are asked: a top folder's as the service and by hand, a content's. */
   function verdicts(bytes: Uint8Array): readonly string[] {
-    return [true, false].map((asFolder) => {
-      const checked = checkDescriptor(bytes, HUB, asFolder);
-      return checked.isOk() ? "accepted" : "refused";
-    });
+    return [
+      checkTopFolder(bytes, SERVICE_SID, "service"),
+      checkTopFolder(bytes, SERVICE_SID, "administrator"),
+      checkContent(bytes, SERVICE_SID),
+    ].map((checked) => (checked.isOk() ? "accepted" : "refused"));
   }
 
   test("thousands of byte strings: a result every time, never a throw, accepted only when valid", () => {
     const valid = [
       descriptorBytes(),
-      descriptorBytes({ owner: HUB_SID }),
+      descriptorBytes({ owner: SYSTEM_SID }),
       descriptorBytes({
-        dacl: [{ kind: "deny", sid: EVERYONE_SID, flags: OI_CI }, ...lockedAces()],
+        dacl: [{ kind: "deny", sid: EVERYONE_SID, flags: OI_CI }, ...shapeAces()],
       }),
-      descriptorBytes({
-        owner: HUB_SID,
-        dacl: socketAces(),
-        control: SE_SELF_RELATIVE | SE_DACL_PRESENT,
-      }),
-      descriptorWithAcl(ADMINISTRATORS_SID, protectedAcl(HUB)._unsafeUnwrap()),
+      descriptorBytes({ dacl: adminAces() }),
+      contentDescriptor(),
+      topShape(SERVICE_SID)._unsafeUnwrap(),
+      layout(),
     ];
     const validText = new Set(valid.map((bytes) => bytes.join(",")));
     let tried = 0;
@@ -428,7 +587,7 @@ describe("every read is bounded (bytes from the system cross a security boundary
           tried += 1;
           const parsed = parseDescriptor(changed);
           expect(parsed.isOk() !== parsed.isErr()).toBe(true);
-          expect(verdicts(changed)).toHaveLength(2);
+          expect(verdicts(changed)).toHaveLength(3);
         }
       }
     }
@@ -437,9 +596,24 @@ describe("every read is bounded (bytes from the system cross a security boundary
   });
 });
 
-describe("the list the hub sets on an open folder (m2-design.md section 9)", () => {
+describe("the shape the hub and the installer set", () => {
+  test("NT SERVICE\\HSNHub's SID is the service SID Windows derives from the name", () => {
+    // Checked against a SID Windows publishes: TrustedInstaller's.
+    expect(serviceSid("TrustedInstaller")).toBe(
+      "S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464",
+    );
+    expect(serviceSid("trustedinstaller")).toBe(serviceSid("TrustedInstaller"));
+    expect(HUB_SERVICE_SID).toBe("S-1-5-80-382789279-1444082746-186061269-2257954938-261857140");
+  });
+
   test("SIDs as text go back to the bytes they came from", () => {
-    for (const sid of [HUB_SID, USER_SID, SYSTEM_SID, ADMINISTRATORS_SID, "S-1-0x010203040506-7"]) {
+    for (const sid of [
+      SERVICE_SID,
+      USER_SID,
+      SYSTEM_SID,
+      ADMINISTRATORS_SID,
+      "S-1-0x010203040506-7",
+    ]) {
       const bytes = sidToBytes(sid)._unsafeUnwrap();
       expect(parseSid(bytes, 0)._unsafeUnwrap().sid).toBe(sid);
     }
@@ -447,27 +621,28 @@ describe("the list the hub sets on an open folder (m2-design.md section 9)", () 
       expect(sidToBytes(bad).isErr()).toBe(true);
   });
 
-  test("it names the hub's account, Administrators and SYSTEM, full control, passed on, and no one else", () => {
-    const acl = protectedAcl(HUB)._unsafeUnwrap();
-    expect(parseAcl(acl, 0)._unsafeUnwrap()).toEqual(
-      allowedSids(HUB).map((sid) => ({
-        kind: "allow",
-        type: 0,
-        flags: OI_CI,
-        mask: FILE_ALL_ACCESS,
-        sid,
-      })),
+  test("the shape the hub sets is owned by Administrators, protected, and exactly the shape", () => {
+    const bytes = topShape(SERVICE_SID)._unsafeUnwrap();
+    const parsed = parseDescriptor(bytes)._unsafeUnwrap();
+    expect(parsed.owner).toBe(ADMINISTRATORS_SID);
+    expect(parsed.control & SE_DACL_PROTECTED).toBe(SE_DACL_PROTECTED);
+    expect(parsed.dacl).toEqual([
+      { kind: "allow", type: 0, flags: OI_CI, mask: FULL, sid: ADMINISTRATORS_SID },
+      { kind: "allow", type: 0, flags: OI_CI, mask: FULL, sid: SYSTEM_SID },
+      { kind: "allow", type: 0, flags: 0, mask: SERVICE_TOP_RIGHTS, sid: SERVICE_SID },
+      { kind: "allow", type: 0, flags: INSIDE_ONLY, mask: FULL, sid: SERVICE_SID },
+    ]);
+    expect(both(bytes)).toEqual(["accepted", "accepted"]);
+    expect(SERVICE_TOP_RIGHTS).toBe(0x001200a7);
+  });
+
+  test("the installer's SDDL says the same", () => {
+    expect(topShapeSddl(HUB_SERVICE_SID)).toBe(
+      "O:BAD:P(A;OICI;FA;;;BA)(A;OICI;FA;;;SY)(A;;0x001200a7;;;S-1-5-80-382789279-1444082746-186061269-2257954938-261857140)(A;OICIIO;FA;;;S-1-5-80-382789279-1444082746-186061269-2257954938-261857140)",
     );
-    expect(allowedSids(HUB)).toEqual([HUB_SID, ADMINISTRATORS_SID, SYSTEM_SID]);
   });
 
-  test("set as a protected list it passes the rule, for the folder and for what is made inside", () => {
-    const acl = protectedAcl(HUB)._unsafeUnwrap();
-    expect(folder(descriptorWithAcl(ADMINISTRATORS_SID, acl))).toBe("accepted");
-    expect(folder(descriptorWithAcl(HUB_SID, acl))).toBe("accepted");
-  });
-
-  test("a hub account that is not a SID makes no list", () => {
-    expect(protectedAcl({ hub: "nobody" }).isErr()).toBe(true);
+  test("a service account that is not a SID makes no shape", () => {
+    expect(topShape("nobody").isErr()).toBe(true);
   });
 });

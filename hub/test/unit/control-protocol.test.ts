@@ -162,6 +162,7 @@ const RESULTS: readonly unknown[] = [
     stagedItems: 12,
     databaseBytes: null,
     historyShortened: false,
+    longestTurnMs: 0,
   },
   { kind: "arm", armed: ["front"], waitsForDoorToClose: ["back"] },
   { kind: "disarm", disarmed: ["front"], countdownsCancelled: ["front"], alarmEnded: true },

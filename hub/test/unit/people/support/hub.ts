@@ -65,6 +65,7 @@ import { type Mono, mono } from "../../../../src/core/model/time.ts";
 import type { ControlCommand } from "../../../../src/core/model/control.ts";
 import { type Core, makeCore, type Modules, MODULES } from "../../../../src/core/step.ts";
 import { UNBUILT_CALENDAR } from "../../../../src/shell/calendar/unbuilt.ts";
+import type { Calendar } from "../../../../src/core/model/calendar.ts";
 import { VectorCipher } from "../../../world/vector-cipher.ts";
 import { emptySnapshot } from "../../../world/world.ts";
 
@@ -292,12 +293,12 @@ export class Hub {
   #seq = new Map<ClientId, number>();
   #id = new Map<ConnId, number>();
 
-  constructor(modules: Modules = testModules()) {
+  constructor(modules: Modules = testModules(), calendar: Calendar = UNBUILT_CALENDAR) {
     this.core = makeCore(modules);
     this.deps = {
       cipher: VectorCipher.fromVectors(),
       rules: DEFAULT_RULES,
-      calendar: UNBUILT_CALENDAR,
+      calendar,
       sha256: nodeSha256,
       deepFreeze: true,
     };

@@ -31,7 +31,7 @@ function install(): string {
   const prefix = mkdtempSync(join(tmpdir(), "hsn-update-"));
   folders.push(prefix);
   mkdirSync(join(prefix, "state"), { recursive: true });
-  mkdirSync(join(prefix, "versions", "1.1.0", "bin"), { recursive: true });
+  mkdirSync(join(prefix, "staged", "1.1.0", "bin"), { recursive: true });
   return prefix;
 }
 
@@ -77,7 +77,7 @@ describe("the switch", () => {
     expect(requestSwitch(prefix, "2.0.0", undefined).isErr()).toBe(true);
     expect(requestSwitch(prefix, "../../x", undefined).isErr()).toBe(true);
     expect(requestSwitch(undefined, "1.1.0", undefined).isErr()).toBe(true);
-    expect(prefixFrom({ HSN_PREFIX: prefix })).toBe(prefix);
+    expect(prefixFrom({ HSN_PROGRAM: prefix })).toBe(prefix);
     expect(prefixFrom({})).toBeUndefined();
   });
 });
@@ -97,10 +97,15 @@ describe("health", () => {
         detail: new TextEncoder().encode("1.1.0"),
       },
     };
-    expect(healthyIn([record])).toBe("1.1.0");
+    expect(healthyIn([record], {})).toBe("1.1.0");
     expect(
-      healthyIn([{ ...record, row: { ...record.row, kind: "update_staged" } }]),
+      healthyIn([{ ...record, row: { ...record.row, kind: "update_staged" } }], {}),
     ).toBeUndefined();
+    // A package's trial (the launcher's HSN_PACKAGE_TRIAL): the first commit makes it healthy, as
+    // update_healthy's does an update's; the caller still waits for its listeners.
+    expect(healthyIn([], { HSN_PACKAGE_TRIAL: "1.2.0" })).toBe("1.2.0");
+    expect(healthyIn([], {})).toBeUndefined();
+    expect(healthyIn([], { HSN_PACKAGE_TRIAL: "../x" })).toBeUndefined();
     const prefix = install();
     expect(markHealthy(prefix, "1.1.0").isOk()).toBe(true);
     expect(parseHealthyNote(readFileSync(installPaths(prefix).healthyFile, "utf8"))).toEqual({

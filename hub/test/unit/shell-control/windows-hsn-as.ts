@@ -3,7 +3,7 @@
  * `hub/cli/hsn.ts` runs it, with what it prints and its exit code written to a file, since a
  * process started as another account has no pipes back to the test.
  *
- *   bun windows-hsn-as.ts <result file> <hsn's arguments>…
+ *   bun windows-hsn-as.ts <result file> [--hub-account <sid>] <hsn's arguments>…
  *   bun windows-hsn-as.ts <result file> --read <file>      (0 when the file can be read)
  */
 import { writeFileSync } from "node:fs";
@@ -27,18 +27,23 @@ const readable =
             return false;
           },
         );
-const code =
-  reading !== undefined
-    ? readable === true
-      ? 0
-      : 1
-    : await runCli(args, {
-        out: (line) => out.push(line),
-        err: (line) => err.push(line),
-        env: process.env,
-        stdin: () => Promise.resolve(""),
-        nowMs: () => Date.now(),
-        onInterrupt: () => undefined,
-        ask: () => Promise.resolve(""),
-      });
+/**
+ * The account `hsn` is to find serving the socket (`--hub-account <sid>` first, a test's: the
+ * hub under test runs as the runner or a stand-in, never as `NT SERVICE\HSNHub`). Passed as
+ * `hubAccount` in the CLI's io once hub/cli takes it (FROZEN-CHANGE, A11's report).
+ */
+const accountAt = args.indexOf("--hub-account");
+const hubAccount = accountAt === 0 ? args[1] : undefined;
+const cliArgs = accountAt === 0 ? args.slice(2) : args;
+const io = {
+  out: (line: string) => out.push(line),
+  err: (line: string) => err.push(line),
+  env: process.env,
+  stdin: () => Promise.resolve(""),
+  nowMs: () => Date.now(),
+  onInterrupt: () => undefined,
+  ask: () => Promise.resolve(""),
+  ...(hubAccount === undefined ? {} : { hubAccount }),
+};
+const code = reading !== undefined ? (readable === true ? 0 : 1) : await runCli(cliArgs, io);
 writeFileSync(resultFile, JSON.stringify({ code, user: userInfo().username, out, err, readable }));

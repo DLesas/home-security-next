@@ -10,12 +10,12 @@
  *   and the program among the files (`badFile`).
  * - **Pass 1** reads the payload `STAGING_PIECE_BYTES` ‡ a piece and computes its SHA-256 with
  *   `node:crypto`, which must be `payloadSha256`. Not a byte is written before it passes.
- * - **Pass 2** copies each file's byte range into a folder beside `versions/`, the same size a
+ * - **Pass 2** copies each file's byte range into a folder beside the hub's `staged/` versions, the same size a
  *   piece and at most `STAGING_FILES_PER_PIECE` ‡ files made, checking each file's own SHA-256 as it ends; the paths are the manifest's, already
  *   checked to stay inside.
  * - **Then** any version but the current one is removed, one a piece (at most two, section 9;
  *   never before the hashes, so a refused release costs the rollback nothing), and the folder is
- *   renamed to `versions/<version>/`.
+ *   renamed to `staged/<version>/` in the hub's program tree (section 9, "The privilege boundary").
  *
  * A failure at any piece, `abort` (a stop) and a staging the core no longer wants (`wanted`: a
  * cancel, a restore; looked at before every piece) delete the folder: nothing is left behind.
@@ -54,7 +54,7 @@ export const STAGING_FILES_PER_PIECE = 16;
 export interface StageInputs {
   /** The upload in the data folder's `uploads/`. */
   readonly path: string;
-  /** The install's prefix, from the launcher; none when it did not start this hub. */
+  /** The hub's program tree, from the launcher (`HSN_PROGRAM`); none when it did not start this hub. */
   readonly prefix: string | undefined;
   readonly runningVersion: string;
   readonly platform: ReleasePlatform | undefined;
@@ -216,10 +216,10 @@ export class Staging {
     this.#readAt = release.payloadOffset;
     this.#hash = createHash("sha256");
     const paths = installPaths(inputs.prefix);
-    this.#versions = paths.versions;
+    this.#versions = paths.staged;
     this.#launcherFile = paths.launcherFile;
-    this.#folder = join(paths.versions, `.staging-${manifest.version}`);
-    this.#target = join(paths.versions, manifest.version);
+    this.#folder = join(paths.staged, `.staging-${manifest.version}`);
+    this.#target = join(paths.staged, manifest.version);
     this.#phase = "hash";
     return undefined;
   }
@@ -254,6 +254,7 @@ export class Staging {
       return failure("badFile", "the payload's hash is not the manifest's");
     // Only now is anything written: a folder beside, what an earlier staging left removed first.
     const versions = this.#versions ?? "";
+    mkdirSync(versions, { recursive: true });
     const names = listFolder(versions);
     if (names.isErr()) return names.error;
     for (const name of names.value)

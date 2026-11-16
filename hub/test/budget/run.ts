@@ -16,7 +16,12 @@ const DAY_MS = 86_400_000;
 /** D57: routine readings 30 days, events a year (section 6, "Kept"). */
 const ROUTINE_DAYS = 30;
 const EVENT_DAYS = 365;
-const ROUTINE_TABLES = ["rx_routine", "tx_routine", "rejects"] as const;
+/**
+ * M2's audit tables are among them (m2-design.md section 4): `notification_reads` kept 30 days,
+ * `notifications` a year. Client sessions are info `hub_events`, kept a year as the audit module
+ * keeps them (section 3 counted them at 30 days; reported).
+ */
+const ROUTINE_TABLES = ["rx_routine", "tx_routine", "rejects", "notification_reads"] as const;
 const EVENT_TABLES = [
   "rx_event",
   "tx_event",
@@ -24,6 +29,7 @@ const EVENT_TABLES = [
   "device_log",
   "hub_events",
   "commands",
+  "notifications",
 ] as const;
 /** The WAL never passes 8 MB ‡ (section 5, `journal_size_limit`). */
 export const WAL_LIMIT_MB = 8;

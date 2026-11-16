@@ -8,8 +8,11 @@ import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import {
   ADMINISTRATORS_SID,
-  checkDescriptor,
+  checkContent,
+  checkTopFolder,
+  HUB_SERVICE_SID,
   parseSid,
+  type RunMode,
   SYSTEM_SID,
 } from "../../../src/shell/control/windows-acl.ts";
 import { WINDOWS_CALLS } from "../../../src/shell/safe/control-socket-windows.ts";
@@ -43,17 +46,34 @@ export function ownSid(): string {
 }
 
 /**
- * Makes `path` and locks it as the installer does: inheritance off, full control for this
- * process's account, Administrators and SYSTEM (and `extra`), passed on to what is made inside.
+ * Makes `path` a top folder of the shape the installer sets (m2-design.md section 9, "The top
+ * folders"), with the system's own `icacls`, independently of the hub's own code: owner
+ * Administrators, inheritance off, Administrators and SYSTEM in full control of it and its
+ * contents, and `service` (the real `NT SERVICE\HSNHub` by default) with list, add a file, add a
+ * folder, traverse, read attributes, read the list and synchronize on the folder itself (RD, WD,
+ * AD, X, RA, RC, S: 0x001200a7) and inherit-only full control of what is inside. `extra` adds
+ * entries (`*<sid>:<rights>`), to make it open. The steps fail on the first `icacls` that fails.
  */
-export function lockFolder(path: string, extra: readonly string[] = []): Ran {
+export function shapeFolder(
+  path: string,
+  service: string = HUB_SERVICE_SID,
+  extra: readonly string[] = [],
+): Ran {
   mkdirSync(path, { recursive: true });
-  return icacls(
-    path,
-    "/inheritance:r",
-    "/grant:r",
-    ...[ownSid(), ADMINISTRATORS_SID, SYSTEM_SID, ...extra].map((sid) => `*${sid}:(OI)(CI)F`),
-  );
+  const steps: string[][] = [
+    ["/inheritance:r", "/grant:r", `*${ADMINISTRATORS_SID}:(OI)(CI)F`, `*${SYSTEM_SID}:(OI)(CI)F`],
+    ["/grant", `*${service}:(RD,WD,AD,X,RA,RC,S)`],
+    ["/grant", `*${service}:(OI)(CI)(IO)F`],
+    ...extra.map((entry) => ["/grant", entry]),
+    ["/setowner", `*${ADMINISTRATORS_SID}`],
+  ];
+  const outs: string[] = [];
+  for (const step of steps) {
+    const ran = icacls(path, ...step);
+    outs.push(ran.out);
+    if (ran.code !== 0) return { code: ran.code, out: outs.join(" / ") };
+  }
+  return { code: 0, out: outs.join(" / ") };
 }
 
 /** A folder as Windows makes it: its list inherited from the folder above. */
@@ -66,10 +86,16 @@ export function junction(link: string, target: string): Ran {
   return runProgram(system32("cmd.exe"), ["/d", "/c", "mklink", "/J", link, target]);
 }
 
-/** Makes `path` and locks it to exactly `sids` (this process's account not added). */
+/** Makes `path`, owned by Administrators, locked to exactly `sids` (full control, passed on). */
 export function lockFolderTo(path: string, sids: readonly string[]): Ran {
   mkdirSync(path, { recursive: true });
-  return icacls(path, "/inheritance:r", "/grant:r", ...sids.map((sid) => `*${sid}:(OI)(CI)F`));
+  const granted = icacls(
+    path,
+    "/inheritance:r",
+    "/grant:r",
+    ...sids.map((sid) => `*${sid}:(OI)(CI)F`),
+  );
+  return granted.code === 0 ? icacls(path, "/setowner", `*${ADMINISTRATORS_SID}`) : granted;
 }
 
 /**
@@ -87,10 +113,19 @@ export function removeTree(path: string): string {
     : "removed";
 }
 
-/** What the hub's rule says of a path's real list now: "closed", or what it found. */
-export function listVerdict(path: string, asFolder: boolean): string {
+/**
+ * What the hub's rules say of a path's real list now: "closed", or what they found. `top` judges
+ * it as a top folder in `mode`; otherwise as something inside one.
+ */
+export function listVerdict(
+  path: string,
+  as: { readonly top: true; readonly mode: RunMode } | { readonly top: false },
+  service: string = HUB_SERVICE_SID,
+): string {
   const bytes = WINDOWS_CALLS.securityDescriptor(path);
   if (bytes.isErr()) return bytes.error.message;
-  const checked = checkDescriptor(bytes.value, { hub: ownSid() }, asFolder);
+  const checked = as.top
+    ? checkTopFolder(bytes.value, service, as.mode)
+    : checkContent(bytes.value, service);
   return checked.isOk() ? "closed" : checked.error.join("; ");
 }

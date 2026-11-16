@@ -400,6 +400,7 @@ describe("answers made from the state", () => {
       stagedItems: 0,
       databaseBytes: null,
       historyShortened: false,
+      longestTurnMs: 0,
     } as const;
     const hub = hubWith(setupCore({ ...VIEW_SOURCES, status: () => status }));
     expect(onlyReply(hub.command({ kind: "status" }).effects)).toEqual({

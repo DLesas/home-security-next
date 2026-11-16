@@ -1,18 +1,21 @@
 #!/bin/sh
-# The .pkg's postinstall, as root (m2-design.md section 9, macOS): the hub's user, the data
-# folder's access (at install and at every upgrade), the program selected, the daemon loaded, and
-# on a fresh install the setup page in the logged-in user's browser, unelevated.
+# The .pkg's postinstall, as root (m2-design.md section 9, macOS, and "The privilege boundary"):
+# the hub's user, each hub tree's top folder (never its contents), the packaged versions pruned to
+# two, the daemon, the `installed` marker, and on a fresh install with a person at the screen the
+# setup page through the package's own `hsn`. It never runs the hub's program, never recurses into
+# a hub tree and never chooses a version: the launcher does, as the hub's user, at its next start.
 set -eu
 here=$(cd "$(dirname "$0")" && pwd)
-VERSION=$(cat "$here/hsn-version")
-PREFIX=/usr/local/hsn-hub
+PKG=/usr/local/hsn-hub
+VERSION=$(cat "$PKG/version")
 DATA="/Library/Application Support/HSN Hub"
-LAUNCHER=/usr/local/libexec/hsn-hub/hsn-launcher
+PROGRAM="/Library/Application Support/HSN Hub Program"
 USER_NAME=_hsnhub
 PLIST=/Library/LaunchDaemons/com.hsn.hub.plist
 
+# Fresh means this package was never installed here: its root-owned marker, not the hub's files.
 fresh=yes
-[ -e "$DATA/hub.db" ] && fresh=no
+[ -e "$PKG/installed" ] && fresh=no
 
 # A hidden system user and group of its own, with an id below 500 not in use.
 if ! dscl . -read "/Users/$USER_NAME" >/dev/null 2>&1; then
@@ -31,24 +34,26 @@ if ! dscl . -read "/Users/$USER_NAME" >/dev/null 2>&1; then
   dscl . -create "/Users/$USER_NAME" IsHidden 1
 fi
 
-"$here/secure-data-folder.sh" "$DATA" "$USER_NAME" "$USER_NAME"
-mkdir -p "/Library/Logs/HSN Hub" "$PREFIX/state"
-chown "$USER_NAME:$USER_NAME" "/Library/Logs/HSN Hub"
-chown -R "$USER_NAME:$USER_NAME" "$PREFIX"
-chmod 0755 "$PREFIX"
-chown -R root:wheel /usr/local/libexec/hsn-hub
-"$LAUNCHER" --prefix "$PREFIX" --select "$VERSION"
-chown -h "$USER_NAME:$USER_NAME" "$PREFIX/current"
+"$here/prepare-hub-folder.sh" "$DATA" "$USER_NAME" "$USER_NAME"
+"$here/prepare-hub-folder.sh" "$PROGRAM" "$USER_NAME" "$USER_NAME"
+"$here/prune-packaged.sh" "$PKG/packaged" "$VERSION"
 chown root:wheel "$PLIST"
 chmod 0644 "$PLIST"
+touch "$PKG/installed"
+chmod 0644 "$PKG/installed"
 
 launchctl bootstrap system "$PLIST"
 launchctl enable system/com.hsn.hub
 
 [ "$fresh" = yes ] || exit 0
+# A silent install (`installer` on the command line, no person at a screen) makes no token.
+if [ -n "${COMMAND_LINE_INSTALL:-}" ]; then
+  echo "HSN Hub installed. Run \`sudo hsn open\` to link the first browser or phone."
+  exit 0
+fi
 # The logged-in user's browser, in their own session, unelevated (HB19).
 console=$(stat -f %Su /dev/console)
 if [ -n "$console" ] && [ "$console" != root ]; then
-  "$here/open-setup-page.sh" "$PREFIX/current/bin/hsn-hub" "$DATA" "$console" || true
+  "$here/open-setup-page.sh" /usr/local/bin/hsn "$console" || echo "HSN Hub: run \`sudo hsn open\`" >&2
 fi
 exit 0

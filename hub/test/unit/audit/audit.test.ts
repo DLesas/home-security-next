@@ -405,10 +405,12 @@ describe("retention (section 6)", () => {
       "tx_routine",
       "device_log",
       "hub_events",
+      "notification_reads",
       "rx_event",
       "tx_event",
       "decisions",
       "commands",
+      "notifications",
       "device_log",
       "hub_events",
     ]);
@@ -429,10 +431,13 @@ describe("retention (section 6)", () => {
       { table: "tx_routine", op: "prune", beforeMs: routine, limit },
       { table: "device_log", op: "prune", beforeMs: routine, limit, levels: [0, 1] },
       { table: "hub_events", op: "prune", beforeMs: routine, limit, levels: ["debug"] },
+      // M2 (m2-design.md section 4): reads 30 days, notifications 1 year.
+      { table: "notification_reads", op: "prune", beforeMs: routine, limit },
       { table: "rx_event", op: "prune", beforeMs: event, limit },
       { table: "tx_event", op: "prune", beforeMs: event, limit },
       { table: "decisions", op: "prune", beforeMs: event, limit },
       { table: "commands", op: "prune", beforeMs: event, limit },
+      { table: "notifications", op: "prune", beforeMs: event, limit },
       {
         table: "device_log",
         op: "prune",

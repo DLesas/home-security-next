@@ -61,7 +61,7 @@ beforeEach(() => {
   folders.push(root);
   prefix = join(root, "prefix");
   for (const v of ["0.0.9", "0.1.0"])
-    mkdirSync(join(prefix, "versions", v, "bin"), { recursive: true });
+    mkdirSync(join(prefix, "staged", v, "bin"), { recursive: true });
   mkdirSync(join(prefix, "state"), { recursive: true });
   writeFileSync(
     installPaths(prefix).launcherFile,
@@ -143,16 +143,16 @@ function stage(
 }
 
 function versions(): string[] {
-  return readdirSync(join(prefix, "versions")).toSorted();
+  return readdirSync(join(prefix, "staged")).toSorted();
 }
 
 describe("a release", () => {
   test("checked and unpacked beside the running version; at most two versions kept", () => {
     expect(stage(release())).toEqual({ kind: "updateStaged", version: "1.0.0" });
     expect(versions()).toEqual(["0.1.0", "1.0.0"]);
-    const program = join(prefix, "versions", "1.0.0", "bin", "hsn-hub");
+    const program = join(prefix, "staged", "1.0.0", "bin", "hsn-hub");
     expect(statSync(program).mode & 0o111).not.toBe(0);
-    expect(readFileSync(join(prefix, "versions", "1.0.0", "web", "index.html"), "utf8")).toBe(
+    expect(readFileSync(join(prefix, "staged", "1.0.0", "web", "index.html"), "utf8")).toBe(
       "<html></html>",
     );
   });
@@ -262,7 +262,7 @@ describe("a release", () => {
       platform: "darwin-arm64",
       keys: [TEST_PUBLISHER_KEY],
     });
-    const folder = join(prefix, "versions", ".staging-1.0.0");
+    const folder = join(prefix, "staged", ".staging-1.0.0");
     let before = 0;
     let outcome;
     while ((outcome = job.next()) === undefined) {
@@ -278,10 +278,8 @@ describe("a release", () => {
 
   test("the program is executable, the rest not", () => {
     stage(release());
-    expect(statSync(join(prefix, "versions", "1.0.0", "bin", "hsn-hub")).mode & 0o777).toBe(0o755);
-    expect(statSync(join(prefix, "versions", "1.0.0", "web", "index.html")).mode & 0o777).toBe(
-      0o644,
-    );
+    expect(statSync(join(prefix, "staged", "1.0.0", "bin", "hsn-hub")).mode & 0o777).toBe(0o755);
+    expect(statSync(join(prefix, "staged", "1.0.0", "web", "index.html")).mode & 0o777).toBe(0o644);
   });
 
   test("a payload cut short: badFile", () => {

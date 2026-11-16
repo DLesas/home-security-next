@@ -41,6 +41,15 @@ const start = z
     mono: time.optional(),
     /** 32 bytes: with the boot's number, every random byte the hub uses in this run comes from it. */
     seed: hexBytes.length(64),
+    /**
+     * The hub computer's time zone, an IANA name (`Europe/London`): given to the core as
+     * `timeZone` in the turn of the boot, as `main.ts` gives the system's. Left out, the hub has
+     * none, as before, and no schedule entry has a next time. The lockstep hub never reads the
+     * computer's own zone, so a run is the same on any machine. A zone the calendar does not
+     * know is refused (`error`) before anything starts. An older hub refuses the field (`start`
+     * is strict), so a controller is never silently ignored.
+     */
+    zone: z.string().min(1).max(64).optional(),
   })
   .readonly();
 

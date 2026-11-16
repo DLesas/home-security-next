@@ -4,6 +4,10 @@
  * the next routine commit. Each delete names its cutoff as a wall time; the writer resolves it by
  * a binary search of `seq` by `at_ms` inside the commit (section 6), which the core cannot do.
  * `loss_daily` is pruned in the same rounds, by `day`, at the routine retention.
+ *
+ * M2's two audit tables (m2-design.md section 4): `notifications` kept 1 year, `notification_reads`
+ * 30 days, the event and the routine retention at their defaults; a site that sets its own
+ * retention (HB24) moves them with it, as it moves every other audit table.
  */
 import type { PruneOp } from "../model/store.ts";
 import type { Retention } from "./state.ts";
@@ -37,10 +41,12 @@ export function retentionRound(
       levels: DEVICE_LOG_BELOW_WARNING,
     },
     { table: "hub_events", op: "prune", beforeMs: routine, limit, levels: ["debug"] },
+    { table: "notification_reads", op: "prune", beforeMs: routine, limit },
     { table: "rx_event", op: "prune", beforeMs: event, limit },
     { table: "tx_event", op: "prune", beforeMs: event, limit },
     { table: "decisions", op: "prune", beforeMs: event, limit },
     { table: "commands", op: "prune", beforeMs: event, limit },
+    { table: "notifications", op: "prune", beforeMs: event, limit },
     { table: "device_log", op: "prune", beforeMs: event, limit, levels: DEVICE_LOG_EVERY_LEVEL },
     {
       table: "hub_events",

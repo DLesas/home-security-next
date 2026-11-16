@@ -22,15 +22,22 @@ if [ -z "$program" ]; then
 fi
 version=$(cat "$program/version")
 root="$work/root"
-mkdir -p "$root/usr/local/hsn-hub/versions" "$root/usr/local/libexec/hsn-hub" "$root/usr/local/bin" "$root/Library/LaunchDaemons"
-cp -R "$program/versions/$version" "$root/usr/local/hsn-hub/versions/$version"
-install -m 0755 "$program/launcher/hsn-launcher" "$root/usr/local/libexec/hsn-hub/hsn-launcher"
+pkg="$root/usr/local/hsn-hub"
+# The package's tree (section 9, "The privilege boundary"): root's, as pkgbuild's recommended
+# ownership makes every file; the version before it stays (an upgrade removes no file) until
+# postinstall prunes to two.
+mkdir -p "$pkg/packaged" "$pkg/bin" "$root/usr/local/bin" "$root/Library/LaunchDaemons"
+cp -R "$program/versions/$version" "$pkg/packaged/$version"
+install -m 0755 "$program/bin/hsn-launcher" "$pkg/bin/hsn-launcher"
+install -m 0755 "$program/bin/hsn" "$pkg/bin/hsn"
+install -m 0755 "$here/uninstall.sh" "$pkg/uninstall.sh"
+printf '%s\n' "$version" > "$pkg/version"
 install -m 0755 "$here/hsn" "$root/usr/local/bin/hsn"
 install -m 0644 "$here/com.hsn.hub.plist" "$root/Library/LaunchDaemons/com.hsn.hub.plist"
 scripts="$work/scripts"
 mkdir -p "$scripts"
 cp "$here/scripts/preinstall" "$here/scripts/postinstall" "$scripts/"
-cp "$here/../shared/secure-data-folder.sh" "$here/../shared/open-setup-page.sh" "$scripts/"
+cp "$here/../shared/prepare-hub-folder.sh" "$here/../shared/open-setup-page.sh" "$here/../shared/prune-packaged.sh" "$scripts/"
 printf '%s\n' "$version" > "$scripts/hsn-version"
 mkdir -p "$out"
 pkgbuild --root "$root" --scripts "$scripts" --identifier com.hsn.hub --version "$version" \

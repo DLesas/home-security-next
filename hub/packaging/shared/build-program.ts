@@ -1,15 +1,20 @@
 #!/usr/bin/env bun
 /**
  * `bun hub/packaging/shared/build-program.ts --target <bun target> --out <folder>`: one version's
- * program and the launcher, laid out as every package installs them (m2-design.md section 9):
+ * program and the two executables beside it, which every package puts in its root-owned tree
+ * (m2-design.md section 9, "The privilege boundary"):
  *
  * ```
- * <out>/versions/<version>/bin/hsn-hub[.exe]   the hub and `hsn` (`program.ts`), compiled by Bun
+ * <out>/versions/<version>/bin/hsn-hub[.exe]   the hub (`program.ts`), compiled by Bun
  * <out>/versions/<version>/drizzle/            the migrations
  * <out>/versions/<version>/web/                the web app's export (`bun run app:export`), with csp.json
- * <out>/launcher/hsn-launcher[.exe]            the launcher, compiled apart
+ * <out>/bin/hsn-launcher[.exe]                 the launcher, compiled apart
+ * <out>/bin/hsn[.exe]                          `hsn` (`cli/hsn.ts`), compiled apart
  * <out>/version                                the version, for the package scripts
  * ```
+ *
+ * All three are compiled through `compileExecutable` (`compile.ts`, the step 0 owner's), with
+ * Bun's automatic loading of `.env`, `bunfig.toml`, `tsconfig` and `package.json` turned off.
  *
  * Run on a machine of the target's own system (each package's build says which): Bun compiles
  * for another system only by fetching that system's runtime, which these builds do not do here.
@@ -19,6 +24,7 @@ import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } fr
 import { join } from "node:path";
 import { err, Result } from "neverthrow";
 import { PUBLISHER_KEYS, releaseKeysProblem } from "../../src/shell/update/publisher-keys.ts";
+import { compileExecutable } from "./compile.ts";
 
 const HUB = join(import.meta.dir, "..", "..");
 const REPO = join(HUB, "..");
@@ -51,11 +57,7 @@ function exe(target: Target, name: string): string {
 }
 
 function compile(target: Target, entry: string, outfile: string): string | undefined {
-  const built = Bun.spawnSync(
-    [process.execPath, "build", "--compile", `--target=${target}`, entry, "--outfile", outfile],
-    { cwd: REPO, stdout: "pipe", stderr: "pipe" },
-  );
-  return built.exitCode === 0 ? undefined : built.stderr.toString() || built.stdout.toString();
+  return compileExecutable(target, entry, outfile, REPO);
 }
 
 /** Builds into `out`; the version, or why not. */
@@ -77,7 +79,7 @@ export function buildProgram(
     return err(`no web build at ${web}: run \`bun run app:export\` first`);
   rmSync(out, { recursive: true, force: true });
   mkdirSync(join(versionDir, "bin"), { recursive: true });
-  mkdirSync(join(out, "launcher"), { recursive: true });
+  mkdirSync(join(out, "bin"), { recursive: true });
   const hub = compile(
     target,
     join(HUB, "packaging", "shared", "program.ts"),
@@ -87,9 +89,11 @@ export function buildProgram(
   const launcher = compile(
     target,
     join(HUB, "launcher", "src", "main.ts"),
-    join(out, "launcher", exe(target, "hsn-launcher")),
+    join(out, "bin", exe(target, "hsn-launcher")),
   );
   if (launcher !== undefined) return err(`the launcher did not compile: ${launcher}`);
+  const hsn = compile(target, join(HUB, "cli", "hsn.ts"), join(out, "bin", exe(target, "hsn")));
+  if (hsn !== undefined) return err(`hsn did not compile: ${hsn}`);
   const copied = Result.fromThrowable(
     () => {
       cpSync(join(HUB, "drizzle"), join(versionDir, "drizzle"), { recursive: true });

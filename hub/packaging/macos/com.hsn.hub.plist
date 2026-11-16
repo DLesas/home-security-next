@@ -1,9 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
-  The hub's launchd daemon (m2-design.md section 9, macOS): run at load with nobody logged in, as
-  its own user, and started again on any exit but a clean stop (KeepAlive, SuccessfulExit false).
-  The launcher starts and restarts the hub; the hub keeps the computer awake (caffeinate, HB28).
+  The hub's launchd daemon (m2-design.md section 9, macOS, and "The privilege boundary"): run at
+  load with nobody logged in, as its own user, and started again on any exit but a clean stop
+  (KeepAlive, SuccessfulExit false). The launcher, from the package's root-owned tree, starts and
+  restarts the hub; the hub keeps the computer awake (caffeinate, HB28). No log file: launchd
+  would open it as root, and the launcher writes its failures to the system log (logger).
 -->
 <plist version="1.0">
 <dict>
@@ -11,9 +13,11 @@
   <string>com.hsn.hub</string>
   <key>ProgramArguments</key>
   <array>
-    <string>/usr/local/libexec/hsn-hub/hsn-launcher</string>
-    <string>--prefix</string>
+    <string>/usr/local/hsn-hub/bin/hsn-launcher</string>
+    <string>--package</string>
     <string>/usr/local/hsn-hub</string>
+    <string>--program</string>
+    <string>/Library/Application Support/HSN Hub Program</string>
     <string>--data</string>
     <string>/Library/Application Support/HSN Hub</string>
   </array>
@@ -21,6 +25,8 @@
   <string>_hsnhub</string>
   <key>GroupName</key>
   <string>_hsnhub</string>
+  <key>WorkingDirectory</key>
+  <string>/</string>
   <key>RunAtLoad</key>
   <true/>
   <key>KeepAlive</key>
@@ -34,9 +40,5 @@
   <integer>30</integer>
   <key>Umask</key>
   <integer>63</integer>
-  <key>StandardErrorPath</key>
-  <string>/Library/Logs/HSN Hub/hub.log</string>
-  <key>StandardOutPath</key>
-  <string>/Library/Logs/HSN Hub/hub.log</string>
 </dict>
 </plist>

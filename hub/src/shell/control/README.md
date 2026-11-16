@@ -4,7 +4,7 @@ M2, step 1 (docs/m2-design.md section 11). The control socket on Windows (W2: an
 
 - `server.ts`: the socket's server, the same on every system; `socket-steps.ts` picks the checks by system.
 - `socket-file.ts`: macOS and Linux, as built in M1a (mode 0700 and 0600, owners).
-- `windows.ts`: Windows (the account, the folder, links, the volume, the socket file read back); `windows-acl.ts`: the access-list rule itself, pure, tested on every system with lists given as data. The Win32 calls are `../safe/control-socket-windows.ts`.
+- `windows.ts`: Windows: who the hub runs as (its service, or an elevated administrator by hand), each top folder's place, what is inside made to inherit (the service), the shape set on a top folder alone (an administrator), the socket file read back; `windows-acl.ts`: the shape and the rules themselves, pure, tested on every system with lists given as data. The Win32 calls are `../safe/control-socket-windows.ts`; `hsn.exe`'s peer check is `../safe/control-socket-peer.ts`, for `hub/cli` to call.
 - Tests: `hub/test/unit/shell-control/` (`windows-real.test.ts` and `windows-hub.test.ts` run on Windows only, by `.github/workflows/windows-control-socket.yml`) and `hub/test/unit/safe/control-socket-windows.test.ts`.
 
 The control protocol is frozen.

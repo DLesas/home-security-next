@@ -19,11 +19,18 @@ const MB = 1024 * 1024;
  * mark, count and age is a parameter, so a test runs the whole rule on a few megabytes.
  */
 export interface SizeGuardRules {
-  /** `max_page_count` in bytes: SQLite refuses to grow the file past it (240 MB ‡). */
+  /**
+   * `max_page_count` in bytes: SQLite refuses to grow the file past it (283 MB ‡; 72,448 pages of
+   * 4,096 bytes). Raised from 240 MB by the product owner so the largest home keeps its year.
+   */
   readonly hardStopBytes: number;
-  /** Trimming starts when the pages in use pass this (225 MB ‡) ... */
+  /** Trimming starts when the pages in use pass this (268 MB ‡) ... */
   readonly startBytes: number;
-  /** ... and goes on until they are back under this (210 MB ‡). */
+  /**
+   * ... and goes on until they are back under this (253 MB ‡): home C with M2 measured 229.9 MB
+   * of pages at D57's retention, plus ten percent, rounded up; the 15 MB steps between the marks
+   * kept (D112, amended).
+   */
   readonly stopBytes: number;
   /** Rows deleted from each table a trimming commit (5,000 ‡). */
   readonly rowsPerCommit: number;
@@ -492,9 +499,9 @@ export const DEFAULT_RULES: HubRules = {
     flushItems: 2000,
     flushBytes: 512 * 1024,
     sizeGuard: {
-      hardStopBytes: 240 * MB,
-      startBytes: 225 * MB,
-      stopBytes: 210 * MB,
+      hardStopBytes: 283 * MB,
+      startBytes: 268 * MB,
+      stopBytes: 253 * MB,
       rowsPerCommit: 5_000,
       routineProtectedMs: 24 * HOUR,
       eventProtectedMs: 30 * DAY,

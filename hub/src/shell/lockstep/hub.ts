@@ -13,6 +13,7 @@
  * and answered meanwhile is the `idle` answer.
  */
 import { sha256 } from "@noble/hashes/sha2.js";
+import { type Calendar, EVERY_DAY } from "../../core/model/calendar.ts";
 import { makeCalendar } from "../calendar/calendar.ts";
 import { join } from "node:path";
 import { fromHex, toHex } from "@hsn/protocol";
@@ -54,6 +55,11 @@ type Input = Extract<
   LockstepToHub,
   { readonly type: "frame" | "linkUp" | "linkDown" | "control" | "clock" }
 >;
+
+/** Whether the calendar knows `zone`: every day has a midnight in a zone it knows. */
+function knownZone(calendar: Calendar, zone: string, wallMs: number): boolean {
+  return calendar.next({ at: { hour: 0, minute: 0 }, days: EVERY_DAY }, zone, wallMs) !== undefined;
+}
 
 /**
  * A run's random bytes: the seed with the boot's number mixed in (4 bytes, little-endian), so one
@@ -177,6 +183,17 @@ export class LockstepHub {
     options: LockstepOptions,
   ): Promise<Result<{ readonly hub: LockstepHub; readonly idle: LockstepIdle }, HubError>> {
     const rules = options.rules ?? DEFAULT_RULES;
+    // The calendar first: a zone it does not know is refused before the database is opened, so a
+    // refused `start` leaves nothing half started.
+    const calendar = makeCalendar();
+    if (calendar.isErr()) return err(calendar.error);
+    const zone = message.zone;
+    if (zone !== undefined && !knownZone(calendar.value, zone, message.wall))
+      return err({
+        kind: "config",
+        origin: ORIGIN,
+        message: `the time zone ${JSON.stringify(zone)} is not one the calendar knows`,
+      });
     const clock = new LockstepClock(message.at, message.wall, message.trusted, message.mono ?? 0);
     const seed = fromHex(message.seed);
     const keysHolder: { keys: MemoryKeyStore | undefined } = { keys: undefined };
@@ -203,8 +220,6 @@ export class LockstepHub {
     const keys = MemoryKeyStore.load(store.db);
     if (keys.isErr()) return err(keys.error);
     keysHolder.keys = keys.value;
-    const calendar = makeCalendar();
-    if (calendar.isErr()) return err(calendar.error);
     const registry = new LinkRegistry();
     const links = new LockstepLinks(registry, () => clock.mono);
     const holder: {
@@ -250,6 +265,9 @@ export class LockstepHub {
       snapshot: { ...store.snapshot, hubKeys: hubKeys.value },
       boot: store.boot,
     });
+    // The time zone, when the controller gives one: queued behind the boot, before anything else
+    // is admitted, as `main.ts` queues the system's (section 2).
+    if (zone !== undefined) loop.enqueue({ kind: "timeZone", zone });
     const ran = hub.#runInstant(message.at);
     if (ran.isErr()) return err({ kind: "internal", origin: ORIGIN, message: ran.error.message });
     return ok({ hub, idle: hub.#idle(message.at) });
@@ -330,6 +348,8 @@ export class LockstepHub {
         stagedItems: writer.staged,
         databaseBytes: writer.inUseBytes ?? null,
         historyShortened: writer.trimming,
+        // Fixed: a figure of the machine's own speed would make two runs of a session differ.
+        longestTurnMs: 0,
       },
     };
   }

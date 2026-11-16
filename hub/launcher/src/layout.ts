@@ -1,53 +1,83 @@
 /**
- * The install folder and the notes the hub and the launcher leave each other (m2-design.md
- * section 9, "The program" and "Hub updates"). One contract, read by the launcher and written by
- * the hub's shell (`hub/src/shell/update/`):
+ * The two program trees and the notes the hub and the launcher leave each other (m2-design.md
+ * section 9, "The privilege boundary" and "Hub updates"). One contract, read by the launcher and
+ * written by the hub's shell (`hub/src/shell/update/`):
  *
  * ```
- * <prefix>/versions/<version>/bin/hsn-hub[.exe]   the program: the hub and `hsn` (section 9)
- * <prefix>/current                                a link to the running version, for `hsn` on PATH
- * <prefix>/state/launcher.json                    the launcher's own: the current and previous
- *                                                 versions, a trial of a new one, a rollback
- * <prefix>/state/switch.json                      the hub's: switch to this version (it then exits 70)
- * <prefix>/state/healthy.json                     the hub's: this version recorded `update_healthy`
+ * The package's tree, root's (Administrators' and SYSTEM's); the hub's account reads and runs it:
+ *   <package>/packaged/<version>/bin/hsn-hub[.exe]   a packaged version: the package's and the one
+ *                                                    before it (the package prunes to two)
+ *   <package>/installed                              the package's marker of a done install
+ * The hub's program tree, the hub's account's, beside its data folder:
+ *   <program>/staged/<version>/bin/hsn-hub[.exe]     a version the hub staged itself (an update)
+ *   <program>/state/launcher.json                    the launcher's own: the current and previous
+ *                                                    versions, a trial, the failed, a rollback
+ *   <program>/state/switch.json                      the hub's: switch to this version (then exit 70)
+ *   <program>/state/healthy.json                     the hub's: this version recorded `update_healthy`
  * ```
  *
- * The launcher's file is the truth; `current` follows it, and on Windows is a directory junction.
- * At most two versions are kept (`LAUNCHER.versionsKept`).
+ * A version is found in the package's tree first, then the hub's (the packaged one on a tie).
+ * Nothing in either tree is run by root or an administrator, and nothing elevated reads the hub's.
  */
 import { join } from "node:path";
 import { Result } from "neverthrow";
 
 export interface InstallPaths {
-  readonly prefix: string;
-  readonly versions: string;
+  /** The package's tree, root's. */
+  readonly packageRoot: string;
+  readonly packaged: string;
+  readonly installedMarker: string;
+  /** The hub's program tree. */
+  readonly programRoot: string;
+  readonly staged: string;
   readonly state: string;
   readonly launcherFile: string;
   readonly switchFile: string;
   readonly healthyFile: string;
-  readonly current: string;
 }
 
-export function installPaths(prefix: string): InstallPaths {
-  const state = join(prefix, "state");
+/**
+ * The two trees' paths. A hub that knows only its own tree (the hub's shell, from
+ * `HSN_PROGRAM`) passes no package root: then only `staged/` and `state/` are meaningful.
+ */
+export function installPaths(programRoot: string, packageRoot = ""): InstallPaths {
+  const state = join(programRoot, "state");
   return {
-    prefix,
-    versions: join(prefix, "versions"),
+    packageRoot,
+    packaged: join(packageRoot, "packaged"),
+    installedMarker: join(packageRoot, "installed"),
+    programRoot,
+    staged: join(programRoot, "staged"),
     state,
     launcherFile: join(state, "launcher.json"),
     switchFile: join(state, "switch.json"),
     healthyFile: join(state, "healthy.json"),
-    current: join(prefix, "current"),
   };
 }
 
-/** The program of a version: one executable holding the hub and `hsn` (section 9). */
-export function programOf(
-  paths: InstallPaths,
-  version: string,
-  platform: NodeJS.Platform = process.platform,
-): string {
-  return join(paths.versions, version, "bin", platform === "win32" ? "hsn-hub.exe" : "hsn-hub");
+/** Where a version lies: the package's tree or the hub's. */
+export type Tree = "packaged" | "staged";
+
+/** The folder of a version in a tree. */
+export function versionFolder(paths: InstallPaths, tree: Tree, version: string): string {
+  return join(tree === "packaged" ? paths.packaged : paths.staged, version);
+}
+
+/** The program of a version in a folder: one executable holding the hub (section 9). */
+export function programIn(folder: string, platform: NodeJS.Platform = process.platform): string {
+  return join(folder, "bin", platform === "win32" ? "hsn-hub.exe" : "hsn-hub");
+}
+
+const VERSION_NUMBERS = /^(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/u;
+
+/** Whether version `a` is above `b`, as numbers, major first (as `shell/update/release.ts`). */
+export function isNewerVersion(a: string, b: string): boolean {
+  const x = VERSION_NUMBERS.exec(a);
+  const y = VERSION_NUMBERS.exec(b);
+  if (x === null || y === null) return false;
+  for (let i = 1; i <= 3; i++)
+    if (Number(x[i]) !== Number(y[i])) return Number(x[i]) > Number(y[i]);
+  return false;
 }
 
 /** A version's name as a folder: letters, digits, dots, dashes and plus signs only. */
@@ -69,6 +99,13 @@ export interface Trial {
   readonly from: string;
   /** The pre-migration copies in the data folder before it started. */
   readonly copiesBefore: readonly CopySeen[];
+  /**
+   * Put on trial because the package brought a newer version, not by the hub's own switch. The
+   * hub's core records no `update_healthy` for it; the launcher tells the hub it is on a package's
+   * trial, and the hub writes `healthy.json` at the point an update's would be, so both trials
+   * pass on the same sign (`launcher.ts`, `#start`).
+   */
+  readonly byPackage: boolean;
 }
 
 export interface LauncherState {
@@ -77,6 +114,8 @@ export interface LauncherState {
   readonly trial: Trial | null;
   /** The last rollback, for the log and a person looking: from which version, and why. */
   readonly rolledBack: { readonly from: string; readonly reason: string } | null;
+  /** Versions that failed their trial: never chosen again, whichever tree holds them. */
+  readonly failed: readonly string[];
 }
 
 /** What the hub asks before it exits 70: switch to this version. */
@@ -133,7 +172,7 @@ export function parseLauncherState(text: string): LauncherState | undefined {
     const from = version(t?.from);
     const seen = copies(t?.copiesBefore);
     if (tv === undefined || from === undefined || seen === undefined) return undefined;
-    trial = { version: tv, from, copiesBefore: seen };
+    trial = { version: tv, from, copiesBefore: seen, byPackage: t?.byPackage === true };
   }
   let rolledBack: LauncherState["rolledBack"] = null;
   if (r.rolledBack !== null && r.rolledBack !== undefined) {
@@ -143,7 +182,13 @@ export function parseLauncherState(text: string): LauncherState | undefined {
     if (from === undefined || typeof reason !== "string") return undefined;
     rolledBack = { from, reason };
   }
-  return { current, previous, trial, rolledBack };
+  const failed = Array.isArray(r.failed)
+    ? (r.failed as unknown[]).flatMap((f) => {
+        const v = version(f);
+        return v === undefined ? [] : [v];
+      })
+    : [];
+  return { current, previous, trial, rolledBack, failed };
 }
 
 export function parseSwitchNote(text: string): SwitchNote | undefined {

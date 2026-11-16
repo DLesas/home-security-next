@@ -28,7 +28,7 @@ import {
   backupCodec,
   backupOpener,
 } from "@hsn/protocol/app";
-import { err, Result } from "neverthrow";
+import { err, ok, Result } from "neverthrow";
 import type { FileOutcome } from "../../core/model/events.ts";
 import { BACKUP_STATE_DEFAULTS } from "../../core/model/rows.ts";
 import type { HubRules } from "../../core/model/rules.ts";
@@ -44,7 +44,16 @@ import {
   rowCursor,
   schemaVersion,
 } from "./contents.ts";
-import { exists, readHead, remove, removeQuietly, rename, syncFolder } from "./files.ts";
+import {
+  exists,
+  type FileError,
+  copyDurably,
+  readHead,
+  remove,
+  removeQuietly,
+  rename,
+  syncFolder,
+} from "./files.ts";
 import { HISTORY_MAGIC } from "./history-export.ts";
 import { SEAL_PIECE_BYTES } from "./sealing.ts";
 
@@ -454,22 +463,123 @@ function closeQuietly(db: Database): void {
   );
 }
 
+/** One step of the restore's swap, by name, for its tests' cut points. */
+export interface SwapStep {
+  readonly name: string;
+  readonly run: () => Result<void, FileError>;
+}
+
 /**
- * `switchRestore`, after the hub's clean stop closed `hub.db` (the caller's part: the writer's
- * stop, then the connection closed): the old file kept as `hub.db.before-restore`, the restored one
- * in its place.
+ * `switchRestore`'s swap, after the hub's clean stop (section 9): the old file kept as
+ * `hub.db.before-restore`, the restored one in its place. Section 10's rule, "the old version or
+ * the new one runs, never neither", holds at every cut point, with nothing to recover at the next
+ * start:
+ *
+ * 1. `hub.db`'s log checkpointed into it in full (`wal_checkpoint(TRUNCATE)` on a connection of
+ *    its own, refused unless every frame went in), so the file is whole on its own and its log
+ *    empty. This holds whether or not the hub's own connection is still open, as long as it is
+ *    idle (the clean stop's commit is its last).
+ * 2. Any older `hub.db.before-restore` removed, and `hub.db`, now whole, copied to it (written
+ *    beside, synced, renamed). `hub.db` itself is not moved. The copy is small: a restore needs a
+ *    hub with no devices yet. Not a hard link, which SQLite refuses (`SQLITE_IOERR_VNODE`).
+ * 3. The old database's `-shm` removed, then its `-wal`: the index first, since an index left
+ *    beside a database whose log is gone makes the next open fail (`SQLITE_IOERR_SHORT_READ`),
+ *    while a log without its index is rebuilt; the log is empty since step 1.
+ * 4. `hub.db.restore` renamed over `hub.db`: one atomic rename, the swap's only commit point.
+ * 5. The folder synced, so the rename survives a power cut.
+ *
+ * **Recovery rule.** Cut off before step 4 ends, `hub.db` is the old database, whole (with its
+ * own log until step 3, an empty one after step 1, none after step 3), so the next start opens the
+ * old one and the restore did not happen (`hub.db.restore` is left, never opened, and replaced by
+ * the next restore). Cut off after it, `hub.db` is the restored one, built with no log, and no log
+ * or index of the old one is beside it, so the next start opens the restored one. A `-wal` or
+ * `-shm` is never read against the wrong database: the old one's are gone before the rename that
+ * could pair them with the restored file, and the restored file never had any.
+ *
+ * **How long `hub.db.before-restore` lives.** Until the next restore replaces it (step 2), and no
+ * longer than the data folder is kept: it is the person's way back from a restore made by mistake,
+ * small (the hub had no devices), and nothing else removes it. A migration's "older copies" are
+ * the pre-migration copies alone, `hub.db.before-<digits>` (as the launcher's `COPY_NAME`), so a
+ * restored backup's first start, which migrates it, keeps it (FROZEN-CHANGE asked of
+ * `shell/storage/migrations.ts`, which matches the prefix `hub.db.before-` today).
  */
-export function swapRestored(dataDir: string): Result<void, string> {
+export function swapSteps(dataDir: string): readonly SwapStep[] {
   const db = join(dataDir, DATABASE_FILE);
   const restored = join(dataDir, RESTORE_FILE);
-  if (!exists(restored)) return err("no restored database is ready");
-  // After a clean close the log is checkpointed into hub.db (Apple's SQLite keeps the file): it is
-  // removed, so it can never be read against the restored database.
-  return remove(join(dataDir, BEFORE_RESTORE_FILE))
-    .andThen(() => rename(db, join(dataDir, BEFORE_RESTORE_FILE)))
-    .andThen(() => remove(`${db}-wal`))
-    .andThen(() => remove(`${db}-shm`))
-    .andThen(() => rename(restored, db))
-    .andThen(() => syncFolder(dataDir))
-    .mapErr((e) => e.message);
+  const before = join(dataDir, BEFORE_RESTORE_FILE);
+  return [
+    { name: "the old database's log checkpointed into it", run: () => checkpointed(db) },
+    {
+      name: "the old database kept as hub.db.before-restore",
+      run: () => remove(before).andThen(() => copyDurably(db, before)),
+    },
+    {
+      name: "the old database's index and log removed",
+      run: () => remove(`${db}-shm`).andThen(() => remove(`${db}-wal`)),
+    },
+    {
+      name: "the restored database renamed over hub.db",
+      run: () =>
+        exists(restored)
+          ? rename(restored, db)
+          : err({ reason: "io", message: "no restored database is ready" }),
+    },
+    { name: "the folder synced", run: () => syncFolder(dataDir) },
+  ];
+}
+
+export function swapRestored(dataDir: string): Result<void, string> {
+  if (!exists(join(dataDir, RESTORE_FILE))) return err("no restored database is ready");
+  for (const step of swapSteps(dataDir)) {
+    const done = step.run();
+    if (done.isErr()) return err(`${step.name}: ${done.error.message}`);
+  }
+  return ok(undefined);
+}
+
+/** What a start found of a restore's swap (`retryWaitingRestore`). */
+export type RestoreRetry =
+  | { readonly kind: "nothing" }
+  | { readonly kind: "swapped" }
+  | { readonly kind: "refused"; readonly reason: string };
+
+/**
+ * "A swap that did not happen" (m2-design.md section 9, under the restore's switch): called by the
+ * hub's start before it opens the database (`main.ts`, the integrator's). With no `hub.db.restore`
+ * waiting, `nothing`. With one, the swap is run again, from its first step (`swapSteps`, whose
+ * every step may run again whatever an earlier cut left): `swapped`, and the start goes on with
+ * the restored database, whose restore mark makes `upkeep` record `restored` once and clear it,
+ * as after a first swap; or `refused` with the reason, the old database untouched and the file
+ * still waiting for the next start, which the caller warns of (`restore_waiting`). The file is
+ * never removed here. At a start nothing of the hub's holds the database: the hub's connection is
+ * not open yet, and the launcher's one database work, a rollback's copy, ends before it starts the
+ * hub; only an outside reader can make the checkpoint busy.
+ */
+export function retryWaitingRestore(dataDir: string): RestoreRetry {
+  if (!exists(join(dataDir, RESTORE_FILE))) return { kind: "nothing" };
+  const swapped = swapRestored(dataDir);
+  return swapped.isOk() ? { kind: "swapped" } : { kind: "refused", reason: swapped.error };
+}
+
+/** Every frame of the log at `path` checkpointed into the database, the log left empty. */
+function checkpointed(path: string): Result<void, FileError> {
+  const opened = openDatabase(path, ORIGIN, { create: false });
+  if (opened.isErr()) return err({ reason: "io", message: opened.error.message });
+  const db = opened.value;
+  const done = sqlite(ORIGIN, `checkpoint ${path}`, () => {
+    const row = db
+      .query<{ busy: number; log: number; checkpointed: number }, []>(
+        "PRAGMA wal_checkpoint(TRUNCATE)",
+      )
+      .get();
+    if (row?.busy !== 0) return "the log is in use; nothing was checkpointed";
+    if (row.log > 0 && row.checkpointed !== row.log)
+      return `only ${row.checkpointed} of ${row.log} log frames went in`;
+    return undefined;
+  });
+  const closed = closeDatabase(db, ORIGIN);
+  if (done.isErr()) return err({ reason: "io", message: done.error.message });
+  if (done.value !== undefined) return err({ reason: "io", message: done.value });
+  if (closed.isErr()) return err({ reason: "io", message: closed.error.message });
+  return ok(undefined);
 }

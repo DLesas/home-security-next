@@ -14,15 +14,45 @@ const LAST_C0 = 0x1f;
 const DEL = 0x7f;
 const LAST_C1 = 0x9f;
 
-/** Text from the hub with every control character shown as \xNN or \u{N}. */
+/**
+ * The bidirectional controls, which can make text read as other text (m2-design.md section 7,
+ * "Names", refuses the embeddings, overrides and isolates in names): the hub's text never carries
+ * them to the terminal. Also the marks LRM, RLM and ALM, which steer the same way.
+ */
+const BIDI: ReadonlySet<number> = new Set([
+  0x061c, 0x200e, 0x200f, 0x202a, 0x202b, 0x202c, 0x202d, 0x202e, 0x2066, 0x2067, 0x2068, 0x2069,
+]);
+
+/** Whether a character may steer a terminal: C0, DEL, C1, or a bidirectional control. */
+export function steers(code: number): boolean {
+  return code <= LAST_C0 || (code >= DEL && code <= LAST_C1) || BIDI.has(code);
+}
+
+/** Text from the hub with every character that could steer a terminal shown as \xNN or \uNNNN. */
 export function printable(text: string): string {
   let out = "";
   for (const char of text) {
     const code = char.codePointAt(0) ?? 0;
-    out +=
-      code <= LAST_C0 || (code >= DEL && code <= LAST_C1)
+    out += !steers(code)
+      ? char
+      : code <= 0xff
         ? `\\x${code.toString(16).padStart(2, "0")}`
-        : char;
+        : `\\u${code.toString(16).padStart(4, "0")}`;
+  }
+  return out;
+}
+
+/**
+ * The last guard, on every line `hsn` writes, whatever made it (main.ts wraps its output with
+ * it): every character that could steer a terminal becomes `\uNNNN`. That is also how JSON writes
+ * a character inside a string, and such characters can only be inside strings, so a JSON line
+ * stays JSON with the same values; text already through `printable` holds none, so it is unchanged.
+ */
+export function terminalSafe(line: string): string {
+  let out = "";
+  for (const char of line) {
+    const code = char.codePointAt(0) ?? 0;
+    out += steers(code) ? `\\u${code.toString(16).padStart(4, "0")}` : char;
   }
   return out;
 }
@@ -107,6 +137,8 @@ export function formatResult(result: CommandResult): readonly string[] {
         "",
         `last commit: ${time(result.lastCommitMs)}, ${result.stagedItems} items staged`,
         `database: ${result.databaseBytes === null ? "-" : `${(result.databaseBytes / 1024 / 1024).toFixed(1)} MB in use`}${result.historyShortened ? "; history is being shortened to stay within the disk limit" : ""}`,
+        // The loop's longest turn since the last `hsn status` (section 3's limit per turn).
+        `longest turn: ${result.longestTurnMs.toFixed(1)} ms since the last status`,
       ];
     case "arm":
       return [

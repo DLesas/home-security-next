@@ -351,7 +351,30 @@ export type ClientRefusalReason =
  * union, so each new code is a reviewed change. `audit` records each as a hub event of origin
  * `shell`, under its cap, at the level `M2_HUB_EVENTS` gives.
  */
-export type ShellWarningCode = "data_folder_was_open";
+export type ShellWarningCode =
+  | "data_folder_was_open"
+  /** The computer may sleep: the hub could not hold it awake (section 9, wave 3; A8, A11). */
+  | "sleep_not_prevented"
+  /**
+   * The hub runs a version newer than the package's, so `hsn` may lack new commands (section 9,
+   * "The privilege boundary"; A8).
+   */
+  | "package_behind"
+  /**
+   * A top folder's access list is open and the hub, as the service, cannot close it: its contents
+   * tightened, the command socket refused (section 9, "The top folders"; A11).
+   */
+  | "data_folder_open"
+  /**
+   * A top folder's deny entries name the service account, Administrators or SYSTEM: accepted,
+   * and warned of (section 9, "The top folders"; A11).
+   */
+  | "data_folder_denies"
+  /**
+   * A restore's swap did not happen and could not be run again at this start: the hub runs on the
+   * old database, the restored one waits (section 9, "A swap that did not happen"). Critical.
+   */
+  | "restore_waiting";
 
 /** Why the shell refused a request before the core saw it (section 2), so the core records it. */
 export type AppRejection =

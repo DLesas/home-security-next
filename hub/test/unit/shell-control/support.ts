@@ -18,7 +18,7 @@ import {
   UnixControlServer,
 } from "../../../src/shell/control/server.ts";
 import { noteOutput } from "../setup/support/leak-guard.ts";
-import { isWindows, lockFolder } from "./windows-folders.ts";
+import { isWindows, shapeFolder } from "./windows-folders.ts";
 
 export interface TestFolder {
   readonly folder: string;
@@ -27,13 +27,14 @@ export interface TestFolder {
 }
 
 /**
- * A data folder in a fresh temporary folder. On Windows it is made and locked as the installer
- * locks it (the hub refuses any other, `windows.ts`); elsewhere it is left for the hub to make.
+ * A data folder in a fresh temporary folder. On Windows it is made in the installer's shape (the
+ * hub, run here by an administrator, accepts that shape as it is, `windows.ts`); elsewhere it is
+ * left for the hub to make.
  */
 export function testFolder(): TestFolder {
   const base = mkdtempSync(join(tmpdir(), "hsn-"));
   const folder = join(base, "data");
-  if (isWindows) lockFolder(folder);
+  if (isWindows) shapeFolder(folder);
   return {
     folder,
     socket: join(folder, "control.sock"),
@@ -82,6 +83,7 @@ export async function openServer(
         recorded.rejections.push(rejection);
         noteOutput(JSON.stringify(rejection));
       }),
+    ...(options.longestTurnMs === undefined ? {} : { longestTurnMs: options.longestTurnMs }),
   });
   expect(opened.isOk() ? "opened" : opened.error.message).toBe("opened");
   const server = opened._unsafeUnwrap();

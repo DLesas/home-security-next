@@ -87,7 +87,13 @@ export const OWNERS: Readonly<Record<string, Owner>> = {
   },
   // `app/e2e/` runs in Playwright (`bun run app:e2e`), not in `bun test`.
   A9: {
-    folders: ["hub/test/budget", "hub/test/crash", "app/e2e", ".github/workflows"],
+    folders: [
+      "hub/test/budget",
+      "hub/test/crash",
+      "app/e2e",
+      ".github/workflows",
+      "packages/protocol/verify",
+    ],
     tests: ["hub/test/budget", "hub/test/crash"],
   },
   A10: {

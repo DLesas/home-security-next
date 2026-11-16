@@ -337,6 +337,13 @@ describe("restore", () => {
     expect(runner.slice.backup.restoredFromMs).toBeNull();
     // Its people are the file's: the header's age stays the file's.
     expect(runner.slice.backup.lastChangeMs).toBe(LAST_CHANGE);
+    // The next start finds the row as that commit left it: `restored` once only, whichever start
+    // swapped the file in (a first swap or a retry, section 9, "A swap that did not happen").
+    const again = new Runner();
+    const next = again.boot(
+      snapshot({ backupState: runner.slice.backup, backupKey: { key: PHONE_KEY, epoch: 3 } }),
+    );
+    expect(decisionKinds(next)).toEqual([]);
   });
 
   test("hsn restore names its upload on its control connection", () => {

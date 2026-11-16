@@ -147,6 +147,12 @@ export interface LoopPorts {
   readonly restart?: (afterStop: () => Result<void, string>) => void;
   /** Each commit's records, once committed: the healthy mark watches for `update_healthy`. */
   readonly committed?: (records: readonly AuditRecord[]) => void;
+  /**
+   * Milliseconds on a monotonic clock, for each turn's own time (section 3's limit per turn):
+   * `performance.now` in the running hub, fixed in lockstep and tests. Never the core's clock.
+   * Without it every turn takes 0 ms.
+   */
+  readonly stopwatch?: () => number;
 }
 
 /** What one turn did, for tests and the budget. */
@@ -155,6 +161,8 @@ export interface TurnSummary {
   readonly faults: readonly CoreFault[];
   readonly effects: readonly Effect[];
   readonly committed: boolean;
+  /** How long the turn held the loop, by the stopwatch (section 3). */
+  readonly durationMs: number;
 }
 
 export class HubLoop {
@@ -175,6 +183,8 @@ export class HubLoop {
   #failing = false;
   #faultTimes: Mono[] = [];
   #stopped = false;
+  /** The longest turn since boot or since it was last read (`takeLongestTurnMs`). */
+  #longestTurnMs = 0;
   /** The jobs in pieces still open, in the order they started. */
   #open: { readonly job: JobId; readonly work: FileWork; readonly pieces: JobPieces }[] = [];
 
@@ -201,6 +211,13 @@ export class HubLoop {
     this.#ports.soon();
   }
 
+  /** The longest turn since boot or the last read, in milliseconds; reading it starts again. */
+  takeLongestTurnMs(): number {
+    const longest = this.#longestTurnMs;
+    this.#longestTurnMs = 0;
+    return longest;
+  }
+
   /** Jobs in pieces still open. */
   get openJobs(): number {
     return this.#open.length;
@@ -223,6 +240,8 @@ export class HubLoop {
   /** One turn (section 4). */
   turn(): TurnSummary {
     const { clock, writer, control } = this.#ports;
+    const stopwatch = this.#ports.stopwatch ?? (() => 0);
+    const startedMs = stopwatch();
     const inputs = this.#queue.splice(0, MAX_INPUTS_PER_TURN);
     const effects: Effect[] = [];
     const faults: CoreFault[] = [];
@@ -313,7 +332,9 @@ export class HubLoop {
     if (upkeep.isErr()) this.#ports.report(upkeep.error);
     this.#arm();
     if (this.#queue.length > 0 || this.#open.length > 0) this.#ports.soon();
-    return { inputs: inputs.length, faults, effects, committed };
+    const durationMs = Math.max(0, stopwatch() - startedMs);
+    if (durationMs > this.#longestTurnMs) this.#longestTurnMs = durationMs;
+    return { inputs: inputs.length, faults, effects, committed, durationMs };
   }
 
   /** The earliest of the core's wake and the writer's flush deadline (section 4, step 5). */

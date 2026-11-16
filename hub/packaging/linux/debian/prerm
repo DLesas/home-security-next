@@ -1,9 +1,9 @@
 #!/bin/sh
-# The .deb's prerm: the service stopped before its files change; disabled when removed.
+# The .deb's prerm: the services stopped before their files change; disabled when removed.
 set -eu
 case "$1" in
   remove|deconfigure)
-    systemctl disable --now hsn-hub.service || true
+    systemctl disable --now hsn-hub.service hsn-hub-inhibit.service || true
     ;;
   upgrade)
     systemctl stop hsn-hub.service || true

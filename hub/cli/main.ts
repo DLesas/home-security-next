@@ -13,9 +13,15 @@ import { openConsoleAddress, type PageOutcome } from "./console-page.ts";
 import type { Result } from "neverthrow";
 import { type ClientError, exchange, Session } from "./client.ts";
 import { type FileCommand, runFileCommand } from "./files.ts";
+import type { NamedFiles } from "./named-files.ts";
+import {
+  checkHubPeer,
+  type PeerRefusal,
+  type SocketPeer,
+} from "../src/shell/safe/control-socket-peer.ts";
 import { qrLines } from "./qr.ts";
 import { EXIT_CODE_HELP, ExitCode } from "./exit-codes.ts";
-import { formatError, formatRecord, formatResult, printable } from "./format.ts";
+import { formatError, formatRecord, formatResult, printable, terminalSafe } from "./format.ts";
 import { dataFolder, socketPath } from "./paths.ts";
 
 /** What `hsn` reads and writes, so tests can run it in the process. */
@@ -36,6 +42,25 @@ export interface CliIo {
    * (`hsn open`, `console-page.ts`); the address is a secret. The real computer when not given.
    */
   readonly openConsole?: (url: string, expiresInMs: number) => Promise<Result<PageOutcome, string>>;
+  /**
+   * How a file the person names is opened (section 9, "Files a person names to `hsn`"): through
+   * the invoking user's helper under `sudo` (`hsn.ts`); as this account when not given.
+   */
+  readonly files?: NamedFiles;
+  /**
+   * Windows only: the account that must serve the socket (m2-design.md section 9, "The Windows
+   * peer check"), the service's SID, which `hsn.ts` passes (`HUB_SERVICE_SID`); a test passes
+   * the account its hub runs as. Never read from the environment or the command line.
+   */
+  readonly hubAccount?: string;
+  /**
+   * Windows only: whether `hsn` runs elevated or cannot tell (`hsn.ts`, from A11's
+   * `processElevation`); the data folder is then the fixed one (`paths.ts`). Not elevated when
+   * not given.
+   */
+  readonly windowsStrict?: boolean;
+  /** Windows only: who serves the socket (A11's `checkHubPeer`); tests give their own. */
+  readonly checkPeer?: (path: string, expected: string) => Result<SocketPeer, PeerRefusal>;
 }
 
 /** How long a command waits for its answer: 15 s ‡, covering a USB add's 5 s and its Set role. */
@@ -135,7 +160,13 @@ function opError(error: ControlError): string {
 }
 
 function socketOf(globals: Globals, io: CliIo): string | undefined {
-  const folder = dataFolder(globals.data, io.env);
+  const folder = dataFolder(
+    globals.data,
+    io.env,
+    (io.platform ?? process.platform) === "win32"
+      ? { strict: io.windowsStrict === true }
+      : undefined,
+  );
   return globals.socket ?? (folder === undefined ? undefined : socketPath(folder));
 }
 
@@ -146,6 +177,8 @@ async function runFile(file: FileCommand, globals: Globals, io: CliIo): Promise<
     io.err("hsn: no data folder is known: pass --data <folder> or set HSN_DATA_DIR");
     return ExitCode.Usage;
   }
+  const peer = refusedPeer(path, io);
+  if (peer !== undefined) return peer;
   const opened = await Session.open(path);
   if (opened.isErr()) return clientFailure(opened.error, io);
   const session = opened.value;
@@ -153,7 +186,12 @@ async function runFile(file: FileCommand, globals: Globals, io: CliIo): Promise<
     file,
     session,
     actorOf(io.env),
-    { out: io.out, ask: io.ask, nowMs: io.nowMs },
+    {
+      out: io.out,
+      ask: io.ask,
+      nowMs: io.nowMs,
+      ...(io.files === undefined ? {} : { files: io.files }),
+    },
     globals.timeoutS === undefined ? DEFAULT_TIMEOUT_MS : globals.timeoutS * 1000,
     qrLines,
   );
@@ -206,8 +244,52 @@ async function openConsole(
   return read ? ExitCode.Ok : ExitCode.NoAnswer;
 }
 
+/**
+ * The terminal's side of `io`: every line written and every question asked passes through
+ * `terminalSafe`, so no text the hub sent (a reply, a record, an error, a file's header) can steer
+ * an administrator's terminal, whichever command or format printed it (hub-design.md section 9).
+ */
+export function guardedIo(io: CliIo): CliIo {
+  return {
+    ...io,
+    out: (line) => {
+      io.out(terminalSafe(line));
+    },
+    err: (line) => {
+      io.err(terminalSafe(line));
+    },
+    ask: (question) => io.ask(terminalSafe(question)),
+  };
+}
+
+/**
+ * On Windows, before anything is sent: the socket must be served by the hub's service account
+ * (section 9, "The Windows peer check"); the exit code when it is not, or undefined to go on. Off
+ * Windows it is never asked: the data folder's mode 0700 is the check there.
+ */
+function refusedPeer(path: string, io: CliIo): ExitCode | undefined {
+  if ((io.platform ?? process.platform) !== "win32") return undefined;
+  const expected = io.hubAccount;
+  if (expected === undefined) {
+    io.err("hsn: this hsn does not know the hub's account: install the package's hsn");
+    return ExitCode.NoPermission;
+  }
+  const checked = (io.checkPeer ?? checkHubPeer)(path, expected);
+  if (checked.isOk()) return undefined;
+  const refusal = checked.error;
+  if (refusal.kind === "notTheHub") {
+    io.err(
+      `hsn: the hub's socket is served by ${printable(refusal.peer.sid)} (process ${String(refusal.peer.pid)}), not the hub's account ${printable(refusal.expected)}: nothing was sent`,
+    );
+    return ExitCode.NoPermission;
+  }
+  io.err(`hsn: cannot tell who serves the hub's socket: ${printable(refusal.error.message)}`);
+  return ExitCode.NoPermission;
+}
+
 /** Runs `hsn` with these words; resolves to the exit code. */
-export async function runCli(argv: readonly string[], io: CliIo): Promise<number> {
+export async function runCli(argv: readonly string[], terminal: CliIo): Promise<number> {
+  const io = guardedIo(terminal);
   const parsed = parseArgs(argv, io.nowMs());
   if (parsed.isErr()) {
     io.err(`hsn: ${printable(parsed.error)}`);
@@ -240,6 +322,8 @@ export async function runCli(argv: readonly string[], io: CliIo): Promise<number
     io.err("hsn: no data folder is known: pass --data <folder> or set HSN_DATA_DIR");
     return ExitCode.Usage;
   }
+  const peer = refusedPeer(path, io);
+  if (peer !== undefined) return peer;
   const follow = command.kind === "log" && command.follow;
   const result = await exchange(
     path,

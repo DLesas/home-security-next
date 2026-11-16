@@ -49,9 +49,11 @@ import {
   storedReply,
 } from "../people/view.ts";
 import { deviceById, hubEventRecord } from "../registry/view.ts";
+import { countdownChanges, siteChanges } from "./changes.ts";
 import { refusal } from "./checks.ts";
+import { closeDayIfOver, sessionClosed, sessionOpened } from "./sessions-day.ts";
 import { historyFilter } from "./history.ts";
-import { configAnswered, noteConfigAsked, notificationEvents, siteAnswered } from "./live.ts";
+import { configAnswered, noteConfigAsked, notificationEvents } from "./live.ts";
 import {
   deviceChanges,
   eventsOf,
@@ -418,20 +420,8 @@ function onConnected(
     visible: visibleSet(view, actor),
   });
   sending.slice = { ...sending.slice, sessions };
-  return hubEventRecord(ctx, {
-    level: "info",
-    origin: ORIGIN,
-    code: "client_connected",
-    message: `client ${event.client} connected on the ${event.listener} listener`,
-    detail: JSON.stringify({
-      client: event.client,
-      conn: event.conn,
-      listener: event.listener,
-      app: event.app,
-    }),
-  }).map((record) => {
-    sending.out.push(record);
-  });
+  sessionOpened(sending, ctx, event.client);
+  return ok(undefined);
 }
 
 function onClosed(
@@ -451,15 +441,8 @@ function onClosed(
       .filter(([, retries]) => retries.length > 0),
   );
   sending.slice = { ...sending.slice, sessions, waiting };
-  return hubEventRecord(ctx, {
-    level: "info",
-    origin: ORIGIN,
-    code: "client_closed",
-    message: `client ${session.client}'s session closed: ${event.reason}`,
-    detail: JSON.stringify({ client: session.client, conn: event.conn, reason: event.reason }),
-  }).map((record) => {
-    sending.out.push(record);
-  });
+  sessionClosed(sending, ctx, session.client);
+  return ok(undefined);
 }
 
 /** A removed client: its sessions are told (`session`), then closed (section 6). */
@@ -570,15 +553,7 @@ function handleMessage(
       configAnswered(sending, ctx.view, message.answerTo, message.outcome);
       if (message.answerTo.kind === "app") onAnswer(sending, message.answerTo, message.outcome);
       return ok(undefined);
-    case "siteSettingsRequest":
-    case "siteWifiRequest": {
-      const siteAsked = new Set(sending.slice.siteAsked);
-      siteAsked.add(message.request);
-      sending.slice = { ...sending.slice, siteAsked };
-      return ok(undefined);
-    }
     case "answer":
-      siteAnswered(sending, ctx.view, message.request, message.reply.ok);
       return isAppRequest(message.request)
         ? onM1aAnswer(sending, ctx, message.request, message.reply)
         : ok(undefined);
@@ -596,9 +571,14 @@ function handleMessage(
 /** The handler (m2-design.md section 2, module 8). */
 export const handleApp: Handler<"app"> = (slice, message, ctx) => {
   const sending = new Sending(slice, ctx.now);
+  // A boot starts a new run, whose count starts again (`sessions-day.ts`).
+  const dayOver = message.kind === "boot" ? ok(undefined) : closeDayIfOver(sending, ctx);
+  if (dayOver.isErr()) return err(dayOver.error);
   const handled = handleMessage(sending, message, ctx, ctx.deps);
   if (handled.isErr()) return err(handled.error);
   peopleChanges(sending, ctx.view);
+  countdownChanges(sending, ctx.view);
+  siteChanges(sending, ctx.view);
   if (sending.slice.registrySeen !== ctx.view.registry.devices) {
     const devicesSeen = deviceChanges(sending, ctx.view, ctx.deps, sending.slice.devicesSeen);
     sending.slice = { ...sending.slice, devicesSeen, registrySeen: ctx.view.registry.devices };

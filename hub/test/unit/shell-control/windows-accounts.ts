@@ -233,3 +233,116 @@ export async function runUnelevated(
   kernel.CloseHandle(token);
   return { started: true, exitCode: code[0] ?? 0, timedOut: !done };
 }
+
+/** A process started as the second account, left running. */
+export interface Running {
+  readonly started: boolean;
+  readonly error?: number;
+  /** Ends it (TerminateProcess) and closes its handles. */
+  readonly stop: () => void;
+}
+
+/** Starts `application` as the second account and leaves it running. */
+export function startAsOther(
+  password: string,
+  application: string,
+  args: readonly string[],
+  cwd: string,
+): Running {
+  const advapi = dlopen("advapi32.dll", {
+    CreateProcessWithLogonW: {
+      args: [
+        FFIType.ptr,
+        FFIType.ptr,
+        FFIType.ptr,
+        FFIType.u32,
+        FFIType.ptr,
+        FFIType.ptr,
+        FFIType.u32,
+        FFIType.ptr,
+        FFIType.ptr,
+        FFIType.ptr,
+        FFIType.ptr,
+      ],
+      returns: FFIType.i32,
+    },
+  }).symbols;
+  const kernel = dlopen("kernel32.dll", {
+    GetLastError: { args: [], returns: FFIType.u32 },
+    TerminateProcess: { args: [FFIType.u64, FFIType.u32], returns: FFIType.i32 },
+    WaitForSingleObject: { args: [FFIType.u64, FFIType.u32], returns: FFIType.u32 },
+    CloseHandle: { args: [FFIType.u64], returns: FFIType.i32 },
+  }).symbols;
+  const commandLine = [application, ...args].map((a) => `"${a}"`).join(" ");
+  const startup = new Uint8Array(STARTUPINFO_BYTES);
+  new DataView(startup.buffer).setUint32(0, STARTUPINFO_BYTES, true);
+  const info = new Uint8Array(PROCESS_INFORMATION_BYTES);
+  const started = advapi.CreateProcessWithLogonW(
+    wide(OTHER_USER),
+    wide("."),
+    wide(password),
+    LOGON_WITH_PROFILE,
+    wide(application),
+    wide(commandLine),
+    CREATE_NO_WINDOW,
+    null,
+    wide(cwd),
+    startup,
+    info,
+  );
+  if (started === 0) return { started: false, error: kernel.GetLastError(), stop: () => undefined };
+  const view = new DataView(info.buffer);
+  const process = view.getBigUint64(0, true);
+  const thread = view.getBigUint64(8, true);
+  let stopped = false;
+  return {
+    started: true,
+    stop: () => {
+      if (stopped) return;
+      stopped = true;
+      kernel.TerminateProcess(process, 1);
+      kernel.WaitForSingleObject(process, 10_000);
+      kernel.CloseHandle(thread);
+      kernel.CloseHandle(process);
+    },
+  };
+}
+
+/** An account's SID, by its name, through `LookupAccountNameW`. */
+export function sidOfAccount(name: string): string {
+  const advapi = dlopen("advapi32.dll", {
+    LookupAccountNameW: {
+      args: [
+        FFIType.ptr,
+        FFIType.ptr,
+        FFIType.ptr,
+        FFIType.ptr,
+        FFIType.ptr,
+        FFIType.ptr,
+        FFIType.ptr,
+      ],
+      returns: FFIType.i32,
+    },
+  }).symbols;
+  const sid = new Uint8Array(68);
+  const sidBytes = new Uint32Array([sid.length]);
+  const domain = new Uint8Array(512);
+  const domainUnits = new Uint32Array([domain.length / 2]);
+  const use = new Uint32Array(1);
+  const found = advapi.LookupAccountNameW(
+    null,
+    wide(name),
+    sid,
+    sidBytes,
+    domain,
+    domainUnits,
+    use,
+  );
+  if (found === 0) return "(not found)";
+  const count = sid[1] ?? 0;
+  const view = new DataView(sid.buffer);
+  let authority = 0;
+  for (let i = 0; i < 6; i++) authority = authority * 256 + (sid[2 + i] ?? 0);
+  const subs = Array.from({ length: count }, (_, i) => view.getUint32(8 + 4 * i, true));
+  return ["S", String(sid[0] ?? 1), String(authority), ...subs.map(String)].join("-");
+}

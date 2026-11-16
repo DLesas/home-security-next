@@ -151,7 +151,7 @@ interface Rig {
   soons: number;
 }
 
-function rig(script: Script, files?: LoopPorts["files"]): Rig {
+function rig(script: Script, files?: LoopPorts["files"], stopwatch?: LoopPorts["stopwatch"]): Rig {
   const seen: HubEvent[] = [];
   const writer = new TestWriter();
   const state = {
@@ -201,6 +201,7 @@ function rig(script: Script, files?: LoopPorts["files"]): Rig {
     report: (error) => state.reported.push(error),
     fatal: (error) => state.fatal.push(error),
     ...(files === undefined ? {} : { files }),
+    ...(stopwatch === undefined ? {} : { stopwatch }),
   };
   const loop = new HubLoop(
     fakeCore(script, seen),
@@ -662,5 +663,39 @@ describe("jobs in pieces (m2-design.md section 3, the loop's contract)", () => {
     ]);
     expect(r.fatal).toEqual([]);
     expect(r.loop.openJobs).toBe(0);
+  });
+});
+
+describe("each turn's own time (section 3's limit per turn)", () => {
+  test("a turn says how long it took by the stopwatch; the longest is kept until read, then starts again", () => {
+    let nowMs = 100;
+    const costs = [3, 12, 5];
+    const r = rig(
+      () => {
+        nowMs += costs.shift() ?? 0;
+        return [];
+      },
+      undefined,
+      () => nowMs,
+    );
+    const durations: number[] = [];
+    for (let n = 1; n <= 3; n++) {
+      r.loop.enqueue(frame(n));
+      durations.push(r.loop.turn().durationMs);
+    }
+    expect(durations).toEqual([3, 12, 5]);
+    expect(r.loop.takeLongestTurnMs()).toBe(12);
+    // Read once: the count starts again.
+    expect(r.loop.takeLongestTurnMs()).toBe(0);
+    r.loop.enqueue(frame(4));
+    r.loop.turn();
+    expect(r.loop.takeLongestTurnMs()).toBe(0);
+  });
+
+  test("without a stopwatch every turn takes 0 ms, as under lockstep", () => {
+    const r = rig(() => []);
+    r.loop.enqueue(frame(1));
+    expect(r.loop.turn().durationMs).toBe(0);
+    expect(r.loop.takeLongestTurnMs()).toBe(0);
   });
 });

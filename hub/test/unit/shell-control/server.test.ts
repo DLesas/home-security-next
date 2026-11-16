@@ -250,7 +250,7 @@ describe("requests and replies", () => {
     expect(recorded.events).toHaveLength(2);
   });
 
-  test("a status reply gets the writer's last commit and staged items", async () => {
+  test("a status reply gets the writer's last commit and staged items, and the loop's longest turn", async () => {
     const {
       server: s,
       recorded,
@@ -262,6 +262,7 @@ describe("requests and replies", () => {
         databaseBytes: 5_000_000,
         historyShortened: true,
       }),
+      longestTurnMs: () => 7.5,
     });
     const client = new RawClient(where.socket);
     client.write(`${JSON.stringify(STATUS)}\n`);
@@ -280,6 +281,7 @@ describe("requests and replies", () => {
         stagedItems: 0,
         databaseBytes: null,
         historyShortened: false,
+        longestTurnMs: 0,
       },
     });
     await client.until(() => client.lines.length === 1);
@@ -290,6 +292,7 @@ describe("requests and replies", () => {
           stagedItems: 9,
           databaseBytes: 5_000_000,
           historyShortened: true,
+          longestTurnMs: 7.5,
         },
       },
     });

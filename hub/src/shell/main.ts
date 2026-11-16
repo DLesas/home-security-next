@@ -44,12 +44,18 @@ import {
 import { UnixControlServer } from "./control/server.ts";
 import { HubLoop } from "./loop.ts";
 import { runLockstep } from "./lockstep/wire.ts";
+import { retryWaitingRestore } from "./backup/restore.ts";
+import { createTopFolderIfMissing } from "./control/windows.ts";
+import { WINDOWS_CALLS } from "./safe/control-socket-windows.ts";
+import { prefixFrom } from "./update/notes.ts";
+import { PUBLISHER_KEYS } from "./update/publisher-keys.ts";
 import { LinkRegistry } from "./links/registry.ts";
 import { SerialLinks } from "./links/serial.ts";
 import { UsbWatch } from "./links/usb-watch.ts";
 import { serveDevices } from "./links/websocket.ts";
 import { randomBytes } from "./safe/crypto.ts";
-import { writeStandardError } from "./safe/fs.ts";
+import { tightenContents, writeStandardError } from "./safe/fs.ts";
+import { closeDatabase, sqlite } from "./safe/sqlite.ts";
 import { FATAL_EXIT_CODE, recordUncaught } from "./storage/fatal.ts";
 import { MemoryKeyStore } from "./storage/keys.ts";
 import { openStore, type OpenedStore } from "./storage/store.ts";
@@ -134,8 +140,29 @@ function say(message: string): void {
   );
 }
 
+/**
+ * What the hub trusts, given by the program that starts it and by nothing it reads: no option,
+ * environment variable or file. The product's entry below passes the compiled-in
+ * `PUBLISHER_KEYS`; only a test's own entry file, in a test's folder, passes the tests' key
+ * (section 9; `test/unit/shell-main/hub-with-test-key.ts`).
+ */
+export interface HubTrust {
+  readonly publisherKeys: readonly Uint8Array[];
+}
+
+/**
+ * Every file the hub's process makes is its account's alone from the start (section 9, "The
+ * privilege boundary"): SQLite's database, log and index included, so the start's tightening
+ * finds nothing new. Set by each entry that runs the hub as a process (below, and
+ * `hub/packaging/shared/program.ts`), never by `runHub`, which tests call in their own process.
+ * macOS and Linux; Windows' folders inherit their lists (A11).
+ */
+export function hubUmask(): void {
+  if (process.platform !== "win32") process.umask(0o077);
+}
+
 /** Runs the hub until it is stopped; resolves to the exit code. */
-export async function runHub(options: MainOptions): Promise<number> {
+export async function runHub(options: MainOptions, trusted: HubTrust): Promise<number> {
   const rules = DEFAULT_RULES;
   const trust = new SystemTimeTrust({
     probe: probeFor(process.platform),
@@ -154,6 +181,20 @@ export async function runHub(options: MainOptions): Promise<number> {
   } = { keys: undefined, clients: undefined };
   // Beside the compiled program, or the source tree's (section 9's layout).
   const paths = programPaths(process.execPath, import.meta.dir);
+  // Windows, before anything makes the data folder: an administrator's run by hand creates a
+  // missing one with its list from the first moment; as the service it makes nothing (A11,
+  // section 9, "The top folders"). The storage would otherwise make it with an inherited list.
+  if (process.platform === "win32") {
+    const made = createTopFolderIfMissing(options.dataDir, WINDOWS_CALLS);
+    if (made.isErr()) say(made.error.message);
+  }
+  // "A swap that did not happen" (section 9): a restored database still waiting is put in place
+  // now, before the store opens the database and before any migration of the old one, so the
+  // start goes on with the restored database (its restore mark makes `upkeep` record `restored`
+  // once), or, refused again, on the old one, with `restore_waiting` raised once the core runs.
+  const retried = retryWaitingRestore(options.dataDir);
+  if (retried.kind === "refused")
+    say(`a restore is waiting and could not be put in place: ${retried.reason}`);
   const opened = openStore({
     dataDir: options.dataDir,
     migrationsFolder: paths.migrations,
@@ -170,6 +211,18 @@ export async function runHub(options: MainOptions): Promise<number> {
     return EXIT_CANNOT_START;
   }
   const store: OpenedStore = opened.value;
+  // The hub tightens its own trees' contents at every start, as itself (section 9, "The privilege
+  // boundary"): nothing inside the data folder or the program tree open to the group or others,
+  // no link followed. The program tree is the one the launcher names (`HSN_PROGRAM`); run by hand
+  // there is none, and nothing of it is checked or warned of.
+  const programTree = prefixFrom(process.env);
+  if (process.platform !== "win32") {
+    for (const tree of [options.dataDir, ...(programTree === undefined ? [] : [programTree])]) {
+      const tightened = tightenContents({ kind: "storage", origin: ORIGIN }, tree);
+      if (tightened.isErr()) say(tightened.error.message);
+      else if (tightened.value > 0) say(`tightened ${String(tightened.value)} entries in ${tree}`);
+    }
+  }
   const fatalContext = (loop: HubLoop | undefined) => ({
     dataDir: options.dataDir,
     boot: store.boot.id,
@@ -206,6 +259,7 @@ export async function runHub(options: MainOptions): Promise<number> {
     report: (error: HubError) => {
       say(`${error.origin}: ${error.message}`);
     },
+    publisherKeys: trusted.publisherKeys,
     history: {
       rows: (page: Parameters<typeof store.reader.historyRows>[0]) =>
         store.reader.historyRows(page),
@@ -330,6 +384,8 @@ export async function runHub(options: MainOptions): Promise<number> {
         finish(LAUNCHER.restartMeExitCode);
       },
       committed: (records) => holder.app?.committed(records),
+      // Each turn's own time (section 3), on the process's monotonic clock.
+      stopwatch: () => performance.now(),
     },
   );
   holder.loop = loop;
@@ -363,6 +419,16 @@ export async function runHub(options: MainOptions): Promise<number> {
     holder.app?.stop();
     const stopped = store.writer.stop();
     if (stopped.isErr()) say(`the clean stop's commit failed: ${stopped.error.message}`);
+    // The hub's clean stop closes `hub.db` (section 9), after a truncating checkpoint: every
+    // committed page is in the file and the write-ahead log is empty (macOS's own SQLite keeps an
+    // empty log file after the close; Linux's removes it), so a switch's `afterStop` (a restore's
+    // swap) finds the database whole and no other connection open. A late `hsn log` is refused.
+    const checkpointed = sqlite(ORIGIN, "checkpoint the log at the clean stop", () => {
+      store.db.run("PRAGMA wal_checkpoint(TRUNCATE)");
+    });
+    if (checkpointed.isErr()) say(checkpointed.error.message);
+    const closed = closeDatabase(store.db, ORIGIN);
+    if (closed.isErr()) say(`hub.db did not close: ${closed.error.message}`);
   };
   const stop = (): void => {
     if (exitCode.code !== undefined) return;
@@ -378,6 +444,13 @@ export async function runHub(options: MainOptions): Promise<number> {
   // by a core without them; again whenever the addresses change. Without the listeners the hub
   // still runs, for its devices, and says why.
   loop.enqueue({ kind: "boot", snapshot, boot: store.boot });
+  if (retried.kind === "refused")
+    loop.enqueue({
+      kind: "shellWarning",
+      code: "restore_waiting",
+      message: "a restore is waiting and could not be put in place",
+      detail: JSON.stringify({ reason: retried.reason }),
+    });
   const listening = side.value.open((event) => {
     loop.enqueue(event);
   });
@@ -403,12 +476,15 @@ export async function runHub(options: MainOptions): Promise<number> {
   });
   for (const started of watch.start()) if (started.isErr()) report(started.error);
   const control = await UnixControlServer.open({
+    // The program tree's top folder is checked as the data folder's is (A11, section 9).
+    otherTopFolders: programTree === undefined ? [] : [programTree],
     socketPath: socketPath(options.dataDir),
     logQuery: (query) =>
       // `hsn log` flushes, then reads on the writer's connection (section 3).
       store.writer.flush("log").andThen(() => store.reader.query(query)),
     deviceIdOf: (name) => deviceByName(loop.state, name)?.id,
     writerStatus: appOptions.writerStatus,
+    longestTurnMs: () => loop.takeLongestTurnMs(),
     connIds: app.value.connIds,
     uploads: app.value.uploads,
     // A11's warnings are the core's to record (`shellWarning`, step 1, wave 2).
@@ -459,10 +535,11 @@ if (import.meta.main) {
     say(options);
     process.exit(2);
   }
+  hubUmask();
   // In lockstep the controller is the clock, the links and the control socket (section 11).
   process.exit(
     options.lockstep === undefined
-      ? await runHub(options)
+      ? await runHub(options, { publisherKeys: PUBLISHER_KEYS })
       : await runLockstep({ socketPath: options.lockstep, dataDir: options.dataDir, say }),
   );
 }

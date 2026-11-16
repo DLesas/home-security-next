@@ -1,9 +1,11 @@
 # The hub's systemd unit (m2-design.md section 9, Linux and Raspberry Pi OS 64-bit).
-# The launcher starts the hub and restarts it (section 9, "Starts at boot"); systemd restarts the
-# launcher on any exit but a clean stop. systemd-inhibit holds sleep off while it runs (HB28).
+# The launcher, from the package's root-owned tree, starts the hub as the hub's account and
+# restarts it (section 9, "Starts at boot"); systemd restarts the launcher on any exit but a clean
+# stop. Sleep is held by a unit of its own, hsn-hub-inhibit.service, run as root, so a refused
+# inhibition can never stop the hub starting (HB28; the hub warns `sleep_not_prevented`).
 [Unit]
 Description=HSN home security hub
-Wants=network-online.target time-sync.target
+Wants=network-online.target time-sync.target hsn-hub-inhibit.service
 After=network-online.target time-sync.target
 
 [Service]
@@ -11,7 +13,8 @@ Type=simple
 User=hsn
 Group=hsn
 SupplementaryGroups=dialout
-ExecStart=/usr/bin/systemd-inhibit --what=sleep:idle --who=hsn-hub "--why=the alarm must keep running" --mode=block /usr/lib/hsn-hub/hsn-launcher --prefix /opt/hsn-hub --data /var/lib/hsn-hub
+ExecStart=/usr/lib/hsn-hub/bin/hsn-launcher --package /usr/lib/hsn-hub --program /var/lib/hsn-hub-program --data /var/lib/hsn-hub
+WorkingDirectory=/
 Restart=on-failure
 RestartSec=5
 # SIGTERM reaches the launcher and the hub alike; the hub stops cleanly, the launcher exits 0.
