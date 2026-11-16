@@ -42,6 +42,9 @@ namespace type = protocol::message_type;
 
 /** The hub the scenarios run against (sim_support.hpp): the test hub, or the real one. */
 using test::SiteHub;
+#ifdef HSN_LOCKSTEP
+namespace json = host::json;
+#endif
 
 /**
  * Data-rate masks, one bit per index (§2, "Data rates"). A site has one sending rate until O14

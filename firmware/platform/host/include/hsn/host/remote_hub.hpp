@@ -103,6 +103,50 @@ public:
   bool switch_move(bool force = false);
   void cancel_move();
 
+  /**
+   * M2's arming (m2-design.md sections 6 and 7), as `hsn op` requests answered at once. Devices
+   * are named as on the bench; the hub's numbers are found from its records. Each returns the
+   * hub's reply's result and throws SimulationError, with the reply, when it is refused.
+   * `arm()` and `disarm()` above are `hsn arm --all` and `hsn disarm --all`: switches to the fixed
+   * modes Away and Disarmed (D90).
+   */
+  /** A group of sensors sounding the sirens named, or every siren when none is named (AL2a). */
+  std::int64_t create_group(const std::string& name, const std::vector<std::string>& sensors,
+                            const std::vector<std::string>& sirens = {});
+  /** A mode holding the groups given; returns its number. */
+  std::int64_t create_mode(const std::string& name, const std::vector<std::int64_t>& groups);
+  /** A fixed mode's number: "away" or "disarmed" (D90), as the migration makes them. */
+  std::int64_t fixed_mode(const std::string& which);
+  /** `mode.switch`, `arm {group}`, `disarm {group}`: the arming result. */
+  json::Value switch_mode(std::int64_t mode, bool confirm = false);
+  json::Value arm_group(std::int64_t group, bool confirm = false);
+  json::Value disarm_group(std::int64_t group);
+  /**
+   * `schedule.create`: `action` is "switchMode", "arm" or "disarm"; `target` {"mode": n},
+   * {"group": n} or {"sensor": n}; `at` "HH:MM"; `days` a list, "everyDay" or {"date": …}. Returns
+   * the entry, with its next time (`nextMs`, null when none is due).
+   */
+  json::Value create_schedule(const std::string& name, const std::string& action,
+                              json::Value target, const std::string& at, json::Value days);
+  /** The hub's number for a device of the bench. */
+  std::int64_t device_number(const std::string& name) const;
+
+  /** The wall clock (ms since 1970) the hub reads at a true instant, as this side started it. */
+  std::int64_t wall_at(device::Instant at) const;
+
+  /** From now the hub's wall clock reads `wall_ms`, trusted or not (the wire's `clock`). */
+  void set_clock(std::int64_t wall_ms, bool trusted);
+
+  /** A decision the hub recorded, of any kind by its name (M2's too), with its fields. */
+  struct NamedDecision {
+    device::Instant at;
+    std::string device;
+    std::optional<std::int64_t> value;
+    Bytes detail;
+  };
+  std::vector<NamedDecision> decisions_named(const std::string& kind,
+                                             const std::string& device = "") const;
+
   /** Where the move stands, from the hub's move decisions. */
   MoveStage move_stage() const;
 
@@ -322,8 +366,11 @@ private:
                                              protocol::PacketLimit limit, Bytes& plaintext) const;
   void tap_from_device(std::size_t index, const Bytes& packet);
   void tap_to_device(std::size_t index, const Bytes& packet);
-  std::int64_t wall_at(device::Instant at) const;
   device::Instant true_of_wall(std::int64_t wall_ms) const;
+  json::Value op(const std::string& name, json::Value body);
+  /** The wall clock as last set: it reads `wall_base_` at `wall_from_` and runs with true time. */
+  std::int64_t wall_base_ = 0;
+  device::Instant wall_from_;
 
   Simulation& sim_;
   HubOptions options_;

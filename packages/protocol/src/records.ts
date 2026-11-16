@@ -357,21 +357,40 @@ export type DecisionKind = (typeof DECISION_KINDS)[number];
 
 /**
  * The hub events M2 adds (`hub_events.code`, HD 6): the level each is recorded at, and its class.
- * Sessions are `client_connected` and `client_closed` (section 4); a backup's result is
+ * Sessions are one `client_sessions` per client per day (section 4, corrected in wave 3; its
+ * detail `{client, sessions, firstMs, lastMs}`), not a row per session; a backup's result is
  * `backup_written` or, each failed try, `backup_failed` (section 9); the shell's warnings
  * (`shellWarning`) and a refused update. Every one is routine.
  */
 export const M2_HUB_EVENTS = {
-  client_connected: { level: "info", durability: "routine" },
-  client_closed: { level: "info", durability: "routine" },
+  client_sessions: { level: "info", durability: "routine" },
   backup_written: { level: "info", durability: "routine" },
   backup_failed: { level: "warning", durability: "routine" },
   /** The data folder was open when the hub started (section 9, A11): a warning from the shell. */
   data_folder_was_open: { level: "warning", durability: "routine" },
+  /** The computer may sleep: the hub could not hold it awake (section 9, wave 3; A8, A11). */
+  sleep_not_prevented: { level: "warning", durability: "routine" },
+  /** The hub runs a version newer than the package's (section 9, "The privilege boundary"; A8). */
+  package_behind: { level: "warning", durability: "routine" },
+  /** A top folder's list is open and the service cannot close it (section 9, "The top folders"; A11). */
+  data_folder_open: { level: "warning", durability: "routine" },
+  /** A top folder's deny entries name the hub's own accounts: accepted, warned of (A11). */
+  data_folder_denies: { level: "warning", durability: "routine" },
+  /**
+   * A restore is waiting and could not be put in place (section 9, "A swap that did not happen"):
+   * critical, written now, and a notification (A6's table).
+   */
+  restore_waiting: { level: "critical", durability: "now" },
   /** An update refused (section 9): its reason in the detail. */
   update_refused: { level: "warning", durability: "routine" },
 } as const satisfies Readonly<
-  Record<string, { readonly level: "info" | "warning"; readonly durability: "routine" }>
+  Record<
+    string,
+    {
+      readonly level: "info" | "warning" | "critical";
+      readonly durability: "routine" | "now";
+    }
+  >
 >;
 
 /** One of M2's hub event codes. */

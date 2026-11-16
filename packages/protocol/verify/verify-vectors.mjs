@@ -21,6 +21,7 @@ import { dirname, join } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { TextDecoder } from "node:util";
+import { verifyAppVectors } from "./verify-app-vectors.mjs";
 
 // An optional argument points at another copy of the vectors (used to test this script).
 const VECTORS = process.argv[2] ?? join(dirname(fileURLToPath(import.meta.url)), "..", "vectors");
@@ -1610,10 +1611,12 @@ const UNITS = {
   }
 }
 
-// Every device vector file must be one this script checks. The app's vectors (`app-*.json`, the
-// app channel's, m2-design.md section 10) share the folder; their part of this script is A9's.
+// The app's vectors (`app-*.json`, the app channel's, m2-design.md section 10): A9's part.
+const appFiles = verifyAppVectors(VECTORS, { mismatch, count, note });
+
+// Every vector file, the device's and the app's, must be one this script checks.
 for (const name of readdirSync(VECTORS))
-  if (name.endsWith(".json") && !name.startsWith("app-") && !loadedFiles.has(name))
+  if (name.endsWith(".json") && !loadedFiles.has(name) && !appFiles.has(name))
     mismatch(name, "(file)", "a vector file the script does not know");
 
 // ---------------------------------------------------------------------------

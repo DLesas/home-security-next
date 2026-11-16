@@ -81,6 +81,11 @@ struct HubOptions {
   bool heartbeat_slots = false;
   /** Seeds the hub's own random values (welcome). */
   std::uint64_t seed = 7;
+  /**
+   * The hub computer's time zone, an IANA name, for M2's schedules: empty for none. The real hub
+   * in lockstep is given it (RemoteHub, `start.zone`); the test hub has no schedules.
+   */
+  std::string time_zone;
 };
 
 /** What arming does with a sensor whose door is open (D50, D114). */

@@ -129,7 +129,9 @@ if(hsn_lockstep_missing STREQUAL "")
     system_roles/restarts_test.cpp system_roles/lost_path_test.cpp
     system_roles/two_gateways_test.cpp system_roles/sirens_test.cpp
     system_roles/interference_test.cpp system_roles/heartbeat_reply_test.cpp
-    system_roles/load_test.cpp system_roles/site_move_test.cpp lockstep/real_hub_test.cpp)
+    system_roles/load_test.cpp system_roles/site_move_test.cpp
+    system_roles/group_sirens_test.cpp system_roles/schedule_arm_test.cpp
+    lockstep/real_hub_test.cpp)
   target_include_directories(hsn_system_lockstep_tests PRIVATE lockstep system_roles)
   target_compile_definitions(hsn_system_lockstep_tests PRIVATE HSN_LOCKSTEP=1 HSN_BUN="${HSN_BUN}"
     HSN_HUB_MAIN="${HSN_HUB_MAIN}")

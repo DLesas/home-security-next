@@ -128,6 +128,8 @@ RemoteHub::RemoteHub(Simulation& sim, HubOptions options, lockstep::HubProgram p
   while (!mask_allows(mask, rate)) {
     ++rate;
   }
+  wall_base_ = kWallAtZero + micros(sim_.now()) / 1000;
+  wall_from_ = sim_.now();
   process_ =
       std::make_unique<lockstep::HubProcess>(std::move(program), folder_.data(), folder_.socket());
   sim_.labels().add(*this);
@@ -158,7 +160,131 @@ RemoteHub::~RemoteHub() {
 }
 
 std::int64_t RemoteHub::wall_at(device::Instant at) const {
-  return kWallAtZero + micros(at) / 1000;
+  return wall_base_ + (micros(at) - micros(wall_from_)) / 1000;
+}
+
+void RemoteHub::set_clock(std::int64_t wall_ms, bool trusted) {
+  wall_base_ = wall_ms;
+  wall_from_ = sim_.now();
+  queue(ToHub::clock(micros(sim_.now()), wall_ms, trusted));
+}
+
+Value RemoteHub::op(const std::string& name, Value body) {
+  // An operation's answer is {kind: "op", body: <the operation's reply>}.
+  return answer_or_throw(
+             command_now(
+                 Value::object().set("kind", "op").set("op", name).set("body", std::move(body))))
+      .at("body");
+}
+
+std::int64_t RemoteHub::device_number(const std::string& name) const {
+  const Board& board = boards_.at(board_named(name));
+  if (!board.hub_id.has_value()) {
+    throw SimulationError(name + " has no number on the hub yet: it is not paired");
+  }
+  return *board.hub_id;
+}
+
+std::int64_t RemoteHub::create_group(const std::string& name,
+                                     const std::vector<std::string>& sensors,
+                                     const std::vector<std::string>& sirens) {
+  Value members = Value::array();
+  for (const std::string& sensor : sensors) {
+    members.push(device_number(sensor));
+  }
+  Value choice = Value::array();
+  for (const std::string& siren : sirens) {
+    choice.push(device_number(siren));
+  }
+  return op("group.create", Value::object()
+                                .set("name", name)
+                                .set("sensors", std::move(members))
+                                .set("sirens", sirens.empty() ? Value("all") : std::move(choice)))
+      .at("id")
+      .as_int();
+}
+
+std::int64_t RemoteHub::create_mode(const std::string& name,
+                                    const std::vector<std::int64_t>& groups) {
+  Value members = Value::array();
+  for (const std::int64_t group : groups) {
+    members.push(group);
+  }
+  return op("mode.create", Value::object().set("name", name).set("groups", std::move(members)))
+      .at("id")
+      .as_int();
+}
+
+std::int64_t RemoteHub::fixed_mode(const std::string& which) {
+  // The migration makes the two fixed modes first (m2-design.md section 4): Away is mode 1 and
+  // Disarmed mode 2, the values `mode_switched` names for `hsn arm --all` and `hsn disarm --all`
+  // (section 11). `snapshot`, which lists the modes, is refused on the lockstep hub.
+  if (which == "away") {
+    return 1;
+  }
+  if (which == "disarmed") {
+    return 2;
+  }
+  throw SimulationError("there is no fixed mode " + which + ": only away and disarmed (D90)");
+}
+
+Value RemoteHub::switch_mode(std::int64_t mode, bool confirm) {
+  Value body = Value::object().set("mode", mode);
+  if (confirm) {
+    body.set("confirm", Value::object().set("openDoors", true).set("lowBattery", true));
+  }
+  return op("mode.switch", std::move(body));
+}
+
+Value RemoteHub::arm_group(std::int64_t group, bool confirm) {
+  Value body = Value::object().set("target", Value::object().set("group", group));
+  if (confirm) {
+    body.set("confirm", Value::object().set("openDoors", true).set("lowBattery", true));
+  }
+  return op("arm", std::move(body));
+}
+
+Value RemoteHub::disarm_group(std::int64_t group) {
+  return op("disarm", Value::object().set("target", Value::object().set("group", group)));
+}
+
+Value RemoteHub::create_schedule(const std::string& name, const std::string& action, Value target,
+                                 const std::string& at, Value days) {
+  return op("schedule.create", Value::object()
+                                   .set("name", name)
+                                   .set("action", action)
+                                   .set("target", std::move(target))
+                                   .set("at", at)
+                                   .set("days", std::move(days))
+                                   .set("enabled", true));
+}
+
+std::vector<RemoteHub::NamedDecision> RemoteHub::decisions_named(const std::string& kind,
+                                                                 const std::string& device) const {
+  std::vector<NamedDecision> found;
+  for (const auto& record : records_) {
+    if (record.second.at("kind").as_string() != "decision") {
+      continue;
+    }
+    const Value& row = record.second.at("row");
+    if (row.at("kind").as_string() != kind) {
+      continue;
+    }
+    NamedDecision decision;
+    decision.at = record.first;
+    decision.device = name_of_id(row.at("deviceId"));
+    if (!device.empty() && decision.device != device) {
+      continue;
+    }
+    if (!row.at("value").is_null()) {
+      decision.value = row.at("value").as_int();
+    }
+    if (!row.at("detail").is_null()) {
+      decision.detail = json::from_hex(row.at("detail").as_string());
+    }
+    found.push_back(std::move(decision));
+  }
+  return found;
 }
 
 device::Instant RemoteHub::true_of_wall(std::int64_t wall_ms) const {
@@ -545,8 +671,9 @@ void RemoteHub::start() {
   }
   const device::Instant now = sim_.now();
   const auto began = std::chrono::steady_clock::now();
-  const auto answers =
-      process_->send(ToHub::start(micros(now), wall_at(now), true, seed_bytes(options_.seed)));
+  ToHub start = ToHub::start(micros(now), wall_at(now), true, seed_bytes(options_.seed));
+  start.zone = options_.time_zone;
+  const auto answers = process_->send(start);
   hub_time_ += std::chrono::steady_clock::now() - began;
   if (answers.size() != 1 || answers[0].type != FromHub::Type::idle) {
     throw SimulationError("the hub did not start: " +

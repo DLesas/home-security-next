@@ -228,6 +228,9 @@ std::string write(const ToHub& m) {
         out.set("mono", *m.mono);
       }
       out.set("seed", json::to_hex(m.seed));
+      if (!m.zone.empty()) {
+        out.set("zone", m.zone);
+      }
       break;
     case ToHub::Type::advance:
       out.set("to", m.to);
@@ -300,7 +303,7 @@ ToHub read_to_hub(const std::string& line) {
   const std::string& type = v.at("type").as_string();
   ToHub m;
   if (type == "start") {
-    check_members(v, {"type", "version", "at", "wall", "trusted", "seed"}, {"mono"});
+    check_members(v, {"type", "version", "at", "wall", "trusted", "seed"}, {"mono", "zone"});
     if (v.at("version").as_int() != kVersion) {
       throw WireError("version " + std::to_string(v.at("version").as_int()) + " is not " +
                       std::to_string(kVersion));
@@ -312,6 +315,12 @@ ToHub read_to_hub(const std::string& line) {
     }
     if (v.find("mono") != nullptr) {
       m.mono = time_of(v, "mono");
+    }
+    if (const Value* zone = v.find("zone")) {
+      m.zone = zone->as_string();
+      if (m.zone.empty() || m.zone.size() > 64) {
+        throw WireError("a zone has 1 to 64 characters");
+      }
     }
   } else if (type == "advance") {
     check_members(v, {"type", "to"});

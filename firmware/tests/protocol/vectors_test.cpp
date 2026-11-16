@@ -1,12 +1,20 @@
 // Every file and every top-level section of packages/protocol/vectors, checked against the core.
-// A file or section the harness does not handle fails the run, unless it is listed in kSkipped.
+// A file or section the harness does not handle fails the run, unless it is listed in kSkipped,
+// or is the app channel's (kAppVectorPrefix, kAppVectorFolder), which packages/protocol checks.
 
+#include <unistd.h>
+
+#include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstdlib>
+#include <filesystem>
+#include <fstream>
 #include <map>
 #include <set>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include "hsn/protocol/counters.hpp"
 #include "hsn/protocol/framing.hpp"
@@ -38,6 +46,13 @@ const std::set<std::pair<std::string, std::string>> kSkipped = {
 
 // Files in the vectors folder that are not vectors.
 const std::set<std::string> kNotVectors = {"README.md"};
+
+// The app channel's vectors share the folder (m2-design.md, the vectors' tooling): this harness
+// answers for the device protocol's alone, so a file named with this prefix, and this folder, are
+// not its to handle. packages/protocol's app vector tests and the independent verifier
+// (packages/protocol/verify) check them.
+const std::string kAppVectorPrefix = "app-";
+const std::string kAppVectorFolder = "noise-published";
 
 /** One vector file and the top-level sections its handler consumed. */
 class VectorFile {
@@ -588,16 +603,52 @@ const std::filesystem::path kVectorsDir = HSN_VECTORS_DIR;
 
 }  // namespace
 
+/**
+ * The entries of a vectors folder this harness neither handles nor leaves to the app channel's
+ * own tests: each one is a device vector file nobody checks.
+ */
+std::vector<std::string> unhandled_entries(const std::filesystem::path& folder) {
+  std::vector<std::string> unhandled;
+  for (const auto& entry : std::filesystem::directory_iterator(folder)) {
+    const std::string name = entry.path().filename().string();
+    const bool app_channel = (entry.is_directory() && name == kAppVectorFolder) ||
+                             (entry.is_regular_file() && name.rfind(kAppVectorPrefix, 0) == 0);
+    if (!app_channel && handlers().count(name) == 0 && kNotVectors.count(name) == 0) {
+      unhandled.push_back(name);
+    }
+  }
+  return unhandled;
+}
+
 TEST_CASE("the vectors folder holds only files the harness handles") {
   REQUIRE(std::filesystem::is_directory(kVectorsDir));
-  for (const auto& entry : std::filesystem::directory_iterator(kVectorsDir)) {
-    const std::string name = entry.path().filename().string();
-    const bool known = handlers().count(name) != 0 || kNotVectors.count(name) != 0;
-    CHECK_MESSAGE(known, "vector file '" << name << "' is not handled by the harness");
+  for (const std::string& name : unhandled_entries(kVectorsDir)) {
+    CHECK_MESSAGE(false, "vector file '" << name << "' is not handled by the harness");
   }
   for (const auto& entry : handlers()) {
     CHECK_MESSAGE(std::filesystem::exists(kVectorsDir / entry.first), "missing " << entry.first);
   }
+}
+
+TEST_CASE("the folder check leaves the app channel's vectors alone, and no device file") {
+  // A copy of the rule's cases in a folder of its own: a stray device-side file is caught; a new
+  // app vector file, the published Noise folder and the README are not.
+  const char* temporary = std::getenv("TMPDIR");
+  std::string pattern =
+      std::string(temporary != nullptr ? temporary : "/tmp") + "/hsn-vectors-XXXXXX";
+  REQUIRE(mkdtemp(pattern.data()) != nullptr);
+  const std::filesystem::path folder = pattern;
+  for (const char* name : {"foo.json", "app-x.json", "README.md", "cobs.json"}) {
+    std::ofstream(folder / name) << "{}";
+  }
+  std::filesystem::create_directory(folder / kAppVectorFolder);
+  // A device-side folder of that prefix is no app vector file.
+  std::filesystem::create_directory(folder / "app-folder");
+  std::vector<std::string> unhandled = unhandled_entries(folder);
+  std::sort(unhandled.begin(), unhandled.end());
+  CHECK(unhandled == std::vector<std::string>{"app-folder", "foo.json"});
+  std::error_code ignored;
+  std::filesystem::remove_all(folder, ignored);
 }
 
 /** Runs every file whose handler is `handler`, each in its own subcase. */

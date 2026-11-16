@@ -87,6 +87,7 @@ TEST_CASE("each lockstep message reads strictly and writes back as it came") {
       const char* line : {
           R"({"type":"start","version":2,"at":1000000,"wall":1794528001000,"trusted":true,"seed":"5eed5eed5eed5eed5eed5eed5eed5eed5eed5eed5eed5eed5eed5eed5eed5eed"})",
           R"({"type":"start","version":2,"at":5,"wall":7,"trusted":false,"mono":3,"seed":"0000000000000000000000000000000000000000000000000000000000000000"})",
+          R"({"type":"start","version":2,"at":5,"wall":7,"trusted":true,"seed":"0000000000000000000000000000000000000000000000000000000000000000","zone":"America/New_York"})",
           R"({"type":"advance","to":1100000})",
           R"({"type":"frame","link":"gateway1:usb","at":1102000,"bytes":"f10400"})",
           R"({"type":"linkUp","link":"siren1:network","kind":"network","at":11050000})",
@@ -113,6 +114,7 @@ TEST_CASE("each lockstep message reads strictly and writes back as it came") {
           R"({"type":"start","version":1,"at":1,"wall":1,"trusted":true,"seed":"5eed5eed5eed5eed5eed5eed5eed5eed5eed5eed5eed5eed5eed5eed5eed5eed"})",
           R"({"type":"start","version":3,"at":1,"wall":1,"trusted":true,"seed":"5eed5eed5eed5eed5eed5eed5eed5eed5eed5eed5eed5eed5eed5eed5eed5eed"})",
           R"({"type":"start","version":2,"at":1,"wall":1,"trusted":true,"seed":"5eed"})",
+          R"({"type":"start","version":2,"at":1,"wall":1,"trusted":true,"seed":"5eed5eed5eed5eed5eed5eed5eed5eed5eed5eed5eed5eed5eed5eed5eed5eed","zone":""})",
           R"({"type":"advance","to":-1})",
           R"({"type":"advance","to":1,"extra":0})",
           R"({"type":"advance"})",

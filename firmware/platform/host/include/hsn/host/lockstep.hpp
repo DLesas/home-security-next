@@ -49,6 +49,9 @@ struct ToHub {
   std::optional<std::int64_t> mono;
   /** start: 32 bytes. */
   Bytes seed;
+  /** start: the hub computer's time zone, an IANA name of 1 to 64 characters; left out when empty.
+   */
+  std::string zone;
   /** frame, linkUp, linkDown: the link's name. */
   std::string link;
   /** linkUp: "usb" or "network". */
