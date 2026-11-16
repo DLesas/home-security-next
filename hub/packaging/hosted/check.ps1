@@ -155,7 +155,7 @@ switch ($Step) {
     $csp = "$($response.Headers["Content-Security-Policy"])"
     $hashes = (Get-Content -LiteralPath (Join-Path $web "csp.json") -Raw | ConvertFrom-Json).styles
     foreach ($hash in $hashes) {
-      if (-not $csp.Contains($hash)) { Fail "the CSP does not carry the package's style hash $hash: $csp" }
+      if (-not $csp.Contains($hash)) { Fail "the CSP does not carry the package's style hash ${hash}: $csp" }
     }
     $rebound = Invoke-WebRequest -UseBasicParsing -SkipHttpErrorCheck -SkipHeaderValidation -Uri "http://127.0.0.1:8445/" -Headers @{ Host = "rebound.example:8445" }
     if ($rebound.StatusCode -ne 421) { Fail "a request naming another Host was answered $($rebound.StatusCode), not 421" }

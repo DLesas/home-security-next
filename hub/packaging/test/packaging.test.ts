@@ -247,6 +247,11 @@ describe("the PowerShell scripts, read as text (nothing here can parse PowerShel
     expect(unbalanced(read(file))).toBeUndefined();
   });
 
+  test("the reader finds a scope-qualified name PowerShell refuses (run 43878472835)", () => {
+    expect(unbalanced('Fail "the hash $hash: $csp"\n')).toContain("is not a variable");
+    expect(unbalanced('$p = "$env:SystemDrive\\x"; $q = "${Path}: here"\n')).toBeUndefined();
+  });
+
   test("the reader finds the slip build-msi.ps1 had: a string's missing closing quote", () => {
     expect(
       unbalanced('foreach ($f in @("a.xml", "tree.ps1, "b.ps1")) {\n  Copy-Item $f\n}\n'),

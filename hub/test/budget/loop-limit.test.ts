@@ -32,6 +32,7 @@
  */
 import { afterAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, statSync } from "node:fs";
+import { availableParallelism, cpus } from "node:os";
 import { join } from "node:path";
 import {
   Direction,
@@ -375,12 +376,33 @@ describe("door reports while the hub writes whole files (section 3, the loop's t
       )._unsafeUnwrap();
       expect(reply.reply.ok ? "ok" : JSON.stringify(reply.reply)).toBe("ok");
     };
+    /**
+     * The hub's own longest turn since the last read (`longestTurnMs` in `hsn status`'s reply,
+     * reset when read), in milliseconds: measured, printed, not yet asserted (a measuring run).
+     */
+    const longestTurn = async (): Promise<number> => {
+      const session = (await Session.open(join(dataDir, "control.sock")))._unsafeUnwrap();
+      sessions.push(session);
+      const line = (await session.request("test", { kind: "status" }, 30_000))._unsafeUnwrap();
+      const result: unknown = line.reply.ok ? line.reply.result : undefined;
+      const value =
+        typeof result === "object" && result !== null && "longestTurnMs" in result
+          ? result.longestTurnMs
+          : undefined;
+      return typeof value === "number" ? value : Number.NaN;
+    };
+    /** When each job ran, on this computer's clock, to place a reply that was not sent. */
+    const windows: { job: string; fromMs: number; toMs: number }[] = [];
+    const turns: Record<string, number> = { start: await longestTurn() };
     // 1. A backup, now (the request's `commands` record, then `backup_written`).
     // The reply `{job}` comes first; the reports go on until the backup is written.
+    const backupFrom = Date.now();
     await during(bench, async () => {
       await op("backup.now", {});
       await Bun.sleep(4000);
     });
+    windows.push({ job: "backup", fromMs: backupFrom, toMs: Date.now() });
+    turns.backup = await longestTurn();
     // 2. The configuration export, then 3. the export with history, streamed to the real `hsn`
     // (`hsn backup export <file> [--history]`) in a process of its own: decoding some hundred
     // megabytes of chunks here would stall this process, whose gateway would then take the hub's
@@ -414,8 +436,14 @@ describe("door reports while the hub writes whole files (section 3, the loop's t
       expect(done.code).toBe(0);
       return existsSync(file) ? statSync(file).size : 0;
     };
+    const configurationFrom = Date.now();
     const configuration = await exportOf(false);
+    windows.push({ job: "configuration export", fromMs: configurationFrom, toMs: Date.now() });
+    turns.configurationExport = await longestTurn();
+    const historyFrom = Date.now();
     const history = await exportOf(true);
+    windows.push({ job: "history export", fromMs: historyFrom, toMs: Date.now() });
+    turns.historyExport = await longestTurn();
     // Every transmit result delivered, then a moment for the hub to record it.
     expect(await until(() => bench.settled, 10_000)).toBe(true);
     await Bun.sleep(1000);
@@ -451,6 +479,11 @@ describe("door reports while the hub writes whole files (section 3, the loop's t
         `SELECT outcome, count(*) AS n FROM tx_event WHERE device_id = ? AND type = ? GROUP BY outcome`,
       )
       .all(SENSOR, MessageType.Reply);
+    const notSent = s.db
+      .query<{ at_ms: number; outcome: number }, [number, number]>(
+        `SELECT at_ms, outcome FROM tx_event WHERE device_id = ? AND type = ? AND outcome != 0`,
+      )
+      .all(SENSOR, MessageType.Reply);
     const written = s.db
       .query<{ n: number }, []>(
         `SELECT count(*) AS n FROM hub_events WHERE code = 'backup_written'`,
@@ -466,6 +499,13 @@ describe("door reports while the hub writes whole files (section 3, the loop's t
       `${bench.sent} door reports sent, ${doors} recorded, ${answers.length} answered; ` +
         `${duringBackup} recorded during the backup; ` +
         `configuration export ${configuration} bytes, history export ${history} bytes`,
+    );
+    // The measuring run's figures: the hub's own longest turn in each phase, the machine's cores,
+    // and when each reply that was not sent was recorded, against the jobs' windows.
+    console.log(
+      `longest turn (ms): ${JSON.stringify(turns)}; cores: ${String(availableParallelism())} ` +
+        `(${cpus()[0]?.model ?? "unknown"}); jobs: ${JSON.stringify(windows)}; ` +
+        `replies not sent: ${JSON.stringify(notSent)}`,
     );
     // Every report is recorded (each is a new door change) and answered: its reply was sent.
     expect(doors).toBe(bench.sent);

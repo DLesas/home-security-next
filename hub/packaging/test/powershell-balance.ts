@@ -69,6 +69,15 @@ export function unbalanced(text: string): string | undefined {
           stack.push({ mode, close: ")", line });
           mode = "code";
           i++;
+        } else if (c === "$" && /[A-Za-z_]/u.test(next)) {
+          // `$name:` in a string is a scope-qualified variable: PowerShell refuses the file unless
+          // the scope is one of its own (`$env:`, `$script:`, ...); `${name}:` is the way to write it.
+          const name = /^[A-Za-z_][A-Za-z0-9_]*/u.exec(row.slice(i + 1))?.[0] ?? "";
+          const after = row[i + 1 + name.length] ?? "";
+          const scope = /^(env|script|global|local|private|using|function|variable)$/iu.test(name);
+          if (after === ":" && !scope && !/[A-Za-z0-9_]/u.test(row[i + 2 + name.length] ?? ""))
+            return `line ${line}: "$${name}:" is not a variable; write "\${${name}}:"`;
+          i += name.length;
         } else if (c === "$" && next === "{") {
           const end = row.indexOf("}", i);
           if (end < 0) return `line ${line}: \${ never closed`;
