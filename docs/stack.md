@@ -61,7 +61,10 @@ LoRaWAN is not used: it needs a multi-channel gateway and a network server, and 
 | Framework | React Native with Expo and Expo Router; the web app is its static web export, served by the hub | D93. |
 | Data and state | TanStack Query and Zustand | Both already used in the old web app. |
 | Forms | React Hook Form with Zod | Already used in the old web app. |
-| Styling | NativeWind (Tailwind classes); the component set is chosen when interface design starts | Tailwind is already familiar, and one set of styles serves phone and web. |
+| Styling | NativeWind 5.0.0-rc.1 with `react-native-css` 3.1.0-rc.1, on Tailwind 4.1.12 (`tailwindcss`, `@tailwindcss/postcss`, `postcss` 8.5.33); the look is set in `app-design.md` | The product owner's choice after a trial (4.2.7 did not build under Bun's install layout). One set of class names styles phone and web, and on the web the styles are an ordinary stylesheet, which suits the hub's strict page policy. It is a release candidate that its authors tested on Expo 57: proven here on the web build only, not yet on a phone. The root `lightningcss` 1.30.1 override is its install requirement. |
+| Fonts | `@expo-google-fonts/atkinson-hyperlegible-next` and `-mono` 0.4.1 | A typeface made for legibility, bundled with the app, so no font is fetched at run time. |
+| Animation | `react-native-reanimated` 4.7.1 with `react-native-worklets` 0.13.1 | NativeWind 5 needs them for transitions; worklets is reanimated 4's runtime. |
+| System colours | `expo-system-ui` 58.0.7 | Sets the root background, so nothing flashes before the first screen draws. |
 | Text | i18next with translation files | D58. |
 | Bluetooth | react-native-ble-plx in a development build † | The established library; needs a real phone, since simulators have no Bluetooth. |
 | Notifications | expo-notifications, plus a small native extension on each platform (Swift, Kotlin) that decrypts the push before it is shown † | D32: the relay must not be able to read alerts. O15. |
