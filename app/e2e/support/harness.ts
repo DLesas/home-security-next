@@ -21,7 +21,7 @@ import { createServer } from "node:net";
 import { networkInterfaces, tmpdir } from "node:os";
 import { join } from "node:path";
 import type { BenchCommand, BenchLine, BenchState } from "./bench.ts";
-import { controlLine } from "./control.ts";
+import { controlLine, HUB_START_MS } from "./control.ts";
 
 const APP = join(import.meta.dirname, "..", "..");
 const REPO = join(APP, "..");
@@ -234,6 +234,8 @@ async function startHub(
   ports: { readonly device: number; readonly lan: number; readonly console: number },
   serial: readonly string[],
 ): Promise<ChildProcess | undefined> {
+  const showLog = process.env.HSN_E2E_HUB_LOG === "1";
+  let startupLog = "";
   const hub = track(
     spawn(
       "bun",
@@ -254,19 +256,30 @@ async function startHub(
         stdio: [
           "ignore",
           "ignore",
-          process.env.HSN_E2E_HUB_LOG === "1" ? "inherit" : "ignore",
+          showLog ? "inherit" : "pipe",
           ...(WINDOWS ? ["ipc" as const] : []),
         ],
         env: CHILD_ENV,
       },
     ),
   );
+  hub.stderr?.on("data", (chunk: Buffer) => {
+    startupLog = (startupLog + chunk.toString()).slice(-4096);
+  });
   const socket = join(dataDir, "control.sock");
-  await until(() => existsSync(socket) || hub.exitCode !== null, 15_000);
-  if (!existsSync(socket)) {
+  const ready = WINDOWS
+    ? (await exited(track(spawn("bun", [CONTROL, socket, "--ready"], { stdio: "ignore" })))) === 0
+    : (await until(() => existsSync(socket) || hub.exitCode !== null, HUB_START_MS)) &&
+      existsSync(socket);
+  if (!ready) {
+    process.stderr.write(
+      `hub startup did not reach its control socket (exit ${String(hub.exitCode)}).\n${startupLog}`,
+    );
     await stopChild(hub, "SIGKILL");
     return undefined;
   }
+  if (WINDOWS && !existsSync(socket))
+    process.stdout.write("Bun sees the Windows control socket that Node cannot stat.\n");
   return hub;
 }
 

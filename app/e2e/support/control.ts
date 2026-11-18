@@ -1,5 +1,9 @@
 /** Exchanges one control line with the hub. Bun also runs this for Node's Windows test runner. */
 import { connect } from "node:net";
+import { existsSync } from "node:fs";
+
+/** The same startup deadline on both systems. */
+export const HUB_START_MS = 15_000;
 
 /** Sends a control request and takes its first response line. */
 export function controlLine(path: string, request: string): Promise<string> {
@@ -26,6 +30,12 @@ export function controlLine(path: string, request: string): Promise<string> {
 if (import.meta.main) {
   const path = process.argv[2];
   if (!path) process.exit(2);
+  if (process.argv[3] === "--ready") {
+    // Check the Windows AF_UNIX endpoint with the runtime that created it.
+    const deadline = Date.now() + HUB_START_MS;
+    while (!existsSync(path) && Date.now() < deadline) await Bun.sleep(50);
+    process.exit(existsSync(path) ? 0 : 1);
+  }
   const request = await Bun.stdin.text();
   const reply = await controlLine(path, request);
   process.stdout.write(`${reply}\n`);
