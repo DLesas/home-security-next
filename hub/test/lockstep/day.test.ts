@@ -15,6 +15,7 @@ import { SEED, wallAt } from "./sessions.ts";
 
 const work = shortTempFolder("hsn-day-");
 afterAll(() => {
+  InProcessEnd.closeAll();
   rmSync(work, { recursive: true, force: true });
 });
 

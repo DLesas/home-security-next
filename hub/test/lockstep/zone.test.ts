@@ -14,6 +14,7 @@ import { SEED, WALL_AT_ZERO } from "./sessions.ts";
 
 const work = shortTempFolder("hsn-zone-");
 afterAll(() => {
+  InProcessEnd.closeAll();
   rmSync(work, { recursive: true, force: true });
 });
 let folders = 0;

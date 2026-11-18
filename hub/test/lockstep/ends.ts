@@ -15,6 +15,13 @@ import type { HubEnd } from "./controller.ts";
 
 /** The hub in this process: what a real one does, with no socket in between. */
 export class InProcessEnd implements HubEnd {
+  static readonly #live = new Set<InProcessEnd>();
+
+  /** Releases the databases of tests that leave their in-process hub running. */
+  static closeAll(): void {
+    for (const end of InProcessEnd.#live) end.kill();
+  }
+
   readonly dataDir: string;
   readonly options: Omit<LockstepOptions, "dataDir">;
   hub: LockstepHub | undefined;
@@ -26,11 +33,12 @@ export class InProcessEnd implements HubEnd {
 
   async send(message: LockstepToHub): Promise<readonly LockstepFromHub[]> {
     if (message.type === "start") {
-      this.hub?.close()._unsafeUnwrap();
+      this.kill();
       const started = await LockstepHub.start(message, { ...this.options, dataDir: this.dataDir });
       if (started.isErr())
         return [{ type: "error", message: started.error.message, line: JSON.stringify(message) }];
       this.hub = started.value.hub;
+      InProcessEnd.#live.add(this);
       return [started.value.idle];
     }
     const hub = this.hub;
@@ -39,10 +47,7 @@ export class InProcessEnd implements HubEnd {
     const answered = hub.handle(message);
     if (answered.isErr())
       return [{ type: "error", message: answered.error.message, line: JSON.stringify(message) }];
-    if (message.type === "stop") {
-      hub.close()._unsafeUnwrap();
-      this.hub = undefined;
-    }
+    if (message.type === "stop") this.kill();
     return answered.value;
   }
 
@@ -50,6 +55,7 @@ export class InProcessEnd implements HubEnd {
   kill(): void {
     this.hub?.close()._unsafeUnwrap();
     this.hub = undefined;
+    InProcessEnd.#live.delete(this);
   }
 }
 

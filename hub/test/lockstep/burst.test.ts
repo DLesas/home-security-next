@@ -22,6 +22,7 @@ import { provision, SEED, wallAt } from "./sessions.ts";
 const work = shortTempFolder("hsn-bu-");
 afterAll(async () => {
   await endProcesses();
+  InProcessEnd.closeAll();
   rmSync(work, { recursive: true, force: true });
 });
 let folders = 0;

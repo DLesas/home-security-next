@@ -25,6 +25,7 @@ const RECORD = process.env.HSN_LOCKSTEP_RECORD === "1";
 const work = shortTempFolder("hsn-ls-");
 afterAll(async () => {
   await endProcesses();
+  InProcessEnd.closeAll();
   rmSync(work, { recursive: true, force: true });
 });
 let folders = 0;
