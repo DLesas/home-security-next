@@ -18,7 +18,7 @@ import { DEVICE_PATH } from "../../../src/shell/links/websocket.ts";
 import { openStore } from "../../../src/shell/storage/store.ts";
 import { siteRowAt } from "../../scenarios/sensors/bench.ts";
 import { SeededBytes } from "../../world/entropy.ts";
-import { endProcesses, spawnTracked } from "../../world/processes.ts";
+import { endProcesses, spawnTestHub, stopTestHub, spawnTracked } from "../../world/processes.ts";
 import { ScriptedGateway } from "../../world/scripted-gateway.ts";
 
 const MAIN = join(import.meta.dir, "..", "..", "..", "src", "shell", "main.ts");
@@ -129,9 +129,8 @@ function connect(port: number, g: ScriptedGateway): { socket: WebSocket; closed:
 }
 
 function hub(dataDir: string, port: number, serial: readonly string[] = []) {
-  return spawnTracked(
+  return spawnTestHub(
     [
-      "bun",
       MAIN,
       "--data",
       dataDir,
@@ -142,7 +141,7 @@ function hub(dataDir: string, port: number, serial: readonly string[] = []) {
       "0,0",
       ...serial.flatMap((p) => ["--serial", p]),
     ],
-    { stdout: "ignore", stderr: "ignore" },
+    "ignore",
   );
 }
 
@@ -166,7 +165,7 @@ describe("the hub's own closes on a real WebSocket", () => {
     await Bun.sleep(200);
     expect(second.closed).toEqual([]);
     second.socket.close();
-    process.kill("SIGTERM");
+    stopTestHub(process);
     expect(await process.exited).toBe(0);
   }, 30_000);
 
@@ -188,7 +187,7 @@ describe("the hub's own closes on a real WebSocket", () => {
     expect(second.closed).toEqual([1000]);
     expect(Date.now() - opened).toBeGreaterThan(10_000);
     first.socket.close();
-    process.kill("SIGTERM");
+    stopTestHub(process);
     expect(await process.exited).toBe(0);
   }, 40_000);
 });
@@ -283,7 +282,7 @@ describe.skipIf(!ptys)("the hub's own closes on a real serial port", () => {
     expect(await until(() => t.states.includes("closed"), 5000)).toBe(true);
     expect(wifi.closed).toEqual([]);
     wifi.socket.close();
-    process.kill("SIGTERM");
+    stopTestHub(process);
     expect(await process.exited).toBe(0);
   }, 40_000);
 });

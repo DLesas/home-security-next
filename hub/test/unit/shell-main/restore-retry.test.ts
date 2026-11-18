@@ -10,7 +10,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { copyFileSync, existsSync, mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { endProcesses, spawnTracked } from "../../world/processes.ts";
+import { endProcesses, spawnTestHub, stopTestHub } from "../../world/processes.ts";
 
 const MAIN = join(import.meta.dir, "..", "..", "..", "src", "shell", "main.ts");
 const root = shortTempFolder("hsn-rr-");
@@ -21,14 +21,14 @@ afterAll(async () => {
 
 /** One run of the hub on `dataDir`, stopped cleanly once its control socket is up. */
 async function run(dataDir: string): Promise<number> {
-  const hub = spawnTracked(
-    ["bun", MAIN, "--data", dataDir, "--port", "0", "--no-usb-watch", "--app-ports", "0,0"],
-    { stdout: "ignore", stderr: "ignore" },
+  const hub = spawnTestHub(
+    [MAIN, "--data", dataDir, "--port", "0", "--no-usb-watch", "--app-ports", "0,0"],
+    "ignore",
   );
   const sock = join(dataDir, "control.sock");
   for (let i = 0; i < 200 && !existsSync(sock); i++) await Bun.sleep(25);
   await Bun.sleep(300);
-  hub.kill("SIGTERM");
+  stopTestHub(hub);
   return hub.exited;
 }
 
@@ -83,10 +83,10 @@ describe("a restore whose swap did not happen is put in place at the next start 
     writer.run(
       "INSERT INTO people (id, name, created_ms, removed_ms, revision) VALUES (91, 'Old', 1, NULL, 0)",
     );
-    writer.close();
+    writer.close(true);
     expect(await run(dataDir)).toBe(0);
     reader.run("COMMIT");
-    reader.close();
+    reader.close(true);
     expect(existsSync(join(dataDir, "hub.db.restore"))).toBe(true);
     expect(count(dataDir, "SELECT count(*) AS n FROM people WHERE name = 'Restored'")).toBe(0);
     expect(count(dataDir, "SELECT count(*) AS n FROM people WHERE name = 'Old'")).toBe(1);

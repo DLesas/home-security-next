@@ -36,7 +36,7 @@ import { shortTempFolder } from "../world/temp-folder.ts";
 import { afterAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, rmSync, statSync } from "node:fs";
 import { availableParallelism, cpus } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import {
   Direction,
   type Message,
@@ -58,14 +58,19 @@ import { DEVICE_PATH } from "../../src/shell/links/websocket.ts";
 import { openStore } from "../../src/shell/storage/store.ts";
 import { sensorRow, siteRowAt } from "../scenarios/sensors/bench.ts";
 import { SeededBytes } from "../world/entropy.ts";
-import { endProcesses, spawnTracked } from "../world/processes.ts";
+import {
+  endProcesses,
+  spawnTestHub,
+  stopTestHub,
+  spawnTracked,
+  testCli,
+} from "../world/processes.ts";
 import { ScriptedGateway } from "../world/scripted-gateway.ts";
 import { writeOlderRows } from "./run.ts";
 
 /** The hub's own entry with the clock taken as synchronised (a Linux runner may not say it is). */
 const MAIN = join(import.meta.dir, "..", "world", "hub-entry.ts");
 const MIGRATIONS = join(import.meta.dir, "..", "..", "drizzle");
-const HSN = join(import.meta.dir, "..", "..", "cli", "hsn.ts");
 const TIMING = process.env.HSN_TIMING === "1";
 /** A report behind a piece and a commit is taken within about 50 ms (section 3), asserted opt-in. */
 const TAKEN_WITHIN_MS = 50;
@@ -238,19 +243,9 @@ class Bench {
   }
 
   static async start(port: number, dataDir: string): Promise<Bench | string> {
-    const hub = spawnTracked(
-      [
-        "bun",
-        MAIN,
-        "--data",
-        dataDir,
-        "--port",
-        String(port),
-        "--no-usb-watch",
-        "--app-ports",
-        "0,0",
-      ],
-      { stdout: "ignore", stderr: "pipe" },
+    const hub = spawnTestHub(
+      [MAIN, "--data", dataDir, "--port", String(port), "--no-usb-watch", "--app-ports", "0,0"],
+      "pipe",
     );
     const random = new SeededBytes(5);
     const bench = new Bench(
@@ -359,7 +354,7 @@ class Bench {
   async stop(): Promise<void> {
     clearInterval(this.#pump);
     this.#socket?.close();
-    this.#hub?.kill("SIGTERM");
+    if (this.#hub !== undefined) stopTestHub(this.#hub);
     await this.#hub?.exited;
   }
 }
@@ -382,7 +377,7 @@ describe("door reports while the hub writes whole files (section 3, the loop's t
   test("a backup and two exports run in pieces: the reports are taken between them, every one recorded", async () => {
     const dataDir = shortTempFolder("hsn-ll-");
     folders.push(dataDir);
-    const backups = join(dataDir, "..", `${dataDir.split("/").at(-1)}-backups`);
+    const backups = join(dataDir, "..", `${basename(dataDir)}-backups`);
     mkdirSync(backups);
     folders.push(backups);
     seed(dataDir, backups);
@@ -439,7 +434,7 @@ describe("door reports while the hub writes whole files (section 3, the loop's t
       const file = join(
         dataDir,
         "..",
-        `${dataDir.split("/").at(-1)}-${history ? "history" : "configuration"}.export`,
+        `${basename(dataDir)}-${history ? "history" : "configuration"}.export`,
       );
       folders.push(file);
       const done = { code: -1 };
@@ -447,7 +442,7 @@ describe("door reports while the hub writes whole files (section 3, the loop's t
         const hsn = spawnTracked(
           [
             "bun",
-            HSN,
+            testCli,
             "--data",
             dataDir,
             "backup",

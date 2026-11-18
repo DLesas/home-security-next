@@ -11,7 +11,7 @@ import { DEFAULT_RULES } from "../../../src/core/model/rules.ts";
 import { SystemClock } from "../../../src/shell/clock/system-clock.ts";
 import { DEFAULT_PORT, parseMainArgs, runHub } from "../../../src/shell/main.ts";
 import { openStore } from "../../../src/shell/storage/store.ts";
-import { endProcesses, spawnTracked } from "../../world/processes.ts";
+import { endProcesses, spawnTestHub, stopTestHub } from "../../world/processes.ts";
 
 const MAIN = join(import.meta.dir, "..", "..", "..", "src", "shell", "main.ts");
 const MIGRATIONS = join(import.meta.dir, "..", "..", "..", "drizzle");
@@ -95,7 +95,7 @@ describe("starts it refuses (section 10)", () => {
   });
 
   test("a bad command line: exit 2", async () => {
-    const hub = spawnTracked(["bun", MAIN, "--port", "nope"], { stdout: "ignore", stderr: "pipe" });
+    const hub = spawnTestHub([MAIN, "--port", "nope"], "pipe");
     expect(await hub.exited).toBe(2);
     expect(await new Response(hub.stderr).text()).toContain("--port needs a number");
   });
@@ -104,19 +104,17 @@ describe("starts it refuses (section 10)", () => {
 describe("a clean stop (section 7)", () => {
   test("SIGTERM: exit 0, and the next start reads the last run as a clean stop", async () => {
     const dataDir = join(root, "clean");
-    const hub = spawnTracked(
-      ["bun", MAIN, "--data", dataDir, "--port", "0", "--no-usb-watch", "--app-ports", "0,0"],
-      {
-        stdout: "ignore",
-        stderr: "ignore",
-      },
+    const hub = spawnTestHub(
+      [MAIN, "--data", dataDir, "--port", "0", "--no-usb-watch", "--app-ports", "0,0"],
+      "ignore",
     );
     // Up once the control socket is there.
     const deadline = Date.now() + 10_000;
     while (!existsSync(socketPath(dataDir)) && Date.now() < deadline) await Bun.sleep(20);
     const up = existsSync(socketPath(dataDir));
     // Stopped whether it came up or not: a failed check must not leave it running.
-    hub.kill(up ? "SIGTERM" : "SIGKILL");
+    if (up) stopTestHub(hub);
+    else hub.kill("SIGKILL");
     const code = await hub.exited;
     expect(up).toBe(true);
     expect(code).toBe(0);
@@ -131,17 +129,14 @@ describe("a clean stop (section 7)", () => {
 
   test("SIGTERM as soon as the process runs, while it starts: still a clean stop", async () => {
     const dataDir = join(root, "early");
-    const hub = spawnTracked(
-      ["bun", MAIN, "--data", dataDir, "--port", "0", "--no-usb-watch", "--app-ports", "0,0"],
-      {
-        stdout: "ignore",
-        stderr: "ignore",
-      },
+    const hub = spawnTestHub(
+      [MAIN, "--data", dataDir, "--port", "0", "--no-usb-watch", "--app-ports", "0,0"],
+      "ignore",
     );
     // As soon as the database exists: the start is under way, the control socket not yet open.
     const deadline = Date.now() + 10_000;
     while (!existsSync(join(dataDir, "hub.db")) && Date.now() < deadline) await Bun.sleep(1);
-    hub.kill("SIGTERM");
+    stopTestHub(hub);
     const code = await hub.exited;
     // Killed before the handler was listening at all (143) is possible only before the database.
     expect([0, 143]).toContain(code);
@@ -159,17 +154,15 @@ describe("a clean stop (section 7)", () => {
 
   test("SIGTERM once the control socket is there: exit 0 (the next start reads a clean stop)", async () => {
     const dataDir = join(root, "clean2");
-    const hub = spawnTracked(
-      ["bun", MAIN, "--data", dataDir, "--port", "0", "--no-usb-watch", "--app-ports", "0,0"],
-      {
-        stdout: "ignore",
-        stderr: "ignore",
-      },
+    const hub = spawnTestHub(
+      [MAIN, "--data", dataDir, "--port", "0", "--no-usb-watch", "--app-ports", "0,0"],
+      "ignore",
     );
     const deadline = Date.now() + 10_000;
     while (!existsSync(socketPath(dataDir)) && Date.now() < deadline) await Bun.sleep(20);
     const up = existsSync(socketPath(dataDir));
-    hub.kill(up ? "SIGTERM" : "SIGKILL");
+    if (up) stopTestHub(hub);
+    else hub.kill("SIGKILL");
     const code = await hub.exited;
     expect(up).toBe(true);
     expect(code).toBe(0);
