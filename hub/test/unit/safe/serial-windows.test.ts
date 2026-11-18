@@ -85,7 +85,7 @@ async function until(check: () => boolean): Promise<boolean> {
 }
 
 /** Opens COM10 with native-call doubles and the actual message loop in a worker. */
-function fakePort(mode: "echo" | "unplug" | "partial" | "waiting") {
+function fakePort(mode: "echo" | "unplug" | "partial" | "write-error" | "waiting") {
   const { calls, operations } = windows();
   const shared = new Int32Array(new SharedArrayBuffer(8));
   const port = openWindowsSerial(
@@ -194,11 +194,14 @@ describe("the Windows COM adapter", () => {
     expect(operations.at(-1)).toBe("CloseHandle");
   });
 
-  test("a partial write reports failure and releases the handle", async () => {
-    const { port, operations } = fakePort("partial");
+  test.each([
+    ["partial", "WriteFile sent 2 of 3 bytes"],
+    ["write-error", "WriteFile failed (Win32 1167)"],
+  ] as const)("%s reports a write failure and releases the handle", async (mode, message) => {
+    const { port, operations } = fakePort(mode);
     const sent = await port.write(Uint8Array.of(1, 2, 3));
     await port.closed;
-    expect(sent._unsafeUnwrapErr().message).toContain("WriteFile sent 2 of 3 bytes");
+    expect(sent._unsafeUnwrapErr().message).toContain(message);
     expect(operations.at(-1)).toBe("CloseHandle");
   });
 

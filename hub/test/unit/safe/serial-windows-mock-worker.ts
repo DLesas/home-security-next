@@ -6,7 +6,7 @@ import { serveSerial } from "../../../src/shell/safe/worker-serial-transfer.ts";
 const { stopping, shared, mode } = workerData as {
   stopping: Int32Array;
   shared: Int32Array;
-  mode: "echo" | "unplug" | "partial" | "waiting";
+  mode: "echo" | "unplug" | "partial" | "write-error" | "waiting";
 };
 const count = new Uint32Array(1);
 let incoming: Uint8Array | undefined = Uint8Array.from({ length: 256 }, (_, i) => i);
@@ -27,6 +27,7 @@ const calls = {
   /** Copies the real worker message into the driver's queue and reports the byte count. */
   WriteFile: (_handle: number | bigint, bytes: unknown, length: number, written: unknown) => {
     if (!(bytes instanceof Uint8Array) || !(written instanceof Uint32Array)) return 0;
+    if (mode === "write-error") return 0;
     written[0] = mode === "partial" ? length - 1 : length;
     incoming = bytes.slice();
     return 1;

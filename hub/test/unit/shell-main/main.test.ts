@@ -73,6 +73,14 @@ describe("the command line", () => {
       "--app-ports needs <lan>,<console>",
     );
   });
+
+  test("--serial preserves Windows COM port names", () => {
+    expect(
+      parseMainArgs(["--data", "/d", "--serial", "COM1", "--serial", "COM10"], {}),
+    ).toMatchObject({
+      serial: ["COM1", "COM10"],
+    });
+  });
 });
 
 describe("starts it refuses (section 10)", () => {

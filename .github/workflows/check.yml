@@ -55,6 +55,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Install dependencies
+        id: dependencies
         shell: bash
         run: |
           set +e
@@ -197,7 +198,7 @@ jobs:
           [ "$failed" -eq 0 ]
 
       - name: Probe native serial ports from Bun
-        if: runner.os == 'Windows'
+        if: ${{ !cancelled() && runner.os == 'Windows' && steps.dependencies.outcome == 'success' }}
         working-directory: hub
         run: |
           Add-Type -AssemblyName System.IO.Ports
