@@ -149,7 +149,7 @@ test("the console's first link: the address hsn open opens links this browser", 
   await page.goto(await harness.consoleAddress());
   await expect(page.getByTestId("field-surface")).toBeVisible({ timeout: 20_000 });
   // The token is taken out of the address before anything else reads it (section 5).
-  expect(page.url()).not.toContain("console=");
+  expect(page.url().includes("console="), "console token removed from the address").toBe(false);
   await expect(stateSentence(page)).toHaveText("Disarmed");
   await expect(page.getByText("First-time setup is not finished.")).toBeVisible();
   await axeOn(page, "home, before setup");

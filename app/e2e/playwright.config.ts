@@ -5,7 +5,7 @@
  *
  * Test files are `*.e2e.ts`, not `*.spec.ts`: the root's `bun test` runs every `*.spec.*` file,
  * and these run in Playwright only. Browsers: Chromium by default; `HSN_E2E_BROWSERS` lists
- * others (`chromium,webkit,firefox`); `HSN_E2E_CHANNEL=chrome` uses the installed Chrome.
+ * others (`chromium,webkit,firefox`); `HSN_E2E_CHANNEL=chrome` or `msedge` uses the installed browser.
  */
 import { defineConfig, devices } from "@playwright/test";
 
@@ -26,7 +26,11 @@ export default defineConfig({
   projects: browsers.map((name) => ({
     name,
     use: {
-      ...devices[ENGINE[name] ?? "Desktop Chrome"],
+      ...devices[
+        name === "chromium" && channel === "msedge"
+          ? "Desktop Edge"
+          : (ENGINE[name] ?? "Desktop Chrome")
+      ],
       ...(name === "chromium" && channel !== undefined ? { channel } : {}),
     },
   })),

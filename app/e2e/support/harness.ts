@@ -7,7 +7,7 @@
  * `hub/src/shell/app-wiring.ts`), so `bun run app:export` comes first.
  *
  * With `boards`, the scripted boards of `bench.ts` run beside it, in Bun, each on a
- * pseudo-terminal the hub is given with `--serial`, and the siren's Wi-Fi on the hub's `/device`
+ * pseudo-terminal or a Windows loopback stream the test hub is given with `--serial`, and the siren's Wi-Fi on the hub's `/device`
  * WebSocket. The hub is asked things over its control socket as `hsn` asks them (HD 9).
  *
  * Everything started here is stopped by `close`, and by the process's exit if a test never gets
@@ -17,17 +17,22 @@
  */
 import { type ChildProcess, spawn } from "node:child_process";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
-import { connect, createServer } from "node:net";
+import { createServer } from "node:net";
 import { networkInterfaces, tmpdir } from "node:os";
 import { join } from "node:path";
 import type { BenchCommand, BenchLine, BenchState } from "./bench.ts";
+import { controlLine } from "./control.ts";
 
 const APP = join(import.meta.dirname, "..", "..");
 const REPO = join(APP, "..");
 const DIST = join(APP, "dist");
 /** The hub's own entry with the clock taken as synchronised (`hub/test/world/hub-entry.ts`). */
 const HUB_MAIN = join(REPO, "hub", "test", "world", "hub-entry.ts");
+const WINDOWS = process.platform === "win32";
+const CONSOLE_STOP = join(REPO, "hub", "test", "world", "console-stop.ts");
 const BENCH = join(import.meta.dirname, "bench.ts");
+const CONTROL = join(import.meta.dirname, "control.ts");
+const CHILD_ENV = { ...process.env, ...(WINDOWS ? { HSN_E2E_SOCKET_BOARDS: "1" } : {}) };
 /** How long a clean stop may take before the hub is killed. */
 const STOP_MS = 10_000;
 
@@ -122,7 +127,7 @@ function removeFolder(folder: string): void {
   folders.delete(folder);
 }
 
-function track(child: ChildProcess): ChildProcess {
+function track<Child extends ChildProcess>(child: Child): Child {
   running.add(child);
   child.once("exit", () => running.delete(child));
   return child;
@@ -137,9 +142,30 @@ function exited(child: ChildProcess): Promise<number | null> {
   });
 }
 
+/** On Windows Node uses named pipes; Bun reaches the real AF_UNIX control socket. */
+function windowsControl(path: string, request: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const child = track(spawn("bun", [CONTROL, path], { stdio: ["pipe", "pipe", "ignore"] }));
+    let reply = "";
+    child.stdout.setEncoding("utf8");
+    child.stdout.on("data", (chunk: string) => {
+      reply += chunk;
+    });
+    child.on("error", reject);
+    child.stdin.on("error", reject);
+    child.once("close", (code) => {
+      if (code === 0) resolve(reply);
+      else reject(new Error(`control socket probe exited ${String(code)}`));
+    });
+    child.stdin.end(request);
+  });
+}
+
 async function stopChild(child: ChildProcess, signal: NodeJS.Signals): Promise<number | null> {
   const done = exited(child);
-  child.kill(signal);
+  if (WINDOWS && signal === "SIGTERM" && child.connected)
+    child.send("console-stop", () => undefined);
+  else child.kill(signal);
   const timer = setTimeout(() => child.kill("SIGKILL"), STOP_MS);
   const code = await done;
   clearTimeout(timer);
@@ -159,7 +185,7 @@ async function startBench(
   const child = track(
     spawn("bun", [BENCH], {
       stdio: ["pipe", "pipe", "inherit"],
-      env: { ...process.env, HSN_E2E_DEVICE_PORT: String(devicePort), HSN_E2E_USB_DIR: usbDir },
+      env: { ...CHILD_ENV, HSN_E2E_DEVICE_PORT: String(devicePort), HSN_E2E_USB_DIR: usbDir },
     }),
   );
   const lines: BenchLine[] = [];
@@ -212,6 +238,7 @@ async function startHub(
     spawn(
       "bun",
       [
+        ...(WINDOWS ? ["--preload", CONSOLE_STOP] : []),
         HUB_MAIN,
         "--data",
         dataDir,
@@ -223,7 +250,15 @@ async function startHub(
         `${String(ports.lan)},${String(ports.console)}`,
         ...serial.flatMap((path) => ["--serial", path]),
       ],
-      { stdio: ["ignore", "ignore", process.env.HSN_E2E_HUB_LOG === "1" ? "inherit" : "ignore"] },
+      {
+        stdio: [
+          "ignore",
+          "ignore",
+          process.env.HSN_E2E_HUB_LOG === "1" ? "inherit" : "ignore",
+          ...(WINDOWS ? ["ipc" as const] : []),
+        ],
+        env: CHILD_ENV,
+      },
     ),
   );
   const socket = join(dataDir, "control.sock");
@@ -240,7 +275,7 @@ export async function startHarness(): Promise<Harness> {
   return (await start(false)).harness;
 }
 
-/** The hub with the scripted boards, on pseudo-terminals. */
+/** The hub with the scripted boards connected to its USB framing. */
 export async function startBoardsHarness(): Promise<BoardsHarness> {
   const { harness, bench } = await start(true);
   if (bench === undefined) throw new Error("the bench did not start");
@@ -271,22 +306,13 @@ async function start(boards: boolean): Promise<{ harness: Harness; bench: Bench 
     );
   }
   let requests = 0;
-  const control = (command: object) =>
-    new Promise<unknown>((resolve, reject) => {
-      const socket = connect(join(dataDir, "control.sock"));
-      let text = "";
-      requests += 1;
-      socket.on("data", (chunk) => {
-        text += chunk.toString();
-        const end = text.indexOf("\n");
-        if (end >= 0) {
-          socket.end();
-          resolve(JSON.parse(text.slice(0, end)) as unknown);
-        }
-      });
-      socket.on("error", reject);
-      socket.write(`${JSON.stringify({ id: requests, actor: "e2e", command })}\n`);
-    });
+  const control = async (command: object): Promise<unknown> => {
+    requests += 1;
+    const request = JSON.stringify({ id: requests, actor: "e2e", command });
+    const socket = join(dataDir, "control.sock");
+    const exchange = WINDOWS ? windowsControl : controlLine;
+    return JSON.parse(await exchange(socket, request)) as unknown;
+  };
   const lanHost = homeAddress();
   let stopped: Promise<number | null> | undefined;
   const stop = () => (stopped ??= stopChild(hub, "SIGTERM"));

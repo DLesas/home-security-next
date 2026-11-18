@@ -8,22 +8,45 @@
  */
 import type { EventEmitter } from "node:events";
 import { encodeUsbFrame, UsbFrameDecoder } from "@hsn/protocol";
-import { err, ok, type Result } from "neverthrow";
+import { err, ok, type Result, type ResultAsync } from "neverthrow";
 import type { LinkId } from "../../core/model/ids.ts";
 import type { LinkError } from "../../ports/links.ts";
 import { SendQueue } from "./queue.ts";
 import type { FrameRejection, LinkRegistry } from "./registry.ts";
-import { closeTty, openTty, type TtyPort, writeTty } from "../safe/serial.ts";
-import { serialPath, type WindowsSerialPort } from "../safe/serial-windows.ts";
+import { closeTty, openTty, writeTty } from "../safe/serial.ts";
+import { serialPath } from "../safe/serial-windows.ts";
+
+/** The byte stream beneath the shared USB framing. */
+export interface SerialBytes {
+  readonly path: string;
+  readonly stream: EventEmitter;
+  readonly write: (bytes: Uint8Array) => ResultAsync<void, LinkError>;
+  readonly close: () => Result<void, LinkError>;
+  readonly closed?: Promise<void>;
+}
+
+/** Adapts the system's terminal to the link's byte stream. */
+function nativePort(path: string): Result<SerialBytes, LinkError> {
+  return openTty(path).map((port) => ({
+    path: port.path,
+    stream: port.stream,
+    write: (bytes) => writeTty(port, bytes),
+    close: () => closeTty(port),
+    ...("fd" in port ? {} : { closed: port.closed }),
+  }));
+}
 
 /** The serial ports open as USB links, by path. */
 export class SerialLinks {
   readonly #registry: LinkRegistry;
   /** Open ports by path, so a port is never opened twice. */
   readonly #byPath = new Map<string, LinkId>();
-  readonly #windows = new Set<WindowsSerialPort>();
+  readonly #asyncPorts = new Map<SerialBytes, Promise<void>>();
 
-  constructor(registry: LinkRegistry) {
+  constructor(
+    registry: LinkRegistry,
+    private readonly openPort: typeof nativePort = nativePort,
+  ) {
     this.#registry = registry;
   }
 
@@ -42,27 +65,31 @@ export class SerialLinks {
     const label = serialPath(path);
     const open = this.#byPath.get(label);
     if (open !== undefined) return ok(open);
-    const port = openTty(label);
+    const port = this.openPort(label);
     if (port.isErr()) return err(port.error);
     return ok(this.#attach(port.value));
   }
 
-  /** Waits for all Windows workers to finish their native calls and close their handles. */
-  async closeWindows(): Promise<void> {
-    const active = [...this.#windows];
-    for (const port of active) port.close();
-    await Promise.all(active.map((port) => port.closed));
+  /** Waits for ports with asynchronous close, including Windows serial workers. */
+  async closeAsyncPorts(): Promise<void> {
+    const pending = [...this.#asyncPorts.values()];
+    for (const port of this.#asyncPorts.keys())
+      port.close().match(
+        () => undefined,
+        () => undefined,
+      );
+    await Promise.all(pending);
   }
 
-  #attach(port: TtyPort): LinkId {
-    if (!("fd" in port)) {
-      this.#windows.add(port);
-      void port.closed.then(() => this.#windows.delete(port));
+  #attach(port: SerialBytes): LinkId {
+    if (port.closed !== undefined) {
+      this.#asyncPorts.set(port, port.closed);
+      void port.closed.then(() => this.#asyncPorts.delete(port));
     }
     const decoder = new UsbFrameDecoder();
     const opened: { link: LinkId | undefined } = { link: undefined };
     const queue = new SendQueue(
-      (bytes) => writeTty(port, encodeUsbFrame(bytes)),
+      (bytes) => port.write(encodeUsbFrame(bytes)),
       (error, refs) => {
         // A write that failed after `send` returned: each send that will not leave is
         // `sendFailed`, and the link is closed (registry.ts).
@@ -77,34 +104,33 @@ export class SerialLinks {
       close: () => {
         queue.stop();
         this.#byPath.delete(port.path);
-        return closeTty(port);
+        return port.close();
       },
     });
     opened.link = link;
     this.#byPath.set(port.path, link);
-    const stream: EventEmitter = port.stream;
-    stream.on("data", (chunk: Buffer) => {
+    port.stream.on("data", (chunk: Buffer) => {
       for (const frame of decoder.push(new Uint8Array(chunk))) {
         if (frame.ok) this.#registry.frame(link, frame.value);
         else this.#registry.reject(link, rejectionOf(frame.error.code));
       }
     });
-    stream.on("close", () => {
+    port.stream.on("close", () => {
       queue.stop();
       this.#gone(port, link, "remote");
     });
-    stream.on("error", () => {
+    port.stream.on("error", () => {
       queue.stop();
       this.#gone(port, link, "error");
     });
     return link;
   }
 
-  #gone(port: TtyPort, link: LinkId, reason: "remote" | "error"): void {
+  #gone(port: SerialBytes, link: LinkId, reason: "remote" | "error"): void {
     if (this.#byPath.get(port.path) === link) this.#byPath.delete(port.path);
     if (!this.#registry.isOpen(link)) return;
     this.#registry.closed(link, reason);
-    closeTty(port).match(
+    port.close().match(
       () => undefined,
       () => undefined,
     );

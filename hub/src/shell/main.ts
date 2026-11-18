@@ -51,7 +51,7 @@ import { prefixFrom } from "./update/notes.ts";
 import { PUBLISHER_KEYS } from "./update/publisher-keys.ts";
 import { LinkRegistry } from "./links/registry.ts";
 import { SerialLinks } from "./links/serial.ts";
-import { UsbWatch } from "./links/usb-watch.ts";
+import { UsbWatch, type UsbWatchOptions } from "./links/usb-watch.ts";
 import { WINDOWS_SERIAL } from "./safe/serial-windows.ts";
 import { serveDevices } from "./links/websocket.ts";
 import { randomBytes } from "./safe/crypto.ts";
@@ -170,7 +170,15 @@ export function hubUmask(): void {
 }
 
 /** Runs the hub until it is stopped; resolves to the exit code. */
-export async function runHub(options: MainOptions, trusted: HubTrust): Promise<number> {
+export async function runHub(
+  options: MainOptions,
+  trusted: HubTrust,
+  /** Test entry points can supply their own USB byte stream and discovery fixtures. */
+  serialFixture?: {
+    readonly open: NonNullable<ConstructorParameters<typeof SerialLinks>[1]>;
+    readonly watch: Pick<UsbWatchOptions, "folders" | "list">;
+  },
+): Promise<number> {
   const rules = DEFAULT_RULES;
   const trust = new SystemTimeTrust({
     probe: trusted.clockSynchronised === true ? undefined : probeFor(process.platform),
@@ -476,10 +484,11 @@ export async function runHub(options: MainOptions, trusted: HubTrust): Promise<n
   registry.listen((event) => {
     loop.enqueue(event);
   });
-  const serial = new SerialLinks(registry);
+  const serial = new SerialLinks(registry, serialFixture?.open);
   const watch = new UsbWatch(serial, {
     extraPaths: options.serial,
     ...(options.watchUsb ? {} : { folders: [] }),
+    ...serialFixture?.watch,
     failed: report,
     started: () => {
       say("watching Windows serial ports");
@@ -526,7 +535,8 @@ export async function runHub(options: MainOptions, trusted: HubTrust): Promise<n
   if (timer !== undefined) clearTimeout(timer);
   trust.stop();
   watch.stop();
-  if (WINDOWS_SERIAL) await Promise.all([watch.settled(), serial.closeWindows()]);
+  if (WINDOWS_SERIAL || serialFixture !== undefined)
+    await Promise.all([watch.settled(), serial.closeAsyncPorts()]);
   void devices.stop(true);
   (await (holder.control?.close() ?? okAsync(undefined))).match(
     () => undefined,

@@ -3,12 +3,12 @@
  * The boards of the browser tests (m2-design.md section 10, "The app": "scripted boards on
  * pseudo-terminals"), in real time, run by Bun as a child of the Playwright test:
  *
- * - **Three USB boards**, each on a pseudo-terminal of its own (`posix_openpt`, as
- *   `hub/test/unit/shell-links/pty-relay.ts` makes one): a gateway (a release build, so the hub
+ * - **Three USB boards**, each on a pseudo-terminal or the Windows test entry's loopback
+ *   stream: a gateway (a release build, so the hub
  *   adds it on its own, D100), a sensor and a siren (development builds, added over USB from the
  *   app, PR5). The hub is given a path for each with `--serial`, in the ports folder
  *   (`HSN_E2E_USB_DIR`); a board is **plugged in** when the bench makes that path a link to its
- *   terminal, and the hub, which watches the folder of every `--serial` path, opens it then, as it
+ *   terminal or a marker for the stream. The hub watches the folder of each path and opens it as it
  *   opens a USB port that appears. The sensor and the siren are plugged in at the start, the
  *   gateway when the test says (`plug`), so the app sees it added. Each answers setup messages as
  *   `ScriptedBoard` does (protocol.md §10). A board that accepts a pairing restarts as its role:
@@ -31,10 +31,7 @@
  * report reaches the hub), `noise-flat` (every channel sounds the same, so the survey falls back
  * to its tie-breaker). `breaks.ts` has the browser's.
  */
-import { close, constants, openSync, symlinkSync, write } from "node:fs";
 import { join } from "node:path";
-import { ReadStream } from "node:tty";
-import { CString, dlopen, FFIType } from "bun:ffi";
 import {
   dataRatesInMask,
   encodeUsbFrame,
@@ -52,7 +49,7 @@ import {
 } from "@hsn/protocol";
 import { mono, type Mono } from "../../../hub/src/core/model/time.ts";
 import { DEVICE_PATH } from "../../../hub/src/shell/links/websocket.ts";
-import { makeByteClean } from "../../../hub/src/shell/safe/serial.ts";
+import { benchPort, type BenchPort } from "./bench-port.ts";
 import { ScriptedBoard } from "../../../hub/test/unit/setup/support/board.ts";
 import { ScriptedGateway } from "../../../hub/test/world/scripted-gateway.ts";
 import { ScriptedSensor, type Transmission } from "../../../hub/test/world/scripted-sensor.ts";
@@ -142,49 +139,12 @@ function say(line: BenchLine): void {
   process.stdout.write(`${JSON.stringify(line)}\n`);
 }
 
-// ----- Pseudo-terminals (pty-relay.ts's way) -----
-
-const LIBRARY = process.platform === "darwin" ? "/usr/lib/libSystem.B.dylib" : "libc.so.6";
-const O_RDWR = 2;
-const O_NOCTTY = process.platform === "darwin" ? 0x20000 : 0o400;
-const libc = dlopen(LIBRARY, {
-  posix_openpt: { args: [FFIType.i32], returns: FFIType.i32 },
-  grantpt: { args: [FFIType.i32], returns: FFIType.i32 },
-  unlockpt: { args: [FFIType.i32], returns: FFIType.i32 },
-  ptsname: { args: [FFIType.i32], returns: FFIType.ptr },
-}).symbols;
-
-interface Pty {
-  readonly path: string;
-  readonly master: number;
-  /** The bench's own copy of the device, so the terminal stays up until the hub opens it. */
-  readonly slave: number;
-}
-
-function openPty(): Pty | undefined {
-  const master = libc.posix_openpt(O_RDWR | O_NOCTTY);
-  if (master < 0 || libc.grantpt(master) !== 0 || libc.unlockpt(master) !== 0) return undefined;
-  const name = libc.ptsname(master);
-  if (name === null) return undefined;
-  // A primitive string: bun:ffi types `CString` as one, but it is a `String` object.
-  const path = new CString(name).slice();
-  const slave = openSync(path, constants.O_RDWR | constants.O_NOCTTY);
-  const clean = makeByteClean(slave);
-  if (clean.isErr()) return undefined;
-  return { path, master, slave };
-}
-
-/** A write to a terminal whose far end is gone fails in its callback, and is let go. */
-function deliver(fd: number, bytes: Uint8Array): void {
-  write(fd, bytes, () => undefined);
-}
-
 // ----- The boards -----
 
 interface Board {
   readonly role: BoardRole;
-  readonly pty: Pty;
-  /** The path the hub is given, a link to the terminal once the board is plugged in. */
+  readonly cable: BenchPort;
+  /** The path the hub is given, published when the board is plugged in. */
   readonly port: string;
   readonly board: ScriptedBoard;
   readonly decoder: UsbFrameDecoder;
@@ -197,13 +157,19 @@ function chip(role: number): Uint8Array {
   return new Uint8Array([0x3c, 0x84, 0x27, 0xe2, 0x10, role]);
 }
 
-function makeBoard(role: BoardRole, roleNumber: number, development: boolean): Board | undefined {
-  const pty = openPty();
-  if (pty === undefined) return undefined;
+/** Makes a scripted board and its byte stream, ready to be plugged in later. */
+async function makeBoard(
+  role: BoardRole,
+  roleNumber: number,
+  development: boolean,
+): Promise<Board | undefined> {
+  const port = join(USB_DIR, role);
+  const cable = await benchPort(port);
+  if (cable === undefined) return undefined;
   return {
     role,
-    pty,
-    port: join(USB_DIR, role),
+    cable,
+    port,
     board: new ScriptedBoard({ role: roleNumber, chipId: chip(roleNumber), development }),
     decoder: new UsbFrameDecoder(),
     pairing: undefined,
@@ -215,21 +181,21 @@ function allMade(made: readonly (Board | undefined)[]): made is readonly [Board,
   return made.length === 3 && made.every((board) => board !== undefined);
 }
 
-const made = [
+const made = await Promise.all([
   makeBoard("gateway", Role.Gateway, false),
   makeBoard("sensor", Role.Sensor, true),
   makeBoard("siren", Role.Siren, true),
-] as const;
+]);
 if (!allMade(made)) {
-  say({ kind: "problem", message: "no pseudo-terminal" });
+  say({ kind: "problem", message: "no bench port" });
   process.exit(1);
 }
 const [gatewayBoard, sensorBoard, sirenBoard] = made;
 const boards: readonly Board[] = made;
 
-/** Plugs a board in: its port's path appears, a link to its terminal. */
+/** Plugs a board in so its port's path appears. */
 function plug(board: Board): void {
-  symlinkSync(board.pty.path, board.port);
+  board.cable.plug();
 }
 
 // ----- The roles, once paired -----
@@ -267,7 +233,7 @@ function airtimeUs(dataRate: number, length: number): number {
 }
 
 function writeFrame(board: Board, bytes: Uint8Array): void {
-  deliver(board.pty.master, encodeUsbFrame(bytes));
+  board.cable.send(encodeUsbFrame(bytes));
 }
 
 function onAir(t: OnAir): void {
@@ -396,13 +362,11 @@ function fromHub(board: Board, bytes: Uint8Array): void {
 }
 
 for (const board of boards) {
-  const stream = new ReadStream(board.pty.master);
-  stream.on("data", (chunk: Buffer) => {
+  board.cable.receive((chunk) => {
     for (const frame of board.decoder.push(new Uint8Array(chunk))) {
       if (frame.ok) fromHub(board, frame.value);
     }
   });
-  stream.on("error", () => undefined);
 }
 
 function gatewayStatus(at: number): Uint8Array | undefined {
@@ -527,9 +491,7 @@ function state(): BenchState {
 function quit(): void {
   clearInterval(timer);
   sirenSocket?.close();
-  for (const board of boards) {
-    for (const fd of [board.pty.slave, board.pty.master]) close(fd, () => undefined);
-  }
+  for (const board of boards) board.cable.close();
   setTimeout(() => process.exit(0), 50);
 }
 
