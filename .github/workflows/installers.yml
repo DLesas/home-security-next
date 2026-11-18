@@ -1089,6 +1089,10 @@ jobs:
             if ($products.Count -eq 1 -and $products[0].DisplayVersion -eq $env:UPGRADE_VERSION) { $true } else { "$($products.Count) entries: $($products.DisplayVersion -join ', ')" }
           }
           Write-Output "Installed Programs: $($products.Count) HSN Hub entries ($($products.DisplayVersion -join ', '))"
+          Test-Check "The package version marker names the new version" {
+            $marker = Get-Content -LiteralPath (Join-Path $package 'version') -ErrorAction SilentlyContinue
+            if ($marker -eq $env:UPGRADE_VERSION) { $true } else { "version marker: $marker" }
+          }
           $versions = @(Get-ChildItem -LiteralPath $packaged -Directory | Sort-Object Name | ForEach-Object { $_.Name })
           Test-Check "The package keeps exactly the current and previous version with their files" {
             $expected = @($env:VERSION, $env:UPGRADE_VERSION) | Sort-Object

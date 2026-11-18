@@ -184,6 +184,7 @@ describe("Windows: the service and the .msi", () => {
     expect(wxs).toContain('Schedule="afterInstallExecute"');
     expect(wxs).toContain('<Custom Action="PrepareUpgrade" Before="InstallFiles"');
     expect(wxs).toContain('<Custom Action="InstallService" After="RemoveExistingProducts"');
+    expect(wxs).toMatch(/Id="REINSTALLMODE" Value="amus"[^>]+Condition="WIX_UPGRADE_DETECTED"/u);
     expect(wxs).toContain("-LocalAppData &quot;[LocalAppDataFolder].&quot;");
     expect(wxs).toContain("-UILevel [UILevel]");
     expect(wxs).toContain('Name="HSN Hub setup"');
