@@ -253,7 +253,9 @@ jobs:
         run: |
           . .github/workflows/installer-checks.ps1
           # Failed navigations can show a console/link URL. Redact before printing any output.
-          & bun run app:e2e 2>&1 | ForEach-Object { Hide-Secrets $_.ToString() }
+          & bun run app:e2e 2>&1 | ForEach-Object {
+            Hide-Secrets ($_.ToString() -creplace '\b[0-9A-Z]{4}-[0-9A-Z]{4}-[0-9A-Z]{3}[0-9A-Z*~$=]', '[redacted code]')
+          }
           exit $LASTEXITCODE
 
   # hsn's drop of root (m2-design.md section 9, "Dropping privileges in Bun"), proved where it
