@@ -89,6 +89,8 @@ describe("listing a folder, on this computer", () => {
     folders.push(dir);
     expect(listFolder(dir)).toBe("listed");
     expect(listFolder(join(dir, "none"))).toBe("missing");
+    // POSIX mode bits cannot deny Windows access; windows-hub.test.ts probes the real second account.
+    if (process.platform === "win32") return;
     const shut = join(dir, "shut");
     mkdirSync(shut);
     chmodSync(shut, 0o000);

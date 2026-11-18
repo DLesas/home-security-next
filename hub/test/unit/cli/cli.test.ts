@@ -5,6 +5,7 @@
  * input; text from the hub printed with its control characters escaped; and the real process's
  * exit code. The fake hub is the real socket server with a sink that answers by command.
  */
+import { ownSid } from "../shell-control/windows-folders.ts";
 import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { err as errResult, ok as okResult, type Result } from "neverthrow";
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -94,6 +95,7 @@ function io(stdin = "", onInterrupt: CliIo["onInterrupt"] = () => undefined) {
       noteOutput(line);
       err.push(line);
     },
+    ...(process.platform === "win32" ? { hubAccount: ownSid() } : {}),
     env: { HSN_DATA_DIR: where.folder, USER: "dimitri" },
     stdin: () => Promise.resolve(stdin),
     nowMs: () => Date.UTC(2026, 10, 13, 12),
