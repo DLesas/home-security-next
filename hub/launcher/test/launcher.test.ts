@@ -5,10 +5,19 @@
  * version removed, and the rollbacks: on an exit before health, on a hang, and with the
  * pre-migration copy put back.
  */
-import { afterAll, beforeEach, describe, expect, setDefaultTimeout, test } from "bun:test";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  setDefaultTimeout,
+  test,
+} from "bun:test";
 import {
   chmodSync,
   existsSync,
+  linkSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -17,10 +26,17 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { icacls, ownSid } from "../../test/unit/shell-control/windows-folders.ts";
 import { endProcesses, spawnTracked } from "../../test/world/processes.ts";
 import { Backoff } from "../src/backoff.ts";
 import { Launcher, type LauncherOptions, STATUS_FILE } from "../src/launcher.ts";
-import { installPaths, isVersionName, parseLauncherState, parseSwitchNote } from "../src/layout.ts";
+import {
+  installPaths,
+  programIn,
+  isVersionName,
+  parseLauncherState,
+  parseSwitchNote,
+} from "../src/layout.ts";
 import { parseLauncherArgs } from "../src/main.ts";
 
 const FAKE_HUB = join(import.meta.dir, "fake-hub.ts");
@@ -33,6 +49,23 @@ const folders: string[] = [];
 // Real child processes: on a machine running the whole suite a start can take seconds; the
 // waits below (`until`, 8 s) bound each test, not the runner's 5 s default.
 setDefaultTimeout(20_000);
+
+// Build once with the running Bun so the real launcher can execute the same stand-in on every host.
+let executable: string;
+beforeAll(() => {
+  const folder = mkdtempSync(join(tmpdir(), "hsn-fake-"));
+  folders.push(folder);
+  executable = join(folder, process.platform === "win32" ? "fake.exe" : "fake");
+  const built = Bun.spawnSync([
+    process.execPath,
+    "build",
+    "--compile",
+    FAKE_HUB,
+    "--outfile",
+    executable,
+  ]);
+  expect(built.exitCode).toBe(0);
+});
 
 afterAll(async () => {
   await endProcesses();
@@ -64,14 +97,16 @@ function installWith(packaged: readonly string[], staged: readonly string[] = []
     ...staged.map((v) => join(programRoot, "staged", v)),
   ];
   for (const folder of all) {
-    const version = folder.split(/[\\/]/u).at(-1) ?? "";
-    const bin = join(folder, "bin");
-    mkdirSync(bin, { recursive: true });
-    const program = join(bin, "hsn-hub");
-    writeFileSync(program, `#!/bin/sh\nexec "${process.execPath}" "${FAKE_HUB}" ${version} "$@"\n`);
-    chmodSync(program, 0o755);
+    mkdirSync(join(folder, "bin"), { recursive: true });
+    linkSync(executable, programIn(folder));
   }
   return { packageRoot, programRoot, data };
+}
+
+/** WinSW signals the hub separately on Windows; tell the stand-in when the service stops. */
+function stop(launcher: Launcher): void {
+  launcher.stop();
+  if (process.platform === "win32") writeFileSync(join(install.data, "service-stop"), "");
 }
 
 function paths(): ReturnType<typeof installPaths> {
@@ -233,7 +268,7 @@ describe("restarts", () => {
     expect(gaps[0]).toBeGreaterThanOrEqual(45);
     expect(gaps[1]).toBeGreaterThanOrEqual(195);
     expect(gaps[2]).toBeGreaterThanOrEqual(395);
-    l.stop();
+    stop(l);
     expect(await ran).toBe(0);
     expect(startsLog().at(-1)).toBe("1.0.0 clean");
     expect(l.starts).toBe(4);
@@ -278,7 +313,7 @@ describe("restarts", () => {
     expect(logged.length).toBeGreaterThanOrEqual(3);
     expect(await until(() => startsLog().length === 5)).toBe(true);
     expect(existsSync(status)).toBe(false);
-    l.stop();
+    stop(l);
     expect(await ran).toBe(0);
   });
 
@@ -288,17 +323,17 @@ describe("restarts", () => {
     const ran = l.run();
     expect(await until(() => startsLog().length === 1)).toBe(true);
     await Bun.sleep(200);
-    l.stop();
+    stop(l);
     expect(await ran).toBe(0);
     expect(startsLog()).toEqual(["1.0.0 1"]);
   });
 
   test("a program that cannot start is a failure, retried with the backoff", async () => {
-    rmSync(join(install.packageRoot, "packaged", "1.0.0", "bin", "hsn-hub"));
+    rmSync(programIn(join(install.packageRoot, "packaged", "1.0.0")));
     const l = launcher();
     const ran = l.run();
     await Bun.sleep(400);
-    l.stop();
+    stop(l);
     expect(await ran).toBe(0);
     expect(l.starts).toBe(0);
   });
@@ -341,7 +376,7 @@ describe("updates", () => {
     expect(existsSync(join(install.programRoot, "staged", "0.9.0"))).toBe(false);
     expect(existsSync(join(install.packageRoot, "packaged", "1.0.0"))).toBe(true);
     expect(existsSync(paths().switchFile)).toBe(false);
-    l.stop();
+    stop(l);
     expect(await ran).toBe(0);
     expect(startsLog()).toEqual(["1.0.0 1", "1.1.0 1", "1.1.0 clean"]);
   });
@@ -354,7 +389,7 @@ describe("updates", () => {
     expect(await until(() => startsLog().length === 3)).toBe(true);
     expect(startsLog()).toEqual(["1.0.0 1", "1.1.0 1", "1.0.0 2"]);
     expect(state()).toMatchObject({ current: "1.0.0", trial: null, rolledBack: { from: "1.1.0" } });
-    l.stop();
+    stop(l);
     expect(await ran).toBe(0);
   });
 
@@ -366,7 +401,7 @@ describe("updates", () => {
     expect(await until(() => startsLog().length === 3)).toBe(true);
     expect(startsLog()).toEqual(["1.0.0 1", "1.1.0 1", "1.0.0 2"]);
     expect(state()).toMatchObject({ current: "1.0.0", rolledBack: { from: "1.1.0" } });
-    l.stop();
+    stop(l);
     expect(await ran).toBe(0);
   });
 
@@ -378,7 +413,7 @@ describe("updates", () => {
     expect(await until(() => startsLog().length === 3, 6000)).toBe(true);
     expect(startsLog()).toEqual(["1.0.0 1", "1.1.0 1", "1.0.0 2"]);
     expect(state()?.rolledBack?.reason).toContain("update_healthy");
-    l.stop();
+    stop(l);
     expect(await ran).toBe(0);
   });
 
@@ -390,7 +425,7 @@ describe("updates", () => {
     expect(await until(() => startsLog().length === 3)).toBe(true);
     expect(readFileSync(join(install.data, "hub.db"), "utf8")).toBe("the database of 1.0.0");
     expect(existsSync(join(install.data, "hub.db-wal"))).toBe(false);
-    l.stop();
+    stop(l);
     expect(await ran).toBe(0);
   });
 
@@ -403,7 +438,7 @@ describe("updates", () => {
     expect(await until(() => startsLog().length === 3)).toBe(true);
     expect(readFileSync(join(install.data, "hub.db"), "utf8")).toBe("the database of 1.0.0");
     expect(readFileSync(join(install.data, "hub.db.copying"), "utf8")).toBe("half a cop");
-    l.stop();
+    stop(l);
     expect(await ran).toBe(0);
   });
 
@@ -414,7 +449,7 @@ describe("updates", () => {
     const ran = l.run();
     expect(await until(() => startsLog().length === 3)).toBe(true);
     expect(readFileSync(join(install.data, "hub.db"), "utf8")).toBe("the database of 1.0.0");
-    l.stop();
+    stop(l);
     expect(await ran).toBe(0);
   });
 
@@ -426,7 +461,7 @@ describe("updates", () => {
     const ran = l.run();
     expect(await until(() => startsLog().length === 3)).toBe(true);
     expect(readFileSync(join(install.data, "hub.db"), "utf8")).toBe("the database of 1.0.0");
-    l.stop();
+    stop(l);
     expect(await ran).toBe(0);
   });
 
@@ -444,14 +479,14 @@ describe("updates", () => {
     const first = launcher();
     const ran = first.run();
     expect(await until(() => startsLog().length === 2)).toBe(true);
-    first.stop();
+    stop(first);
     expect(await ran).toBe(0);
     expect(state()?.trial?.version).toBe("1.1.0");
     const second = launcher();
     const again = second.run();
     expect(await until(() => state()?.trial === null)).toBe(true);
     expect(state()?.current).toBe("1.1.0");
-    second.stop();
+    stop(second);
     expect(await again).toBe(0);
   });
 });
@@ -489,7 +524,7 @@ describe('a package\'s version (section 9, "The privilege boundary")', () => {
       rolledBack: null,
       failed: [],
     });
-    l.stop();
+    stop(l);
     expect(await ran).toBe(0);
   });
 
@@ -511,7 +546,7 @@ describe('a package\'s version (section 9, "The privilege boundary")', () => {
       failed: ["1.1.0"],
     });
     expect(readFileSync(join(install.data, "hub.db"), "utf8")).toBe("the database of 1.0.0");
-    l.stop();
+    stop(l);
     expect(await ran).toBe(0);
   });
 
@@ -525,7 +560,7 @@ describe('a package\'s version (section 9, "The privilege boundary")', () => {
     // The new version is stopped (its "clean" line), then the old one started.
     expect(await until(() => startsLog().includes("1.0.0 1"), 6000)).toBe(true);
     expect(state()).toMatchObject({ current: "1.0.0", rolledBack: { from: "1.1.0" } });
-    l.stop();
+    stop(l);
     expect(await ran).toBe(0);
   });
 
@@ -593,6 +628,8 @@ describe('a package\'s version (section 9, "The privilege boundary")', () => {
     current("1.0.0");
     plan("1.1.0", [{ exit: 1 }]);
     plan("1.0.0", [{ exit: 0 }]);
+    if (process.platform === "win32")
+      expect(icacls(install.packageRoot, "/deny", `*${ownSid()}:(OI)(CI)(WD,AD,DC)`).code).toBe(0);
     chmodSync(install.packageRoot, 0o555);
     chmodSync(join(install.packageRoot, "packaged"), 0o555);
     const l = launcher();
@@ -600,29 +637,35 @@ describe('a package\'s version (section 9, "The privilege boundary")', () => {
     expect(startsLog()).toEqual(["1.1.0 1", "1.0.0 1"]);
     chmodSync(join(install.packageRoot, "packaged"), 0o755);
     chmodSync(install.packageRoot, 0o755);
+    if (process.platform === "win32")
+      expect(icacls(install.packageRoot, "/remove:d", `*${ownSid()}`).code).toBe(0);
   });
 });
 
 describe("as a process", () => {
-  test("hsn-launcher runs the hub and exits 0 on SIGTERM, after the hub's clean stop", async () => {
-    install = installWith(["1.0.0"]);
-    plan("1.0.0", [{ hang: true }]);
-    const process = spawnTracked(
-      [
-        Bun.argv[0] ?? "bun",
-        join(import.meta.dir, "..", "src", "main.ts"),
-        "--package",
-        install.packageRoot,
-        "--program",
-        install.programRoot,
-        "--data",
-        install.data,
-      ],
-      { stdout: "ignore", stderr: "ignore" },
-    );
-    expect(await until(() => startsLog().length === 1)).toBe(true);
-    process.kill("SIGTERM");
-    expect(await process.exited).toBe(0);
-    expect(startsLog()).toEqual(["1.0.0 1", "1.0.0 clean"]);
-  });
+  // Windows has no POSIX SIGTERM; WinSW delivers a console event to the service process tree.
+  test.skipIf(process.platform === "win32")(
+    "hsn-launcher runs the hub and exits 0 on SIGTERM, after the hub's clean stop",
+    async () => {
+      install = installWith(["1.0.0"]);
+      plan("1.0.0", [{ hang: true }]);
+      const process = spawnTracked(
+        [
+          Bun.argv[0] ?? "bun",
+          join(import.meta.dir, "..", "src", "main.ts"),
+          "--package",
+          install.packageRoot,
+          "--program",
+          install.programRoot,
+          "--data",
+          install.data,
+        ],
+        { stdout: "ignore", stderr: "ignore" },
+      );
+      expect(await until(() => startsLog().length === 1)).toBe(true);
+      process.kill("SIGTERM");
+      expect(await process.exited).toBe(0);
+      expect(startsLog()).toEqual(["1.0.0 1", "1.0.0 clean"]);
+    },
+  );
 });
