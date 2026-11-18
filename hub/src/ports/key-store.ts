@@ -9,6 +9,12 @@ import type { StoreOp } from "../core/model/store.ts";
  */
 export interface KeyStore {
   key(device: DeviceId): Uint8Array | undefined;
+  /**
+   * The device's next key during a key change after a restore (`device_keys.next_key`, D141), which
+   * `DeviceCipher.open` tries first. Optional until K1 builds it (step 1); the shell's store then
+   * implements it, and the cipher treats its absence as no next key.
+   */
+  nextKey?(device: DeviceId): Uint8Array | undefined;
   /** Applies the `device_keys` upserts and deletes of a commit, after it succeeded. */
   applyCommitted(ops: readonly StoreOp[]): void;
 }

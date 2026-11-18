@@ -3,7 +3,7 @@
  * module that owns them. The dispatcher runs every due timer at the start of every step, as a
  * `timer` message to that module only. Each module's `deadlines(slice)` lists its timers.
  */
-import type { DeviceId, LinkId, ScheduleId, TokenId } from "./ids.ts";
+import type { DeviceId, LinkId, OutboxId, RolloutId, ScheduleId, TokenId } from "./ids.ts";
 import type { ModuleName } from "./modules.ts";
 import type { Mono } from "./time.ts";
 
@@ -69,7 +69,30 @@ export type TimerKey =
   /** The restore token's expiry, 10 minutes ‡ after it was made (section 9). */
   | { readonly module: "upkeep"; readonly kind: "restoreExpiry" }
   /** An approved update waiting for no countdown, alarm, site move, provisioning or restore (D54). */
-  | { readonly module: "upkeep"; readonly kind: "updateWait" };
+  | { readonly module: "upkeep"; readonly kind: "updateWait" }
+  // The joint step 0 of M3 and M4 (docs/m3-m4-plan.md).
+  /** relay: the link down for 180 s ‡: `relay_unreachable`, once per outage (m4-design section 4). */
+  | { readonly module: "relay"; readonly kind: "unreachable" }
+  /** relay: the end of the hour ‡ whose ups and downs one `relay_link` record sums. */
+  | { readonly module: "relay"; readonly kind: "linkRecord" }
+  /** relay: a `limited` or `failed` push tried again (1, 5, 15 minutes ‡, then every 15). */
+  | { readonly module: "relay"; readonly kind: "pushRetry"; readonly id: OutboxId }
+  /** relay: the oldest outbox row reaches 7 days ‡: `push_dropped`. */
+  | { readonly module: "relay"; readonly kind: "outboxExpiry" }
+  /** relay: the roster's sealed alerts made again ‡. */
+  | { readonly module: "relay"; readonly kind: "rosterRefresh" }
+  /** firmware: the soak after the last pilot ends (an hour ‡). */
+  | { readonly module: "firmware"; readonly kind: "soakEnd"; readonly rollout: RolloutId }
+  /** firmware: a go-ahead's trial deadline plus 2 minutes ‡ without a Started: `noContact`. */
+  | { readonly module: "firmware"; readonly kind: "trialWatch"; readonly device: DeviceId }
+  /** firmware: a Bluetooth session's life ends (15 minutes ‡). */
+  | { readonly module: "firmware"; readonly kind: "sessionExpiry"; readonly device: DeviceId }
+  /** firmware: D91's reminder for a sensor held armed (24 hours ‡, then daily). */
+  | { readonly module: "firmware"; readonly kind: "armedReminder"; readonly device: DeviceId }
+  /** firmware: a gateway held as always busy is offered again (an hour ‡). */
+  | { readonly module: "firmware"; readonly kind: "gatewayBusyRetry"; readonly device: DeviceId }
+  /** firmware: the next `deviceUpdate` progress event may go (2 s ‡). */
+  | { readonly module: "firmware"; readonly kind: "progressEvent"; readonly device: DeviceId };
 
 /** The timer keys one module owns. */
 export type TimerKeyOf<M extends ModuleName> = Extract<TimerKey, { readonly module: M }>;

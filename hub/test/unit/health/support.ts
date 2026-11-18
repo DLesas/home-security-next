@@ -51,6 +51,8 @@ import { EMPTY_SIRENS_SLICE } from "../../../src/core/sirens/state.ts";
 import { EMPTY_HEALTH_SLICE } from "../../../src/core/health/state.ts";
 import { EMPTY_NOTIFY_SLICE } from "../../../src/core/notify/state.ts";
 import { EMPTY_UPKEEP_SLICE } from "../../../src/core/upkeep/state.ts";
+import { EMPTY_FIRMWARE_SLICE } from "../../../src/core/firmware/state.ts";
+import { EMPTY_RELAY_SLICE } from "../../../src/core/relay/state.ts";
 import { EMPTY_AUDIT_SLICE } from "../../../src/core/audit/state.ts";
 import { entropyCursor } from "../../../src/core/util/entropy.ts";
 import { UNBUILT_CALENDAR } from "../../../src/shell/calendar/unbuilt.ts";
@@ -62,6 +64,7 @@ export const DEPS: CoreDeps = {
   rules: DEFAULT_RULES,
   calendar: UNBUILT_CALENDAR,
   sha256: nodeSha256,
+  checkDeadlines: true,
 };
 
 export const SECOND_US = 1_000_000;
@@ -107,6 +110,7 @@ function emptyState(): HubState {
     setup: EMPTY_SETUP_SLICE,
     control: EMPTY_CONTROL_SLICE,
     people: EMPTY_PEOPLE_SLICE,
+    relay: EMPTY_RELAY_SLICE,
     layout: EMPTY_LAYOUT_SLICE,
     app: EMPTY_APP_SLICE,
     schedules: EMPTY_SCHEDULES_SLICE,
@@ -114,6 +118,7 @@ function emptyState(): HubState {
     intake: EMPTY_INTAKE_SLICE,
     alarm: EMPTY_ALARM_SLICE,
     site: EMPTY_SITE_SLICE,
+    firmware: EMPTY_FIRMWARE_SLICE,
     sensors: EMPTY_SENSORS_SLICE,
     slots: EMPTY_SLOTS_SLICE,
     sirens: EMPTY_SIRENS_SLICE,

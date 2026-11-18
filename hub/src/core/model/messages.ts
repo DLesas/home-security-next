@@ -3,8 +3,20 @@
  * and sections 7 and 8). Modules talk only through these: plain data on one queue, handled in
  * the fixed module order. Every input event is also a message, under its own kind.
  */
-import type { Message, TransmitPriority } from "@hsn/protocol";
-import type { AppError, AppOp, NotificationObject } from "@hsn/protocol/app";
+import type {
+  Message,
+  MessageOf,
+  MessageType,
+  StartedImage,
+  TransmitPriority,
+} from "@hsn/protocol";
+import type {
+  AppErrorV2,
+  AppEventBodyV2,
+  AppOp,
+  AppOpV2,
+  NotificationObject,
+} from "@hsn/protocol/app";
 import type { AuditRecord } from "./audit.ts";
 import type { ControlCommand, ControlReply } from "./control.ts";
 import type { RejectReason } from "./errors.ts";
@@ -22,7 +34,7 @@ import type {
   Seq,
   TokenId,
 } from "./ids.ts";
-import type { M2ModuleName } from "./modules.ts";
+import type { M2ModuleName, M3M4ModuleName } from "./modules.ts";
 import type { ArmState, MoveStageName, TxOutcome } from "./rows.ts";
 import type { Durability } from "./store.ts";
 import type { Mono } from "./time.ts";
@@ -169,9 +181,21 @@ export type AnswerTo =
       readonly record: Seq;
     };
 
-/** An operation's outcome as its owner gives it: the reply's body, or one of section 5's errors. */
+/**
+ * An operation's outcome as its owner gives it: the reply's body, or one of section 5's errors, in
+ * channel version 2's scheme (`appErrorV2`, docs/m3-m4-plan.md "Error codes"), which holds every
+ * version 1 error unchanged. `firmware` and `relay` refuse with version 2's values as they are.
+ *
+ * A version 1 session is never sent a version 2 error: the one place an outcome becomes a reply,
+ * `replyOf` (`people/replies.ts`), builds version 1's `AppReply`, whose error type is version 1's
+ * `AppError`, so the type check refuses to pass this error there unless it goes through
+ * `version1Error` (`@hsn/protocol/app`), which sends a version 1 error as it is and anything only
+ * version 2 can say as `protoUnsupported`. `hsn` is not a versioned client: its `controlError.app`
+ * carries version 2's errors.
+ */
 export type OpOutcome =
-  { readonly ok: true; readonly body: unknown } | { readonly ok: false; readonly error: AppError };
+  | { readonly ok: true; readonly body: unknown }
+  | { readonly ok: false; readonly error: AppErrorV2 };
 
 /** The confirmation a person's request carries (D50, AL12); a schedule's never asks (AL7). */
 export interface Confirmation {
@@ -262,6 +286,14 @@ export type DomainMessage =
       readonly record: Seq;
       /** True when its counter is the highest accepted from the device: readings follow it. */
       readonly newest: boolean;
+      /**
+       * A Started's M3 fields (m3-updates-design section 5), as `openPacket` gives them in
+       * `OpenedPacket.startedImage`: the image flags (on trial, rolled back since the last
+       * confirmed image) and the failed version. Absent for any other message, and for a Started
+       * from a device older than M3 (an 8-byte body), which reads as neither on trial nor rolled
+       * back.
+       */
+      readonly startedImage?: StartedImage;
     }
   /** A rejected frame or packet, to be counted (HB15). */
   | {
@@ -430,6 +462,20 @@ export type DomainMessage =
       /** The request's `commands` record, which the decisions it causes name (D110). */
       readonly record: Seq;
     }
+  /**
+   * The same, for the joint step 0's modules (`firmware`, `relay`), which own only version 2's
+   * operations (docs/m3-m4-plan.md). `app` and control send it once the shell agrees version 2
+   * (step 2); M2's modules' own version 2 rows (`backup.keyHeld`, `update.offers`, `update.fetch`,
+   * `presence.set`, `pair.*`) join `opRequest` then. Answered with `opAnswer`, as `opRequest` is.
+   */
+  | {
+      readonly kind: "v2OpRequest";
+      readonly owner: M3M4ModuleName;
+      readonly op: AppOpV2;
+      readonly actor: Actor;
+      readonly answerTo: AnswerTo;
+      readonly record: Seq;
+    }
   /** The owner's answer: control turns it into a `respond`, app into an `appSend` reply. */
   | { readonly kind: "opAnswer"; readonly answerTo: AnswerTo; readonly outcome: OpOutcome }
   /** control: `hsn open` asks people for a one-time console token (section 5, "The console"). */
@@ -480,7 +526,48 @@ export type DomainMessage =
       readonly kind: "notificationRaised";
       readonly notification: NotificationObject;
       readonly clients: readonly ClientId[];
-    };
+    }
+
+  // The joint step 0 of M3 and M4 (docs/m3-m4-plan.md).
+  /**
+   * firmware: an Update offer (0x83) for the module that owns the device's key (HD 2: `firmware`
+   * decides, the owner seals): `sensors` binds it to the packet it answers, `sirens` sends it as
+   * settings are (strictly higher counter), `gateways` inside the session (m3-updates section 5).
+   * `answers` is the sensor packet it is bound to, when there is one.
+   */
+  | {
+      readonly kind: "updateOffer";
+      readonly device: DeviceId;
+      readonly offer: MessageOf<typeof MessageType.UpdateOffer>;
+      readonly answers: { readonly counter: number; readonly record: Seq } | undefined;
+    }
+  /**
+   * intake: an authentic packet under a device's old key while its `rekey` is set (D141): its tag
+   * verified with `key`, its `rx` row flagged `oldKey`, its replay window untouched. Never acted
+   * on: the module that owns the device's key answers it with a Key change (0x84).
+   */
+  | {
+      readonly kind: "oldKeyPacket";
+      readonly device: DeviceId;
+      /** A protocol `Role`. */
+      readonly role: number;
+      readonly counter: number;
+      readonly message: Message;
+      readonly arrival: Arrival;
+      readonly record: Seq;
+    }
+  /**
+   * firmware: a `deviceUpdate` event is due (m3-updates section 4: a transition of the device's
+   * update, or progress at most every `HubRules.firmware.progressEventEveryMs` ‡), for `app` to send
+   * to the sessions of people with manage system that follow the `devices` topic, as it sends
+   * `notificationRaised`'s. `app` sits before `firmware` in `MODULE_ORDER`, so it takes the message
+   * in a later turn of the same step's queue (HD 2), and sends the event in that step. `body` is the
+   * event's body exactly as sent.
+   */
+  | { readonly kind: "deviceUpdateEvent"; readonly body: DeviceUpdateEventBody };
+
+/** A `deviceUpdate` event's body (channel version 2, `APP_EVENTS_V2.deviceUpdate`). */
+export type DeviceUpdateEventBody = AppEventBodyV2<"deviceUpdate">;
 
 /** Every message on the dispatcher's queue: input events and domain messages. */
 export type Internal = HubEvent | DomainMessage;

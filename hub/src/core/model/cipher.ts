@@ -27,7 +27,21 @@ export interface SealRequest {
   readonly counter: number;
   readonly binding: Uint8Array;
   readonly maxLength: MaxPacketLength;
+  /**
+   * Which of the device's keys to seal under (D141, m3-updates-design section 7): a Key change is
+   * sealed under the current (old) key; absent is `current`.
+   */
+  readonly key?: KeyUsed;
 }
+
+/**
+ * Which of a device's keys a packet opened under (m3-updates-design section 7): `next` only during
+ * a key change after a restore, when `KeyStore` holds both and `open` tries `next` first.
+ */
+export type KeyUsed = "current" | "next";
+
+/** An opened packet, with the key it opened under; absent is `current`. */
+export type DeviceOpened = OpenedPacket & { readonly keyUsed?: KeyUsed };
 
 /** Why a packet did not open, with its plaintext when it was authentic (section 8, §5, §11). */
 export interface OpenFailure {
@@ -64,5 +78,5 @@ export interface DeviceCipher {
     device: DeviceId,
     packet: Uint8Array,
     request: OpenRequest,
-  ): Result<OpenedPacket, OpenFailure>;
+  ): Result<DeviceOpened, OpenFailure>;
 }

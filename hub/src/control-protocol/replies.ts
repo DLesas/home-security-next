@@ -3,7 +3,7 @@
  * makes it in a `respond` effect and the CLI checks it. A success carries a result of the
  * command's own kind; a failure carries an error the CLI shows.
  */
-import { appError } from "@hsn/protocol/app";
+import { appErrorV2 } from "@hsn/protocol/app";
 import { z } from "zod";
 import { recordJson } from "./records.ts";
 import { dataRate, deviceName, hexBytes, roleName, siteChannel, time, unsigned } from "./values.ts";
@@ -347,8 +347,13 @@ export const controlError = z
     code: controlErrorCode,
     message: z.string(),
     names: names.optional(),
-    /** For `op` commands: the operation's own error, as an app would get it (section 5). */
-    app: appError.optional(),
+    /**
+     * For `op` commands: the operation's own error, as an app would get it (section 5), in channel
+     * version 2's scheme, which holds version 1's errors unchanged: `hsn` ships with the hub and
+     * agrees no version, and its version 2 operations (`CONTROL_OPS_V2`) refuse with version 2's
+     * values (docs/m3-m4-plan.md, "Error codes").
+     */
+    app: appErrorV2.optional(),
   })
   .readonly();
 

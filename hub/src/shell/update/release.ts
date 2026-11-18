@@ -19,28 +19,29 @@
  * Ed25519 is node's (`node:crypto`), wrapped by `Result.fromThrowable` here.
  */
 import { createPrivateKey, createPublicKey, sign, verify } from "node:crypto";
+import {
+  HUB_RELEASE,
+  hubManifestSchema,
+  type HubManifest,
+  RELEASE_PLATFORMS,
+  RELEASE_VERSION,
+  type ReleasePlatform,
+} from "@hsn/protocol/release";
 import { err, ok, Result } from "neverthrow";
-import { z } from "zod";
 import type { FileFailure } from "../../core/model/events.ts";
 import { joined } from "../backup/files.ts";
 
-export const RELEASE = {
-  magic: "HSNR",
-  format: 2,
-  fixedBytes: 12,
-  signatureBytes: 64,
-  /** The signed bytes start with this label and a zero byte. */
-  label: "hsn-release/1",
-  extension: ".hsnr",
-  /** The manifest's largest size ‡. */
-  maxManifestBytes: 1024 * 1024,
-  /** At most this many files ‡ ... */
-  maxFiles: 4096,
-  /** ... each at most this large ‡. */
-  maxFileBytes: 256 * 1024 * 1024,
-  /** A path's largest size, in bytes. */
-  maxPathBytes: 255,
-} as const;
+// The format's values and the manifest's schema are `@hsn/protocol/release`'s, shared with the
+// relay (m4-design.md section 6); the names below are the ones this file has always exported.
+export const RELEASE = HUB_RELEASE;
+export {
+  RELEASE_PLATFORMS,
+  type ReleasePlatform,
+  releaseFileSchema,
+  type ReleaseFile,
+} from "@hsn/protocol/release";
+export const manifestSchema = hubManifestSchema;
+export type Manifest = HubManifest;
 
 /** One part of a path: 1 to 64 of `A-Z a-z 0-9 . _ -`, never `.` or `..`. */
 const PATH_PART = /^[A-Za-z0-9._-]{1,64}$/u;
@@ -51,39 +52,7 @@ export function isSafePath(path: string): boolean {
   return path.split("/").every((part) => PATH_PART.test(part) && part !== "." && part !== "..");
 }
 
-export const RELEASE_PLATFORMS = [
-  "darwin-arm64",
-  "linux-x64",
-  "linux-arm64",
-  "windows-x64",
-] as const;
-export type ReleasePlatform = (typeof RELEASE_PLATFORMS)[number];
-
-const VERSION = /^(0|[1-9]\d{0,8})\.(0|[1-9]\d{0,8})\.(0|[1-9]\d{0,8})$/u;
-
-const sha256Hex = z.string().regex(/^[0-9a-f]{64}$/u);
-
-export const releaseFileSchema = z
-  .strictObject({
-    path: z.string(),
-    bytes: z.int().min(0).max(RELEASE.maxFileBytes),
-    sha256: sha256Hex,
-    executable: z.boolean(),
-  })
-  .readonly();
-export type ReleaseFile = z.infer<typeof releaseFileSchema>;
-
-export const manifestSchema = z
-  .strictObject({
-    version: z.string().regex(VERSION),
-    platform: z.enum(RELEASE_PLATFORMS),
-    madeMs: z.int().min(0),
-    payloadBytes: z.int().min(1),
-    payloadSha256: sha256Hex,
-    files: z.array(releaseFileSchema).min(1).max(RELEASE.maxFiles).readonly(),
-  })
-  .readonly();
-export type Manifest = z.infer<typeof manifestSchema>;
+const VERSION = RELEASE_VERSION;
 
 /**
  * What the schema cannot say of a manifest (section 9): every path safe and unique (folders are

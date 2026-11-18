@@ -10,7 +10,7 @@
  * so the first migration's two CREATE TABLE statements end in `WITHOUT ROWID`, added by hand
  * after generation; a test checks it.
  */
-import { isNull } from "drizzle-orm";
+import { isNull, sql } from "drizzle-orm";
 import { blob, integer, primaryKey, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 const bytes = (name: string) => blob(name, { mode: "buffer" });
@@ -41,6 +41,10 @@ export const devices = sqliteTable("devices", {
 export const deviceKeys = sqliteTable("device_keys", {
   deviceId: integer("device_id").primaryKey(),
   key: bytes("key").notNull(),
+  /** Migration 3 (D141): the new key a Key change carries, until the device is heard under it. */
+  nextKey: bytes("next_key"),
+  /** Migration 3: 0 none, 1 a key change is required (set on every row by a restore). */
+  rekey: integer("rekey").notNull().default(0),
 });
 
 export const sendCounters = sqliteTable("send_counters", {
@@ -221,6 +225,8 @@ const rxColumns = () => ({
   body: bytes("body").notNull(),
   // Added by migration 1, so last (D110: the carrying gateway packet's counter).
   gwCounter: integer("gw_counter"),
+  // Added by migration 3 (D141): an authentic packet under the device's old key, never acted on.
+  oldKey: flag("old_key").notNull().default(false),
 });
 
 const txColumns = () => ({
@@ -568,4 +574,121 @@ export const notificationReads = sqliteTable("notification_reads", {
   ...stamped(),
   notificationSeq: integer("notification_seq").notNull(),
   clientId: integer("client_id").notNull(),
+});
+
+// Migration 3: the joint step 0 of M3 and M4 (docs/m3-m4-plan.md), every table and column the
+// three designs add but per-hub names. Configuration and small state, written now unless marked.
+
+/** `firmware`'s store index (m3-updates-design section 4); the payloads are files in `firmware/`. */
+export const firmwareImages = sqliteTable(
+  "firmware_images",
+  {
+    id: integer("id").primaryKey(),
+    /** The first 8 bytes of `sha256`. */
+    imageId: bytes("image_id").notNull(),
+    sha256: bytes("sha256").notNull(),
+    /** As `devices.firmware`. */
+    version: integer("version").notNull(),
+    /** 0 official, 1 own build. */
+    kind: integer("kind").notNull(),
+    /** Bit 1 sensor, bit 2 siren, bit 3 gateway. */
+    roles: integer("roles").notNull(),
+    bytes: integer("bytes").notNull(),
+    /** The 128-byte image header the hub signed. */
+    header: bytes("header").notNull(),
+    /** Official: the manifest and its signature; null for an own build. */
+    manifest: text("manifest"),
+    file: text("file").notNull(),
+    addedMs: integer("added_ms").notNull(),
+    addedBy: text("added_by").notNull(),
+    removedMs: integer("removed_ms"),
+  },
+  (table) => [
+    uniqueIndex("firmware_images_image_id_live").on(table.imageId).where(isNull(table.removedMs)),
+  ],
+);
+
+/** `firmware`'s rollouts; at most one not ended. */
+export const rollouts = sqliteTable(
+  "rollouts",
+  {
+    id: integer("id").primaryKey(),
+    image: integer("image").notNull(),
+    /** Device ids, u32 LE each. */
+    devices: bytes("devices").notNull(),
+    pilots: bytes("pilots").notNull(),
+    /** 0 pilots, 1 soak, 2 rest, 3 paused, 4 done, 5 cancelled. */
+    stage: integer("stage").notNull(),
+    approvedBy: text("approved_by").notNull(),
+    approvedMs: integer("approved_ms").notNull(),
+    soakUntilMs: integer("soak_until_ms"),
+    pausedReason: integer("paused_reason"),
+    pausedDevice: integer("paused_device"),
+    endedMs: integer("ended_ms"),
+  },
+  // At most one rollout not ended: NULLs are distinct in a unique index, so the index is on the
+  // expression `ended_ms IS NULL`, which is 1 for every open row.
+  (table) => [
+    uniqueIndex("rollouts_one_open")
+      .on(sql`(${table.endedMs} IS NULL)`)
+      .where(isNull(table.endedMs)),
+  ],
+);
+
+/** `firmware`'s per-device update state; every transition written now but `bytes` (routine). */
+export const deviceUpdates = sqliteTable("device_updates", {
+  deviceId: integer("device_id").primaryKey(),
+  rolloutId: integer("rollout_id"),
+  /** 0 none … 10 cancelled (m3-updates-design section 4). */
+  state: integer("state").notNull(),
+  /** 0 its own link, 1 joins Wi-Fi, 2 Bluetooth. */
+  method: integer("method").notNull(),
+  /** 0 no, 1 armed, 2 battery, 3 waiting its turn, 4 needs a phone, 5 countdown, alarm or site move, 6 gateway always busy, 7 key change. */
+  held: integer("held").notNull(),
+  bytes: integer("bytes").notNull(),
+  attempts: integer("attempts").notNull(),
+  lastReason: integer("last_reason"),
+  sinceMs: integer("since_ms").notNull(),
+  bleNonce: bytes("ble_nonce"),
+  bleExpiresMs: integer("ble_expires_ms"),
+  remindedMs: integer("reminded_ms"),
+});
+
+/** Single row, `relay`'s (m4-design section 4). */
+export const relaySettings = sqliteTable("relay_settings", {
+  /** Null: the deployment's default. */
+  url: text("url"),
+  revision: integer("revision").notNull(),
+});
+
+/** `relay`'s: one push target per phone, tokens, never keys. In backups. */
+export const pushTargets = sqliteTable("push_targets", {
+  clientId: integer("client_id").primaryKey(),
+  keyId: bytes("key_id").notNull(),
+  /** 0 APNs, 1 FCM. */
+  platform: integer("platform").notNull(),
+  /** 0 production, 1 development. */
+  environment: integer("environment").notNull(),
+  token: text("token").notNull(),
+  registeredMs: integer("registered_ms").notNull(),
+  invalidMs: integer("invalid_ms"),
+});
+
+/** The phones' push keys, 32 bytes. Kept apart as `link_secrets` is; the `PushKeys` port's. In backups. */
+export const pushKeys = sqliteTable("push_keys", {
+  clientId: integer("client_id").primaryKey(),
+  key: bytes("key").notNull(),
+});
+
+/** `relay`'s outbox (D102): each row durable as its notification; deletes routine. */
+export const pushOutbox = sqliteTable("push_outbox", {
+  id: integer("id").primaryKey(),
+  notificationSeq: integer("notification_seq").notNull(),
+  clientId: integer("client_id").notNull(),
+  createdMs: integer("created_ms").notNull(),
+  attempts: integer("attempts").notNull(),
+  /** Any sensor armed when the notification was raised: 0 or 1. */
+  armed: integer("armed").notNull().default(0),
+  /** The decision facts the push's words are built from, as JSON; null for none. */
+  facts: text("facts"),
 });

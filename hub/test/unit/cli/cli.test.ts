@@ -150,6 +150,7 @@ describe("every command of section 9", () => {
           snrQ: null,
           rate: null,
           body: new Uint8Array([7, 0x10, 100, 20, 0, 0, 0]),
+          oldKey: false,
         },
       },
       {

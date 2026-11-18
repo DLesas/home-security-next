@@ -152,7 +152,11 @@ function hub(dataDir: string, clock: FixedClock): OpenedStore {
         removedMs: null,
       },
     }),
-    now({ table: "device_keys", op: "upsert", row: { deviceId: sensor, key: DEVICE_KEY } }),
+    now({
+      table: "device_keys",
+      op: "upsert",
+      row: { deviceId: sensor, key: DEVICE_KEY, nextKey: null, rekey: 0 },
+    }),
     now({ table: "send_counters", op: "upsert", row: { deviceId: sensor, resumePoint: 2048 } }),
     now({
       table: "link_tokens",

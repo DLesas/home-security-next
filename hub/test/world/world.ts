@@ -143,6 +143,7 @@ export class World {
       calendar: options.calendar ?? UNBUILT_CALENDAR,
       sha256: nodeSha256,
       deepFreeze: true,
+      checkDeadlines: true,
     };
     this.writer = new RecordingWriter(rules.persistence.routineBatchMs);
     this.state = this.core.emptyState();

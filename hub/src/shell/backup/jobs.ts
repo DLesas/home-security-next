@@ -124,6 +124,14 @@ export function startJob(job: JobId, work: FileWork, deps: JobDeps): JobStart {
       }),
     };
   }
+  // The joint step 0's file work (docs/m3-m4-plan.md) is built in step 1 (B6, U9): until then, failed.
+  if (
+    work.kind === "fetchRelease" ||
+    work.kind === "stageFirmware" ||
+    work.kind === "removeFirmware" ||
+    work.kind === "sendFirmware"
+  )
+    return ready({ kind: "failed", reason: "io", message: `${work.kind} is not built yet` });
   if (work.kind !== "stageUpdate") return atOnce(work, deps);
   const path = deps.uploads.pathOf(work.upload);
   if (path === undefined) return noUpload(work.upload);

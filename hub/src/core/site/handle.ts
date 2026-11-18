@@ -230,14 +230,13 @@ function onBoot(
     configs.get(sensor)?.heartbeatUnits ?? DEFAULT_HEARTBEAT_UNITS;
   const intervalAtBoot = (sensor: DeviceId): number =>
     bootInterval(configs.get(sensor), ctx.deps.rules, row);
+  if (row.moveStage === MoveStage.Switched) return graced(next, ctx, ctx.now.mono, unitsOf);
   const timers =
     row.moveStage === MoveStage.Announcing
       ? unconfirmed(next).map((sensor) =>
           stallTimer(ctx, sensor, ctx.now.mono, intervalAtBoot(sensor)),
         )
-      : row.moveStage === MoveStage.Switched
-        ? [graceTimer(ctx, next, ctx.now.mono, unitsOf)]
-        : [];
+      : [];
   return ok({ slice: { ...next, timers }, out: [] });
 }
 
@@ -278,6 +277,23 @@ function graceTimer(
     at: monoAfterMs(switchedAt, rules.siteMove.silenceGraceIntervals * longest),
     key: { module: "site", kind: "followGraceEnd" },
   };
+}
+
+/**
+ * The switched move's only timer, the end of its silence grace from `switchedAt`. A grace already
+ * over (none at all with no sensor, or a downtime longer than it) ends the move now, in this step,
+ * for whoever has not followed (`move_done`): its timer would be at or before now and run at once,
+ * one turn later (hub-design.md section 2, "Timers").
+ */
+function graced(
+  slice: SiteSlice,
+  ctx: Context,
+  switchedAt: Mono,
+  unitsOf: (sensor: DeviceId) => number,
+): Step {
+  const grace = graceTimer(ctx, slice, switchedAt, unitsOf);
+  if (grace.at <= ctx.now.mono) return tryDone({ ...slice, timers: [] }, ctx, true);
+  return ok({ slice: { ...slice, timers: [grace] }, out: [] });
 }
 
 function onDeviceAdded(slice: SiteSlice, device: DeviceId, role: number, ctx: Context): SiteSlice {
@@ -565,10 +581,6 @@ function trySwitch(slice: SiteSlice, ctx: Context): Step {
     timers: [],
     switchWaiting: false,
   };
-  const withGrace = {
-    ...switched,
-    timers: [graceTimer(ctx, switched, ctx.now.mono, unitsNow(ctx))],
-  };
   const switchedDecision = decisionMessage(
     ctx,
     { kind: "move_switched", device: null, cause: null, value: row.moveForced ? 1 : 0 },
@@ -593,16 +605,23 @@ function trySwitch(slice: SiteSlice, ctx: Context): Step {
   );
   return switchedDecision.andThen((recorded) =>
     forcedDecisions.andThen((forcedOut) =>
-      tryDone(withGrace, ctx).map((done) => ({
-        slice: done.slice,
-        out: [
-          rowWrite(switchedRow),
-          siteMoveMessage(switchedRow, "switched"),
-          recorded,
-          ...forcedOut.out,
-          ...done.out,
-        ],
-      })),
+      graced(switched, ctx, ctx.now.mono, unitsNow(ctx))
+        .andThen((withGrace) =>
+          // A grace already over has ended the move; otherwise it ends now if all followed.
+          withGrace.slice.row.moveStage === MoveStage.Switched
+            ? tryDone(withGrace.slice, ctx)
+            : ok(withGrace),
+        )
+        .map((done) => ({
+          slice: done.slice,
+          out: [
+            rowWrite(switchedRow),
+            siteMoveMessage(switchedRow, "switched"),
+            recorded,
+            ...forcedOut.out,
+            ...done.out,
+          ],
+        })),
     ),
   );
 }
@@ -703,7 +722,10 @@ function onAccepted(
 }
 
 function onTimer(slice: SiteSlice, key: TimerOf<"site">["key"], ctx: Context): Step {
-  if (key.kind === "followGraceEnd") return tryDone(slice, ctx, true);
+  if (key.kind === "followGraceEnd") {
+    // Its work is done either way: the move ends now, or has already ended.
+    return tryDone({ ...slice, timers: clearTimer(slice.timers, key) }, ctx, true);
+  }
   const timers = clearTimer(slice.timers, key);
   if (slice.row.moveStage !== MoveStage.Announcing)
     return ok({ slice: { ...slice, timers }, out: [] });
@@ -836,10 +858,7 @@ function handleMessage(slice: SiteSlice, message: Internal, ctx: Context): Step 
         -(message.downtimeMs + slice.switchedBeforeStopMs),
       );
       const next = { ...slice, switchedAt, switchedBeforeStopMs: undefined };
-      return ok({
-        slice: { ...next, timers: [graceTimer(ctx, next, switchedAt, unitsNow(ctx))] },
-        out: [],
-      });
+      return graced(next, ctx, switchedAt, unitsNow(ctx));
     }
     case "timer":
       return message.key.module === "site"

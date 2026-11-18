@@ -106,6 +106,7 @@ function recordAt(n: number): AuditRecord {
           snrQ: 20,
           rate: 5,
           body: new Uint8Array([1, 2, 3]),
+          oldKey: false,
         },
       };
     case 1:
@@ -125,6 +126,7 @@ function recordAt(n: number): AuditRecord {
           snrQ: null,
           rate: null,
           body: new Uint8Array([4]),
+          oldKey: false,
         },
       };
     case 2:
@@ -239,7 +241,7 @@ function hub(dataDir: string, records: number): OpenedStore {
     now({
       table: "device_keys",
       op: "upsert",
-      row: { deviceId: deviceId(3), key: SECRETS.deviceKey },
+      row: { deviceId: deviceId(3), key: SECRETS.deviceKey, nextKey: null, rekey: 0 },
     }),
     now({
       table: "link_tokens",

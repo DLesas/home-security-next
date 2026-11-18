@@ -20,7 +20,8 @@ const EXPECTED: Readonly<Record<string, { columns: string; key: string; rowid?: 
     columns: "id address role name chip_id firmware development state added_ms removed_ms",
     key: "id",
   },
-  device_keys: { columns: "device_id key", key: "device_id" },
+  // Migration 3 adds `next_key` and `rekey` (m3-updates-design section 7).
+  device_keys: { columns: "device_id key next_key rekey", key: "device_id" },
   send_counters: { columns: "device_id resume_point", key: "device_id" },
   hub_keys: {
     columns:
@@ -77,12 +78,14 @@ const EXPECTED: Readonly<Record<string, { columns: string; key: string; rowid?: 
   loss_daily: { columns: "device_id day received expected", key: "device_id day", rowid: false },
   rx_routine: {
     columns:
-      "seq at_ms clock_ok device_id type counter path gateway_id gw_us rssi snr_q rate body gw_counter",
+      "seq at_ms clock_ok device_id type counter path gateway_id gw_us rssi snr_q rate body gw_counter " +
+      "old_key",
     key: "seq",
   },
   rx_event: {
     columns:
-      "seq at_ms clock_ok device_id type counter path gateway_id gw_us rssi snr_q rate body gw_counter",
+      "seq at_ms clock_ok device_id type counter path gateway_id gw_us rssi snr_q rate body gw_counter " +
+      "old_key",
     key: "seq",
   },
   tx_routine: {
@@ -168,6 +171,37 @@ const EXPECTED: Readonly<Record<string, { columns: string; key: string; rowid?: 
     key: "seq",
   },
   notification_reads: { columns: "seq at_ms clock_ok notification_seq client_id", key: "seq" },
+  // The joint step 0 of M3 and M4 (docs/m3-m4-plan.md, migration 3), from m3-updates-design
+  // section 4 and m4-design section 4.
+  firmware_images: {
+    columns:
+      "id image_id sha256 version kind roles bytes header manifest file added_ms added_by " +
+      "removed_ms",
+    key: "id",
+  },
+  rollouts: {
+    columns:
+      "id image devices pilots stage approved_by approved_ms soak_until_ms paused_reason " +
+      "paused_device ended_ms",
+    key: "id",
+  },
+  device_updates: {
+    columns:
+      "device_id rollout_id state method held bytes attempts last_reason since_ms ble_nonce " +
+      "ble_expires_ms reminded_ms",
+    key: "device_id",
+  },
+  relay_settings: { columns: "url revision", key: "" },
+  push_targets: {
+    columns: "client_id key_id platform environment token registered_ms invalid_ms",
+    key: "client_id",
+  },
+  push_keys: { columns: "client_id key", key: "client_id" },
+  // `armed` and `facts` (B5): what a push brought back after a restart says.
+  push_outbox: {
+    columns: "id notification_seq client_id created_ms attempts armed facts",
+    key: "id",
+  },
 };
 
 interface ColumnInfo {
@@ -238,6 +272,10 @@ describe("the first migration (section 6)", () => {
         { table: "link_tokens", unique: 1, columns: "lookup" },
         { table: "groups", unique: 1, columns: "name" },
         { table: "modes", unique: 1, columns: "name" },
+        // Migration 3: an image id among those not removed; one rollout not ended (an index on
+        // the expression `ended_ms IS NULL`, which has no column name).
+        { table: "firmware_images", unique: 1, columns: "image_id" },
+        { table: "rollouts", unique: 1, columns: "" },
       ]),
     );
   });
@@ -311,4 +349,12 @@ export const rowsMatchSchema: readonly true[] = [
   true satisfies SameKeys<rows.UpdateStateRow, Columns<typeof schema.updateState>>,
   true satisfies SameKeys<rows.NotificationRow, Columns<typeof schema.notifications>>,
   true satisfies SameKeys<rows.NotificationReadRow, Columns<typeof schema.notificationReads>>,
+  // Migration 3.
+  true satisfies SameKeys<rows.FirmwareImageRow, Columns<typeof schema.firmwareImages>>,
+  true satisfies SameKeys<rows.RolloutRow, Columns<typeof schema.rollouts>>,
+  true satisfies SameKeys<rows.DeviceUpdateRow, Columns<typeof schema.deviceUpdates>>,
+  true satisfies SameKeys<rows.RelaySettingsRow, Columns<typeof schema.relaySettings>>,
+  true satisfies SameKeys<rows.PushTargetRow, Columns<typeof schema.pushTargets>>,
+  true satisfies SameKeys<rows.PushKeyRow, Columns<typeof schema.pushKeys>>,
+  true satisfies SameKeys<rows.PushOutboxRow, Columns<typeof schema.pushOutbox>>,
 ];

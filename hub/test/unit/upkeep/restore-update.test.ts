@@ -26,6 +26,7 @@ import {
 } from "../../../src/core/model/ids.ts";
 import type { AnswerTo, Internal } from "../../../src/core/model/messages.ts";
 import { BACKUP_STATE_DEFAULTS, MoveStage } from "../../../src/core/model/rows.ts";
+import type { HubState } from "../../../src/core/model/state.ts";
 import { mono } from "../../../src/core/model/time.ts";
 import { switchBlockedBy } from "../../../src/core/upkeep/view.ts";
 import {
@@ -95,6 +96,24 @@ function decisionKinds(ran: Ran): string[] {
   return ran.messages.flatMap((m) =>
     m.kind === "auditRecord" && m.record.kind === "decision" ? [m.record.row.kind] : [],
   );
+}
+
+/** The alarm's countdowns with one running, for a view in which a countdown holds a switch back. */
+function countingSensor(): HubState["alarm"]["countdowns"] {
+  return new Map([
+    [
+      sensorRow().id,
+      {
+        openedAt: mono(0),
+        deadline: mono(30 * SECOND_US),
+        newestCounter: 1,
+        replyGateway: undefined,
+        replyRate: 5,
+        cause: seq(1),
+        restored: false,
+      },
+    ],
+  ]);
 }
 
 /** `restore.start` through to the header read: the token given, the answer sent. */
@@ -373,7 +392,7 @@ describe("updates", () => {
     ).toMatchObject({ durability: "now" });
   }
 
-  test("staged, approved, then switched in the next step, written now, with the running version kept", () => {
+  test("staged, approved, then switched in the approval's own step, written now, with the running version kept", () => {
     const runner = booted();
     runner.send({
       kind: "hubFacts",
@@ -386,12 +405,16 @@ describe("updates", () => {
     staged(runner);
     const approve = op(runner, { op: "update.approve", body: {} });
     expect(answer(approve)).toEqual({ ok: true, body: { switchWhen: "now" } });
-    expect(job(approve)).toBeUndefined();
-    const next = runner.run(0);
-    expect(decisionKinds(next)).toEqual(["update_switching"]);
-    expect(job(next)?.work).toEqual({ kind: "switchUpdate", version: "1.1.0" });
+    // The answer first, then the switch: the shell runs the job after the commit and the answer.
+    const kinds = approve.out.map((item) => item.kind);
+    expect(kinds.indexOf("opAnswer")).toBeLessThan(kinds.indexOf("fileJob"));
+    expect(decisionKinds(approve)).toEqual(["update_switching"]);
+    expect(job(approve)?.work).toEqual({ kind: "switchUpdate", version: "1.1.0" });
     expect(runner.slice.update.previousVersion).toBe("1.0.0");
     expect(runner.slice.update.switchingMs).not.toBeNull();
+    // No timer left for it, and nothing more in the next step.
+    expect(runner.slice.timers.some((t) => t.key.kind === "updateWait")).toBe(false);
+    expect(job(runner.run(0))).toBeUndefined();
   });
 
   test("never during a countdown: it waits until the countdown has ended", () => {
@@ -418,9 +441,9 @@ describe("updates", () => {
     expect(switchBlockedBy(runner.view)).toBe("countdown");
     expect(job(runner.run(10 * MINUTE_US))).toBeUndefined();
     runner.view = { ...runner.view, alarm };
-    // The next message after it ended looks again; the switch comes in the step after.
-    runner.send({ kind: "tick" });
-    expect(job(runner.run(0))?.work.kind).toBe("switchUpdate");
+    // The next message after it ended looks again, and the switch goes in that step.
+    expect(job(runner.send({ kind: "tick" }))?.work.kind).toBe("switchUpdate");
+    expect(job(runner.run(0))).toBeUndefined();
   });
 
   test("never during a site move", () => {
@@ -440,8 +463,11 @@ describe("updates", () => {
   test("a switch the shell refused waits again", () => {
     const runner = booted();
     staged(runner);
-    op(runner, { op: "update.approve", body: {} });
-    const switching = job(runner.run(0));
+    const switching = job(op(runner, { op: "update.approve", body: {} }));
+    expect(switching?.work.kind).toBe("switchUpdate");
+    // The shell's check after the commit found a countdown that started in the same turn.
+    const alarm = runner.view.alarm;
+    runner.view = { ...runner.view, alarm: { ...alarm, countdowns: countingSensor() } };
     const refused = runner.send({
       kind: "fileReady",
       job: switching?.job ?? jobId(0),
@@ -450,7 +476,45 @@ describe("updates", () => {
     expect(refused.effects.find((e) => e.kind === "write")).toMatchObject({
       op: { row: { switchingMs: null } },
     });
-    expect(job(runner.run(0))?.work.kind).toBe("switchUpdate");
+    expect(job(refused)).toBeUndefined();
+    expect(runner.slice.update.approvedBy).not.toBeNull();
+    expect(job(runner.run(10 * MINUTE_US))).toBeUndefined();
+    // The countdown over, the next message switches again.
+    runner.view = { ...runner.view, alarm };
+    expect(job(runner.send({ kind: "tick" }))?.work.kind).toBe("switchUpdate");
+  });
+
+  test("a switch the shell refused with nothing holding it back is not tried again: the approval dropped, update_refused", () => {
+    const runner = booted();
+    staged(runner);
+    const switching = job(op(runner, { op: "update.approve", body: {} }));
+    const refused = runner.send({
+      kind: "fileReady",
+      job: switching?.job ?? jobId(0),
+      outcome: {
+        kind: "failed",
+        reason: "io",
+        message: "not started by the launcher: no install to switch",
+      },
+    });
+    const events = refused.messages.flatMap((m) =>
+      m.kind === "auditRecord" && m.record.kind === "hubEvent" ? [m.record.row] : [],
+    );
+    expect(events.map((e) => [e.code, e.message])).toEqual([
+      ["update_refused", "switch refused: not started by the launcher: no install to switch"],
+    ]);
+    expect(job(refused)).toBeUndefined();
+    expect(runner.slice.update).toMatchObject({
+      approvedBy: null,
+      approvedMs: null,
+      switchingMs: null,
+      stagedVersion: "1.1.0",
+    });
+    // Nothing tries it again: not the next step, not the next message, not an hour later.
+    expect(job(runner.send({ kind: "tick" }))).toBeUndefined();
+    expect(job(runner.run(60 * MINUTE_US))).toBeUndefined();
+    // A person approves again, and it switches again.
+    expect(job(op(runner, { op: "update.approve", body: {} }))?.work.kind).toBe("switchUpdate");
   });
 
   test("the next start: the version switched to is running, so update_healthy", () => {

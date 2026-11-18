@@ -141,8 +141,9 @@ describe("an update's outcome", () => {
       job: upload?.job ?? jobId(0),
       outcome: { kind: "updateStaged", version: "1.2.0" },
     });
-    hsn(runner, { op: "update.approve", body: {} });
-    const switching = job(runner.run(0));
+    // Nothing holds it back: the switch goes in the approval's own step.
+    const switching = job(hsn(runner, { op: "update.approve", body: {} }));
+    expect(switching?.work.kind).toBe("switchUpdate");
     const full = runner.send({
       kind: "fileReady",
       job: switching?.job ?? jobId(0),

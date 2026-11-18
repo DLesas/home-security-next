@@ -75,3 +75,60 @@ describe("the bench's actions", () => {
     ).toEqual([]);
   });
 });
+
+function rx(type: number, oldKey = false): AuditRecord {
+  return {
+    kind: "rx",
+    table: "event",
+    row: {
+      seq: seq(2),
+      atMs: 0,
+      clockOk: true,
+      deviceId: deviceId(3),
+      type,
+      counter: 1026,
+      path: PacketPath.Lora,
+      gatewayId: deviceId(1),
+      gwUs: 1000,
+      gwCounter: 9,
+      rssi: -80,
+      snrQ: 20,
+      rate: 5,
+      body: new Uint8Array(),
+      oldKey,
+    },
+  };
+}
+
+describe("the bench's firmware actions from packet records (m3-updates-design section 8)", () => {
+  test("a sent Update offer is firmware_offer on every path, before its transmit_result", () => {
+    expect(benchActions(tx("event", MessageType.UpdateOffer, TxOutcome.Sent))).toEqual([
+      "firmware_offer",
+      "transmit_result",
+    ]);
+    expect(benchActions(tx("event", MessageType.UpdateOffer, TxOutcome.TooLate))).toEqual([
+      "firmware_offer",
+      "transmit_result",
+      "too_late",
+    ]);
+    for (const path of [PacketPath.Wifi, PacketPath.Usb])
+      expect(
+        benchActions(tx("event", MessageType.UpdateOffer, TxOutcome.HandedToLink, path)),
+      ).toEqual(["firmware_offer"]);
+    expect(benchActions(tx("event", MessageType.KeyChange, TxOutcome.Sent))).toEqual([
+      "transmit_result",
+    ]);
+  });
+
+  test("a received query or status is firmware_query or firmware_status; other packets nothing", () => {
+    expect(benchActions(rx(MessageType.UpdateQuery))).toEqual(["firmware_query"]);
+    expect(benchActions(rx(MessageType.UpdateStatus))).toEqual(["firmware_status"]);
+    for (const type of [MessageType.Heartbeat, MessageType.Started, MessageType.DoorChanged])
+      expect([type, benchActions(rx(type))]).toEqual([type, []]);
+  });
+
+  test("a packet under the old key is old_key_packet only, whatever its type", () => {
+    for (const type of [MessageType.Heartbeat, MessageType.UpdateQuery, MessageType.UpdateStatus])
+      expect([type, benchActions(rx(type, true))]).toEqual([type, ["old_key_packet"]]);
+  });
+});

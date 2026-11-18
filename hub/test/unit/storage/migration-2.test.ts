@@ -63,7 +63,8 @@ describe("migration 2 on an M1a database (section 4)", () => {
   test("keeps every row, copies the database first, and makes Away and Disarmed (D90)", () => {
     const folder = m1aDatabase([0, 1]);
     const store = openTestStore(folder, new TestClock());
-    expect(store.migrations.ran).toEqual([M2]);
+    // Migration 2, then every later one (the joint step 0's migration 3).
+    expect(store.migrations.ran).toEqual(journal.entries.slice(M2).map((_, k) => M2 + k));
     expect(store.migrations.backup).toBeDefined();
     expect(store.snapshot.devices).toHaveLength(2);
     expect(store.snapshot.sensorConfig.map((c) => c.arm)).toEqual([0, 1]);

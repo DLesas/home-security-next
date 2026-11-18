@@ -204,6 +204,7 @@ export function rxRow(s: Seq, device: number, atMs: number, body = new Uint8Arra
     snrQ: 32,
     rate: 5,
     body,
+    oldKey: false,
   };
 }
 

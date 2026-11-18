@@ -17,6 +17,7 @@ import type { Internal } from "../model/messages.ts";
 import { BACKUP_STATE_DEFAULTS } from "../model/rows.ts";
 import {
   armDaily,
+  armOverdue,
   consider,
   isBackupChange,
   noFolderWarning,
@@ -34,7 +35,7 @@ import { upkeepOp } from "./ops.ts";
 import { upkeepDecision, writeBackupState } from "./records.ts";
 import { restoreExpired, restoreJobDone, restoreKey, restoreOpened } from "./restore.ts";
 import { NO_UPDATE, type UpkeepSlice } from "./state.ts";
-import { afterSwitch, onUpdateWait, rearmSwitch, staged, switchFailed } from "./update.ts";
+import { afterSwitch, staged, switchFailed, switchIfClear } from "./update.ts";
 
 type Boot = Extract<Internal, { readonly kind: "boot" }>;
 
@@ -62,12 +63,16 @@ function onBoot(steps: Steps, ctx: Context, message: Boot): void {
     steps.push(writeBackupState(cleared));
   }
   const due = steps.slice.backup;
-  if (due.dueSinceMs !== null && !due.overdueRaised && !steps.has("backupOverdue")) {
-    const waited = ctx.now.wallTrusted ? Math.max(0, ctx.now.wall - due.dueSinceMs) : 0;
-    steps.timerAfter(ctx, "backupOverdue", ctx.deps.rules.backups.warnAfterMs - waited);
-  }
+  // A backup due for an hour ‡ or more at the start: `backup_overdue` in this step, after the
+  // start's own records, where a timer at the start's time would have raised it one turn later.
+  const overdueNow =
+    due.dueSinceMs !== null &&
+    !due.overdueRaised &&
+    !steps.has("backupOverdue") &&
+    armOverdue(steps, ctx, due.dueSinceMs);
   armDaily(steps, ctx);
   consider(steps, ctx);
+  if (overdueNow) onOverdue(steps, ctx);
 }
 
 function onFileReady(
@@ -128,7 +133,8 @@ function onTimer(
       return;
     }
     case "updateWait": {
-      onUpdateWait(steps, ctx);
+      // Never set now (update.ts); one from an older state looks as every message does.
+      switchIfClear(steps, ctx);
       return;
     }
   }
@@ -194,13 +200,13 @@ function handle(steps: Steps, ctx: Context, message: Internal): void {
 /**
  * The handler: every message, then a backup started if one is wanted and may be written (it is
  * idempotent: a job running, the window open or a retry waiting holds it), and an approved update
- * looked at again (update.ts).
+ * switched if nothing holds it back now (update.ts).
  */
 export const handleUpkeep: Handler<"upkeep"> = (slice: UpkeepSlice, message, ctx) => {
   if (!slice.booted && message.kind !== "boot") return ok({ slice, out: [] });
   const steps = new Steps(slice);
   handle(steps, ctx, message);
   consider(steps, ctx);
-  rearmSwitch(steps, ctx);
+  switchIfClear(steps, ctx);
   return steps.done();
 };

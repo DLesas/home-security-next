@@ -61,7 +61,7 @@ export interface OlderRows {
 export function writeOlderRows(store: OpenedStore, older: OlderRows, boot: BootId): void {
   const insert = (table: string, n: number, atMs: number) =>
     store.db
-      .query(`INSERT INTO "${table}" VALUES (?, ?, 1, 10, 1, ?, 0, 2, 0, -95, 32, 5, ?, ?)`)
+      .query(`INSERT INTO "${table}" VALUES (?, ?, 1, 10, 1, ?, 0, 2, 0, -95, 32, 5, ?, ?, 0)`)
       .run(recordSeq(boot, n) ?? 0, atMs, n, new Uint8Array(10), 100_000 + n);
   store.db.transaction(() => {
     for (let n = 0; n < older.routinePerDay; n++) {

@@ -23,6 +23,7 @@ const deps = {
   calendar: UTC_CALENDAR,
   sha256: nodeSha256,
   deepFreeze: true,
+  checkDeadlines: true,
 };
 
 function run(state: HubState, t: number, event: Parameters<typeof step>[1]["event"]) {

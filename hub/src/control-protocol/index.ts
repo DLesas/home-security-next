@@ -6,6 +6,7 @@
 export {
   CONTROL_LINE_BYTES,
   CONTROL_OPS,
+  CONTROL_OPS_V2,
   controlCommand,
   type ControlCommand,
   type ControlCommandKind,

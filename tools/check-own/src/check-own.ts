@@ -10,12 +10,24 @@
  *   owner's test paths and folders (`owners.ts`), or under a folder named. None found is a
  *   failure, "0 of yours", never a pass, unless the owner says why it has none here.
  * - The lint probes, whose rules every owner relies on, run apart and are counted apart.
+ * - An owner's folder not created yet is named and skipped, never a failure by itself; a folder
+ *   named alone must be there. An owner's paths under `firmware/` are named, and left to
+ *   `bun run check:firmware`.
  *
  * It exits non-zero only when one of these fails for the owner's own folders.
  */
 import { existsSync, readdirSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
-import { foldersOf, lintPathsOf, noTestsBecause, testPathsOf, TYPE_PROJECTS } from "./owners.ts";
+import {
+  expandPath,
+  firmwareOf,
+  isOwner,
+  lintPathsOf,
+  noTestsBecause,
+  ownerPathsOf,
+  testPathsOf,
+  TYPE_PROJECTS,
+} from "./owners.ts";
 import { normalizeFolder, parseTypeErrors, splitTypeErrors } from "./type-errors.ts";
 
 const REPO = join(import.meta.dir, "..", "..", "..");
@@ -72,20 +84,34 @@ function report(stage: string, ok: boolean, details = ""): boolean {
 }
 
 function main(args: readonly string[]): number {
-  const folders = args.flatMap(foldersOf).map(normalizeFolder);
-  if (folders.length === 0) {
+  if (args.length === 0) {
     console.log(
-      "usage: bun run check:own <folder | A1…A11> […]   (paths from the repository's root, or an M2 owner)",
+      [
+        "usage: bun run check:own <folder | owner> […]",
+        "  a folder: a path from the repository's root",
+        "  an owner: M2's A1…A11 (docs/m2-design.md section 11), or the joint M3 and M4 work's",
+        "    (docs/m3-m4-plan.md): B1…B7 (relay and push; B4 names), U1…U10 and K2 (updates;",
+        "    U8 holds K1's key change), P1…P6, H1 and F1 (phone and pairing)",
+      ].join("\n"),
     );
     return 2;
   }
-  const missing = folders.filter(
+  // A folder named alone must be there; an owner's folders not created yet are named and skipped.
+  const named = args.filter((a) => !isOwner(a)).map(normalizeFolder);
+  const missing = named.filter(
     (f) => !existsSync(join(REPO, f)) || !statSync(join(REPO, f)).isDirectory(),
   );
   if (missing.length > 0) {
     console.log(`not a folder: ${missing.join(", ")}`);
     return 2;
   }
+  const owners = ownerPathsOf(args);
+  const folders = [...new Set([...named, ...owners.present.map(normalizeFolder)])];
+  if (owners.notYet.length > 0)
+    console.log(`not created yet, so not checked: ${owners.notYet.join(", ")}`);
+  const firmware = [...new Set(args.flatMap(firmwareOf))];
+  if (firmware.length > 0)
+    console.log(`under firmware/, checked by bun run check:firmware: ${firmware.join(", ")}`);
 
   const results: boolean[] = [];
 
@@ -110,25 +136,34 @@ function main(args: readonly string[]): number {
   // The owner's source folders and its test paths that exist. A folder may hold nothing ESLint
   // lints (A1's `packages/protocol/vectors`, JSON only): every path exists, so a pattern that
   // matches no lintable file means only that, and the files that are lintable are linted as ever.
+  // With none of them there yet, there is nothing to lint: neither tool is run on no paths, which
+  // would check the whole repository.
   const checked = lintPathsOf(args).map(normalizeFolder);
-  const lint = run([
-    "bun",
-    "--bun",
-    join(BIN, "eslint"),
-    "--max-warnings",
-    "0",
-    "--no-error-on-unmatched-pattern",
-    ...checked,
-  ]);
-  results.push(report("lint", lint.ok, lint.ok ? "" : lint.output));
+  if (checked.length === 0) {
+    results.push(report("lint: nothing of yours there yet", true));
+    results.push(report("format: nothing of yours there yet", true));
+  } else {
+    const lint = run([
+      "bun",
+      "--bun",
+      join(BIN, "eslint"),
+      "--max-warnings",
+      "0",
+      "--no-error-on-unmatched-pattern",
+      ...checked,
+    ]);
+    results.push(report("lint", lint.ok, lint.ok ? "" : lint.output));
 
-  const format = run([join(BIN, "prettier"), "--check", ...checked]);
-  results.push(report("format", format.ok, format.ok ? "" : format.output));
+    const format = run([join(BIN, "prettier"), "--check", ...checked]);
+    results.push(report("format", format.ok, format.ok ? "" : format.output));
+  }
 
   const testPaths = [...new Set(args.flatMap(testPathsOf).map(normalizeFolder))];
-  const unwritten = testPaths.filter((p) => !existsSync(join(REPO, p)));
+  const unwritten = testPaths.filter((p) => expandPath(p).length === 0);
   const reasons = args.flatMap((a) => noTestsBecause(a) ?? []);
-  const own = [...new Set(testPaths.flatMap(testsUnder))].filter((t) => t !== LINT_PROBE_TEST);
+  const own = [...new Set(testPaths.flatMap(expandPath).flatMap(testsUnder))].filter(
+    (t) => t !== LINT_PROBE_TEST,
+  );
   const notYet = unwritten.length === 0 ? "" : `not written yet: ${unwritten.join(", ")}`;
   if (own.length === 0) {
     const none = reasons.length > 0 && args.every((a) => noTestsBecause(a) !== undefined);

@@ -74,6 +74,7 @@ function rx(device: number, atMs: number): AuditRecord {
       snrQ: 20,
       rate: 5,
       body: new Uint8Array([1, 2]),
+      oldKey: false,
     },
   };
 }

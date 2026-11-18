@@ -14,6 +14,8 @@ import type { HealthSlice } from "../health/state.ts";
 import type { NotifySlice } from "../notify/state.ts";
 import type { UpkeepSlice } from "../upkeep/state.ts";
 import type { AuditSlice } from "../audit/state.ts";
+import type { FirmwareSlice } from "../firmware/state.ts";
+import type { RelaySlice } from "../relay/state.ts";
 import type { ClockSlice } from "../clock/state.ts";
 import type { ControlSlice } from "../control/state.ts";
 import type { GatewaysSlice } from "../gateways/state.ts";
@@ -39,6 +41,11 @@ export interface HubState {
   readonly control: ControlSlice;
   /** People, clients and their keys, permissions, link tokens, last `seq` (M2). */
   readonly people: PeopleSlice;
+  /**
+   * Relay settings, push targets (tokens, never keys), the push outbox, the link's state as the
+   * shell reports it (the joint step 0; m4-design section 4).
+   */
+  readonly relay: RelaySlice;
   /** Groups, modes and the current mode (M2). */
   readonly layout: LayoutSlice;
   /** App sessions and the live revision (M2; memory only). */
@@ -53,6 +60,11 @@ export interface HubState {
   readonly alarm: AlarmSlice;
   /** The site's channel and rate, and a move between them (D115). */
   readonly site: SiteSlice;
+  /**
+   * The firmware store's index, offered releases, rollouts, each device's update state, Bluetooth
+   * sessions, the transfer grants in force (the joint step 0; m3-updates-design section 4).
+   */
+  readonly firmware: FirmwareSlice;
   /** Settings and versions, reply rates, silence. */
   readonly sensors: SensorsSlice;
   /** Heartbeat slots, clock correction estimates. */

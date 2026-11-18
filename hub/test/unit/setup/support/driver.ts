@@ -174,6 +174,7 @@ export class Driver {
       calendar: UNBUILT_CALENDAR,
       sha256: nodeSha256,
       deepFreeze: true,
+      checkDeadlines: true,
     };
     this.state = core.emptyState();
   }

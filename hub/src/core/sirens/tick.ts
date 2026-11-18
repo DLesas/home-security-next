@@ -7,9 +7,9 @@
 import { anySensorArmed } from "../alarm/view.ts";
 import type { Context } from "../model/handler.ts";
 import type { DeviceId } from "../model/ids.ts";
-import type { Mono } from "../model/time.ts";
+import { MICROS_PER_MILLISECOND, type Mono } from "../model/time.ts";
 import type { TimerOf } from "../model/timers.ts";
-import { after, type Changing, decide, then, unchanged } from "./out.ts";
+import { after, type Changing, decide, each, then, unchanged } from "./out.ts";
 import { sendSettings, transmit } from "./send.ts";
 import type { InFlight, SirenEntry, SirenPaths, SirensSlice } from "./state.ts";
 import { pathDeadlines } from "./timers.ts";
@@ -27,9 +27,16 @@ function withFlight(
   return withEntry(slice, siren, { ...entry, inFlight: flight });
 }
 
-/** The repeat after the one due at `due`, or none once it would reach the minute (§8). */
-function nextRepeat(due: Mono, everyMs: number, flight: InFlight): Mono | undefined {
-  const next = after(due, everyMs);
+/**
+ * The repeat after the one due at `due`, on its grid of `everyMs` and after `now`, or none once it
+ * would reach the minute (§8). A step that ran late by a whole interval or more skips the repeats
+ * it missed instead of leaving one at or before now, which would run at once, one turn after
+ * another (hub-design.md section 2, "Timers").
+ */
+function nextRepeat(due: Mono, now: Mono, everyMs: number, flight: InFlight): Mono | undefined {
+  const everyUs = everyMs * MICROS_PER_MILLISECOND;
+  const intervals = now >= due ? Math.floor((now - due) / everyUs) + 1 : 1;
+  const next = after(due, intervals * everyMs);
   return flight.giveUpAt !== undefined && next < flight.giveUpAt ? next : undefined;
 }
 
@@ -60,7 +67,7 @@ export function onSirenTimer(
       return transmit(
         withFlight(slice, siren, entry, {
           ...flight,
-          nextWifi: nextRepeat(flight.nextWifi, rules.sirens.wifiRepeatMs, flight),
+          nextWifi: nextRepeat(flight.nextWifi, now, rules.sirens.wifiRepeatMs, flight),
         }),
         ctx,
         siren,
@@ -71,7 +78,7 @@ export function onSirenTimer(
       return transmit(
         withFlight(slice, siren, entry, {
           ...flight,
-          nextLora: nextRepeat(flight.nextLora, rules.sirens.loraRepeatMs, flight),
+          nextLora: nextRepeat(flight.nextLora, now, rules.sirens.loraRepeatMs, flight),
         }),
         ctx,
         siren,
@@ -165,4 +172,39 @@ function pathRule(
     slice: withEntry(slice, siren, { ...entry, paths }),
     out: [m],
   }));
+}
+
+/** The first of a siren's path rules whose deadline is at or before `now`, if any. */
+function dueRule(
+  entry: SirenEntry,
+  ctx: Context,
+): "wifiPathLost" | "loraPathLost" | "silent" | undefined {
+  const due = pathDeadlines(entry, ctx.deps.rules);
+  const now = ctx.now.mono;
+  if (due.wifiLost !== undefined && due.wifiLost <= now) return "wifiPathLost";
+  if (due.loraLost !== undefined && due.loraLost <= now) return "loraPathLost";
+  if (due.silent !== undefined && due.silent <= now) return "silent";
+  return undefined;
+}
+
+function settleSiren(slice: SirensSlice, ctx: Context, siren: DeviceId): Changing {
+  const entry = slice.sirens.get(siren);
+  const rule = entry === undefined ? undefined : dueRule(entry, ctx);
+  if (entry === undefined || rule === undefined) return unchanged(slice);
+  // Each rule sets the flag that ends its own deadline, so this ends after three at most.
+  return then(pathRule(slice, ctx, siren, entry, rule), (next) => settleSiren(next, ctx, siren));
+}
+
+/**
+ * Every path rule that a change of this step made due at or before now is decided now, in this
+ * step (hub-design.md section 2, "Timers": a deadline left at or before the step's time would run
+ * again at once). The path rules' deadlines follow from each siren's paths, so one rule can make
+ * the next due at once: Wi-Fi lost on a siren that LoRa has not heard from for as long makes it
+ * silent (D52), and Wi-Fi back on a siren whose LoRa has been quiet past 630 s ‡ makes LoRa lost
+ * (D73). Each is the same decision its timer would have made one turn later.
+ */
+export function settlePaths(slice: SirensSlice, ctx: Context): Changing {
+  return each(slice, [...slice.sirens.keys()], (current, siren) =>
+    settleSiren(current, ctx, siren),
+  );
 }

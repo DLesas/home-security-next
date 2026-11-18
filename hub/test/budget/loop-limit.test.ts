@@ -145,8 +145,16 @@ function seed(dataDir: string, backups: string): void {
     { table: "site", op: "upsert", row: siteRowAt(5) },
     device(GATEWAY, GATEWAY_ADDRESS, 3, "gateway-1"),
     device(SENSOR, SENSOR_ADDRESS, 1, "door-1"),
-    { table: "device_keys", op: "upsert", row: { deviceId: GATEWAY, key: GATEWAY_KEY } },
-    { table: "device_keys", op: "upsert", row: { deviceId: SENSOR, key: SENSOR_KEY } },
+    {
+      table: "device_keys",
+      op: "upsert",
+      row: { deviceId: GATEWAY, key: GATEWAY_KEY, nextKey: null, rekey: 0 },
+    },
+    {
+      table: "device_keys",
+      op: "upsert",
+      row: { deviceId: SENSOR, key: SENSOR_KEY, nextKey: null, rekey: 0 },
+    },
     {
       table: "send_counters",
       op: "upsert",

@@ -84,11 +84,23 @@ function setRow(steps: Steps, row: BackupStateRow, durability: Durability = "now
   steps.push(writeBackupState(row, durability));
 }
 
-/** The overdue warning's timer for a backup due since `dueSinceMs`. */
-function armOverdue(steps: Steps, ctx: Context, dueSinceMs: number): void {
+/**
+ * The overdue warning's timer for a backup due since `dueSinceMs`, an hour ‡ after it on the
+ * trusted wall clock. When that hour has already passed (a start, or a backup that took that long,
+ * with a backup still due) there is no timer, since one at or before now would run at once, one turn
+ * after another (hub-design.md section 2, "Timers"): it returns true, and the caller raises the
+ * warning in this step (`onOverdue`), where the timer would have raised it in the next.
+ */
+export function armOverdue(steps: Steps, ctx: Context, dueSinceMs: number): boolean {
   const warnAfter = ctx.deps.rules.backups.warnAfterMs;
   const waited = ctx.now.wallTrusted ? Math.max(0, ctx.now.wall - dueSinceMs) : 0;
-  steps.timerAfter(ctx, "backupOverdue", warnAfter - waited);
+  const left = warnAfter - waited;
+  if (left <= 0) {
+    steps.clear("backupOverdue");
+    return true;
+  }
+  steps.timerAfter(ctx, "backupOverdue", left);
+  return false;
 }
 
 /** A change a backup must hold, in this step (section 9, "When"). */
@@ -101,7 +113,7 @@ export function noteChange(steps: Steps, ctx: Context): void {
     dueSinceMs: row.dueSinceMs ?? ctx.now.wall,
     overdueRaised: firstDue ? false : row.overdueRaised,
   });
-  if (firstDue) armOverdue(steps, ctx, ctx.now.wall);
+  if (firstDue && armOverdue(steps, ctx, ctx.now.wall)) onOverdue(steps, ctx);
   const running = steps.slice.running;
   // A change in the step that started the job is committed before the shell writes it.
   if (running?.changedSinceMs === null && ctx.now.mono > running.startedAt)
@@ -205,7 +217,7 @@ export function onBackupDone(steps: Steps, ctx: Context, outcome: FileOutcome): 
       steps.pushResult(upkeepDecision(ctx, "backup_folder_on_data_disk", { detail: folder }));
     }
     if (dueSinceMs === null) steps.clear("backupOverdue");
-    else armOverdue(steps, ctx, dueSinceMs);
+    const overdueNow = dueSinceMs !== null && armOverdue(steps, ctx, dueSinceMs);
     steps.pushResult(
       upkeepHubEvent(ctx, "backup_written", `backup written: ${outcome.name}`, {
         name: outcome.name,
@@ -214,6 +226,9 @@ export function onBackupDone(steps: Steps, ctx: Context, outcome: FileOutcome): 
       }),
     );
     consider(steps, ctx);
+    // A change made while the job ran more than an hour ‡ ago: the warning now, after the record
+    // of the backup that does not hold it, as its timer would have raised it one turn later.
+    if (overdueNow) onOverdue(steps, ctx);
     return;
   }
   const reason = outcome.kind === "failed" ? outcome.reason : "io";
@@ -268,7 +283,7 @@ export function noFolderWarning(steps: Steps, ctx: Context): void {
 export function folderChosen(steps: Steps, ctx: Context): void {
   const row = steps.slice.backup;
   setRow(steps, { ...row, overdueRaised: false });
-  if (row.dueSinceMs !== null) armOverdue(steps, ctx, ctx.now.wall);
+  if (row.dueSinceMs !== null && armOverdue(steps, ctx, ctx.now.wall)) onOverdue(steps, ctx);
 }
 
 /** An hour ‡ with a backup due to a chosen folder: one warning that cannot be turned off. */
@@ -294,7 +309,10 @@ export function onDaily(steps: Steps, ctx: Context): void {
 /**
  * The daily backup's timer, at the next local `hour`:00 in the hub's zone on the trusted wall
  * clock, as a monotonic deadline (HD 2). None while the zone is unknown or the clock untrusted;
- * set again when either changes.
+ * set again when either changes. The calendar gives the first instant at or after `fromMs`, so
+ * one armed at now can fall exactly on now: the daily backup is then due in this step (the caller's
+ * `consider`, which every message of upkeep ends with, starts it), and the timer goes to the next
+ * day's, never at now (hub-design.md section 2, "Timers").
  */
 export function armDaily(steps: Steps, ctx: Context, fromMs: number = ctx.now.wall): void {
   steps.clear("backupDaily");
@@ -306,5 +324,10 @@ export function armDaily(steps: Steps, ctx: Context, fromMs: number = ctx.now.wa
     fromMs,
   );
   if (at === undefined) return;
+  if (at <= ctx.now.wall) {
+    steps.set({ ...steps.slice, dailyDue: true });
+    armDaily(steps, ctx, ctx.now.wall + DAILY_AFTER_MS);
+    return;
+  }
   steps.timerAfter(ctx, "backupDaily", at - ctx.now.wall);
 }

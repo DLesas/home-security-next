@@ -3,4 +3,10 @@
  * `sealPacket` and `openPacket` with keys from the `KeyStore`. Declared in the core's model,
  * because `CoreDeps` carries it, and re-exported here with the other ports.
  */
-export type { DeviceCipher, OpenRequest, SealRequest } from "../core/model/cipher.ts";
+export type {
+  DeviceCipher,
+  DeviceOpened,
+  KeyUsed,
+  OpenRequest,
+  SealRequest,
+} from "../core/model/cipher.ts";

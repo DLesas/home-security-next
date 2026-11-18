@@ -27,11 +27,20 @@ import type { Context } from "../model/handler.ts";
 import { type DeviceId, deviceId } from "../model/ids.ts";
 import type { AnswerTo, Internal, OpOutcome } from "../model/messages.ts";
 import { ScheduleAction, type ScheduleRow } from "../model/rows.ts";
-import { type Acc, chain, emit, type Step, withEntry, withSlice, writeRow } from "./acc.ts";
+import {
+  type Acc,
+  chain,
+  deadlineOf,
+  emit,
+  type Step,
+  withEntry,
+  withSlice,
+  writeRow,
+} from "./acc.ts";
 import { sensorOf } from "./clock.ts";
 import { localDay, nextAfter, targetOf, withoutMissed } from "./entries.ts";
 import { heldBackRecord, ranRecord, RunOutcome, type RunResult } from "./records.ts";
-import type { Entry, InFlight } from "./state.ts";
+import type { Entry, InFlight, SchedulesSlice } from "./state.ts";
 
 const MINUTE_MS = 60_000;
 
@@ -127,6 +136,33 @@ export function onEntryTimer(acc: Acc, ctx: Context): Step {
     return ok(withSlice(acc, { ...slice, anchor: { mono: ctx.now.mono, wall: ctx.now.wall } }));
   }
   return chain(acc, ...due.map((entry) => (a: Acc) => runOne(a, ctx, entry, zone)));
+}
+
+/**
+ * The end of every message: no entry's deadline may be left at or before now (HD 2: it would run
+ * at once, one turn after another). One is when the clock checks moved the anchor past an
+ * entry's time: a trusted clock corrected forwards by more than `reanchorMs` ‡ and at most
+ * `clockStepMs` ‡ across it. That is no step (section 7, "Missed entries"): the entry runs now,
+ * seconds late, once, and is not missed; its next time is after it, so the deadline goes. Any
+ * other left (a clock behind its anchor, the wall clock not at the entry's time yet) is counted
+ * again from now, as a timer that fires early is (`onEntryTimer`).
+ */
+export function runOverdue(acc: Acc, ctx: Context): Step {
+  if (!anyLeft(acc.slice, ctx)) return ok(acc);
+  return onEntryTimer(acc, ctx).map((ran) =>
+    anyLeft(ran.slice, ctx)
+      ? withSlice(ran, { ...ran.slice, anchor: { mono: ctx.now.mono, wall: ctx.now.wall } })
+      : ran,
+  );
+}
+
+/** Whether an entry's deadline is at or before now. */
+function anyLeft(slice: SchedulesSlice, ctx: Context): boolean {
+  const { anchor } = slice;
+  if (anchor === undefined) return false;
+  return [...slice.entries.values()].some(
+    (entry) => entry.dueMs !== undefined && deadlineOf(anchor, entry.dueMs) <= ctx.now.mono,
+  );
 }
 
 /** A device list in a reply's body, or undefined. */

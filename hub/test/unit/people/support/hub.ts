@@ -301,6 +301,7 @@ export class Hub {
       calendar,
       sha256: nodeSha256,
       deepFreeze: true,
+      checkDeadlines: true,
     };
     this.state = this.core.emptyState();
   }

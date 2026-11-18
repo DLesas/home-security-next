@@ -13,7 +13,7 @@ import type { DeviceId } from "../model/ids.ts";
 import type { DomainMessage } from "../model/messages.ts";
 import { type AlarmTriggerKind, AlarmTriggerKind as TriggerKind, ArmState } from "../model/rows.ts";
 import { type Mono, MICROS_PER_MILLISECOND, MILLISECONDS_PER_SECOND } from "../model/time.ts";
-import { addTrigger, waitForClose } from "./alarm.ts";
+import { addTrigger, type SirenSource, waitForClose } from "./alarm.ts";
 import { setArm } from "./arm-state.ts";
 import { type Changing, decide, then, unchanged, writeNow } from "./out.ts";
 import type { AlarmSlice, Countdown, SensorArming } from "./state.ts";
@@ -344,12 +344,16 @@ export interface EndedOpening {
 export function judgeEnded(slice: AlarmSlice, ctx: Context, opening: EndedOpening): Changing {
   const now = ctx.now.mono;
   if (afterSeconds(opening.end, slice.autoStopS) > now) {
+    const zero = opening.kind === TriggerKind.ZeroCountdown;
+    // D102: a late report says when its countdown would have ended (`late_report_sirens`).
+    const endWallMs = ctx.now.wall - (now - opening.end) / MICROS_PER_MILLISECOND;
     return addTrigger(slice, ctx, {
       sensor: opening.sensor,
       kind: opening.kind,
       base: opening.end,
       cause: opening.cause,
-      starting: opening.kind === TriggerKind.ZeroCountdown ? "alarm" : "late_report_sirens",
+      starting: zero ? "alarm" : "late_report_sirens",
+      ...(zero ? {} : { happenedAtMs: endWallMs }),
     });
   }
   const openedWallMs = ctx.now.wall - (now - opening.opened) / MICROS_PER_MILLISECOND;
@@ -365,7 +369,14 @@ export function judgeEnded(slice: AlarmSlice, ctx: Context, opening: EndedOpenin
  * A countdown's end (AL3): if its sensor is still armed, an alarm trigger; the countdown row goes
  * either way. The automatic stop counts from the deadline.
  */
-export function onCountdownEnd(slice: AlarmSlice, ctx: Context, sensor: DeviceId): Changing {
+export function onCountdownEnd(
+  slice: AlarmSlice,
+  ctx: Context,
+  sensor: DeviceId,
+  sirens?: SirenSource,
+  /** When it ended, wall milliseconds, for a countdown that ended before a stop (D102, D113). */
+  happenedAtMs?: number,
+): Changing {
   const countdown = slice.countdowns.get(sensor);
   if (countdown === undefined || countdown.deadline > ctx.now.mono) return unchanged(slice);
   const countdowns = new Map(slice.countdowns);
@@ -376,12 +387,18 @@ export function onCountdownEnd(slice: AlarmSlice, ctx: Context, sensor: DeviceId
   });
   if (slice.sensors.get(sensor)?.arm !== ArmState.Armed) return removed;
   return then(removed, (current) =>
-    addTrigger(current, ctx, {
-      sensor,
-      kind: TriggerKind.CountdownEnd,
-      base: countdown.deadline,
-      cause: countdown.cause,
-      starting: "alarm",
-    }),
+    addTrigger(
+      current,
+      ctx,
+      {
+        sensor,
+        kind: TriggerKind.CountdownEnd,
+        base: countdown.deadline,
+        cause: countdown.cause,
+        starting: "alarm",
+        ...(happenedAtMs === undefined ? {} : { happenedAtMs }),
+      },
+      sirens,
+    ),
   );
 }

@@ -9,8 +9,11 @@ import type {
   ClientId,
   DeviceId,
   GroupId,
+  ImageId,
   ModeId,
+  OutboxId,
   PersonId,
+  RolloutId,
   ScheduleId,
   TokenId,
 } from "./ids.ts";
@@ -26,6 +29,8 @@ import type {
   CountdownRow,
   DeviceKeyRow,
   DeviceRow,
+  DeviceUpdateRow,
+  FirmwareImageRow,
   DeviceStateRow,
   GatewayConfigRow,
   GroupMemberRow,
@@ -44,6 +49,11 @@ import type {
   PermissionRow,
   PersonRoleRow,
   PersonRow,
+  PushKeyRow,
+  PushOutboxRow,
+  PushTargetRow,
+  RelaySettingsRow,
+  RolloutRow,
   ScheduleRow,
   ScheduleStateRow,
   SendCounterRow,
@@ -100,6 +110,16 @@ export interface StateTables {
   readonly backup_state: BackupStateRow;
   readonly backup_key: BackupKeyRow;
   readonly update_state: UpdateStateRow;
+  // Migration 3: the joint step 0 of M3 and M4. `push_keys` as `link_secrets`: the core writes the
+  // row now with `push.register` and gives the `PushKeys` port the key by `pushKey`; it keeps no
+  // key in its slice (m4-design section 4).
+  readonly firmware_images: FirmwareImageRow;
+  readonly rollouts: RolloutRow;
+  readonly device_updates: DeviceUpdateRow;
+  readonly relay_settings: RelaySettingsRow;
+  readonly push_targets: PushTargetRow;
+  readonly push_keys: PushKeyRow;
+  readonly push_outbox: PushOutboxRow;
 }
 
 /** The key that names one row of each table; a single-row table's is `undefined`. */
@@ -141,6 +161,14 @@ export interface StateTableKeys {
   readonly backup_state: undefined;
   readonly backup_key: undefined;
   readonly update_state: undefined;
+  // Migration 3.
+  readonly firmware_images: { readonly id: ImageId };
+  readonly rollouts: { readonly id: RolloutId };
+  readonly device_updates: { readonly deviceId: DeviceId };
+  readonly relay_settings: undefined;
+  readonly push_targets: { readonly clientId: ClientId };
+  readonly push_keys: { readonly clientId: ClientId };
+  readonly push_outbox: { readonly id: OutboxId };
 }
 
 /** The audit tables of section 6. */

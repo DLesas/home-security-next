@@ -145,6 +145,7 @@ function rxRow(
     snrQ: lora?.snrQuarterDb ?? null,
     rate: lora?.dataRate ?? null,
     body,
+    oldKey: false,
   };
 }
 
@@ -190,6 +191,7 @@ function carrierRecord(
           snrQ: arrival.snrQuarterDb,
           rate: arrival.dataRate,
           body: plaintext.slice(1),
+          oldKey: false,
         },
       }),
     ]),

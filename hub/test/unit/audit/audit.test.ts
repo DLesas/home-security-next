@@ -181,6 +181,7 @@ describe("the cap on warnings written now (section 5)", () => {
         snrQ: null,
         rate: null,
         body: new Uint8Array(),
+        oldKey: false,
       },
     }));
     const out = [];

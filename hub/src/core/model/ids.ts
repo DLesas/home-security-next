@@ -60,6 +60,14 @@ export type GroupId = number & { readonly __brand: "GroupId" };
 export type ModeId = number & { readonly __brand: "ModeId" };
 /** A row id of `schedules`. */
 export type ScheduleId = number & { readonly __brand: "ScheduleId" };
+
+// The joint step 0 of M3 and M4 (docs/m3-m4-plan.md).
+/** A row id of `firmware_images` (m3-updates-design section 4). */
+export type ImageId = number & { readonly __brand: "ImageId" };
+/** A row id of `rollouts`. */
+export type RolloutId = number & { readonly __brand: "RolloutId" };
+/** A row id of `push_outbox` (m4-design section 4); also the push item's `id` on the relay link. */
+export type OutboxId = number & { readonly __brand: "OutboxId" };
 /** The core's name for one file job (a backup, an export, an update), for `fileReady`. */
 export type JobId = number & { readonly __brand: "JobId" };
 
@@ -101,8 +109,41 @@ export function modeId(id: number): ModeId {
 export function scheduleId(id: number): ScheduleId {
   return id as ScheduleId;
 }
+
+export function imageId(id: number): ImageId {
+  return id as ImageId;
+}
+
+export function rolloutId(id: number): RolloutId {
+  return id as RolloutId;
+}
+
+export function outboxId(id: number): OutboxId {
+  return id as OutboxId;
+}
 export function jobId(id: number): JobId {
   return id as JobId;
+}
+
+/**
+ * The ranges of `JobId`, one per module that starts file jobs, so a `fileReady` names one module's
+ * job only and each module ignores the others': `upkeep`'s (backups, exports, hub updates,
+ * restores) counted from 1 at each boot, below 2³¹; `firmware`'s (staging, fetching, removing and
+ * sending images, m3-updates-design section 4) counted from 2³¹ at each boot. Every job number is
+ * at most 2³² − 1, as `{job}` replies carry it (`jobRef`).
+ */
+export const JOB_RANGES = {
+  upkeep: { first: 1, last: 2 ** 31 - 1, owner: "upkeep" },
+  firmware: { first: 2 ** 31, last: 2 ** 32 - 1, owner: "firmware" },
+} as const;
+
+/** The module whose range a job number is in, or undefined for one outside every range. */
+export function jobOwner(
+  job: JobId,
+): (typeof JOB_RANGES)[keyof typeof JOB_RANGES]["owner"] | undefined {
+  for (const range of Object.values(JOB_RANGES))
+    if (Number.isInteger(job) && job >= range.first && job <= range.last) return range.owner;
+  return undefined;
 }
 
 /** The two fixed modes' ids, made by migration 2 (D90). */

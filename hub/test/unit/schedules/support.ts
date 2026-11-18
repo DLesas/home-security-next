@@ -181,6 +181,7 @@ export class Hub {
       calendar: makeCalendar()._unsafeUnwrap(),
       sha256: nodeSha256,
       deepFreeze: true,
+      checkDeadlines: true,
     };
     this.state = this.core.emptyState();
   }

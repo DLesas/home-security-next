@@ -5,12 +5,18 @@
  *
  * - `update.upload {job}`: the shell checks the release and unpacks it beside the running version
  *   (`stageUpdate`); the answer waits for it. `update_staged`, written now with the staged row.
- * - `update.approve`: the approval, written now; the switch waits (`updateWait`).
- * - **The switch** is decided only in upkeep's own `updateWait` timer, when nothing runs:
- *   `update_switching` and `switching_ms` written now, then `switchUpdate`. A timer runs before the
- *   step's event, so the event of that same step could still start a countdown: the shell checks
- *   `switchBlockedBy` (view.ts) again after the commit and, if anything runs, answers the job
- *   `failed`; the switch then waits again.
+ * - `update.approve`: the approval, written now; the switch follows at once when nothing holds it
+ *   back, otherwise it waits.
+ * - **The switch** is decided in the step whose message finds an approved update and nothing
+ *   running (`switchIfClear`, after every message upkeep handles): `update_switching` and
+ *   `switching_ms` written now, then `switchUpdate`. A later message of that same step could still
+ *   start a countdown: the shell checks `switchBlockedBy` (view.ts) again after the commit and, if
+ *   anything runs, answers the job `failed`; the switch then waits again, until the way is clear.
+ *   A switch the shell refused while nothing holds it back (it was not started by the launcher, the
+ *   version is not installed, the note could not be written) would only be refused again: the
+ *   approval is withdrawn with `update_refused`, as for too little room, and a person approves
+ *   again. (A timer at now, which this replaced, ran the switch one turn later; after such a
+ *   refusal it was armed again at once, so the hub switched and was refused turn after turn.)
  * - **At the next start** (the first `hubFacts`, which names the running version): the version
  *   switched to is running, so `update_healthy`; otherwise the launcher put the old one back
  *   (section 9, step 5), so `update_rolled_back`. Either way the switch is over, written now. The
@@ -74,17 +80,6 @@ export function waitingToSwitch(slice: UpkeepSlice): boolean {
   );
 }
 
-/**
- * After every message: an approved update whose way is clear is looked at again in the next step,
- * by its own timer (see the file's comment). Nothing is polled: the timer is set only when nothing
- * holds the switch back.
- */
-export function rearmSwitch(steps: Steps, ctx: Context): void {
-  if (!waitingToSwitch(steps.slice) || steps.has("updateWait")) return;
-  if (switchBlock(ctx.view, steps.slice) !== undefined) return;
-  steps.timerAfter(ctx, "updateWait", 0);
-}
-
 export function updateUpload(
   steps: Steps,
   answerTo: AnswerTo,
@@ -143,7 +138,6 @@ export function staged(steps: Steps, ctx: Context, outcome: FileOutcome): void {
     stagedVersion: outcome.version,
     stagedMs: ctx.now.wall,
   });
-  steps.clear("updateWait");
   steps.pushResult(upkeepDecision(ctx, "update_staged", { detail: outcome.version }));
   steps.answer(staging.answerTo, { version: outcome.version });
 }
@@ -162,7 +156,7 @@ export function updateApprove(steps: Steps, ctx: Context, answerTo: AnswerTo, ac
   setUpdate(steps, { ...row, approvedBy: actorText(actor), approvedMs: ctx.now.wall });
   const block = switchBlock(ctx.view, steps.slice);
   steps.answer(answerTo, { switchWhen: block === undefined ? "now" : `after:${block}` });
-  rearmSwitch(steps, ctx);
+  switchIfClear(steps, ctx);
 }
 
 /**
@@ -186,7 +180,6 @@ export function updateCancel(steps: Steps, answerTo: AnswerTo): void {
   }
   dropStaging(steps);
   setUpdate(steps, kept(row));
-  steps.clear("updateWait");
   steps.answer(answerTo, {});
 }
 
@@ -202,8 +195,14 @@ export function updateStatus(steps: Steps, answerTo: AnswerTo): void {
   });
 }
 
-/** upkeep's own timer: switch now if nothing holds it back. */
-export function onUpdateWait(steps: Steps, ctx: Context): void {
+/**
+ * After every message: an approved update whose way is clear switches now, in this step (see the
+ * file's comment). Nothing is polled and no timer is set: upkeep sees every message and runs after
+ * every module that can hold the switch back, so the message that clears the way (the approval, a
+ * countdown's or alarm's end, a move done, a board answered, a restore over) reaches it in the
+ * step that cleared it.
+ */
+export function switchIfClear(steps: Steps, ctx: Context): void {
   const slice = steps.slice;
   const version = slice.update.stagedVersion;
   if (!waitingToSwitch(slice) || version === null) return;
@@ -220,29 +219,30 @@ export function onUpdateWait(steps: Steps, ctx: Context): void {
 }
 
 /**
- * The shell did not switch. Something started in the same turn: wait again. No room for the
- * database's copy before the migration (`full`, section 9, step 4): the approval is dropped, with
- * `update_refused`, and nothing stopped.
+ * The shell did not switch. Something started in the same turn, and still runs: wait again, until
+ * the way is clear (`switchIfClear`). No room for the database's copy before the migration
+ * (`full`, section 9, step 4), or a refusal while nothing holds the switch back, which a retry
+ * would only meet again (see the file's comment): the approval is dropped, with `update_refused`,
+ * and nothing stopped.
  */
 export function switchFailed(steps: Steps, ctx: Context, outcome: FileOutcome): void {
   steps.set({ ...steps.slice, switchJob: undefined });
-  if (outcome.kind === "failed" && outcome.reason === "full") {
-    setUpdate(steps, {
-      ...steps.slice.update,
-      switchingMs: null,
-      approvedBy: null,
-      approvedMs: null,
-    });
-    steps.pushResult(
-      upkeepHubEvent(ctx, "update_refused", `switch refused: ${outcome.message}`, {
-        reason: "full",
-        message: outcome.message,
-      }),
-    );
+  const full = outcome.kind === "failed" && outcome.reason === "full";
+  if (!full && switchBlock(ctx.view, steps.slice) !== undefined) {
+    setUpdate(steps, { ...steps.slice.update, switchingMs: null });
     return;
   }
-  setUpdate(steps, { ...steps.slice.update, switchingMs: null });
-  rearmSwitch(steps, ctx);
+  const reason = outcome.kind === "failed" ? outcome.reason : "io";
+  const message = outcome.kind === "failed" ? outcome.message : `unexpected ${outcome.kind}`;
+  setUpdate(steps, {
+    ...steps.slice.update,
+    switchingMs: null,
+    approvedBy: null,
+    approvedMs: null,
+  });
+  steps.pushResult(
+    upkeepHubEvent(ctx, "update_refused", `switch refused: ${message}`, { reason, message }),
+  );
 }
 
 /** The first `hubFacts` after a switch: healthy, or rolled back by the launcher (section 9). */

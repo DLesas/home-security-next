@@ -67,7 +67,11 @@ function seed(): void {
         removedMs: null,
       },
     },
-    { table: "device_keys", op: "upsert", row: { deviceId: GATEWAY, key: KEY } },
+    {
+      table: "device_keys",
+      op: "upsert",
+      row: { deviceId: GATEWAY, key: KEY, nextKey: null, rekey: 0 },
+    },
     {
       table: "send_counters",
       op: "upsert",

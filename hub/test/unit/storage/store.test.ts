@@ -254,7 +254,7 @@ describe("the snapshot the boot event carries (section 7, 'Hub restart')", () =>
       {
         table: "device_keys",
         op: "upsert",
-        row: { deviceId: deviceId(3), key: new Uint8Array(16).fill(7) },
+        row: { deviceId: deviceId(3), key: new Uint8Array(16).fill(7), nextKey: null, rekey: 0 },
       },
       sendCounterOp(deviceId(3), 1024),
       {
@@ -564,6 +564,7 @@ describe("migrations (section 6)", () => {
         )
         .all()
         .map((t) => t.name);
+      const rowsBefore = new Map<string, number>();
       for (const table of tables) {
         const columns = db
           .query<{ name: string; type: string }, []>(`PRAGMA table_info("${table}")`)
@@ -576,7 +577,11 @@ describe("migrations (section 6)", () => {
               ? "'clean'"
               : "1",
         );
-        db.run(`INSERT INTO "${table}" VALUES (${values.join(", ")})`);
+        // A table an earlier migration filled already (migration 2's fixed modes and single rows,
+        // D90) keeps its rows; every other gets one.
+        const held = db.query<{ n: number }, []>(`SELECT count(*) AS n FROM "${table}"`).get();
+        if ((held?.n ?? 0) === 0) db.run(`INSERT INTO "${table}" VALUES (${values.join(", ")})`);
+        rowsBefore.set(table, Math.max(1, held?.n ?? 0));
       }
       db.close();
       const opened = openTestStore(before.path, clock);
@@ -586,7 +591,7 @@ describe("migrations (section 6)", () => {
       for (const table of tables) {
         expect([table, opened.db.query(`SELECT count(*) AS n FROM "${table}"`).get()]).toEqual([
           table,
-          { n: 1 },
+          { n: rowsBefore.get(table) },
         ]);
       }
       opened.db.close();

@@ -11,6 +11,9 @@
  * - `downtimeKnown`: what fell due while the hub was off, when only that was still unknown;
  * - `opRequest` for schedules: `schedule.create`, `.update`, `.delete` (`ops.ts`).
  *
+ * Then, whatever the message, an entry whose deadline the clock checks left at or before now runs
+ * now (`runOverdue`): no deadline is left behind.
+ *
  * The core's purity: time comes only from `ctx.now`, wall time is trusted only through the clock
  * module's view, and the calendar is asked only through `ctx.deps.calendar`.
  */
@@ -22,7 +25,7 @@ import type { Internal } from "../model/messages.ts";
 import { type Acc, chain, emit, settled, start, type Step, withSlice, writeZone } from "./acc.ts";
 import { followClock, onDowntimeKnown, recompute } from "./clock.ts";
 import { onOpRequest } from "./ops.ts";
-import { closeStale, onAnswer, onEntryTimer } from "./run.ts";
+import { closeStale, onAnswer, onEntryTimer, runOverdue } from "./run.ts";
 import { EMPTY_SCHEDULES_SLICE, type Entry, type SchedulesSlice } from "./state.ts";
 
 function fromSnapshot(snapshot: DurableSnapshot, ctx: Context): SchedulesSlice {
@@ -73,5 +76,6 @@ export const handleSchedules: Handler<"schedules"> = (slice, message, ctx) => {
     (acc) => closeStale(acc, ctx),
     (acc) => followClock(acc, ctx),
     (acc) => (message.kind === "boot" ? ok(acc) : onMessage(acc, message, ctx)),
+    (acc) => runOverdue(acc, ctx),
   ).map((acc) => ({ slice: settled(slice, acc.slice), out: acc.out }));
 };

@@ -6,9 +6,11 @@
  * committed before any siren command leaves (section 5).
  */
 import { ok } from "neverthrow";
+import { eventAtDetail } from "../model/decisions.ts";
 import type { Context } from "../model/handler.ts";
 import type { DeviceId, Seq } from "../model/ids.ts";
 import type { Internal } from "../model/messages.ts";
+import type { HubState } from "../model/state.ts";
 import { type AlarmTriggerKind, ArmState } from "../model/rows.ts";
 import { type Mono, mono } from "../model/time.ts";
 import { triggerSirens } from "../layout/view.ts";
@@ -28,6 +30,23 @@ export interface NewTrigger {
   readonly cause: Seq;
   /** The decision that starts the alarm: `alarm`, or `late_report_sirens` with its seconds. */
   readonly starting: "alarm" | "late_report_sirens";
+  /**
+   * When it happened, wall milliseconds, for a trigger raised late (D102): a late report's
+   * would-be end, or a countdown that ended before a stop. The starting decision carries it in
+   * its `detail` (`eventAtDetail`); one on time leaves it out.
+   */
+  readonly happenedAtMs?: number;
+}
+
+/** The paired sirens a trigger may sound, in pairing order, and each one's longest sound. */
+export interface SirenSource {
+  readonly ids: readonly DeviceId[];
+  maxSoundS(siren: DeviceId): number | undefined;
+}
+
+/** The sirens as the sirens module holds them: every time but within the boot step (handle.ts). */
+export function viewSirens(view: HubState): SirenSource {
+  return { ids: sirenIds(view), maxSoundS: (siren) => sirenMaxSoundS(view, siren) };
 }
 
 /** The alarm row and a siren's row, as written now (section 6). */
@@ -76,18 +95,28 @@ export function triggerRow(
  * its longest sound (section 8); a siren already in it is not extended (D95, D114), so thirty
  * doors cost one command per siren.
  */
-export function addTrigger(slice: AlarmSlice, ctx: Context, trigger: NewTrigger): Changing {
+export function addTrigger(
+  slice: AlarmSlice,
+  ctx: Context,
+  trigger: NewTrigger,
+  sirens: SirenSource = viewSirens(ctx.view),
+): Changing {
   const now = ctx.now.mono;
   const running = slice.alarm;
   if (running?.triggers.has(trigger.sensor) === true) return ok({ slice, out: [] });
   const stopAt = afterSeconds(trigger.base, slice.autoStopS);
   const secondsLeft = secondsUntil(now, stopAt);
   const kind = running === undefined ? trigger.starting : "alarm_trigger_added";
+  const happened =
+    kind !== "alarm_trigger_added" && trigger.happenedAtMs !== undefined
+      ? { detail: eventAtDetail(trigger.happenedAtMs) }
+      : {};
   return decide(ctx, "now", {
     kind,
     device: trigger.sensor,
     cause: trigger.cause,
     ...(kind === "late_report_sirens" ? { value: secondsLeft } : {}),
+    ...happened,
   }).map(({ seq, message }) => {
     const base: AlarmRun = running ?? {
       startedAt: now,
@@ -97,11 +126,11 @@ export function addTrigger(slice: AlarmSlice, ctx: Context, trigger: NewTrigger)
       quietEnd: stopAt,
     };
     const chosen = triggerSirens(ctx.view, trigger.sensor);
-    const added: [DeviceId, AlarmSiren][] = sirenIds(ctx.view)
+    const added: [DeviceId, AlarmSiren][] = sirens.ids
       .filter((siren) => chosen === "all" || chosen.includes(siren))
       .filter((siren) => !base.sirens.has(siren))
       .flatMap((siren): [DeviceId, AlarmSiren][] => {
-        const cap = afterSeconds(now, sirenMaxSoundS(ctx.view, siren) ?? slice.autoStopS);
+        const cap = afterSeconds(now, sirens.maxSoundS(siren) ?? slice.autoStopS);
         const until = mono(Math.min(stopAt, cap));
         return until > now ? [[siren, { until, commanded: false, restore: "fresh" }]] : [];
       });

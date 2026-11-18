@@ -242,7 +242,7 @@ function outcomeOfError(
     field: string,
     reason: Extract<AppError, { readonly code: "invalid" }>["detail"]["reason"],
   ) => ok(invalid(field, reason));
-  if (error.app !== undefined) return fail(error.app);
+  if (error.app !== undefined) return ok({ ok: false, error: error.app });
   const body: unknown = op.body;
   const device =
     typeof body === "object" && body !== null && "device" in body && typeof body.device === "number"

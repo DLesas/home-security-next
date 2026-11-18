@@ -34,6 +34,7 @@ export const MINI_DEPS: CoreDeps = {
   rules: DEFAULT_RULES,
   calendar: UNBUILT_CALENDAR,
   sha256: nodeSha256,
+  checkDeadlines: true,
 };
 
 /** A snapshot of an empty database (as `test/world/world.ts` has it, without loading the core). */

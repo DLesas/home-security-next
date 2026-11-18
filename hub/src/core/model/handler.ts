@@ -33,6 +33,13 @@ export interface CoreDeps {
    * build by itself; the caller says so here.
    */
   readonly deepFreeze?: boolean;
+  /**
+   * True in test builds: after every step at time t, no module may hold a deadline at or before t
+   * (a deadline left there would run again at once, for ever: the loop would spin). A step that
+   * leaves one returns a `CoreFault` naming the module and the timer, so a test fails where it
+   * happens. Off in the running hub, whose loop guards against it instead (`HubRules.loop`).
+   */
+  readonly checkDeadlines?: boolean;
 }
 
 /** What one step returns. */

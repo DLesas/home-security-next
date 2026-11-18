@@ -70,6 +70,7 @@ export function received(
             snrQ: null,
             rate: null,
             body,
+            oldKey: false,
           },
         },
       },

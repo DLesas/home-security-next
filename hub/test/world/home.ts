@@ -475,7 +475,11 @@ export class Home {
     ];
     for (const m of members) {
       ops.push({ table: "devices", op: "upsert", row: m.row });
-      ops.push({ table: "device_keys", op: "upsert", row: { deviceId: m.row.id, key: m.key } });
+      ops.push({
+        table: "device_keys",
+        op: "upsert",
+        row: { deviceId: m.row.id, key: m.key, nextKey: null, rekey: 0 },
+      });
       ops.push({
         table: "send_counters",
         op: "upsert",
@@ -707,6 +711,13 @@ export class Home {
     this.#crashTurn = false;
     const summary = loop.turn();
     this.turns++;
+    // No deadline is ever left at or before its time (the loop's guard): the run stops, naming it.
+    const stuck = loop.overdue[0];
+    if (stuck !== undefined && this.#stalled === undefined)
+      this.#stalled = {
+        kind: "stalled",
+        message: `a deadline left at or before its time at true time ${this.now} µs: ${stuck.owner} ${stuck.timer} at ${String(stuck.at)}, by ${String(stuck.by)}`,
+      };
     if (this.#crashed !== undefined) this.#afterCut();
     return summary;
   }

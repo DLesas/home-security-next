@@ -65,6 +65,14 @@ export const STATE_TABLES = {
   backup_state: schema.backupState,
   backup_key: schema.backupKey,
   update_state: schema.updateState,
+  // Migration 3 (the joint step 0 of M3 and M4).
+  firmware_images: schema.firmwareImages,
+  rollouts: schema.rollouts,
+  device_updates: schema.deviceUpdates,
+  relay_settings: schema.relaySettings,
+  push_targets: schema.pushTargets,
+  push_keys: schema.pushKeys,
+  push_outbox: schema.pushOutbox,
 } as const satisfies Readonly<Record<StateTable, SQLiteTable>>;
 
 /** The Drizzle table of each audit table, by its SQL name. */

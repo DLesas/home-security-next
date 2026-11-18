@@ -52,6 +52,8 @@ import { EMPTY_SITE_SLICE } from "../../../src/core/site/state.ts";
 import { EMPTY_SLOTS_SLICE } from "../../../src/core/slots/state.ts";
 import { handleUpkeep } from "../../../src/core/upkeep/handle.ts";
 import { EMPTY_UPKEEP_SLICE, type UpkeepSlice } from "../../../src/core/upkeep/state.ts";
+import { EMPTY_FIRMWARE_SLICE } from "../../../src/core/firmware/state.ts";
+import { EMPTY_RELAY_SLICE } from "../../../src/core/relay/state.ts";
 import { entropyCursor } from "../../../src/core/util/entropy.ts";
 import { VectorCipher } from "../../world/vector-cipher.ts";
 
@@ -85,6 +87,7 @@ export const DEPS: CoreDeps = {
   rules: DEFAULT_RULES,
   calendar: UTC_CALENDAR,
   sha256: nodeSha256,
+  checkDeadlines: true,
 };
 
 export function emptyState(): HubState {
@@ -95,6 +98,7 @@ export function emptyState(): HubState {
     setup: EMPTY_SETUP_SLICE,
     control: EMPTY_CONTROL_SLICE,
     people: EMPTY_PEOPLE_SLICE,
+    relay: EMPTY_RELAY_SLICE,
     layout: EMPTY_LAYOUT_SLICE,
     app: EMPTY_APP_SLICE,
     schedules: EMPTY_SCHEDULES_SLICE,
@@ -102,6 +106,7 @@ export function emptyState(): HubState {
     intake: EMPTY_INTAKE_SLICE,
     alarm: EMPTY_ALARM_SLICE,
     site: EMPTY_SITE_SLICE,
+    firmware: EMPTY_FIRMWARE_SLICE,
     sensors: EMPTY_SENSORS_SLICE,
     slots: EMPTY_SLOTS_SLICE,
     sirens: EMPTY_SIRENS_SLICE,

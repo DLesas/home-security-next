@@ -12,6 +12,7 @@ import { MessageType, type MessageOf } from "@hsn/protocol";
 import type { DurableSnapshot } from "../../../src/core/model/events.ts";
 import { bootId, deviceId, HUB_DEVICE } from "../../../src/core/model/ids.ts";
 import {
+  DeviceState,
   MoveStage,
   NEXT_SETTING_STAYS,
   type SensorConfigRow,
@@ -495,6 +496,126 @@ describe("a restart in each stage (section 8)", () => {
     // 60 s from the switch to the last commit, 30 s down: switched 90 s before this start.
     expect(b.world.state.site.switchedAt).toBe(mono(-90 * SECOND));
     expect(b.world.state.site.timers.map((t) => t.at)).toEqual([mono(-90 * SECOND + 12 * MIN)]);
+  });
+
+  /** Switched 60 s before the last commit, then down for `downtimeMs`, known at the first tick. */
+  function switchedThenDown(downtimeMs: number) {
+    return twoSensors({
+      downtimeMs,
+      snapshot: (s) => ({
+        ...moving(MoveStage.Switched, {
+          moveSwitchedBoot: bootId(1),
+          moveSwitchedMono: mono(100 * SECOND),
+        })(s),
+        deviceState: [
+          {
+            deviceId: HUB_DEVICE,
+            boot: bootId(1),
+            lastSeenMono: mono(160 * SECOND),
+            lastSeenMs: 0,
+            clockOk: true,
+            window: null,
+            reading: null,
+            rssi: null,
+            snrQ: null,
+            bestGatewayId: null,
+            uptimeS: null,
+            estimates: null,
+          },
+        ],
+      }),
+    });
+  }
+
+  /** No site timer at or before the World's time: none left behind (hub-design.md section 2). */
+  function noneLeft(b: Bench): void {
+    const now = b.world.now.mono;
+    expect(b.world.state.site.timers.filter((t) => t.at <= now)).toEqual([]);
+    expect(b.world.faults.map((f) => f.message)).toEqual([]);
+  }
+
+  test("a downtime longer than the grace, known after the start: the move done in that step, naming who did not follow", () => {
+    // Switched 60 s before the stop and down 20 minutes: the 12-minute grace ended 9 minutes ago.
+    const { b, back } = switchedThenDown(20 * 60_000);
+    expect(b.world.state.site.row.moveStage).toBe(MoveStage.Switched);
+    expect(b.world.input({ kind: "tick" }).isOk()).toBe(true);
+    const done = b.decisions("move_done");
+    expect(done.map((d) => d.value)).toEqual([1]);
+    expect([...(done[0]?.detail ?? [])]).toEqual([back, 0, 0, 0]);
+    expect(b.world.state.site.row.moveStage).toBe(MoveStage.Done);
+    noneLeft(b);
+    // Done once: the time going on gives no second.
+    expect(b.world.advanceByMs(30 * 60_000).isOk()).toBe(true);
+    expect(b.decisions("move_done")).toHaveLength(1);
+  });
+
+  test("a downtime that ends the grace exactly now: done in that step; a millisecond less: done a millisecond later", () => {
+    // Switched 60 s + 11 min before this start: the grace of 12 minutes ends at this start.
+    const exact = switchedThenDown(11 * 60_000);
+    expect(exact.b.world.input({ kind: "tick" }).isOk()).toBe(true);
+    expect(exact.b.decisions("move_done").map((d) => d.value)).toEqual([1]);
+    noneLeft(exact.b);
+
+    const just = switchedThenDown(11 * 60_000 - 1);
+    expect(just.b.world.input({ kind: "tick" }).isOk()).toBe(true);
+    expect(just.b.decisions("move_done")).toEqual([]);
+    expect(just.b.world.state.site.timers.map((t) => t.at)).toEqual([mono(1000)]);
+    noneLeft(just.b);
+    expect(just.b.world.advanceTo(mono(999)).isOk()).toBe(true);
+    expect(just.b.decisions("move_done")).toEqual([]);
+    expect(just.b.world.advanceTo(mono(1000)).isOk()).toBe(true);
+    expect(just.b.decisions("move_done").map((d) => d.value)).toEqual([1]);
+    noneLeft(just.b);
+  });
+
+  test("switched with no sensor: no grace to wait for, so the start ends the move, once", () => {
+    const b = new Bench([], { stand: standIns({}, () => undefined) });
+    b.boot({
+      ...sensorSnapshot([], 2),
+      site: siteRowAt(2, {
+        moveId: 1,
+        moveStage: MoveStage.Switched,
+        moveRate: 2,
+        moveChannel: NEXT_SETTING_STAYS,
+        moveSwitchedBoot: bootId(1),
+        moveSwitchedMono: mono(5 * SECOND),
+      }),
+    });
+    expect(b.decisions("move_done").map((d) => d.value)).toEqual([0]);
+    expect(b.world.state.site.row.moveStage).toBe(MoveStage.Done);
+    noneLeft(b);
+    expect(b.world.advanceByMs(60_000).isOk()).toBe(true);
+    expect(b.decisions("move_done")).toHaveLength(1);
+  });
+
+  test("a move with no sensor but a siren switches at once and is done in that step, naming the siren", () => {
+    const siren = deviceId(30);
+    const b = new Bench([], { stand: standIns({}, () => undefined) });
+    const empty = sensorSnapshot([], 5);
+    b.boot({
+      ...empty,
+      devices: [
+        {
+          id: siren,
+          address: 0x6e000001,
+          role: 2,
+          name: "hall",
+          chipId: new Uint8Array(6),
+          firmware: 0x010000,
+          development: true,
+          state: DeviceState.Contacted,
+          addedMs: 0,
+          removedMs: null,
+        },
+      ],
+    });
+    b.command({ kind: "siteChange", rate: 2 });
+    expect(b.decisions("move_switched")).toHaveLength(1);
+    const done = b.decisions("move_done");
+    expect(done.map((d) => d.value)).toEqual([1]);
+    expect([...(done[0]?.detail ?? [])]).toEqual([siren, 0, 0, 0]);
+    expect(b.world.state.site.row.moveStage).toBe(MoveStage.Done);
+    noneLeft(b);
   });
 
   test("done or cancelled: nothing more", () => {

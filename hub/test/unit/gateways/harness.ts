@@ -215,6 +215,7 @@ export class Harness {
       rules: this.rules,
       calendar: UNBUILT_CALENDAR,
       sha256: nodeSha256,
+      checkDeadlines: true,
     };
   }
 

@@ -6,7 +6,7 @@
  */
 import { nodeSha256 } from "@hsn/protocol";
 import { describe, expect, test } from "bun:test";
-import { APP_OP_NAMES, APP_OPS, type AppOpName, LINKING } from "@hsn/protocol/app";
+import { APP_OP_NAMES, APP_OP_NAMES_V2, APP_OPS, type AppOpName, LINKING } from "@hsn/protocol/app";
 import { CONTROL_OPS, controlCommand, typedCommand } from "../../../src/control-protocol/index.ts";
 import type { ControlCommand } from "../../../src/core/model/control.ts";
 import { DECISION_KINDS, M2_HUB_EVENTS } from "../../../src/core/model/decisions.ts";
@@ -131,9 +131,10 @@ describe("the module order (m2-design.md section 2)", () => {
     expect(at("sirens")).toBeLessThan(at("health"));
     expect(at("health")).toBeLessThan(at("notify"));
     expect(at("notify")).toBeLessThan(at("upkeep"));
-    expect(MODULE_ORDER.indexOf("upkeep")).toBe(18);
-    expect(MODULE_ORDER.indexOf("audit")).toBe(19);
-    expect(MODULE_ORDER).toHaveLength(20);
+    // The joint step 0 of M3 and M4 adds `relay` and `firmware` before them (docs/m3-m4-plan.md).
+    expect(MODULE_ORDER.indexOf("upkeep")).toBe(20);
+    expect(MODULE_ORDER.indexOf("audit")).toBe(21);
+    expect(MODULE_ORDER).toHaveLength(22);
     expect(Object.keys(MODULES).toSorted()).toEqual([...MODULE_ORDER].toSorted());
   });
 
@@ -361,7 +362,8 @@ describe("the hub computer's operations (m2-design.md section 6)", () => {
   });
 
   test("every operation has an owner entry, and the control operations are app operations", () => {
-    expect(Object.keys(OP_OWNERS).toSorted()).toEqual([...APP_OP_NAMES].map(String).toSorted());
+    // Channel version 2's operations too (the joint step 0 of M3 and M4).
+    expect(Object.keys(OP_OWNERS).toSorted()).toEqual([...APP_OP_NAMES_V2].map(String).toSorted());
     for (const name of CONTROL_OPS) expect(APP_OPS[name as AppOpName]).toBeDefined();
     expect(scheduleId(1)).toBe(scheduleId(1));
   });

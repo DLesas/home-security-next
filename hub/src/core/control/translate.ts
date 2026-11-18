@@ -392,6 +392,9 @@ export function route(
         token: tokenId(command.token),
         ...asked,
       });
+    // The joint step 0's lockstep-only restore (m3-updates-design section 7): built by U10 and K1.
+    case "benchRestore":
+      return refuse("notBuilt", "benchRestore is not built yet (docs/m3-m4-plan.md, step 1)");
   }
 }
 

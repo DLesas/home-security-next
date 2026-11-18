@@ -252,7 +252,11 @@ function seedHub(): void {
         removedMs: null,
       },
     },
-    { table: "device_keys", op: "upsert", row: { deviceId: id, key: GATEWAY_KEY } },
+    {
+      table: "device_keys",
+      op: "upsert",
+      row: { deviceId: id, key: GATEWAY_KEY, nextKey: null, rekey: 0 },
+    },
     {
       table: "send_counters",
       op: "upsert",

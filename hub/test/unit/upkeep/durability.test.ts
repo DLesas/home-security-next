@@ -172,9 +172,12 @@ describe("the classes of section 3", () => {
       outcome: { kind: "updateStaged", version: "1.1.0" },
     });
     expect(classes(staged)).toEqual([`update_state:${NOW}`, `update_staged:${NOW}`]);
+    // The approval, then the switch in the same step: nothing holds it back.
     expect(classes(op(runner, { op: "update.approve", body: {} }))).toEqual([
       `update_state:${NOW}`,
+      `update_state:${NOW}`,
+      `update_switching:${NOW}`,
     ]);
-    expect(classes(runner.run(0))).toEqual([`update_state:${NOW}`, `update_switching:${NOW}`]);
+    expect(classes(runner.run(0))).toEqual([]);
   });
 });

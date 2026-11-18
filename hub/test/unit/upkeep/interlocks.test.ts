@@ -149,8 +149,7 @@ describe("restore and updates", () => {
   test("no restore once an update is switching", () => {
     const runner = booted();
     staged(runner);
-    op(runner, { op: "update.approve", body: {} });
-    expect(jobs(runner.run(0), "switchUpdate")).toHaveLength(1);
+    expect(jobs(op(runner, { op: "update.approve", body: {} }), "switchUpdate")).toHaveLength(1);
     expect(refusal(op(runner, { op: "restore.start", body: { job: 4 } }))).toEqual({
       code: "busy",
       detail: { because: "updateSwitch" },
@@ -172,12 +171,14 @@ describe("restore and updates", () => {
     const read = jobs(op(runner, { op: "restore.start", body: { job: 4 } }), "readRestore")[0];
     expect(refusal(op(runner, { op: "update.approve", body: {} }))).toBeUndefined();
     expect(jobs(runner.run(60_000_000), "switchUpdate")).toHaveLength(0);
-    runner.send({
+    // The message that ends the restore clears the way: the switch goes in its own step.
+    const over = runner.send({
       kind: "fileReady",
       job: read?.job ?? jobId(0),
       outcome: { kind: "failed", reason: "badFile", message: "not a backup" },
     });
-    expect(jobs(runner.run(0), "switchUpdate")).toHaveLength(1);
+    expect(jobs(over, "switchUpdate")).toHaveLength(1);
+    expect(jobs(runner.run(0), "switchUpdate")).toHaveLength(0);
   });
 
   test("a cancel or a restore drops a staging half-way: its upload answered, its outcome ignored", () => {

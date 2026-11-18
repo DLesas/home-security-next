@@ -95,6 +95,7 @@ export function setupCore(sources: ControlSources = VIEW_SOURCES, given: StandIn
     setup: { ...MODULES.setup, handle: handleSetup },
     control: { ...MODULES.control, handle: makeControlHandler(sources) },
     people: standIn("people", given.people),
+    relay: MODULES.relay,
     layout: standIn("layout", given.layout),
     app: standIn("app", given.app),
     schedules: standIn("schedules", given.schedules),
@@ -103,6 +104,7 @@ export function setupCore(sources: ControlSources = VIEW_SOURCES, given: StandIn
     alarm: standIn("alarm", given.alarm),
     // The real site module: setup reads the site's settings through its view.
     site: given.site === undefined ? MODULES.site : { ...MODULES.site, handle: given.site },
+    firmware: MODULES.firmware,
     sensors: standIn("sensors", given.sensors),
     slots: standIn("slots", given.slots),
     sirens: standIn("sirens", given.sirens),

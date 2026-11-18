@@ -72,6 +72,8 @@ const COMMANDS: readonly ParsedControlCommand[] = [
   { kind: "consoleToken" },
   { kind: "consoleTokenWait", token: 3 },
   { kind: "fileChunk", job: 1, n: 0, data: "AAEC", end: { chunks: 1, sha256: "0".repeat(64) } },
+  // The joint step 0 of M3 and M4: the lockstep hub's test-only restore.
+  { kind: "benchRestore", file: "/tmp/backup.hsnb", key: "A".repeat(42) + "E" },
 ];
 
 const INVALID_COMMANDS: readonly (readonly [string, unknown])[] = [
@@ -351,6 +353,7 @@ const RECORDS: readonly unknown[] = [
       snrQ: 32,
       rate: 5,
       body: "0703007815000000",
+      oldKey: false,
     },
   },
   {
@@ -471,6 +474,16 @@ describe("records", () => {
   test.each(RECORDS.map((r, i) => [i, r] as const))("record %i parses", (_, record) => {
     expectParses(recordJson, record);
     expectParses(streamLine, { id: 1, record });
+  });
+
+  test("an rx record carries oldKey; one written before it (a recorded session's) reads as false", () => {
+    const rx = RECORDS[0] as { readonly row: Record<string, unknown> };
+    const before = Object.fromEntries(Object.entries(rx.row).filter(([key]) => key !== "oldKey"));
+    const read = recordJson.parse({ ...rx, row: before });
+    expect(read.kind === "rx" && read.row.oldKey).toBe(false);
+    const flagged = recordJson.parse({ ...rx, row: { ...rx.row, oldKey: true } });
+    expect(flagged.kind === "rx" && flagged.row.oldKey).toBe(true);
+    expect(recordJson.safeParse({ ...rx, row: { ...rx.row, oldKey: 1 } }).success).toBe(false);
   });
 
   test("every record kind has an example", () => {

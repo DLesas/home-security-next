@@ -8,9 +8,9 @@ import type { CoreFault } from "../model/errors.ts";
 import type { ScheduleId } from "../model/ids.ts";
 import type { Internal } from "../model/messages.ts";
 import type { ScheduleRow } from "../model/rows.ts";
-import { monoAfterMs } from "../model/time.ts";
+import { type Mono, monoAfterMs } from "../model/time.ts";
 import type { TimerOf } from "../model/timers.ts";
-import type { Entry, SchedulesSlice } from "./state.ts";
+import type { Anchor, Entry, SchedulesSlice } from "./state.ts";
 
 export interface Acc {
   readonly slice: SchedulesSlice;
@@ -65,6 +65,11 @@ export function withEntry(slice: SchedulesSlice, entry: Entry): SchedulesSlice {
   return { ...slice, entries };
 }
 
+/** The monotonic deadline of a next occurrence at the wall time `dueMs`, counted from `anchor`. */
+export function deadlineOf(anchor: Anchor, dueMs: number): Mono {
+  return monoAfterMs(anchor.mono, dueMs - anchor.wall);
+}
+
 /**
  * The timers the slice implies: one per entry with a next time, while the module runs, at the
  * monotonic time its next occurrence is from the anchor (HD 2: every deadline a `Mono`).
@@ -76,7 +81,7 @@ export function timersOf(slice: SchedulesSlice): readonly TimerOf<"schedules">[]
   for (const entry of slice.entries.values()) {
     if (entry.dueMs === undefined) continue;
     timers.push({
-      at: monoAfterMs(anchor.mono, entry.dueMs - anchor.wall),
+      at: deadlineOf(anchor, entry.dueMs),
       key: { module: "schedules", kind: "entryDue", schedule: entry.row.id },
     });
   }

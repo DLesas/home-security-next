@@ -5,14 +5,14 @@
  * the reply sent.
  */
 import { Result } from "neverthrow";
-import { type AppReply, appReply } from "@hsn/protocol/app";
+import { type AppReply, appReply, version1Error } from "@hsn/protocol/app";
 import type { OpOutcome } from "../model/messages.ts";
 
 /** The reply to request `id` with this outcome (section 5's frames). */
 export function replyOf(id: number, outcome: OpOutcome): AppReply {
   return outcome.ok
     ? { t: "res", id, ok: true, body: outcome.body }
-    : { t: "res", id, ok: false, error: outcome.error };
+    : { t: "res", id, ok: false, error: version1Error(outcome.error) };
 }
 
 /** A kept reply sent again for a retried `seq`: the retry's own `id`, marked `repeat`. */

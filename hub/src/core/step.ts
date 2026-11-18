@@ -3,11 +3,15 @@
  * "Modules and the dispatcher").
  *
  * A step puts every due timer on the queue, earliest first, then the input's event; it then
- * takes messages from the front until the queue is empty. Every message goes to the twenty
+ * takes messages from the front until the queue is empty. Every message goes to the twenty-two
  * modules in the fixed order of `MODULE_ORDER`, except a timer, which goes to its owner only; a
  * handler returns its slice unchanged for messages it ignores. Each handler sees the state after
  * every earlier handler, and what it emits joins the back of the queue (messages) or the step's
  * effects (effects), in order. The same state and input always give the same result.
+ *
+ * The order, as the joint step 0 of M3 and M4 placed it (docs/m3-m4-plan.md): clock, registry,
+ * links, setup, control, people, relay, layout, app, schedules, gateways, intake, alarm, site,
+ * firmware, sensors, slots, sirens, health, notify, upkeep, audit.
  */
 import { err, ok, type Result } from "neverthrow";
 import { alarmDeadlines } from "./alarm/deadlines.ts";
@@ -90,6 +94,12 @@ import { EMPTY_NOTIFY_SLICE } from "./notify/state.ts";
 import { upkeepDeadlines } from "./upkeep/deadlines.ts";
 import { handleUpkeep } from "./upkeep/handle.ts";
 import { EMPTY_UPKEEP_SLICE } from "./upkeep/state.ts";
+import { firmwareDeadlines } from "./firmware/deadlines.ts";
+import { handleFirmware } from "./firmware/handle.ts";
+import { EMPTY_FIRMWARE_SLICE } from "./firmware/state.ts";
+import { relayDeadlines } from "./relay/deadlines.ts";
+import { handleRelay } from "./relay/handle.ts";
+import { EMPTY_RELAY_SLICE } from "./relay/state.ts";
 
 /** A step that would handle more messages than this is a loop: a `CoreFault` (section 2). */
 export const MAX_MESSAGES_PER_STEP = 10_000;
@@ -106,7 +116,10 @@ export interface ModuleDefinition<K extends ModuleName> {
 /** One definition per module. */
 export type Modules = { readonly [K in ModuleName]: ModuleDefinition<K> };
 
-/** The twenty modules of the core: M1a's thirteen and M2's seven (m2-design.md section 2). */
+/**
+ * The twenty-two modules of the core: M1a's thirteen, M2's seven (m2-design.md section 2) and the
+ * joint step 0's two (`relay`, `firmware`; docs/m3-m4-plan.md).
+ */
 export const MODULES: Modules = {
   clock: { empty: EMPTY_CLOCK_SLICE, handle: handleClock, deadlines: clockDeadlines },
   registry: { empty: EMPTY_REGISTRY_SLICE, handle: handleRegistry, deadlines: registryDeadlines },
@@ -114,6 +127,7 @@ export const MODULES: Modules = {
   setup: { empty: EMPTY_SETUP_SLICE, handle: handleSetup, deadlines: setupDeadlines },
   control: { empty: EMPTY_CONTROL_SLICE, handle: handleControl, deadlines: controlDeadlines },
   people: { empty: EMPTY_PEOPLE_SLICE, handle: handlePeople, deadlines: peopleDeadlines },
+  relay: { empty: EMPTY_RELAY_SLICE, handle: handleRelay, deadlines: relayDeadlines },
   layout: { empty: EMPTY_LAYOUT_SLICE, handle: handleLayout, deadlines: layoutDeadlines },
   app: { empty: EMPTY_APP_SLICE, handle: handleApp, deadlines: appDeadlines },
   schedules: {
@@ -125,6 +139,7 @@ export const MODULES: Modules = {
   intake: { empty: EMPTY_INTAKE_SLICE, handle: handleIntake, deadlines: intakeDeadlines },
   alarm: { empty: EMPTY_ALARM_SLICE, handle: handleAlarm, deadlines: alarmDeadlines },
   site: { empty: EMPTY_SITE_SLICE, handle: handleSite, deadlines: siteDeadlines },
+  firmware: { empty: EMPTY_FIRMWARE_SLICE, handle: handleFirmware, deadlines: firmwareDeadlines },
   sensors: { empty: EMPTY_SENSORS_SLICE, handle: handleSensors, deadlines: sensorsDeadlines },
   slots: { empty: EMPTY_SLOTS_SLICE, handle: handleSlots, deadlines: slotsDeadlines },
   sirens: { empty: EMPTY_SIRENS_SLICE, handle: handleSirens, deadlines: sirensDeadlines },
@@ -134,11 +149,21 @@ export const MODULES: Modules = {
   audit: { empty: EMPTY_AUDIT_SLICE, handle: handleAudit, deadlines: auditDeadlines },
 };
 
-/** The core built from a set of modules: the real twenty, or a test's. */
+/** The core built from a set of modules: the real twenty-two, or a test's. */
 export interface Core {
   readonly step: StepFunction;
   readonly nextDeadline: (state: HubState) => Mono | undefined;
   readonly emptyState: () => HubState;
+  /**
+   * Every module's timers, in module order, for the loop's guard against a deadline left in the
+   * past (`HubLoop`). A core without it (a test's stand-in) is guarded by `nextDeadline` alone.
+   */
+  readonly deadlines?: (state: HubState) => readonly Timer[];
+}
+
+/** The first timer of `state` at or before `now`: a deadline a step must not leave behind. */
+export function overdueTimer(timers: readonly Timer[], now: Mono): Timer | undefined {
+  return timers.find((timer) => timer.at <= now);
 }
 
 const effectKinds: ReadonlySet<string> = new Set(EFFECT_KINDS);
@@ -235,6 +260,7 @@ export function makeCore(modules: Modules): Core {
       setup: modules.setup.empty,
       control: modules.control.empty,
       people: modules.people.empty,
+      relay: modules.relay.empty,
       layout: modules.layout.empty,
       app: modules.app.empty,
       schedules: modules.schedules.empty,
@@ -242,6 +268,7 @@ export function makeCore(modules: Modules): Core {
       intake: modules.intake.empty,
       alarm: modules.alarm.empty,
       site: modules.site.empty,
+      firmware: modules.firmware.empty,
       sensors: modules.sensors.empty,
       slots: modules.slots.empty,
       sirens: modules.sirens.empty,
@@ -297,11 +324,34 @@ export function makeCore(modules: Modules): Core {
       }
     }
 
+    if (deps.checkDeadlines === true) {
+      const left = overdueTimer(allTimers(modules, current), input.now.mono);
+      if (left !== undefined) {
+        return err(
+          coreFault(
+            event,
+            `core/${left.key.module}`,
+            `a deadline left at or before the step's time: ${left.key.module} ${JSON.stringify(left.key)} at ${String(left.at)}, the step at ${String(input.now.mono)}`,
+            {
+              module: left.key.module,
+              timer: JSON.stringify(left.key),
+              at: left.at,
+              now: input.now.mono,
+            },
+          ),
+        );
+      }
+    }
     if (deps.deepFreeze === true) deepFreeze(current);
     return ok({ state: current, effects, wake: nextDeadline(current) });
   }
 
-  return { step, nextDeadline, emptyState };
+  return {
+    step,
+    nextDeadline,
+    emptyState,
+    deadlines: (state: HubState) => allTimers(modules, state),
+  };
 }
 
 const core = makeCore(MODULES);

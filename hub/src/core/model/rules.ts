@@ -390,6 +390,92 @@ export interface HubRules {
     /** The restore token, never stored, expires after 10 minutes ‡ or its first use. */
     readonly tokenExpiryMs: number;
   };
+  /** The relay module (docs/m4-design.md section 4): the core's values; the link's are the shell's. */
+  readonly relay: {
+    /** Down this long ‡, `relay_unreachable` is recorded, once per outage. */
+    readonly unreachableAfterMs: number;
+    /** At most one `relay_link` record per this period ‡ in which the link went up or down. */
+    readonly linkRecordEveryMs: number;
+    /** `limited` and `failed` pushes are tried again after these ‡, then every `retryEveryMs`. */
+    readonly retryAfterMs: readonly number[];
+    readonly retryEveryMs: number;
+    /** An outbox row older than this ‡ is dropped, `push_dropped`. */
+    readonly outboxMaxAgeMs: number;
+    /** When the link returns, per phone every critical row and the newest 10 ‡ others (QR8). */
+    readonly burstOthersPerPhone: number;
+    /** The longest `PushContent` the core builds, as UTF-8 JSON: the padded 1,280 bytes less one. */
+    readonly contentMaxBytes: number;
+    /** The roster is sent again with new sealed alerts at least this often ‡, as keys age. */
+    readonly rosterEveryMs: number;
+  };
+  /** The firmware module (docs/m3-updates-design.md sections 2, 4 and 5). */
+  readonly firmware: {
+    /** At most four images ‡ in the store ... */
+    readonly maxImages: number;
+    /** ... and 8 MB ‡ (D140). */
+    readonly storeMaxBytes: number;
+    /** A firmware file, uploaded or offered, at most 8 MB ‡, refused before fetching. */
+    readonly fileMaxBytes: number;
+    /** An image fits a 3.5 MB slot (D134). */
+    readonly slotBytes: number;
+    /** One pilot of each role present ‡. */
+    readonly pilotsPerRole: number;
+    /** The soak after the last pilot confirms ‡. */
+    readonly soakMs: number;
+    /** Sensors installing at once ‡. */
+    readonly sensorsAtOnce: number;
+    /** Fetches at once ‡. */
+    readonly fetchesAtOnce: number;
+    /** Sirens and gateways installing at once, between them (D91). */
+    readonly sirensAndGatewaysAtOnce: number;
+    /** A device heard within this many of its heartbeat intervals counts as present (sensors). */
+    readonly heardWithinHeartbeats: number;
+    /** No offer below this battery percentage ‡ unless on USB power (UP7, P9). */
+    readonly batteryFloorPercent: number;
+    /** A sensor held armed is reminded of after this ‡ ... */
+    readonly armedReminderAfterMs: number;
+    /** ... then at most this often. */
+    readonly armedReminderEveryMs: number;
+    /** The device's own trial deadline ‡ (D134), by role ... */
+    readonly trialDeadlineMs: {
+      readonly sensor: number;
+      readonly siren: number;
+      readonly gateway: number;
+    };
+    /** ... plus this ‡ without a Started: `firmware_refused {noContact}`. */
+    readonly noContactGraceMs: number;
+    /** A download broken this many times ‡ is refused, and the rollout pauses. */
+    readonly brokenTries: number;
+    /** A gateway held as always busy is offered again after this ‡ ... */
+    readonly gatewayBusyRetryMs: number;
+    /** ... and after this many such holds ‡ in one rollout waits for a person. */
+    readonly gatewayBusyMaxHolds: number;
+    /** A Bluetooth session's life ‡ (`ble_expires_ms`). */
+    readonly bluetoothSessionMs: number;
+    /** The advertising window ‡, in units of 10 seconds as the offer carries it: 120 s. */
+    readonly bluetoothWindowTens: number;
+    /** `deviceUpdate` events at most this often ‡ for progress. */
+    readonly progressEventEveryMs: number;
+  };
+  /** The key change after a restore (docs/m3-updates-design.md section 7, D141). */
+  readonly keyChange: {
+    /** At most one Key change per device this often ‡, however many old-key packets arrive. */
+    readonly everyMs: number;
+    /** The resume point a device's counters restart from under its new key (§4: counters start at 1). */
+    readonly resumePoint: number;
+  };
+  /** The shell's loop (hub-design.md section 4). */
+  readonly loop: {
+    /**
+     * A deadline a step left at or before its own time would run again at once, for ever. The
+     * loop then runs a turn for it at most this often, while every input and every deadline still
+     * ahead is taken as ever; it is a fault in the core, recorded once per occurrence. 1 s ‡:
+     * below the shortest real re-arm of any timer (2 s: a siren command's Wi-Fi repeat, a disarmed
+     * notice's copy, firmware's progress event) and equal to the writer's 1 s cadence, which the
+     * guard never delays, since deadlines still ahead are armed as they are.
+     */
+    readonly overdueRetryMs: number;
+  };
 }
 
 /**
@@ -575,4 +661,42 @@ export const DEFAULT_RULES: HubRules = {
     counterJump: 2 ** 24,
     tokenExpiryMs: LINKING.restoreTokenExpiryMs,
   },
+  relay: {
+    unreachableAfterMs: 180 * SECOND,
+    linkRecordEveryMs: HOUR,
+    retryAfterMs: [MINUTE, 5 * MINUTE, 15 * MINUTE],
+    retryEveryMs: 15 * MINUTE,
+    outboxMaxAgeMs: 7 * DAY,
+    burstOthersPerPhone: 10,
+    contentMaxBytes: 1279,
+    rosterEveryMs: DAY,
+  },
+  firmware: {
+    maxImages: 4,
+    storeMaxBytes: 8 * MB,
+    fileMaxBytes: 8 * MB,
+    slotBytes: 3.5 * MB,
+    pilotsPerRole: 1,
+    soakMs: HOUR,
+    sensorsAtOnce: 4,
+    fetchesAtOnce: 4,
+    sirensAndGatewaysAtOnce: 1,
+    heardWithinHeartbeats: 2,
+    batteryFloorPercent: 30,
+    armedReminderAfterMs: DAY,
+    armedReminderEveryMs: DAY,
+    trialDeadlineMs: { sensor: 10 * MINUTE, siren: 5 * MINUTE, gateway: 5 * MINUTE },
+    noContactGraceMs: 2 * MINUTE,
+    brokenTries: 3,
+    gatewayBusyRetryMs: HOUR,
+    gatewayBusyMaxHolds: 3,
+    bluetoothSessionMs: 15 * MINUTE,
+    bluetoothWindowTens: 12,
+    progressEventEveryMs: 2 * SECOND,
+  },
+  keyChange: {
+    everyMs: 10 * SECOND,
+    resumePoint: 1024,
+  },
+  loop: { overdueRetryMs: SECOND },
 };

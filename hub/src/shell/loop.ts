@@ -24,7 +24,11 @@
  *    open job, which gives no `fileReady`; every job's end, however it ends, is told to the file
  *    jobs (`ended`), which free its upload.
  * 6. The writer's own upkeep, then the one system timer for the earliest of the core's wake and
- *    the writer's flush deadline.
+ *    the writer's flush deadline. A deadline left at or before the time it should have run by
+ *    (the core's: its last step's time; the writer's: now) would make that timer fire at once, for
+ *    ever, and keep the hub's one thread busy: the loop then arms the deadlines still ahead as
+ *    ever, and the stuck one at most every `HubRules.loop.overdueRetryMs`, records it once (a
+ *    core fault, critical), and goes back to normal at the first turn that leaves none.
  *
  * M2's channel effects (`appSend`, `closeClient`, `closeConn`, `linkSecret`, `hubStatusRead`) and
  * `historyRead` go to the app side in step 4, held after a failed "now" commit exactly as
@@ -45,6 +49,7 @@ import type { CoreDeps } from "../core/model/handler.ts";
 import type { JobId, RequestId } from "../core/model/ids.ts";
 import type { HubState } from "../core/model/state.ts";
 import { type Mono, monoAfterMs } from "../core/model/time.ts";
+import type { Timer } from "../core/model/timers.ts";
 import type { Core } from "../core/step.ts";
 import type { Advertiser } from "../ports/advertiser.ts";
 import type { Clock } from "../ports/clock.ts";
@@ -155,6 +160,17 @@ export interface LoopPorts {
   readonly stopwatch?: () => number;
 }
 
+/** A deadline left at or before the time it should have run by: whose, and which. */
+export interface OverdueDeadline {
+  /** The core module that holds it, or `writer` for the writer's flush deadline. */
+  readonly owner: string;
+  /** The timer's key as JSON, or the writer's `due`. */
+  readonly timer: string;
+  readonly at: Mono;
+  /** The time it should have run by: the core's last step, or the turn's end for the writer. */
+  readonly by: Mono;
+}
+
 /** What one turn did, for tests and the budget. */
 export interface TurnSummary {
   readonly inputs: number;
@@ -187,6 +203,12 @@ export class HubLoop {
   #longestTurnMs = 0;
   /** The jobs in pieces still open, in the order they started. */
   #open: { readonly job: JobId; readonly work: FileWork; readonly pieces: JobPieces }[] = [];
+  /** The time of the last step the core took, which its deadlines must all be after. */
+  #lastStepAt: Mono | undefined;
+  /** While a deadline is stuck: when the next turn for it may run. */
+  #overdueRetryAt: Mono | undefined;
+  /** Each stuck deadline the loop found, once per occurrence (`overdue`). */
+  readonly #overdueLog: OverdueDeadline[] = [];
 
   constructor(core: Core, deps: CoreDeps, ports: LoopPorts, state: HubState = core.emptyState()) {
     this.#core = core;
@@ -216,6 +238,11 @@ export class HubLoop {
     const longest = this.#longestTurnMs;
     this.#longestTurnMs = 0;
     return longest;
+  }
+
+  /** Each deadline found stuck at or before its time, once per occurrence, oldest first. */
+  get overdue(): readonly OverdueDeadline[] {
+    return this.#overdueLog;
   }
 
   /** Jobs in pieces still open. */
@@ -260,6 +287,7 @@ export class HubLoop {
       );
       if (result.isOk()) {
         this.#state = result.value.state;
+        this.#lastStepAt = now.mono;
         effects.push(...result.value.effects);
         continue;
       }
@@ -346,8 +374,90 @@ export class HubLoop {
     return wakes.length === 0 ? undefined : wakes.reduce((a, b) => (b < a ? b : a));
   }
 
+  /**
+   * The one timer (step 6). Normally the earliest of `nextWake`. A deadline at or before the time
+   * it should have run by would fire at once, for ever: then the deadlines still ahead are armed as
+   * they are, and the stuck ones no sooner than `HubRules.loop.overdueRetryMs` after the last turn
+   * that ran for them; inputs are taken at once as ever (`enqueue` asks for a turn itself).
+   */
   #arm(): void {
-    this.#ports.wakeAt(this.nextWake());
+    const now = this.#ports.clock.now().mono;
+    const stuck = this.#stuck(now);
+    if (stuck.length === 0) {
+      this.#overdueRetryAt = undefined;
+      this.#ports.wakeAt(this.nextWake());
+      return;
+    }
+    if (this.#overdueRetryAt === undefined) this.#recordOverdue(stuck);
+    if (this.#overdueRetryAt === undefined || this.#overdueRetryAt <= now)
+      this.#overdueRetryAt = monoAfterMs(now, this.#deps.rules.loop.overdueRetryMs);
+    const ahead = this.#ahead(now);
+    this.#ports.wakeAt(
+      ahead !== undefined && ahead < this.#overdueRetryAt ? ahead : this.#overdueRetryAt,
+    );
+  }
+
+  /** The deadlines left at or before the time they should have run by. */
+  #stuck(now: Mono): readonly OverdueDeadline[] {
+    const stepAt = this.#lastStepAt;
+    const core: OverdueDeadline[] = [];
+    if (stepAt !== undefined) {
+      const timers = this.#core.deadlines?.(this.#state);
+      if (timers === undefined) {
+        const at = this.#core.nextDeadline(this.#state);
+        if (at !== undefined && at <= stepAt)
+          core.push({ owner: "core", timer: "nextDeadline", at, by: stepAt });
+      } else {
+        for (const timer of timers) if (timer.at <= stepAt) core.push(overdueOf(timer, stepAt));
+      }
+    }
+    const due = this.#ports.writer.due(now);
+    return due !== undefined && due <= now
+      ? [...core, { owner: "writer", timer: "due", at: due, by: now }]
+      : core;
+  }
+
+  /** The earliest deadline still ahead: the core's after its last step, the writer's after now. */
+  #ahead(now: Mono): Mono | undefined {
+    const stepAt = this.#lastStepAt;
+    const timers = this.#core.deadlines?.(this.#state) ?? [];
+    const core = timers
+      .map((timer) => timer.at)
+      .filter((at) => stepAt === undefined || at > stepAt);
+    const due = this.#ports.writer.due(now);
+    const all = due !== undefined && due > now ? [...core, due] : core;
+    return all.length === 0 ? undefined : all.reduce((a, b) => (b < a ? b : a));
+  }
+
+  /**
+   * One record per occurrence: the core's own fault record (hub-design.md section 10, a critical
+   * hub event written now), naming the owner and the timer; never counted towards the faults that
+   * stop the hub, since the hub goes on.
+   */
+  #recordOverdue(stuck: readonly OverdueDeadline[]): void {
+    this.#overdueLog.push(...stuck);
+    const first = stuck[0];
+    if (first === undefined || this.#stopped) return;
+    const message =
+      `a deadline was left at or before its time: ${first.owner} ${first.timer}; turns for it ` +
+      `at most every ${String(this.#deps.rules.loop.overdueRetryMs)} ms until it moves`;
+    this.#ports.report({ kind: "internal", origin: ORIGIN, message });
+    this.#queue.push({
+      kind: "inputRejected",
+      rejection: {
+        source: "core",
+        event: "tick",
+        origin: first.owner === "writer" ? "shell/storage/writer" : `core/${first.owner}`,
+        message,
+        detail: {
+          owner: first.owner,
+          timer: first.timer,
+          at: first.at,
+          by: first.by,
+          stuck: stuck.length,
+        },
+      },
+    });
   }
 
   #releaseHeld(jobs: { readonly job: JobId; readonly work: FileWork }[]): void {
@@ -511,4 +621,9 @@ export class HubLoop {
       this.stop();
     }
   }
+}
+
+/** A core timer left at or before `by`, as the guard names it. */
+function overdueOf(timer: Timer, by: Mono): OverdueDeadline {
+  return { owner: timer.key.module, timer: JSON.stringify(timer.key), at: timer.at, by };
 }

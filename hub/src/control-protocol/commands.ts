@@ -237,6 +237,36 @@ export const CONTROL_OPS = [
   "update.cancel",
 ] as const;
 
+/**
+ * Channel version 2's operations `hsn` carries (the joint step 0 of M3 and M4): the relay's
+ * (`hsn op relay.status`, `relay.set`, `update.offers`, `update.fetch`; m4-design section 9), the
+ * firmware store's and rollouts' (m3-updates-design section 4: `hsn firmware list|remove`,
+ * `hsn rollout start|status|pause|resume|cancel` are `hsn op` forms), `firmware.upload` for
+ * `hsn firmware add <file> [--own --version <v>]`, which uploads the file as `hsn update install`
+ * does and sends `{job, own?, confirmOwn?}`, and `firmware.bluetooth` for the bench. The phone's
+ * own operations (`push.*`, `presence.set`, `backup.keyHeld`) and `pair.*` are not the hub
+ * computer's. The `op` command takes them once the core routes version 2 (docs/m3-m4-plan.md,
+ * step 2); until then it refuses them as it refuses any name `CONTROL_OPS` does not hold.
+ */
+export const CONTROL_OPS_V2 = [
+  "relay.status",
+  "relay.set",
+  "update.offers",
+  "update.fetch",
+  "firmware.list",
+  "firmware.offers",
+  "firmware.fetch",
+  "firmware.upload",
+  "firmware.remove",
+  "firmware.bluetooth",
+  "firmware.download",
+  "rollout.start",
+  "rollout.pause",
+  "rollout.resume",
+  "rollout.cancel",
+  "rollout.status",
+] as const;
+
 const controlOps: ReadonlySet<string> = new Set(CONTROL_OPS);
 
 /** `hsn <operation> [<json body>]`: an app operation from the hub computer (m2-design.md section 6). */
@@ -286,6 +316,23 @@ const consoleTokenWait = z
   .strictObject({ kind: z.literal("consoleTokenWait"), token: z.int().min(1) })
   .readonly();
 
+/**
+ * The lockstep hub's test-only restore (docs/m3-updates-design.md section 7, "How it is proven"):
+ * `restore {file, key}` runs `applyRestore` on the backup `file` with the backup key the controller
+ * gives, and restarts the hub. Accepted only with `--bench-lockstep`, as its seeded keys are (HD
+ * 11); the wire stays at version 2, since it travels as a control line. The shell refuses it on
+ * every other control socket before the core sees it. `RemoteHub.restore()` sends it.
+ */
+const benchRestore = z
+  .strictObject({
+    kind: z.literal("benchRestore"),
+    /** The backup file's path, on the hub computer. */
+    file: z.string().min(1),
+    /** The backup key, 32 bytes as base64url (43 characters). */
+    key: z.string().regex(/^[A-Za-z0-9_-]{43}$/u, "32 bytes as base64url"),
+  })
+  .readonly();
+
 export const controlCommand = z.discriminatedUnion("kind", [
   status,
   arm,
@@ -314,6 +361,8 @@ export const controlCommand = z.discriminatedUnion("kind", [
   consoleToken,
   consoleTokenWait,
   fileChunk,
+  // The joint step 0 of M3 and M4.
+  benchRestore,
 ]);
 
 /**

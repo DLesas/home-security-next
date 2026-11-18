@@ -3,15 +3,17 @@
  * stamped with the time and carrying 32 fresh random bytes. The shell knows nothing of the
  * protocol: a frame is bytes from a link, and the core decides what it is.
  */
-import type { AppRequest, LinkRequest } from "@hsn/protocol/app";
+import type { AppRequest, LinkRequest, PushOutcome, ReleaseOffer } from "@hsn/protocol/app";
 import type { ControlCommand } from "./control.ts";
 import type {
   BootId,
   ClientId,
   ConnId,
   DeviceId,
+  ImageId,
   JobId,
   LinkId,
+  OutboxId,
   RequestId,
   SendRef,
   TokenId,
@@ -26,6 +28,12 @@ import type {
   CountdownRow,
   DeviceRow,
   DeviceStateRow,
+  DeviceUpdateRow,
+  FirmwareImageRow,
+  PushOutboxRow,
+  PushTargetRow,
+  RelaySettingsRow,
+  RolloutRow,
   ClientReplyRow,
   ClientRow,
   GatewayConfigRow,
@@ -141,6 +149,14 @@ export interface BootInfo {
   readonly id: BootId;
   readonly previousExit: PreviousExit;
   readonly cause: string | undefined;
+  /**
+   * The deployment's default relay (m4-design section 2): what `relay_settings.url` null means.
+   * The shell fills it with `defaultRelayUrl(DEPLOYMENT)` (`@hsn/deployment`), which the core may
+   * not import; null while the product's domain is a placeholder, or the build names no relay.
+   * It follows `deployment.json`, so it is a fact of this run, not a rule (`HubRules` are
+   * constants). Absent on a boot made before the shell gives it (a test's): read as null.
+   */
+  readonly defaultRelayUrl?: string | null;
 }
 
 /**
@@ -178,7 +194,48 @@ export interface DurableSnapshot {
   readonly provisioningKeys: ReadonlyMap<DeviceId, Uint8Array>;
   /** M2's configuration and small state (m2-design.md section 4). */
   readonly m2: M2Snapshot;
+  /**
+   * Migration 3's tables (the joint step 0 of M3 and M4). Absent on a snapshot made before the
+   * shell reads them (a test's, or a reader not yet joined, step 2): read as `EMPTY_M3M4_SNAPSHOT`.
+   */
+  readonly m3m4?: M3M4Snapshot;
 }
+
+/**
+ * Migration 3's tables as read at start (docs/m3-m4-plan.md), each small and read whole: the
+ * firmware store's index, rollouts and device updates (m3-updates-design section 4), the relay's
+ * settings, targets and outbox (m4-design section 4), and the pending new device keys of a key
+ * change after a restore (section 7). Push keys stay in the shell (`PushKeys`).
+ */
+export interface M3M4Snapshot {
+  readonly firmwareImages: readonly FirmwareImageRow[];
+  readonly rollouts: readonly RolloutRow[];
+  readonly deviceUpdates: readonly DeviceUpdateRow[];
+  /** Undefined only on a database without migration 3's row (a test's). */
+  readonly relaySettings: RelaySettingsRow | undefined;
+  readonly pushTargets: readonly PushTargetRow[];
+  readonly pushOutbox: readonly PushOutboxRow[];
+  /** The devices whose `device_keys.rekey` is set (D141). */
+  readonly rekey: readonly DeviceId[];
+  /**
+   * `device_keys.next_key` of each device that has one, so a Key change sent again after a
+   * restart carries the same key (section 7). Like `provisioningKeys`, the only other keys the
+   * core is given; they leave it only inside a Key change (0x84).
+   */
+  readonly rekeyKeys: ReadonlyMap<DeviceId, Uint8Array>;
+}
+
+/** A migration 3 snapshot with nothing in it. */
+export const EMPTY_M3M4_SNAPSHOT: M3M4Snapshot = {
+  firmwareImages: [],
+  rollouts: [],
+  deviceUpdates: [],
+  relaySettings: undefined,
+  pushTargets: [],
+  pushOutbox: [],
+  rekey: [],
+  rekeyKeys: new Map(),
+};
 
 /**
  * M2's tables as read at start (m2-design.md section 4), every one small and read whole. Link
@@ -313,7 +370,14 @@ export type InputRejection =
 // M2 (m2-design.md section 2, "New events and effects").
 
 /** Which app listener a connection came in on (section 5). */
-export type AppListener = "lan" | "console";
+export type AppListener =
+  | "lan"
+  | "console"
+  /**
+   * A phone's stream through the hub's relay link (m4-design section 4): a connection like any
+   * other; a console client is refused on it as on `lan`, and HTTP's `Host` and `Origin` do not apply.
+   */
+  | "relay";
 
 /** Why an app connection closed (section 5). */
 export type ConnCloseReason =
@@ -339,6 +403,11 @@ export type ClientRefusalReason =
   | "unknownKey"
   | "removedKey"
   | "consoleOnLan"
+  /**
+   * The console's key on a listener that is not the console's: `lan` or `relay` (m4-design
+   * section 4). Replaces `consoleOnLan` when the relay listener joins (B6, step 1).
+   */
+  | "consoleNotLocal"
   | "noVersion"
   | "timeout"
   | "malformed"
@@ -401,7 +470,14 @@ export type FileFailure =
    * answered `notFound {what: "upload"}`, not `badFile`.
    */
   | "noUpload"
-  | "io";
+  | "io"
+  // The joint step 0 (m3-updates-design section 3): a firmware file's refusals, in their order.
+  /** A firmware file for another chip or board. */
+  | "wrongTarget"
+  /** A payload over the slot's 3.5 MB, or an offered release over the 8 MB cap. */
+  | "tooLarge"
+  /** The store holds four images or 8 MB already (D140). */
+  | "storeFull";
 
 /** What a file job came to (`fileReady`, section 2). */
 export type FileOutcome =
@@ -425,6 +501,19 @@ export type FileOutcome =
     }
   /** The restored database is prepared beside `hub.db` (`applyRestore`). */
   | { readonly kind: "restoreReady" }
+  /**
+   * A firmware file staged (`stageFirmware`, or a fetched firmware release): checked, its payload
+   * copied into the store, its header made and signed (m3-updates-design section 4). The core
+   * writes the `firmware_images` row from this.
+   */
+  | {
+      readonly kind: "firmwareStaged";
+      readonly image: Omit<FirmwareImageRow, "id" | "addedMs" | "addedBy" | "removedMs">;
+    }
+  /** An image's file removed from the store (`removeFirmware`). */
+  | { readonly kind: "firmwareRemoved"; readonly image: ImageId }
+  /** An image's header and payload streamed to a session (`sendFirmware`), as `exportSent`. */
+  | { readonly kind: "firmwareSent"; readonly bytes: number }
   | { readonly kind: "failed"; readonly reason: FileFailure; readonly message: string };
 
 /** Every input event (section 2). */
@@ -551,4 +640,79 @@ export type HubEvent =
       readonly token: TokenId;
       readonly key: Uint8Array;
       readonly epoch: number;
+    }
+  // The joint step 0 of M3 and M4 (docs/m3-m4-plan.md).
+  /**
+   * The relay link's state as the shell reports it (m4-design section 4): `up` once the relay's
+   * `joined` arrived, `down` on any failure. Keepalive never reaches the core.
+   */
+  | {
+      readonly kind: "relayLink";
+      readonly state: "up" | "down";
+      readonly url: string;
+      readonly reason?: RelayDownReason;
+      /** At `up`: the roles the relay's welcome named. */
+      readonly roles?: readonly string[];
+    }
+  /** The relay's `pushResult`s, by outbox row. */
+  | {
+      readonly kind: "pushResults";
+      readonly results: readonly { readonly id: OutboxId; readonly outcome: PushOutcome }[];
+    }
+  /**
+   * A relay's `release.offer` (m4-design section 6): hub releases go to `upkeep`, firmware
+   * releases to `firmware` (m3-updates-design section 4).
+   */
+  | { readonly kind: "releaseOffered"; readonly releases: readonly ReleaseOffer[] }
+  /**
+   * The shell served a granted transfer this far (`Transfers`, m3-updates-design section 4): every
+   * 64 KB ‡, and at its end. Routine: it moves `device_updates.bytes` only.
+   */
+  | {
+      readonly kind: "transferProgress";
+      readonly link: LinkId;
+      /** The image id, 8 bytes. */
+      readonly image: Uint8Array;
+      readonly bytes: number;
+    }
+  /**
+   * The firmware store is damaged (m3-updates-design section 4, `store.ts`): at start, after
+   * `boot`, the shell checks that every indexed image's file is there and hashes to its `sha256`,
+   * and gives one of these for each that does not. `firmware` records `firmware_store_damaged`
+   * (critical, written now) and drops the image, which can then be added again.
+   */
+  | {
+      readonly kind: "firmwareStoreDamaged";
+      /** The image's row in `firmware_images`. */
+      readonly image: ImageId;
+      readonly problem: FirmwareStoreProblem;
     };
+
+/**
+ * What was wrong with an indexed image's file at start: not there (or not readable, which serves
+ * nothing either), or its bytes do not hash to the row's `sha256`.
+ */
+export type FirmwareStoreProblem = "missing" | "wrongHash";
+
+/** Why the relay link is down (m4-design section 4), as `relay.status`'s `lastError` names it. */
+export type RelayDownReason =
+  /** The relay's name did not resolve. */
+  | "dns"
+  /** No TCP connection, or it broke. */
+  | "connect"
+  /** TLS failed: a certificate that is not the relay's. */
+  | "tls"
+  /** The XN handshake failed or timed out (4408). */
+  | "handshake"
+  /** No version shared (4426). */
+  | "version"
+  /** Another computer joined with this hub's key (4001): `relay_identity_in_use`. */
+  | "replaced"
+  /** Over a relay limit (4429, or `limit`). */
+  | "limited"
+  /** No `pong` within 15 s ‡. */
+  | "noPong"
+  /** The relay closed the link (1001, 4400). */
+  | "closed"
+  /** The hub is stopping. */
+  | "stopping";

@@ -13,11 +13,11 @@ import type { Context, Handler } from "../model/handler.ts";
 import type { DomainMessage, Internal } from "../model/messages.ts";
 import { TxOutcome } from "../model/rows.ts";
 import { onBoot, onDeviceAdded, onSettingsRequest, onSiteMove } from "./devices.ts";
-import { type Changing, each, secondsUntil, txRecord, unchanged } from "./out.ts";
+import { type Changing, each, secondsUntil, then, txRecord, unchanged } from "./out.ts";
 import { onHeardCopy, onSirenPacket, reportNowIfOwed } from "./reports.ts";
 import { command, resumePoints } from "./send.ts";
 import type { SirensSlice } from "./state.ts";
-import { onSirenTimer } from "./tick.ts";
+import { onSirenTimer, settlePaths } from "./tick.ts";
 import { withTimers } from "./timers.ts";
 
 type Message<K extends DomainMessage["kind"]> = Extract<DomainMessage, { readonly kind: K }>;
@@ -154,10 +154,17 @@ function route(slice: SirensSlice, message: Internal, ctx: Context): Changing {
   }
 }
 
-/** The sirens module's handler (section 2, module 12). */
+/**
+ * The sirens module's handler (section 2, module 12). After a change, the path rules it made due
+ * are decided at once (`settlePaths`), so no deadline is left at or before now, and the timers are
+ * made again from the sirens.
+ */
 export const handleSirens: Handler<"sirens"> = (slice, message, ctx) =>
-  route(slice, message, ctx).map((changed) =>
+  route(slice, message, ctx).andThen((changed) =>
     changed.slice === slice
-      ? changed
-      : { slice: withTimers(changed.slice, ctx.deps.rules), out: changed.out },
+      ? ok(changed)
+      : then(ok(changed), (current) => settlePaths(current, ctx)).map((settled) => ({
+          slice: withTimers(settled.slice, ctx.deps.rules),
+          out: settled.out,
+        })),
   );

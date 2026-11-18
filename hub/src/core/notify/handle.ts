@@ -29,6 +29,7 @@ import {
   type OptionalCategory,
 } from "@hsn/protocol/app";
 import type { AuditRecord } from "../model/audit.ts";
+import { eventAtDetail, eventAtOf } from "../model/decisions.ts";
 import type { Effect } from "../model/effects.ts";
 import type { CoreFault } from "../model/errors.ts";
 import type { DurableSnapshot } from "../model/events.ts";
@@ -44,14 +45,20 @@ import {
 import type { Actor, AnswerTo, Internal, OpOutcome } from "../model/messages.ts";
 import type { NotificationPrefsRow, NotificationRow } from "../model/rows.ts";
 import type { Durability } from "../model/store.ts";
-import { type Mono, monoAfterMs } from "../model/time.ts";
+import { type Mono, MILLISECONDS_PER_SECOND, monoAfterMs } from "../model/time.ts";
 import { anySensorArmed, armedForUser } from "../alarm/view.ts";
 import { recordStamp } from "../clock/view.ts";
 import { sensorsChanged } from "../layout/view.ts";
 import { deviceById, roleName } from "../registry/view.ts";
 import { recordMessage } from "../util/records.ts";
 import { type About, clientsFor, personOf, recipients } from "./audience.ts";
-import { categoryOn, isForPerson, notificationObject } from "./deliver.ts";
+import {
+  categoryOn,
+  isDelayed,
+  isForPerson,
+  LATE_DECISIONS,
+  notificationObject,
+} from "./deliver.ts";
 import { readBy } from "./reads.ts";
 import type { NotifySlice, Raised } from "./state.ts";
 import {
@@ -182,7 +189,12 @@ function raise(slice: NotifySlice, ctx: Context, raising: Raising): Step {
       recordMessage(durability, { kind: "notification", row }),
       {
         kind: "notificationRaised",
-        notification: notificationObject(raised, false, false),
+        // Delayed already when raised, for a late one whose event is older than the rule (D102).
+        notification: notificationObject(
+          raised,
+          false,
+          isDelayed(ctx.deps.rules, raised, ctx.now.wall),
+        ),
         clients,
       },
     ];
@@ -197,6 +209,26 @@ function raise(slice: NotifySlice, ctx: Context, raising: Raising): Step {
       out,
     };
   });
+}
+
+/**
+ * A late decision's event time, as its notification's `detail` (D102): the one its own `detail`
+ * holds (`late_report_sirens`, an `alarm` raised at a start), or the opening's whole seconds of
+ * `late_report_notification`'s value. None for any other decision, or an alarm on time.
+ */
+function happenedDetail(
+  kind: string,
+  value: number | null,
+  detail: Uint8Array | null,
+): Uint8Array | null {
+  if (!LATE_DECISIONS.has(kind)) return null;
+  const at =
+    kind === "late_report_notification"
+      ? value === null
+        ? undefined
+        : value * MILLISECONDS_PER_SECOND
+      : eventAtOf(detail);
+  return at === undefined ? null : eventAtDetail(at);
 }
 
 /** A record on its way to audit: decisions and the disk's hub events may raise a notification. */
@@ -216,7 +248,7 @@ function onRecord(slice: NotifySlice, ctx: Context, record: AuditRecord): Step {
       classified,
       people: undefined,
       except: undefined,
-      detail: null,
+      detail: happenedDetail(row.kind, row.value, row.detail),
     });
   }
   if (record.kind === "hubEvent") {

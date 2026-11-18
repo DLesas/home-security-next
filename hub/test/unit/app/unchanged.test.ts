@@ -6,7 +6,15 @@
  */
 import { describe, expect, test } from "bun:test";
 import type { HubEvent } from "../../../src/core/model/events.ts";
-import { connId, jobId, linkId, requestId, sendRef, tokenId } from "../../../src/core/model/ids.ts";
+import {
+  connId,
+  imageId,
+  jobId,
+  linkId,
+  requestId,
+  sendRef,
+  tokenId,
+} from "../../../src/core/model/ids.ts";
 import { ANNA_LAPTOP, FACTS, household, Hub } from "../people/support/hub.ts";
 
 const RESTORE_TOKEN = tokenId(2 ** 31 + 5);
@@ -75,6 +83,17 @@ const INPUTS: Readonly<Record<HubEvent["kind"], HubEvent | string>> = {
     key: new Uint8Array(32),
     epoch: 1,
   },
+  // The joint step 0 of M3 and M4 (docs/m3-m4-plan.md).
+  relayLink: { kind: "relayLink", state: "down", url: "wss://relay.test", reason: "connect" },
+  pushResults: { kind: "pushResults", results: [] },
+  releaseOffered: { kind: "releaseOffered", releases: [] },
+  transferProgress: {
+    kind: "transferProgress",
+    link: linkId(43),
+    image: new Uint8Array(8),
+    bytes: 1024,
+  },
+  firmwareStoreDamaged: { kind: "firmwareStoreDamaged", image: imageId(1), problem: "missing" },
 };
 
 function quiet(): Hub {

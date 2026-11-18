@@ -305,7 +305,7 @@ describe("provisioning (section 9, PR2, PR5, HB17)", () => {
     expect(ops).toContainEqual({
       table: "device_keys",
       op: "upsert",
-      row: { deviceId: deviceId(1), key: KEY_ONE },
+      row: { deviceId: deviceId(1), key: KEY_ONE, nextKey: null, rekey: 0 },
     });
     expect(ops).toContainEqual({
       table: "send_counters",

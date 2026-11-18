@@ -51,6 +51,7 @@ const deps: CoreDeps = {
   calendar: UNBUILT_CALENDAR,
   sha256: nodeSha256,
   deepFreeze: true,
+  checkDeadlines: true,
 };
 
 function input(
@@ -81,6 +82,7 @@ function withHandlers(handlers: { readonly [K in ModuleName]?: Handler<K> }): Mo
     setup: pick("setup"),
     control: pick("control"),
     people: pick("people"),
+    relay: pick("relay"),
     layout: pick("layout"),
     app: pick("app"),
     schedules: pick("schedules"),
@@ -88,6 +90,7 @@ function withHandlers(handlers: { readonly [K in ModuleName]?: Handler<K> }): Mo
     intake: pick("intake"),
     alarm: pick("alarm"),
     site: pick("site"),
+    firmware: pick("firmware"),
     sensors: pick("sensors"),
     slots: pick("slots"),
     sirens: pick("sirens"),
@@ -113,6 +116,7 @@ function loggingHandlers(log: string[]): { readonly [K in ModuleName]: Handler<K
     setup: logging("setup"),
     control: logging("control"),
     people: logging("people"),
+    relay: logging("relay"),
     layout: logging("layout"),
     app: logging("app"),
     schedules: logging("schedules"),
@@ -120,6 +124,7 @@ function loggingHandlers(log: string[]): { readonly [K in ModuleName]: Handler<K
     intake: logging("intake"),
     alarm: logging("alarm"),
     site: logging("site"),
+    firmware: logging("firmware"),
     sensors: logging("sensors"),
     slots: logging("slots"),
     sirens: logging("sirens"),
@@ -438,7 +443,11 @@ describe("the record cursor", () => {
 
 describe("test builds", () => {
   test("deep-freeze the state after every step, so a mutation fails at once", () => {
-    const timer: TimerOf<"alarm"> = { at: mono(50), key: { module: "alarm", kind: "alarmEnd" } };
+    // Ahead of the step's time, as every deadline a step leaves must be.
+    const timer: TimerOf<"alarm"> = {
+      at: mono(2_000_000),
+      key: { module: "alarm", kind: "alarmEnd" },
+    };
     const core = makeCore(
       withHandlers({
         alarm: () => ok({ slice: { ...EMPTY_ALARM_SLICE, timers: [timer] }, out: [] }),
@@ -458,5 +467,68 @@ describe("test builds", () => {
   test("leave the state unfrozen when not asked", () => {
     const result = step(emptyState(), input(tick), { ...deps, deepFreeze: false });
     expect(result.isOk() && Object.isFrozen(result.value.state)).toBe(false);
+  });
+
+  test("refuse a step that leaves any module a deadline at or before its own time, naming it", () => {
+    const at = (when: number) => {
+      const timer: TimerOf<"alarm"> = {
+        at: mono(when),
+        key: { module: "alarm", kind: "alarmEnd" },
+      };
+      return makeCore(
+        withHandlers({
+          alarm: (slice, message) =>
+            ok({
+              slice: message.kind === "tick" ? { ...EMPTY_ALARM_SLICE, timers: [timer] } : slice,
+              out: [],
+            }),
+        }),
+      );
+    };
+    const now = 1_000_000;
+    // At the step's time and before it: a fault naming the module and the timer.
+    for (const when of [now, now - 1, 0]) {
+      const core = at(when);
+      const result = core.step(core.emptyState(), input(tick, now), deps);
+      expect(result.isErr() ? result.error : undefined).toEqual({
+        kind: "internal",
+        origin: "core/alarm",
+        message: `a deadline left at or before the step's time: alarm {"module":"alarm","kind":"alarmEnd"} at ${String(when)}, the step at ${String(now)}`,
+        event: "tick",
+        detail: {
+          module: "alarm",
+          timer: JSON.stringify({ module: "alarm", kind: "alarmEnd" }),
+          at: when,
+          now,
+        },
+      });
+    }
+    // A microsecond later is ahead: no fault.
+    const ahead = at(now + 1);
+    expect(ahead.step(ahead.emptyState(), input(tick, now), deps).isOk()).toBe(true);
+    // Not asked: the step goes through, as in the running hub, whose loop guards against it.
+    const off = at(now);
+    const unchecked = off.step(off.emptyState(), input(tick, now), {
+      ...deps,
+      checkDeadlines: false,
+    });
+    expect(unchecked.isOk()).toBe(true);
+    // The core's own list of every module's timers, for the loop's guard.
+    expect(unchecked.isOk() && off.deadlines?.(unchecked.value.state)).toEqual([
+      { at: mono(now), key: { module: "alarm", kind: "alarmEnd" } },
+    ]);
+  });
+
+  test("a due timer its module takes away is no fault", () => {
+    const timer: TimerOf<"alarm"> = { at: mono(500), key: { module: "alarm", kind: "alarmEnd" } };
+    const core = makeCore(
+      withHandlers({
+        alarm: (slice, message) =>
+          ok({ slice: message.kind === "timer" ? { ...slice, timers: [] } : slice, out: [] }),
+      }),
+    );
+    const state = { ...core.emptyState(), alarm: { ...EMPTY_ALARM_SLICE, timers: [timer] } };
+    const result = core.step(state, input(tick, 1_000_000), deps);
+    expect(result.isOk() && result.value.state.alarm.timers).toEqual([]);
   });
 });

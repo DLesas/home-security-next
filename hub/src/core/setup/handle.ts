@@ -35,7 +35,7 @@ import { type CoreFault, coreFault } from "../model/errors.ts";
 import type { Context, Handled, Handler } from "../model/handler.ts";
 import { type DeviceId, type LinkId, moduleSendRef } from "../model/ids.ts";
 import type { Internal } from "../model/messages.ts";
-import { type DeviceRow, DeviceState } from "../model/rows.ts";
+import { type DeviceRow, DeviceState, Rekey } from "../model/rows.ts";
 import { type Mono, monoAfterMs } from "../model/time.ts";
 import type { TimerOf } from "../model/timers.ts";
 import {
@@ -267,7 +267,11 @@ function keyWrites(device: DeviceId, key: Uint8Array): readonly Effect[] {
     {
       kind: "write",
       durability: "now",
-      op: { table: "device_keys", op: "upsert", row: { deviceId: device, key } },
+      op: {
+        table: "device_keys",
+        op: "upsert",
+        row: { deviceId: device, key, nextKey: null, rekey: Rekey.None },
+      },
     },
     {
       kind: "write",

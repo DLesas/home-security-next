@@ -12,8 +12,11 @@ import type {
   ClientId,
   DeviceId,
   GroupId,
+  ImageId,
   ModeId,
+  OutboxId,
   PersonId,
+  RolloutId,
   ScheduleId,
   Seq,
   TokenId,
@@ -92,7 +95,19 @@ export interface DeviceRow {
 export interface DeviceKeyRow {
   readonly deviceId: DeviceId;
   readonly key: Uint8Array;
+  /**
+   * Migration 3 (m3-updates-design section 7, D141): the new key a Key change carries, until the
+   * device is heard under it; null when none. Pairing writes null: a new key from pairing ends
+   * any key change (PR4).
+   */
+  readonly nextKey: Uint8Array | null;
+  /** Migration 3: `Rekey.Required` after a restore until the device is heard under its new key. */
+  readonly rekey: Rekey;
 }
+
+/** `device_keys.rekey` (D141). */
+export const Rekey = { None: 0, Required: 1 } as const;
+export type Rekey = (typeof Rekey)[keyof typeof Rekey];
 
 /** The hub's sending counter's saved resume point for one device key (section 4). */
 export interface SendCounterRow {
@@ -328,6 +343,12 @@ export interface RxRow {
   readonly rate: number | null;
   /** Decrypted, after the type byte. */
   readonly body: Uint8Array;
+  /**
+   * Migration 3 (D141): an authentic packet under the device's old key while its `rekey` is set
+   * (the `oldKeyPacket` message): recorded, never acted on, its replay window untouched. False
+   * for every other packet.
+   */
+  readonly oldKey: boolean;
 }
 
 /** A packet sent to a device, one row per transmission: `tx_routine` or `tx_event`. */
@@ -699,4 +720,188 @@ export interface NotificationReadRow {
   readonly clockOk: boolean;
   readonly notificationSeq: Seq;
   readonly clientId: ClientId;
+}
+
+// ----- Migration 3: the joint step 0 of M3 and M4 (docs/m3-m4-plan.md) -----
+
+/** `firmware_images.kind` (m3-updates-design section 4). */
+export const ImageKind = { Official: 0, OwnBuild: 1 } as const;
+export type ImageKind = (typeof ImageKind)[keyof typeof ImageKind];
+
+/** One stored firmware image (m3-updates-design section 4), `firmware`'s; the bytes are a file. */
+export interface FirmwareImageRow {
+  readonly id: ImageId;
+  /** The first 8 bytes of the image's SHA-256: the image id devices name. */
+  readonly imageId: Uint8Array;
+  readonly sha256: Uint8Array;
+  /** As `devices.firmware`: major × 65,536 + minor × 256 + patch. */
+  readonly version: number;
+  readonly kind: ImageKind;
+  /** Bit 1 sensor, bit 2 siren, bit 3 gateway, as the image header's roles byte. */
+  readonly roles: number;
+  /** The image's bytes, without the header. */
+  readonly bytes: number;
+  /** The 128-byte image header the hub signed. */
+  readonly header: Uint8Array;
+  /** Official: the release's manifest JSON and its signature, as hex; null for an own build. */
+  readonly manifest: string | null;
+  /** The payload's file in the data folder's `firmware/`. */
+  readonly file: string;
+  readonly addedMs: number;
+  readonly addedBy: string;
+  readonly removedMs: number | null;
+}
+
+/** `rollouts.stage`. */
+export const RolloutStage = {
+  Pilots: 0,
+  Soak: 1,
+  Rest: 2,
+  Paused: 3,
+  Done: 4,
+  Cancelled: 5,
+} as const;
+export type RolloutStage = (typeof RolloutStage)[keyof typeof RolloutStage];
+
+/** One rollout; at most one not ended. */
+export interface RolloutRow {
+  readonly id: RolloutId;
+  readonly image: ImageId;
+  /** Device ids, u32 LE each. */
+  readonly devices: Uint8Array;
+  readonly pilots: Uint8Array;
+  readonly stage: RolloutStage;
+  readonly approvedBy: string;
+  readonly approvedMs: number;
+  readonly soakUntilMs: number | null;
+  /**
+   * The reason it paused: a device's (an Update status reason 1 to 17, or 18 `noContact`), or the
+   * rollout's own, `PILOT_FAILED_REASON` (19) or `ROLLED_BACK_REASON` (20); null while not paused.
+   */
+  readonly pausedReason: number | null;
+  readonly pausedDevice: DeviceId | null;
+  readonly endedMs: number | null;
+}
+
+/** `device_updates.state` (m3-updates-design section 4). */
+export const DeviceUpdateState = {
+  None: 0,
+  Planned: 1,
+  Offered: 2,
+  Fetching: 3,
+  Verified: 4,
+  Installing: 5,
+  OnTrial: 6,
+  Confirmed: 7,
+  RolledBack: 8,
+  Refused: 9,
+  Cancelled: 10,
+} as const;
+export type DeviceUpdateState = (typeof DeviceUpdateState)[keyof typeof DeviceUpdateState];
+
+/** `device_updates.held`. */
+export const UpdateHeld = {
+  No: 0,
+  Armed: 1,
+  Battery: 2,
+  WaitingTurn: 3,
+  NeedsPhone: 4,
+  CountdownAlarmOrSiteMove: 5,
+  GatewayBusy: 6,
+  KeyChange: 7,
+} as const;
+export type UpdateHeld = (typeof UpdateHeld)[keyof typeof UpdateHeld];
+
+/** `device_updates.method`. */
+export const UpdateMethod = { OwnLink: 0, JoinWifi: 1, Bluetooth: 2 } as const;
+export type UpdateMethod = (typeof UpdateMethod)[keyof typeof UpdateMethod];
+
+/** The hub's own reason beyond the Update status reasons 1 to 17: no Started after the go-ahead. */
+export const NO_CONTACT_REASON = 18;
+
+/**
+ * `rollouts.paused_reason` only, beyond a device's reasons (m3-updates-design section 4): a pilot
+ * failed in its soak, restarting by watchdog or fatal error or going silent. Its name in
+ * `rolloutObject.paused.reason` is `pilotFailed` (`ROLLOUT_PAUSE_REASONS`, `@hsn/protocol/app`).
+ */
+export const PILOT_FAILED_REASON = 19;
+
+/**
+ * `rollouts.paused_reason` only: a device rolled back, its trial failed (section 4, "How a failed
+ * update is reported"). Its name in `rolloutObject.paused.reason` is `rolledBack`.
+ */
+export const ROLLED_BACK_REASON = 20;
+
+/** Each device's update state; every transition but `bytes` written now. */
+export interface DeviceUpdateRow {
+  readonly deviceId: DeviceId;
+  readonly rolloutId: RolloutId | null;
+  readonly state: DeviceUpdateState;
+  readonly method: UpdateMethod;
+  readonly held: UpdateHeld;
+  /** Routine: written with the next flush. */
+  readonly bytes: number;
+  readonly attempts: number;
+  /** An Update status reason (1 to 17), or 18 `noContact`; null for none. */
+  readonly lastReason: number | null;
+  readonly sinceMs: number;
+  /** The Bluetooth session's nonce, 8 bytes, while one is in force. */
+  readonly bleNonce: Uint8Array | null;
+  readonly bleExpiresMs: number | null;
+  readonly remindedMs: number | null;
+}
+
+/** Single row, `relay`'s (m4-design section 4). */
+export interface RelaySettingsRow {
+  /** Null: the deployment's default, which is "none" while it is a placeholder (RD 2). */
+  readonly url: string | null;
+  readonly revision: number;
+}
+
+/** `push_targets.platform`. */
+export const PushPlatformCode = { Apns: 0, Fcm: 1 } as const;
+export type PushPlatformCode = (typeof PushPlatformCode)[keyof typeof PushPlatformCode];
+/** `push_targets.environment`. */
+export const PushEnvironmentCode = { Production: 0, Development: 1 } as const;
+export type PushEnvironmentCode = (typeof PushEnvironmentCode)[keyof typeof PushEnvironmentCode];
+
+/** One phone's push target, `relay`'s: tokens, never keys. */
+export interface PushTargetRow {
+  readonly clientId: ClientId;
+  /** 8 bytes. */
+  readonly keyId: Uint8Array;
+  readonly platform: PushPlatformCode;
+  readonly environment: PushEnvironmentCode;
+  readonly token: string;
+  readonly registeredMs: number;
+  /** When the push service answered `badToken`; null while valid. */
+  readonly invalidMs: number | null;
+}
+
+/**
+ * A phone's push key, 32 bytes, kept apart as `link_secrets` is: written now with `push.register`,
+ * read at start by the `PushKeys` port, never kept in the core's slice.
+ */
+export interface PushKeyRow {
+  readonly clientId: ClientId;
+  readonly key: Uint8Array;
+}
+
+/** One push waiting for the relay (D102): durable as the notification it carries. */
+export interface PushOutboxRow {
+  readonly id: OutboxId;
+  readonly notificationSeq: Seq;
+  readonly clientId: ClientId;
+  readonly createdMs: number;
+  readonly attempts: number;
+  /**
+   * Whether any sensor was armed when the notification was raised (0 or 1), so a push sent after a
+   * restart says what it would have said.
+   */
+  readonly armed: 0 | 1;
+  /**
+   * The small JSON of decision facts the push's `detail` and mode name are built from (UTF-8 text),
+   * or null when it has none.
+   */
+  readonly facts: string | null;
 }
