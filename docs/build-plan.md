@@ -1,6 +1,15 @@
 # Build plan
 
-Last updated 2026-11-12. What has to be built, in order. Requirement numbers refer to [software.md](requirements/software.md), decisions and open items to [architecture.md](architecture.md), technology choices to [stack.md](stack.md).
+Last updated 2026-11-18. What has to be built, in order. Requirement numbers refer to [software.md](requirements/software.md), decisions and open items to [architecture.md](architecture.md), technology choices to [stack.md](stack.md).
+
+The relay and phone work (M3, M4 and M5) started on 2026-11-18, beside what is left of M2. The three designs are built together, in the order of [m3-m4-plan.md](m3-m4-plan.md).
+
+Where things stand on 2026-11-18:
+
+- The paid Apple developer account exists; what waits is the bundle identifier ("Needed later" below).
+- An Android phone is in hand; there is no iPhone yet.
+- The development boards have not arrived.
+- ESP-IDF v6.1.1 is installed on the Mac under `~/esp/esp-idf` (approved 2026-11-18).
 
 ## How the order was chosen
 
@@ -30,8 +39,8 @@ Needed later, and only the owner can get them:
 
 | Item | Needed for |
 | --- | --- |
-| A real Android phone and a real iPhone | M3: simulators have no Bluetooth |
-| A paid Apple developer account | M4: real push, and asking Apple for the critical-alert permission, which takes time to be granted |
+| A real iPhone (an Android phone is in hand) | M3: simulators have no Bluetooth; S9 and S10 on iOS |
+| The bundle identifier, then AS1 and the request for the critical-alert entitlement ([m4-design.md](m4-design.md) section 5), which takes time to be granted | M4: real push and critical alerts |
 | A product name and a domain | M4: relay address, app identifiers, per-hub names |
 
 ## Spikes
@@ -44,7 +53,7 @@ Reports are in [spikes/](spikes/).
 | S2 | Done: [report](spikes/S2-radio-rules.md). EU and UK 868 MHz rules | desk | done | D104; channel plan in the protocol |
 | S3 | Done and set aside: [report](spikes/S3-en50131-grade2.md). EN 50131 grade 2 is not targeted (D83) | desk | done | nothing |
 | S4 | Done: [report](spikes/S4-per-hub-names.md); the certificate-warning check is [O12](spikes/O12-cert-warning.md), which passed in Chrome and Safari on the Mac. Still to run: Firefox and the phones | Mac, simulators | before M4 | O8, O12, RA12 |
-| S5 | Push, part 1: a throwaway Expo app where a native extension decrypts a push and a Disarm action runs with the app closed, on the iOS simulator and Android emulator | Mac | while boards ship | O15; whether D32 and D51 hold as designed |
+| S5 | Push, part 1: a throwaway Expo app where a native extension decrypts a push and a Disarm action runs with the app closed, on the iOS simulator and Android emulator. Not run yet | Mac | beside the joint step 0 ([m3-m4-plan.md](m3-m4-plan.md); [m4-design.md](m4-design.md) section 5) | O15; whether D32 and D51 hold as designed; the uniform push envelope or envelope B (D126) |
 | S6 | Range at the property, and reply time through gateway and hub | boards | boards arrive | O10, O11; listen window, gateway count and placement |
 | S7 | One gateway radio hearing both the fast and the slow setting | boards | boards arrive | O14; LR4 as designed, or one setting per site |
 | S8 | Sleep current and energy per report on a development board (indicative only) | boards, profiler | boards arrive | battery estimates in the board document |
@@ -111,7 +120,9 @@ Board manufacture and delivery take weeks and usually two rounds, so this starts
 
 Done when: a fresh computer goes from installer to an armed house using the web app, and the M1 boards work against it.
 
-## M3. Pairing and firmware updates (needs a real phone)
+## M3. Pairing and firmware updates (built on simulators first; real phones for S9)
+
+Designed in [m3-design.md](m3-design.md) (the phone build and Bluetooth pairing) and [m3-updates-design.md](m3-updates-design.md) (firmware updates and the key change after a restore).
 
 | Piece | Requirements |
 | --- | --- |
@@ -123,7 +134,9 @@ Done when: a fresh computer goes from installer to an armed house using the web 
 | Update over Wi-Fi | UP5, GW7, SR8 |
 | Update over Bluetooth from the phone | UP6, AP3 |
 
-## M4. Relay and push (needs the Apple account, name and domain)
+## M4. Relay and push (starts on the Mac now; real push needs steps in the Apple account and a Firebase project, real names the domain and hosting, S10 real phones)
+
+Designed in [m4-design.md](m4-design.md).
 
 | Piece | Requirements |
 | --- | --- |
@@ -137,7 +150,7 @@ Done when: a fresh computer goes from installer to an armed house using the web 
 
 ## M5. Phone-only features
 
-The shared screens already exist from M2.
+The shared screens already exist from M2. Designed in [m3-design.md](m3-design.md) section 6.
 
 | Piece | Requirements |
 | --- | --- |

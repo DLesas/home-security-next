@@ -33,7 +33,7 @@ core:   Runner ──→ Device ──→ Role (roles/sensor | roles/siren | rol
 | `roles/<role>/` | `hsn_role_sensor`, `_siren`, `_gateway` | One `Role` class, its state struct, its private helpers | core headers and its own `hsn/roles/<role>/*` only |
 | `platform/psa/` | `hsn_psa` | `PacketCipher` on PSA, hub identity (exists) | PSA |
 | `platform/host/` | `hsn_host` | A fake per interface, the virtual clock, the discrete-event `Simulation`, the shared `Medium`, a test hub; later a real-time runner and the socket bridge | anything |
-| `platform/esp-idf/` | IDF components | `app_main`, per-board pin tables, the SX1262 adapter, NVS storage, the wait (sleep, queue, slices), watchdog, USB and WebSocket links, mDNS | anything |
+| `platform/esp-idf/` | IDF components | Not written yet (M1b). `app_main`, per-board pin tables, the SX1262 adapter, NVS storage, the wait (sleep, queue, slices), watchdog, USB and WebSocket links, mDNS; from M3 the two firmware slots and the Bluetooth link | anything |
 | `tests/protocol/` | | The existing codec tests, moved | |
 | `tests/device/` | | Unit tests of `Device`, `Runner` and each service | |
 | `tests/roles/<role>/` | | Scenario tests of one role against `hsn_host` | |
@@ -121,7 +121,7 @@ public:
 
 1. Writes the breadcrumb, `(kind << 8) | role.state_id()`, to no-init memory (on `boot`, after reading the previous one for `Health`).
 2. On `boot`, checks the retained block (magic, layout, role, role layout, sizes, CRC) and copies it into the core and role state. A bad block means a cold start. A clock that went backwards keeps the state, tells the role `clock_reset`, and rebases the airtime record (section 4).
-3. Passes a USB link packet that starts with 0xF1 to the setup service (§10). It never reaches the role.
+3. Passes a USB link packet that starts with 0xF1 to the setup service (§10). It never reaches the role. From M3 it passes a link frame that starts with 0xF2 to the update service the same way (D137).
 4. Passes everything else to the role, unless it is in setup-only mode. In setup-only mode its `Wake` is light sleep while `Power::external_power()` holds, so USB setup messages get through, and otherwise deep sleep woken only by external power or the button (Bluetooth pairing, M3), so an unpaired board on a cell does not run it flat.
 5. Seals the retained block: copies the state in and writes the CRC.
 6. Checks the next `Wake` against the watchdog rules (section 6).
@@ -245,6 +245,8 @@ class GatewayIo { public: virtual bool cell_fitted() = 0; virtual bool usb_host(
                   virtual std::int8_t chip_temperature_c() = 0; virtual void led(Blink) = 0; };
 ```
 
+From M3, `Hal` gains `FirmwareSlots` (the slot not running: erase, write, read, select, confirm, reject), `UpdateCrypto` (SHA-256, P-256 verification, the Bluetooth session key, HMAC-SHA256) and a Bluetooth link (`LinkKind::bluetooth`), and a sensor gains its network link, used only for updates. [m3-updates-design.md](m3-updates-design.md) section 2 defines them.
+
 External power is the shared `Power` interface in `Hal`, because `Device` needs it before any role exists; the role I/O interfaces do not repeat it (the sensor's "on USB power" flag and the siren's and gateway's "on mains" flags read it). `BuildInfo {FirmwareVersion version; bool development; std::array<uint8_t, 6> chip_id;}` is plain data the platform fills.
 
 ## 4. Shared services
@@ -260,9 +262,10 @@ All live in `core/include/hsn/device/services/`. Each takes `now` as an argument
 | `RandomSource` | Buffers bytes from `Random`; `below(n)` and `between(lo, hi)` by multiply or a 64-bit modulo, with no rejection loop, so it is bounded | 32-byte pool | — |
 | `LogBuffer` | Entries `{instant, level, code, text ≤ 24 bytes}`. Text is a constant plus one optional integer, formatted without `<cstdio>`. A repeat of the newest entry's code raises its count, unless that entry is in a packet, when the repeat starts a new entry. `prepare(now, out, at_least, most)` builds a log entries message (§6) of the oldest entries at or above `at_least`, at most `most`, each dated by its age at that moment in tenths of a second; lower entries are skipped and kept. The entries taken are that packet's, and only the latest prepare has a packet. Entries leave only by `release()`, which removes exactly that packet's, whatever was added since. Wi-Fi and USB: `prepare(now, out)` takes everything, and `release()` once `link.send` takes the packet. LoRa (D110): `prepare(now, out, warning, 1)` after a heartbeat or LoRa check; a sensor releases when the hub's reply bound to that packet arrives, and without one the next prepare offers the same entry again; a siren, which gets no reply, releases once it is sent. Codes are reserved per range: core 0x0xxx, sensor 0x1xxx, siren 0x2xxx, gateway 0x3xxx, platform 0x4xxx. | 8 entries in the retained block, for every role, above a minimum level (a sensor keeps warnings and above) | — |
 | `Record<T>` | A typed stored record: loads with a default, and `update(value)` writes only when the stored bytes differ. Settings from the hub (each role's own struct and key), pairing data, role. | a RAM copy | on change only |
-| `SetupService` | USB setup messages (§10): Identify → Identity; Provision checked against the rules (release builds: a gateway accepts only while unpaired, sensors and sirens refuse; development builds: every role accepts Provision and Erase at any time); Erase; Set role (0x06: a release build only while no role is stored, a development build any time, forgetting the pairing when the role changes; an unlisted role is refused and the identity shows the role unchanged). Accepting a pairing erases everything but the role, writes the pairing record and a resume point of one step, and asks for a restart; `Device` then invalidates the retained block. | — | role, pairing record |
+| `SetupService` | USB setup messages (§10): Identify → Identity; Provision checked against the rules (release builds: a gateway accepts only while unpaired, sensors and sirens refuse; development builds: every role accepts Provision and Erase at any time); Erase; Set role (0x06: a release build only while no role is stored, a development build any time, forgetting the pairing when the role changes; an unlisted role is refused and the identity shows the role unchanged). Accepting a pairing erases everything but the role, writes the pairing record and a resume point of one step, and asks for a restart; `Device` then invalidates the retained block. From M3 it also serves a Bluetooth pairing session, with that path's rule (§10, "Pairing over Bluetooth"; D133). | — | role, pairing record |
 | `Health` | FW5, FW8. Builds `Started` from `BuildInfo` and `BootInfo`. Last fatal error is the stored code, or after a watchdog reset `0x8000 | breadcrumb`, so the hub learns which event and state hung. `raise_fatal(code)` stores the code and requests a restart; `reported()` clears it once Started has gone out. | — | fatal code; written on a fatal and when clearing a non-zero code |
 | `stored_role(Storage&)` | D103: the stored role for `app_main`'s switch, or 0. No role, or no pairing, gives setup-only mode. | — | role: by Set role |
+| `UpdateService` (M3) | Firmware updates: the offer, the transfer frames, two 4 KB sector buffers, the checkpoint, the read-back hash, the signature check, the trial and the Bluetooth session. Designed in [m3-updates-design.md](m3-updates-design.md) section 2 (D134, D137) | two sector buffers | the update record (store key 0x05) |
 
 Receiving rules of `SecureChannel`, one per §4 row:
 
@@ -294,7 +297,7 @@ Retained block, 1,024 bytes reserved in RTC slow memory (of 8 KB). The header an
 
 The siren keeps its output and stop time in the block. After a reset that is not a power-on, with the block valid, it resumes sounding for the time left (SR5, D80). The gateway keeps nothing that matters.
 
-Flash (NVS). Each record carries a version byte, and NVS adds its own CRC. Rates assume a 3-minute heartbeat and 20 door changes a day for the sensor; reports every 30 s and a LoRa check every 5 minutes for the siren; 30 sensors for the gateway.
+Flash (NVS). Each record carries a version byte, and NVS adds its own CRC. From M3 a record changes format only by adding fields at its end, and every image reads the fields it knows, so an older image still reads it after a rollback (D134). M3 adds the update record, store key 0x05 ([m3-updates-design.md](m3-updates-design.md) section 2). Rates assume a 3-minute heartbeat and 20 door changes a day for the sensor; reports every 30 s and a LoRa check every 5 minutes for the siren; 30 sensors for the gateway.
 
 | Record | Bytes | Written when | Sensor / year | Siren / year | Gateway / year |
 | --- | --- | --- | --- | --- | --- |
@@ -318,7 +321,7 @@ With a 24 KB NVS partition (about 630 usable entries per cycle), the gateway era
 | Deep sleep | The chip resets on wake, and the watchdog starts again in `app_main`. Nothing runs, so nothing needs feeding. |
 | A hang inside `handle()` | Not fed: reset after 5 s. On the next boot `BootInfo.watchdog_reset` is set, and Started reports `0x8000 | breadcrumb` as the last fatal error (FW5). |
 | Busy loop | A role whose `Wake.at` is at or before `now` 64 times in a row, without a real wait between, gets `raise_fatal(busy_loop)` and a restart. Feeding cannot hide it. |
-| Stuck awake | The sensor role states a longest awake time: 20 minutes, covering a 10-minute retry run plus a 255 s countdown and a 3-minute local alarm. `Device` raises `stuck_awake` past it, so a state machine that never allows deep sleep is caught before it drains the cell. Other roles state none. |
+| Stuck awake | The sensor role states a longest awake time: 20 minutes, covering a 10-minute retry run plus a 255 s countdown and a 3-minute local alarm. `Device` raises `stuck_awake` past it, so a state machine that never allows deep sleep is caught before it drains the cell. Other roles state none. From M3, while an update is active or the image is on trial, the bound is the larger of the role's and 40 minutes ‡ ([m3-updates-design.md](m3-updates-design.md) section 2). |
 | Double sleep | A deep sleep ends the loop iteration (the chip resets), and nothing else sleeps, so the old second sleep after each cycle cannot occur. A host test asserts exactly one deep sleep per wake. |
 | Budget | No call inside `handle()` may exceed 500 ms (section 3). Step B's simulation counts HAL calls per `handle()` and fails a test above 32, a cheap guard against hidden loops; the fakes already record every call. |
 
@@ -420,7 +423,7 @@ Almost no code carries over verbatim, which departs from D2 and the build plan's
 | Receive stop condition: this design uses stop-on-preamble with a symbol timeout, so the window only needs to cover preamble detection | O10 and S6 on the boards; test that a false preamble does not hold the radio (HN 3) |
 | Watchdog during light sleep: whether the task watchdog counts | Measure. The 2 s slices are correct either way. |
 | Retained memory after a watchdog reset or brown-out (HN(b)) | Test on hardware. The CRC keeps it safe either way; the siren's resume and the breadcrumb depend on it. |
-| Rollback and deep sleep (HN(a)42, UP1): a trial image must be confirmed before its first deep sleep | M3. `Device` will refuse `deep` while the image is on trial. |
+| Rollback and deep sleep (HN(a)42, UP1): a trial image must be confirmed before its first deep sleep | Settled by D134: `Device` refuses `deep` while the running image is on trial, and caps the role's wake at `light` ([m3-updates-design.md](m3-updates-design.md) section 2). |
 | Event-time accuracy for gateway transmits "at a given time" | O10: measure timer latency on the gateway. Target ±1 ms. |
 | O14, one radio and two data rates | S7. Alternating CAD would stay inside the gateway role. |
 | Radio back-end | Recommend Semtech's `sx126x_driver`: plain C, no heap, raw commands available. RadioLib 8 stays possible behind the same interface. Decide before M1b. |

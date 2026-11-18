@@ -1,6 +1,6 @@
 # Software requirements
 
-Last updated 2026-11-12. Gathered from the old repo (`../home_security`) and the design discussion. Decisions referenced by D-number are in [architecture.md](../architecture.md).
+Last updated 2026-11-18. Gathered from the old repo (`../home_security`) and the design discussion. Decisions referenced by D-number are in [architecture.md](../architecture.md).
 
 **Starting point** says what exists in the old repo: a path means there is code worth carrying over or reading first, and *new* means nothing exists. Paths are relative to `../home_security/localServices`.
 
@@ -30,7 +30,7 @@ Items marked † are proposals that have not been explicitly agreed.
 | DS4 | Heartbeat every 3 minutes by default; the interval arrives in the hub's reply and is stored | old core has a fixed `ping_interval_ms` |
 | DS5 | Armed state arrives in the hub's reply and is stored across sleep (D8) | old core, over HTTP |
 | DS6 | When the door opens while armed and no reply comes from the hub (gateway or hub down), the sensor buzzes for the stored countdown and then sounds its own alarm. That alarm lasts about 3 minutes while the sensor keeps trying the hub, and stops early when the hub answers "disarmed" or the button is pressed (D88) | old sensor role, stale-armed alarm |
-| DS7 | Button: short press reports; about 5 s opens pairing for about 2 minutes; about 15 s factory-resets | new |
+| DS7 | Button: short press reports; about 5 s opens pairing for about 2 minutes on an unpaired board; about 15 s factory-resets | new |
 | DS8 | While armed, a pairing hold does nothing and is reported. A factory-reset hold is reported and the sensor buzzes; the reset is refused if the hub answers and goes ahead if nothing answers through the 10 minutes of retries (D89) | new |
 | DS9 | Cover tamper is reported immediately | new |
 | DS10 | Telemetry in every packet: battery voltage, charging state, chip temperature. The voltage is measured before the radio transmits, not during, so the reading is not pulled down by the transmit current (D109) | old core sends temperature, voltage, frequency |
@@ -79,7 +79,7 @@ Items marked † are proposals that have not been explicitly agreed.
 | GW4 | Authenticates to the hub with its own key, received at pairing | new |
 | GW5 | Reports signal strength per device, to help with placement | new |
 | GW6 | Reports its own health; when the gateway goes silent the hub sends one notification naming it and the number of sensors that depend on it (D97) | new |
-| GW7 | Updated over Wi-Fi with the same update mechanism as sensors | new |
+| GW7 | Updated over its link, Wi-Fi or USB, with the same update mechanism as sensors | new |
 | GW8 | Finds the hub on the home network without manual configuration | `advertisementService` (UDP discovery) |
 | GW9 | Several gateways can serve one hub; the hub counts a report heard by more than one gateway once, and replies through the first one that delivered it (D28) | new |
 | GW10 | When connected to the hub computer by USB cable, talks to the hub over serial USB only; otherwise over Wi-Fi (D81) | old core has serial provisioning |
@@ -183,7 +183,7 @@ Two apps (D31): a phone app for iOS and Android, and a web app served by the hub
 | AP3 | Bluetooth firmware update for out-of-range sensors (phone only) | new |
 | AP4 | Show battery percentage, signal strength, firmware version and tamper state per device (D109) | new |
 | AP5 | Edit the heartbeat interval | new |
-| AP6 | Notifications for countdown, alarm, tamper, device silent, low battery, gateway offline, siren path lost, hub offline, arm and disarm, and updates (D75) | old system pushes warning and critical events through `eventService` |
+| AP6 | Notifications for countdown, alarm, tamper, device silent, low battery, gateway offline, siren path lost, hub cannot be reached (D96), arm and disarm, and updates (D75) | old system pushes warning and critical events through `eventService` |
 | AP7 | User management with per-sensor and per-camera permissions, hidden until switched on (D33) | new |
 | AP8 | The phone app can hold several hubs (D28) | new |
 | AP9 | Critical alert on countdown and on alarm that breaks through silent mode (D92), with the Disarm button for every user who may disarm that sensor; it stops the siren and disarms every sensor that user may manage (D51, D76) | new |

@@ -12,7 +12,7 @@ Rows marked † wait on a spike in [build-plan.md](build-plan.md). Library capab
 | Language | TypeScript in strict mode with no `any`, for everything except firmware | One language for hub, relay and apps (D17). |
 | Shared protocol package | `packages/protocol`: the LoRa packet codec, the app-to-hub messages as Zod schemas, the app encryption, and test vectors as JSON files | Hub, relay, apps and the command-line tool cannot drift apart. The C++ tests read the same vector files. |
 | Validation | Zod 4 | Already used across the old repo. |
-| Tests | Bun's own test runner for the hub, relay and protocol package; Expo's Jest setup for the app | Nothing extra to install on the server side, and the app follows Expo's default. |
+| Tests | Bun's own test runner for the hub, relay and protocol package; for the app, `bun test` for its logic and screens, Playwright for the web build, and a written checklist on the simulators ([m3-design.md](m3-design.md)) | Nothing extra to install; the app's tests already run under `bun test` (`app/test/`). |
 | Format and lint | Prettier and ESLint | As in the old repo, and Expo's defaults. |
 | Continuous integration | GitHub Actions | Hosted macOS, Windows and Linux machines build and test the installers for systems not on the desk. |
 
@@ -26,8 +26,8 @@ Rows marked † wait on a spike in [build-plan.md](build-plan.md). Library capab
 | LoRa driver | RadioLib or Semtech's own `sx126x_driver`, behind the core's radio interface † | To decide before the boards arrive. The research favours Semtech's driver: one function per radio command, no heap, and direct access to the channel-detection and receive-window settings the protocol depends on. RadioLib 8 changed its interface days ago, allocates per transfer unless told not to, and has a blocking scan with no timeout ([hardware notes](hardware-notes.md), section 4). |
 | Device encryption | The PSA Crypto interface of the Mbed TLS that ships with ESP-IDF v6: AES-128-CCM with an 8-byte tag for packets, ECDSA P-256 to check firmware signatures. Behind a small interface in the platform layer | No extra library, it uses the chip's AES hardware, and the same Mbed TLS version builds on the Mac for host tests. v6 made PSA the public interface; the older `mbedtls_ccm_*` calls are private there ([hardware notes](hardware-notes.md)). |
 | Bluetooth | NimBLE | The smaller of ESP-IDF's two Bluetooth stacks; only Bluetooth Low Energy is needed. |
-| Pairing exchange | ESP-IDF's provisioning layer with its password-based key exchange (SRP), the pairing code as the password † | A reviewed way to turn a short typed code into a safe channel. Confirmed in the Bluetooth spike. |
-| Updates | ESP-IDF's two-slot update with rollback, plus our own signature check against the hub's key | UP1–UP3. Secure Boot is not used: it fixes one publisher key, which D35 rules out. |
+| Pairing exchange | ESP-IDF's protocomm with security 2 (SRP), the pairing code as the password, used directly, not through `network_provisioning` ([hardware-notes.md](hardware-notes.md)); the phone's SRP client is ours, checked against vectors from ESP-IDF's sources (D133) | A reviewed way to turn a short typed code into a safe channel. Confirmed in the Bluetooth spike. |
+| Updates | ESP-IDF's two-slot update with rollback, plus our own signature check against the hub's key | UP1–UP3. Secure Boot is not used: it fixes one publisher key, which D35 rules out (D143). |
 | Storage | ESP-IDF's key-value flash store for keys and settings; sleep-retained memory for state between wakes | Wear-levelled and already there. |
 | Link to the hub off LoRa | One kept-open WebSocket over Wi-Fi, using Espressif's WebSocket client, or USB serial with a small framing layer; both carry the same packets (D101) | One packet format on every path. The hub serves devices on one port and apps on a second, with HTTPS, so the installer opens two firewall rules (D101 as amended). The packets are already encrypted, so the WebSocket itself needs no TLS. |
 | Finding the hub | mDNS | GW8; the old backend already advertises with it. |
@@ -66,23 +66,24 @@ LoRaWAN is not used: it needs a multi-channel gateway and a network server, and 
 | Animation | `react-native-reanimated` 4.7.1 with `react-native-worklets` 0.13.1 | NativeWind 5 needs them for transitions; worklets is reanimated 4's runtime. |
 | System colours | `expo-system-ui` 58.0.7 | Sets the root background, so nothing flashes before the first screen draws. |
 | Text | i18next with translation files | D58. |
-| Bluetooth | react-native-ble-plx in a development build † | The established library; needs a real phone, since simulators have no Bluetooth. |
+| Bluetooth | react-native-ble-plx in a development build, behind `BleCentral` † (S9), for pairing and updates | The established library; needs a real phone, since simulators have no Bluetooth. |
 | Notifications | expo-notifications, plus a small native extension on each platform (Swift, Kotlin) that decrypts the push before it is shown † | D32: the relay must not be able to read alerts. O15. |
 | Presence | Expo's location geofencing | D98. |
-| Keys and lock | Keys in the phone's secure storage (expo-secure-store); app lock through expo-local-authentication | D61, D63. |
+| Keys and lock | Keys in the phone's secure storage (expo-secure-store), readable after first unlock, this device only; app lock through expo-local-authentication | D61, D63. |
+| Home-network connection on the phone | By address, TLS as carriage (D132); mDNS browse in `hub-net`, our Expo module | D132. |
 | QR scanning | expo-camera | Linking and pairing. |
-| Builds | Expo's build service or local builds | Decided when the first phone build is needed. |
+| Builds | Development builds made locally with Expo's tools; no build service | Expo Go cannot load our native modules ([m3-design.md](m3-design.md) section 2). |
 
 ## Relay and push
 
 | Area | Choice | Why |
 | --- | --- | --- |
-| Relay | TypeScript on Bun, plain WebSockets, a small SQLite file for push tokens and hub last-seen times | Shares `packages/protocol`. One small service, as RA4 asks. |
+| Relay | TypeScript on Bun, Hono and plain WebSockets as the hub, `bun:sqlite` with Drizzle for hub presence, push tokens and names; one program with the roles relay, push, names and releases ([m4-design.md](m4-design.md)), protected as D142 says | Shares `packages/protocol`. One small service, as RA4 asks. |
 | Relay scaling | Message routing and stored state sit behind two small interfaces: in memory and SQLite on a single server. To grow, hubs are first split across servers by hub identifier; a Redis publish/subscribe router and a shared database can replace the two implementations later | A hub and its few phones only ever talk to each other, so they can always share one server. A self-hosted relay must never need Redis (RA4). |
 | Self-hosting | A Docker image and a plain executable | Docker is fine on a server; D37 concerns the hub only. |
-| Push | Sent directly to Apple's and Google's push services | No third push company sees even the encrypted traffic (D59). Replaces the old system's use of Expo's push service. |
+| Push | Sent directly to APNs (HTTP/2, token authentication) and FCM (HTTP v1) by the operated push service, its own process and account, only over relay links on which a relay proved its key (D142); JWTs signed with `node:crypto`, no library | No third push company sees even the encrypted traffic (D59). Replaces the old system's use of Expo's push service. |
 | Per-hub names | A DNS provider's interface to create each hub's name and prove ownership for its certificate † | D79, O8. |
-| Hosting | One small server in the EU; provider chosen at the relay milestone | The relay carries only small messages (D55). |
+| Hosting | One small server in the EU, from a host with always-on filtering of network floods, connections that may stay open for days, and the client's address passed through (D142, m4-design.md section 3); provider chosen at the relay milestone | The relay carries only small messages (D55), and what the operator runs is protected (D142). |
 
 ## Encryption in one place
 
@@ -92,7 +93,8 @@ LoRaWAN is not used: it needs a multi-channel gateway and a network server, and 
 | Firmware images | ECDSA P-256 signature by the hub's key | Checked by mbedTLS on the device with no extra library (D35). |
 | Official releases | Publisher's Ed25519 signature, checked by the hub | D84. |
 | App to hub, at home and through the relay | The Noise protocol (IK pattern: X25519, ChaCha20-Poly1305, SHA-256), built from the audited `@noble` libraries in `packages/protocol` and checked against the published Noise test vectors | A published, analysed handshake in place of one we invent. The same code runs in the hub, the browser and the phone, and the first message of a connection can already carry a request, which keeps a lock-screen Disarm to one round trip. |
-| Push content | Encrypted to each phone with a key agreed at linking; decrypted on the phone by native code | The same primitives exist in Apple's and Android's own libraries. |
+| Hub to relay | TLS, and a Noise_XN handshake proving the hub's app key (D125); relays prove their own key the same way to the push service (D142) | D125, D142. |
+| Push content | Sealed by the hub with a key each phone gives it in the app channel, ChaCha20-Poly1305, one padded size; decrypted on the phone by native code (D126) | The same primitives exist in Apple's and Android's own libraries. |
 | Backups | ChaCha20-Poly1305 with the backup key | D53, D78. |
 | Browser to hub | HTTPS on the per-hub name | D79. |
 
