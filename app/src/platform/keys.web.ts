@@ -1,12 +1,88 @@
 /**
- * The browser's record in IndexedDB (m2-design.md section 8, `keys.web.ts`; spike K1): one object
- * store, one record, holding the non-extractable `CryptoKey` itself (a structured clone, which
- * IndexedDB keeps without ever exposing the key's bytes), the hub, and the last `seq`.
+ * The browser's key and record (m2-design.md section 8, `keys.web.ts`; spike K1), the web build's
+ * side of `keys.ts`.
  *
- * Each `update` is one read-write transaction, resolved only when it is complete: so the next
- * `seq` is on disk before the request that carries it is sent.
+ * - The client's static key is made by Web Crypto's X25519 as a **non-extractable** key: script
+ *   on the page can use it while it runs, never read it out. A key that comes back extractable is
+ *   refused, and the browser cannot be linked. Its Diffie-Hellman is `deriveBits`.
+ * - The record lives in IndexedDB: one object store, one record, holding the non-extractable
+ *   `CryptoKey` itself (a structured clone, which IndexedDB keeps without ever exposing the key's
+ *   bytes), the hub, and the last `seq`. Each `update` is one read-write transaction, resolved
+ *   only when it is complete: so the next `seq` is on disk before the request that carries it is
+ *   sent.
  */
-import type { RecordStore, Stored, StoredClient } from "./client-key";
+import type { StaticKey } from "@hsn/protocol/app";
+import type { ClientKeyPair, KeyFault, RecordStore, Stored, StoredClient } from "./client-key";
+import type { Outcome } from "./split";
+
+/**
+ * The browser's private half: a non-extractable Web Crypto key. tsc reads it as every platform's
+ * (`keys.ts`), so the record's types below need no argument.
+ */
+export type PlatformSecret = CryptoKey;
+
+function isKeyPair(key: CryptoKey | CryptoKeyPair): key is CryptoKeyPair {
+  return "privateKey" in key;
+}
+
+/** Web Crypto's `subtle`, which a page that is not a secure context does not have, whatever the types say. */
+export function webSubtle(): SubtleCrypto | undefined {
+  return (globalThis as { readonly crypto?: { readonly subtle?: SubtleCrypto } }).crypto?.subtle;
+}
+
+/**
+ * Makes the client's static key: X25519, non-extractable, usable only for `deriveBits`. A browser
+ * that cannot make one, or makes one that can be read out, cannot be linked (section 5).
+ */
+export async function makeClientKey(
+  subtle: SubtleCrypto | undefined = webSubtle(),
+): Promise<Outcome<ClientKeyPair, KeyFault>> {
+  if (subtle === undefined) return { ok: false, fault: "noWebCrypto" };
+  let made: CryptoKey | CryptoKeyPair;
+  try {
+    made = await subtle.generateKey({ name: "X25519" }, false, ["deriveBits"]);
+  } catch {
+    return { ok: false, fault: "noWebCrypto" };
+  }
+  if (!isKeyPair(made)) return { ok: false, fault: "failed" };
+  if (made.privateKey.extractable) return { ok: false, fault: "extractable" };
+  try {
+    const publicKey = new Uint8Array(await subtle.exportKey("raw", made.publicKey));
+    return publicKey.length === 32
+      ? { ok: true, value: { privateKey: made.privateKey, publicKey } }
+      : { ok: false, fault: "failed" };
+  } catch {
+    return { ok: false, fault: "failed" };
+  }
+}
+
+/**
+ * The key as the Noise code's `StaticKey`: its Diffie-Hellman through `deriveBits`. A low-order
+ * public key makes Web Crypto refuse, which the Noise code takes as an all-zero result.
+ */
+export function staticKeyOf(
+  pair: ClientKeyPair,
+  subtle: SubtleCrypto = globalThis.crypto.subtle,
+): StaticKey {
+  return {
+    publicKey: pair.publicKey,
+    dh: async (theirPublic) => {
+      const theirs = await subtle.importKey(
+        "raw",
+        theirPublic.slice(),
+        { name: "X25519" },
+        true,
+        [],
+      );
+      const bits = await subtle.deriveBits(
+        { name: "X25519", public: theirs },
+        pair.privateKey,
+        256,
+      );
+      return new Uint8Array(bits);
+    },
+  };
+}
 
 const DATABASE = "hsn-app";
 const VERSION = 1;

@@ -1,0 +1,18 @@
+{
+  "//": "The phone's type check (m3-design.md section 2): `./x` resolves to `x.native.ts` where there is one, as Metro does on iOS and Android, so the shared code is checked against the phone's files and types. The web build's files and each pair's plain file (the web's binding for tsc and Bun's tests, platform/split.ts) are left out.",
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "moduleSuffixes": [".native", ""]
+  },
+  "include": ["src", "nativewind-env.d.ts"],
+  "exclude": [
+    "src/**/*.web.ts",
+    "src/**/*.web.tsx",
+    "src/hub/digest.ts",
+    "src/hub/start.ts",
+    "src/platform/alerts.ts",
+    "src/platform/keys.ts",
+    "src/platform/random.ts",
+    "src/platform/save-file.ts"
+  ]
+}

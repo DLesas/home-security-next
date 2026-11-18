@@ -13,6 +13,8 @@ import {
 } from "@hsn/protocol/app";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { askNoticePermission, noticePermission, showNotice, tone } from "../platform/alerts";
+import type { NoticePermission } from "../platform/alerts-types";
 import { learnPrefs, markRead } from "../state/live";
 import { deviceName, type Translate } from "../state/words";
 import { formatTime } from "./format";
@@ -133,8 +135,9 @@ function Categories() {
 
 function BrowserNotifications() {
   const { t } = useTranslation();
-  const supported = typeof Notification === "function";
-  const [permission, setPermission] = useState(supported ? Notification.permission : "denied");
+  const asked = noticePermission();
+  const supported = asked !== "unsupported";
+  const [permission, setPermission] = useState<NoticePermission>(supported ? asked : "denied");
   return (
     <Section label={t("notifications.browserTitle")}>
       <Heading level={2}>{t("notifications.browserTitle")}</Heading>
@@ -150,7 +153,7 @@ function BrowserNotifications() {
           <Button
             kind="quiet"
             label={t("notifications.browserAsk")}
-            onPress={() => void Notification.requestPermission().then(setPermission)}
+            onPress={() => void askNoticePermission().then(setPermission)}
           />
         </Actions>
       )}
@@ -220,20 +223,6 @@ export function NotificationsScreen() {
   );
 }
 
-/** A short tone, if the browser lets the page make one (most only after it was touched). */
-function tone(): void {
-  try {
-    const context = new AudioContext();
-    const oscillator = context.createOscillator();
-    oscillator.frequency.value = 880;
-    oscillator.connect(context.destination);
-    oscillator.start();
-    oscillator.stop(context.currentTime + 0.6);
-  } catch {
-    // No sound allowed: the banner and the screen reader's announcement remain.
-  }
-}
-
 /** The critical notifications not yet read, over every screen, said at once; a tone and the browser's notice for new ones. */
 export function CriticalNotices() {
   const { t } = useTranslation();
@@ -248,19 +237,13 @@ export function CriticalNotices() {
     if (fresh.length === 0) return;
     for (const n of fresh) told.current.add(n.seq);
     tone();
-    if (typeof Notification === "function" && Notification.permission === "granted") {
-      for (const n of fresh) {
-        try {
-          // The tag makes every tab's notice of one notification the same one.
-          new Notification(t("notifications.criticalTitle"), {
-            body: notificationWords(t, { devices }, n),
-            tag: String(n.seq),
-          });
-        } catch {
-          // A browser that refuses it: the banner remains.
-        }
-      }
-    }
+    // The tag makes every tab's notice of one notification the same one.
+    for (const n of fresh)
+      showNotice(
+        t("notifications.criticalTitle"),
+        notificationWords(t, { devices }, n),
+        String(n.seq),
+      );
   }, [critical, devices, t]);
   if (critical.length === 0) return null;
   return (

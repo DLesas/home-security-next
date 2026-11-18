@@ -34,12 +34,8 @@ import {
 } from "@hsn/protocol/app";
 import { identityOf, lookupOfSecret, pskOfSecret, pskOfTypedSecret } from "./digest";
 import { decodeJson, encodeJson } from "./codec";
-import {
-  makeClientKey,
-  staticKeyOf,
-  type KeyFault,
-  type StoredClient,
-} from "../platform/client-key";
+import type { KeyFault, StoredClient } from "../platform/client-key";
+import { makeClientKey, staticKeyOf } from "../platform/keys";
 import { type ChannelPath, CLOSE, type Connect, Inbox, type Timers, type Wire } from "./wire";
 
 /** The channel versions this build speaks (section 8: the build is stamped with it). */

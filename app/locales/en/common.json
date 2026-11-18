@@ -132,6 +132,7 @@
       "noWebCrypto": "This browser cannot make a key that stays secret, so it cannot be linked.",
       "extractable": "This browser cannot make a key that stays secret, so it cannot be linked.",
       "failed": "This browser could not make its key.",
+      "notBuilt": "This app cannot link yet: linking is still being built for phones.",
       "storage": "This browser could not keep its key, so it is not linked.",
       "unreadable": "The address held a code that could not be read. Ask for a new one.",
       "badCode": "That code is not right: check it and type it again.",
@@ -996,5 +997,12 @@
     "link": "Make a code to link another phone or browser.",
     "status": "What the hub is running and how it is doing.",
     "setup": "The first steps: your name, the Wi-Fi and the first devices."
+  },
+  "permissions": {
+    "camera": "The camera reads the QR codes that link this phone, restore a hub and add devices.",
+    "bluetooth": "Bluetooth adds devices to your home, and updates them when they are out of Wi-Fi range.",
+    "localNetwork": "The app reaches your hub over your home network.",
+    "location": "Your location lets the app offer to arm when everyone has left, and to disarm when you come home.",
+    "faceId": "Face ID unlocks the app when the app lock is on."
   }
 }

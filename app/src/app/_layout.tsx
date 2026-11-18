@@ -10,8 +10,8 @@ import { Slot, usePathname } from "expo-router";
 import { useEffect, useState } from "react";
 import { I18nextProvider } from "react-i18next";
 import { ScrollView, View } from "react-native";
-import { claimArrivedCode } from "../hub/arrival";
-import { type BrowserClient, startBrowserClient } from "../hub/browser";
+import { claimArrivedCode, startClient } from "../hub/start";
+import type { StartedClient } from "../hub/start-types";
 import { i18n, startI18n } from "../i18n";
 import { AlarmBanner, ShellNotices, useAlarmRunning } from "../ui/banners";
 import { HubProvider, useLive, useLocal } from "../ui/hub-context";
@@ -19,14 +19,14 @@ import { LinkGate, needsLinkGate } from "../ui/link-gate";
 import { BottomBar, Pages, Rail } from "../ui/navigation";
 import { Column } from "../ui/parts";
 
-let started: BrowserClient | undefined;
+let started: StartedClient | undefined;
 const queries = new QueryClient({
   defaultOptions: { queries: { retry: false, staleTime: Infinity } },
 });
 
 export default function RootLayout() {
   const [ready, setReady] = useState(i18n.isInitialized);
-  const [client, setClient] = useState<BrowserClient | undefined>(started);
+  const [client, setClient] = useState<StartedClient | undefined>(started);
   useEffect(() => {
     if (!ready) {
       void startI18n().then(() => {
@@ -35,12 +35,13 @@ export default function RootLayout() {
       return;
     }
     if (started !== undefined) return;
-    started = startBrowserClient();
+    started = startClient();
     const hub = started.client;
-    // Taken out of the address by `src/entry.ts` before the router loaded (section 5).
+    // In a browser, taken out of the address by `src/entry.ts` before the router loaded (section 5).
     const arrived = claimArrivedCode();
+    // A link opened in the phone app is shown before it is used (m3-design.md section 3): not here.
     if (arrived?.from === "unreadable") hub.unreadable();
-    else if (arrived !== undefined) {
+    else if (arrived !== undefined && arrived.from !== "deepLink") {
       const name = i18n.t(arrived.from === "console" ? "link.consoleName" : "link.webName");
       void hub.link(arrived.secret, arrived.from, { name, kind: "web" });
     }

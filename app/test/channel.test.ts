@@ -103,7 +103,7 @@ describe("identity", () => {
   });
 
   test("an extractable key is refused: the browser cannot be linked (K1)", async () => {
-    const { makeClientKey } = await import("../src/platform/client-key");
+    const { makeClientKey } = await import("../src/platform/keys.web");
     const real = crypto.subtle;
     // A stand-in for Web Crypto whose generateKey ignores `extractable: false`, as a faulty browser might.
     const leaky = {
@@ -186,7 +186,7 @@ describe("what the client refuses from a hub (faults the real hub cannot be made
   });
 
   test("a public key that is not 32 bytes is refused", async () => {
-    const { makeClientKey } = await import("../src/platform/client-key");
+    const { makeClientKey } = await import("../src/platform/keys.web");
     const real = crypto.subtle;
     const short = {
       generateKey: (a: AlgorithmIdentifier, e: boolean, u: KeyUsage[]) => real.generateKey(a, e, u),

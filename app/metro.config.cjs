@@ -5,6 +5,6 @@ const { withNativewind } = require("nativewind/metro");
 
 /** @type {import('expo/metro-config').MetroConfig} */
 // This folder, found from a file in it (the guide's `__dirname`, which the lint config does not know).
-const config = getDefaultConfig(path.dirname(require.resolve("./app.json")));
+const config = getDefaultConfig(path.dirname(require.resolve("./package.json")));
 
 module.exports = withNativewind(config);

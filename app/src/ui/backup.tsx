@@ -13,6 +13,7 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { downloadFile, sendFile, uploadJob } from "../hub/files";
 import { realTimers } from "../hub/wire";
+import { saveFile } from "../platform/save-file";
 import { FileInput } from "./file-input";
 import { QrCode } from "./qr";
 import { formatTime } from "./format";
@@ -146,18 +147,8 @@ function Export() {
     const got = await downloadFile(hub, history, realTimers);
     setBusy(false);
     setResult(got);
-    if (got.ok && "bytes" in got) {
-      const url = URL.createObjectURL(
-        new Blob([got.bytes.slice()], { type: "application/octet-stream" }),
-      );
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = history ? "hsn-history.jsonl" : "hsn-backup.hsnb";
-      a.click();
-      setTimeout(() => {
-        URL.revokeObjectURL(url);
-      }, 10_000);
-    }
+    if (got.ok && "bytes" in got)
+      void saveFile(history ? "hsn-history.jsonl" : "hsn-backup.hsnb", got.bytes);
   };
   return (
     <Section label={t("backup.exportTitle")}>

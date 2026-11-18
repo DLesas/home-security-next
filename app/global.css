@@ -53,21 +53,27 @@
   --font-strong: "AtkinsonHyperlegibleNext_600SemiBold";
   --font-heavy: "AtkinsonHyperlegibleNext_700Bold";
   --font-code: "AtkinsonHyperlegibleMono_400Regular";
+  /*
+   * Sizes in px; each line height as the design's px over the size, unitless, as Tailwind's own
+   * theme gives them (17 / 26 is `calc(26 / 17)`): a browser computes exactly the px (26), and the
+   * phone's runtime (react-native-css) multiplies a line height read through a variable by the
+   * font size, so `26px` there came out as 26 × 17 = 442 (docs/spikes/P0-phone-build.md).
+   */
   --text-*: initial;
   --text-state: 44px;
-  --text-state--line-height: 48px;
+  --text-state--line-height: calc(48 / 44);
   --text-state--letter-spacing: -0.02em;
   --text-state-wide: 64px;
-  --text-state-wide--line-height: 68px;
+  --text-state-wide--line-height: calc(68 / 64);
   --text-state-wide--letter-spacing: -0.02em;
   --text-title: 32px;
-  --text-title--line-height: 40px;
+  --text-title--line-height: calc(40 / 32);
   --text-section: 22px;
-  --text-section--line-height: 30px;
+  --text-section--line-height: calc(30 / 22);
   --text-body: 17px;
-  --text-body--line-height: 26px;
+  --text-body--line-height: calc(26 / 17);
   --text-small: 15px;
-  --text-small--line-height: 22px;
+  --text-small--line-height: calc(22 / 15);
 
   /* Corners. */
   --radius-*: initial;

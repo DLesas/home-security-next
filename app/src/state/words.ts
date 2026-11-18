@@ -187,6 +187,7 @@ export const LINK_FAILURE_KEYS = {
   noWebCrypto: "link.failure.noWebCrypto",
   extractable: "link.failure.extractable",
   failed: "link.failure.failed",
+  notBuilt: "link.failure.notBuilt",
   storage: "link.failure.storage",
   unreadable: "link.failure.unreadable",
   badCode: "link.failure.badCode",
