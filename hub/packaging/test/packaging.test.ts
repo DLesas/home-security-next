@@ -181,8 +181,9 @@ describe("Windows: the service and the .msi", () => {
   });
 
   test("the .msi: an upgrade keeps the version before; the folder's quote; the Start menu; silent means UILevel", () => {
-    expect(wxs).toContain('Schedule="afterInstallInitialize"');
-    expect(wxs).toContain('<Custom Action="PrepareUpgrade" Before="RemoveExistingProducts"');
+    expect(wxs).toContain('Schedule="afterInstallExecute"');
+    expect(wxs).toContain('<Custom Action="PrepareUpgrade" Before="InstallFiles"');
+    expect(wxs).toContain('<Custom Action="InstallService" After="RemoveExistingProducts"');
     expect(wxs).toContain("-LocalAppData &quot;[LocalAppDataFolder].&quot;");
     expect(wxs).toContain("-UILevel [UILevel]");
     expect(wxs).toContain('Name="HSN Hub setup"');

@@ -14,8 +14,9 @@
      xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
   <Package Name="HSN Hub" Manufacturer="HSN" Version="$(Version)" Scope="perMachine"
            UpgradeCode="6B2B8A2E-4C0F-4F7B-9B57-5E1C3A9D2F41">
-    <!-- Inside the transaction, so the version kept aside before the old files go comes back. -->
-    <MajorUpgrade Schedule="afterInstallInitialize"
+    <!-- Run the deferred preparation and file install first. Immediately after InstallInitialize,
+         RemoveExistingProducts cannot follow anything that schedules an execution script (2613). -->
+    <MajorUpgrade Schedule="afterInstallExecute"
                   DowngradeErrorMessage="A newer HSN Hub is already installed." />
     <MediaTemplate EmbedCab="yes" />
 
@@ -129,9 +130,10 @@
     </UI>
 
     <InstallExecuteSequence>
-      <Custom Action="PrepareUpgrade" Before="RemoveExistingProducts" Condition="WIX_UPGRADE_DETECTED" />
+      <Custom Action="PrepareUpgrade" Before="InstallFiles" Condition="WIX_UPGRADE_DETECTED" />
       <Custom Action="UninstallService" Before="RemoveFiles" Condition="REMOVE=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE" />
-      <Custom Action="InstallService" Before="InstallFinalize" Condition="NOT REMOVE=&quot;ALL&quot;" />
+      <!-- Restore the kept files only after the old MSI has removed its registered files. -->
+      <Custom Action="InstallService" After="RemoveExistingProducts" Condition="NOT REMOVE=&quot;ALL&quot;" />
     </InstallExecuteSequence>
   </Package>
 </Wix>
