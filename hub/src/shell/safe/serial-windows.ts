@@ -130,7 +130,9 @@ export class WindowsSerialPort {
 
   #wake(event: "stop" | "write"): void {
     const sent = Result.fromThrowable(
-      () => this.signal(event),
+      () => {
+        this.signal(event);
+      },
       (error) => linkError("writeFailed", ORIGIN, `wake serial port ${this.path}`, error),
     )();
     if (sent.isErr()) this.#failure ??= sent.error;
@@ -163,8 +165,12 @@ export function openWindowsSerial(
             path,
             { kind: "port", handle, wake, incoming: port2 },
             port1,
-            (event) => signalSerial(calls, wake[event]),
-            () => releaseSerial(calls, ...handles),
+            (event) => {
+              signalSerial(calls, wake[event]);
+            },
+            () => {
+              releaseSerial(calls, ...handles);
+            },
             options.startWorker ?? start,
           );
           attached = true;
