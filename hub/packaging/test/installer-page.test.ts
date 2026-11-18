@@ -5,6 +5,7 @@
  * A2's, holding the address, and the token on no command line: the arguments hold only the
  * folder and the SID.
  */
+import { ownSid } from "../../test/unit/shell-control/windows-folders.ts";
 import { afterAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
 import { createServer, type Server } from "node:net";
@@ -48,14 +49,18 @@ describe("the installer's page", () => {
   test("an installer's token, the folder closed first, A2's page with the address", async () => {
     const { data, asked } = await hub();
     const folder = join(data, "user", "HSN Hub");
-    const written = await writeInstallerPage({ dataDir: data, sid: "S-1-5-21-1-2-3-1001", folder });
+    const sid = process.platform === "win32" ? ownSid() : "S-1-5-21-1-2-3-1001";
+    const written = await writeInstallerPage({ dataDir: data, sid, folder });
     expect(written.isOk() ? written.value : written.error).toBe(join(folder, SETUP_PAGE));
     expect(asked).toEqual([
       { id: 1, actor: "installer", command: { kind: "consoleToken", for: "installer" } },
     ]);
     expect(readFileSync(join(folder, SETUP_PAGE), "utf8")).toBe(pageHtml(URL));
-    expect(statSync(folder).mode & 0o777).toBe(0o700);
-    expect(statSync(join(folder, SETUP_PAGE)).mode & 0o077).toBe(0);
+    // Windows protects the page with the access list exercised in the following test.
+    if (process.platform !== "win32") {
+      expect(statSync(folder).mode & 0o777).toBe(0o700);
+      expect(statSync(join(folder, SETUP_PAGE)).mode & 0o077).toBe(0);
+    }
   });
 
   test("on Windows the access list is set for the user, SYSTEM and Administrators before the page", async () => {
