@@ -7,9 +7,12 @@
 import { mock } from "bun:test";
 import { createElement } from "react";
 
-const web = Bun.resolveSync("react-native-web", import.meta.dir);
-mock.module("react-native", () => require(web) as Record<string, unknown>);
-mock.module("expo-router", () => ({
+const web = (await import(Bun.resolveSync("react-native-web", import.meta.dir))) as Record<
+  string,
+  unknown
+>;
+await mock.module("react-native", () => web);
+await mock.module("expo-router", () => ({
   /** Render the router's link as the web build does. */
   Link: ({ href, children }: { href: string; children: React.ReactNode }) =>
     createElement("a", { href }, children),
