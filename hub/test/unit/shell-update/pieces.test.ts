@@ -13,7 +13,8 @@
  * than its bytes, never a busy neighbour. The tight figures, the 20 ms ‡ of section 3 and a door
  * report's wait, are measured and asserted by the opt-in timing test (`HSN_TIMING=1`), run alone.
  */
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, describe, expect, spyOn, test } from "bun:test";
+import * as fs from "node:fs";
 import {
   existsSync,
   mkdirSync,
@@ -46,6 +47,7 @@ const folders: string[] = [];
 let root: string;
 let upload: string;
 let source: string;
+let restoreFileCalls: (() => void) | undefined;
 
 beforeAll(() => {
   root = mkdtempSync(join(tmpdir(), "hsn-pieces-"));
@@ -71,6 +73,40 @@ beforeAll(() => {
 afterAll(() => {
   for (const f of folders) rmSync(f, { recursive: true, force: true });
 });
+
+afterEach(() => {
+  restoreFileCalls?.();
+  restoreFileCalls = undefined;
+});
+
+/** Times the real filesystem calls so a slow piece can be traced to an individual operation. */
+function timeFileCalls() {
+  const names = ["openSync", "readSync", "writeSync", "closeSync", "mkdirSync"] as const;
+  interface Call {
+    name: (typeof names)[number];
+    ms: number;
+  }
+  let calls: Call[] = [];
+  const spies = names.map((name) => {
+    const original = fs[name];
+    return spyOn(fs, name).mockImplementation((...args: Parameters<typeof original>) => {
+      const start = performance.now();
+      const value = Reflect.apply(original, fs, args) as ReturnType<typeof original>;
+      calls.push({ name, ms: performance.now() - start });
+      return value;
+    });
+  });
+  restoreFileCalls = () => {
+    for (const spy of spies) spy.mockRestore();
+  };
+  /** Collects one piece's timings and drops the spies' references to its buffers. */
+  return () => {
+    const piece = calls;
+    calls = [];
+    for (const spy of spies) spy.mockClear();
+    return piece;
+  };
+}
 
 function prefix(name: string): string {
   const p = join(root, name);
@@ -99,6 +135,7 @@ describe("staging a 112 MB program in pieces", () => {
   test("each piece reads at most its bytes and makes at most its files; both passes in pieces; byte for byte", () => {
     const p = prefix("bytes");
     const job = staging(p);
+    const fileCalls = process.platform === "win32" || TIMING ? timeFileCalls() : undefined;
     let read = 0;
     let longest: {
       phase: Staging["phase"];
@@ -106,6 +143,7 @@ describe("staging a 112 MB program in pieces", () => {
       bytes: number;
       read: number;
       cpuMs?: number;
+      calls?: ReturnType<ReturnType<typeof timeFileCalls>>;
     } = {
       phase: job.phase,
       ms: 0,
@@ -117,10 +155,11 @@ describe("staging a 112 MB program in pieces", () => {
     let outcome;
     for (;;) {
       const phase = job.phase;
-      const cpuStart = process.platform === "win32" ? process.threadCpuUsage() : undefined;
+      const cpuStart = fileCalls === undefined ? undefined : process.threadCpuUsage();
       const s = performance.now();
       outcome = job.next();
       const ms = performance.now() - s;
+      const calls = fileCalls?.();
       if (ms > longest.ms) {
         const cpu = cpuStart === undefined ? undefined : process.threadCpuUsage(cpuStart);
         longest = {
@@ -129,6 +168,7 @@ describe("staging a 112 MB program in pieces", () => {
           bytes: job.bytesRead - read,
           read,
           ...(cpu === undefined ? {} : { cpuMs: (cpu.user + cpu.system) / 1000 }),
+          ...(calls === undefined ? {} : { calls }),
         };
       }
       pieces += 1;
@@ -148,13 +188,15 @@ describe("staging a 112 MB program in pieces", () => {
     expect(pieces).toBeGreaterThanOrEqual(
       2 * Math.floor((payload - 1024 * 1024) / STAGING_PIECE_BYTES),
     );
-    expect(longest.ms, `longest piece: ${JSON.stringify(longest)}`).toBeLessThan(LOADED_BOUND_MS);
+    const diagnostics = `longest piece: ${JSON.stringify({ ...longest, payloadBytes: read / 2 })}`;
+    if (fileCalls !== undefined) console.log(diagnostics);
     for (const path of [programPath, "web/f0.js", "web/f199.js", "drizzle/0000.sql"])
       expect(
         Buffer.from(readFileSync(join(p, "staged", "9.0.0", path))).equals(
           readFileSync(join(source, path)),
         ),
       ).toBe(true);
+    expect(longest.ms, diagnostics).toBeLessThan(LOADED_BOUND_MS);
   }, 60_000);
 
   test.if(TIMING)(
