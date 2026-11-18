@@ -137,7 +137,8 @@ describe("whether the wall clock is trusted (section 5)", () => {
     expect(probe?.()).toEqual({ ok: true, synced: false });
     writeFileSync(path, "");
     expect(probe?.()).toEqual({ ok: true, synced: true });
-    expect(probeFor("linux", join(path, "below-a-file"))?.()).toMatchObject({ ok: false });
+    const invalid = process.platform === "win32" ? "bad\0path" : join(path, "below-a-file");
+    expect(probeFor("linux", invalid)?.()).toMatchObject({ ok: false });
     dir.remove();
   });
 });

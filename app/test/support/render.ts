@@ -11,11 +11,11 @@ const react = Bun.resolveSync("react", import.meta.dir);
 plugin({
   name: "react-native as react-native-web, expo-router as links",
   setup(build) {
-    build.onLoad({ filter: /\/node_modules\/react-native\/index\.js$/u }, () => ({
+    build.onLoad({ filter: /[\\/]node_modules[\\/]react-native[\\/]index\.js$/u }, () => ({
       contents: `export * from ${JSON.stringify(web)};`,
       loader: "js",
     }));
-    build.onLoad({ filter: /\/node_modules\/expo-router\/build\/index\.js$/u }, () => ({
+    build.onLoad({ filter: /[\\/]node_modules[\\/]expo-router[\\/]build[\\/]index\.js$/u }, () => ({
       contents: `import { createElement } from ${JSON.stringify(react)};
 export function Link({ href, children }) { return createElement("a", { href }, children); }
 export function useLocalSearchParams() { return {}; }

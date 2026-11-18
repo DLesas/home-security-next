@@ -39,6 +39,8 @@ const PIECE_BOUND_MS = 20;
 /** A bound for a loaded machine (the whole suite at once): a piece reading far more than its bytes. */
 const LOADED_BOUND_MS = 250;
 const TIMING = process.env.HSN_TIMING === "1";
+const fixturePlatform = process.platform === "win32" ? "windows-x64" : "darwin-arm64";
+const programPath = process.platform === "win32" ? "bin/hsn-hub.exe" : "bin/hsn-hub";
 const SEED = new Uint8Array(32).fill(7);
 const folders: string[] = [];
 let root: string;
@@ -55,7 +57,7 @@ beforeAll(() => {
   const bun = readFileSync(process.execPath);
   // A 112 MB program: the Bun runtime and a mirrored copy of its first 48 MB, as compressible.
   writeFileSync(
-    join(source, "bin", "hsn-hub"),
+    join(source, programPath),
     Buffer.concat([bun, Buffer.from(bun.subarray(0, 48 * 1024 * 1024)).reverse()]),
     { mode: 0o755 },
   );
@@ -63,7 +65,7 @@ beforeAll(() => {
     writeFileSync(join(source, "web", `f${i}.js`), `export const x${i} = 1;\n`.repeat(1250));
   writeFileSync(join(source, "drizzle", "0000.sql"), "CREATE TABLE x (a);");
   upload = join(root, "upload.hsnr");
-  writeFileSync(upload, releaseOf(source, "9.0.0", "darwin-arm64", SEED, 0)._unsafeUnwrap());
+  writeFileSync(upload, releaseOf(source, "9.0.0", fixturePlatform, SEED, 0)._unsafeUnwrap());
 }, 60_000);
 
 afterAll(() => {
@@ -87,7 +89,7 @@ function staging(p: string, wanted: () => boolean = () => true): Staging {
     path: upload,
     prefix: p,
     runningVersion: "0.1.0",
-    platform: "darwin-arm64",
+    platform: fixturePlatform,
     keys: [TEST_PUBLISHER_KEY],
     wanted,
   });
@@ -125,7 +127,7 @@ describe("staging a 112 MB program in pieces", () => {
       2 * Math.floor((payload - 1024 * 1024) / STAGING_PIECE_BYTES),
     );
     expect(longest).toBeLessThan(LOADED_BOUND_MS);
-    for (const path of ["bin/hsn-hub", "web/f0.js", "web/f199.js", "drizzle/0000.sql"])
+    for (const path of [programPath, "web/f0.js", "web/f199.js", "drizzle/0000.sql"])
       expect(
         Buffer.from(readFileSync(join(p, "staged", "9.0.0", path))).equals(
           readFileSync(join(source, path)),
@@ -186,7 +188,7 @@ describe("staging a 112 MB program in pieces", () => {
       expect(Math.max(...latencies)).toBeLessThan(PIECE_BOUND_MS + 20);
 
       // Byte for byte the version's folder.
-      for (const path of ["bin/hsn-hub", "web/f0.js", "web/f199.js", "drizzle/0000.sql"])
+      for (const path of [programPath, "web/f0.js", "web/f199.js", "drizzle/0000.sql"])
         expect(
           Buffer.from(readFileSync(join(p, "staged", "9.0.0", path))).equals(
             readFileSync(join(source, path)),
