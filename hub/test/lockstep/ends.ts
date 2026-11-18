@@ -26,7 +26,7 @@ export class InProcessEnd implements HubEnd {
 
   async send(message: LockstepToHub): Promise<readonly LockstepFromHub[]> {
     if (message.type === "start") {
-      this.hub?.close();
+      this.hub?.close()._unsafeUnwrap();
       const started = await LockstepHub.start(message, { ...this.options, dataDir: this.dataDir });
       if (started.isErr())
         return [{ type: "error", message: started.error.message, line: JSON.stringify(message) }];
@@ -40,7 +40,7 @@ export class InProcessEnd implements HubEnd {
     if (answered.isErr())
       return [{ type: "error", message: answered.error.message, line: JSON.stringify(message) }];
     if (message.type === "stop") {
-      hub.close();
+      hub.close()._unsafeUnwrap();
       this.hub = undefined;
     }
     return answered.value;
@@ -48,7 +48,7 @@ export class InProcessEnd implements HubEnd {
 
   /** The hub killed: its database closed as it is, nothing more committed. */
   kill(): void {
-    this.hub?.close();
+    this.hub?.close()._unsafeUnwrap();
     this.hub = undefined;
   }
 }

@@ -26,6 +26,7 @@ import {
 } from "../../control-protocol/index.ts";
 import type { AuditRecord } from "../../core/model/audit.ts";
 import type { ControlReply } from "../../core/model/control.ts";
+import { closeDatabase } from "../safe/sqlite.ts";
 import type { HubError } from "../../core/model/errors.ts";
 import { connId, type RequestId, requestId } from "../../core/model/ids.ts";
 import { DEFAULT_RULES, type HubRules } from "../../core/model/rules.ts";
@@ -325,8 +326,8 @@ export class LockstepHub {
   }
 
   /** Closes the database without committing anything more, as a kill would leave it. */
-  close(): void {
-    this.#store.db.close(true);
+  close(): Result<void, HubError> {
+    return closeDatabase(this.#store.db, ORIGIN);
   }
 
   #respond(request: RequestId, reply: ControlReply): void {
