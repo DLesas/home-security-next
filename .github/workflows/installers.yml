@@ -1050,16 +1050,20 @@ jobs:
 
           # Check the running process, since a service can run the previous version after rollback.
           $expectedExe = Join-Path $package "packaged\$env:UPGRADE_VERSION\bin\hsn-hub.exe"
+          $launcherState = Join-Path $env:ProgramData 'HSN Hub Program\state\launcher.json'
           function Test-UpgradedHub {
             $services = @(Get-Service -Name HSNHub -ErrorAction SilentlyContinue)
             $processes = @(Get-CimInstance Win32_Process -Filter "Name = 'hsn-hub.exe'")
             if ($services.Count -ne 1 -or $services[0].Status -ne 'Running' -or $processes.Count -ne 1 -or $processes[0].ExecutablePath -ne $expectedExe) { return $false }
+            # A process may answer during its trial and still roll back when the trial expires.
+            $state = Get-Content -LiteralPath $launcherState -Raw -ErrorAction SilentlyContinue | ConvertFrom-Json
+            if ($state.current -ne $env:UPGRADE_VERSION -or $state.previous -ne $env:VERSION -or $null -ne $state.trial) { return $false }
             & $hsn --data $data status *> $null
             $LASTEXITCODE -eq 0
           }
-          Test-Check "One service answers from the new packaged executable" {
+          Test-Check "One service answers from the new packaged executable after its trial" {
             if (Wait-Until 90 { Test-UpgradedHub }) {
-              Write-Host "One running service and one hub process answer from version $env:UPGRADE_VERSION"
+              Write-Host "One running service and one hub process answer from version $env:UPGRADE_VERSION after its trial"
               $true
             } else { "the expected version did not answer" }
           }
