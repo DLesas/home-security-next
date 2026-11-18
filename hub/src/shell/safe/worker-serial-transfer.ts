@@ -45,19 +45,21 @@ export function serveSerial(
       // Submission never waits for the read. The extra timeout only covers a failed SetEvent.
       const waited = calls.WaitForMultipleObjectsEx(events.length, events, 0, 1000, 1);
       if (waited === 0 || Atomics.load(stopping, 0) !== 0) break;
-      if (waited === 1) {
-        const next: unknown = receiveMessageOnPort(incoming)?.message;
-        if (!(next instanceof Uint8Array) || write.pending)
-          throw new Error("serial write event without a free request");
-        write.start(next);
-      } else if (waited !== WAIT_IO_COMPLETION && waited !== WAIT_TIMEOUT) {
+      if (waited !== 1 && waited !== WAIT_IO_COMPLETION && waited !== WAIT_TIMEOUT)
         throw new Error(`WaitForMultipleObjectsEx failed (Win32 ${calls.GetLastError()})`);
-      }
       const sent = write.take();
       if (sent !== undefined) {
         if (sent.count !== sent.bytes.length)
           throw new Error(`WriteFileEx sent ${sent.count} of ${sent.bytes.length} bytes`);
         send({ kind: "written" });
+      }
+      // Alertable waits can favor read completions indefinitely on a busy line. Take a write
+      // on either wake. Its event is harmless if we already took the message on a read wake.
+      const next: unknown = receiveMessageOnPort(incoming)?.message;
+      if (next !== undefined) {
+        if (!(next instanceof Uint8Array) || write.pending)
+          throw new Error("serial write message without a free request");
+        write.start(next);
       }
       const got = read.take();
       if (got !== undefined) {

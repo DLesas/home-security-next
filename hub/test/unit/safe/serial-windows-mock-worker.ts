@@ -15,6 +15,7 @@ export type FakeMode =
   | "partial"
   | "write-error"
   | "waiting"
+  | "busy-read"
   | "before-read"
   | "after-read"
   | "late-data"
@@ -119,14 +120,20 @@ function driver({ shared, mode, handle, wake }: FakeWorkerData) {
       for (;;) {
         const signal = Atomics.load(shared, WAKE);
         if ((signal & STOP) !== 0) return 0;
-        if ((signal & WRITE) !== 0) {
-          Atomics.and(shared, WAKE, ~WRITE);
-          return 1;
-        }
         if (writing !== undefined) {
           writing.complete(0, writing.count);
           writing = undefined;
           return 0xc0;
+        }
+        // This Win32 double can repeatedly return an APC ahead of the signaled write event.
+        if (mode === "busy-read" && reading !== undefined) {
+          reading.complete(0, 0);
+          reading = undefined;
+          return 0xc0;
+        }
+        if ((signal & WRITE) !== 0) {
+          Atomics.and(shared, WAKE, ~WRITE);
+          return 1;
         }
         if (
           reading !== undefined &&

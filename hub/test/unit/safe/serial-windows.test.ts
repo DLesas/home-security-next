@@ -307,16 +307,20 @@ describe("the Windows COM adapter", () => {
     ["waiting", READS],
     ["before-read", GATE],
     ["after-read", GATE],
+    ["busy-read", READS],
   ] as const)("a write wakes the worker %s", async (mode, phase) => {
     const { port, shared } = fakePort(mode);
     const reached = await until(() => Atomics.load(shared, phase) > 0);
     const started = performance.now();
-    const sent = await port.write(Uint8Array.of(1, 2, 3));
+    const sent = await Promise.race([
+      port.write(Uint8Array.of(1, 2, 3)),
+      Bun.sleep(500).then(() => undefined),
+    ]);
     const elapsed = performance.now() - started;
     port.close();
     await port.closed;
     console.log(`COM double: ${mode} write through completion ${elapsed.toFixed(3)} ms`);
-    expect(reached && sent.isOk()).toBe(true);
+    expect(reached && sent?.isOk()).toBe(true);
     expect(elapsed).toBeGreaterThanOrEqual(0);
     expect(elapsed).toBeLessThan(wakeBudgetMs);
   });
