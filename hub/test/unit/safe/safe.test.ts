@@ -65,6 +65,7 @@ describe("sqlite", () => {
       detail: { code: "SQLITE_FULL" },
     });
     expect(db.query("SELECT count(*) AS n FROM t").get()).toEqual({ n: 0 });
+    db.close(true);
   });
 });
 

@@ -58,7 +58,7 @@ beforeEach(() => {
   store.writer.stage([record("routine", rxRecord(seqOf(1, 5), 3, at(5)))]);
 });
 afterEach(() => {
-  store.db.close();
+  store.db.close(true);
   dir.remove();
 });
 

@@ -326,7 +326,7 @@ export class LockstepHub {
 
   /** Closes the database without committing anything more, as a kill would leave it. */
   close(): void {
-    this.#store.db.close();
+    this.#store.db.close(true);
   }
 
   #respond(request: RequestId, reply: ControlReply): void {

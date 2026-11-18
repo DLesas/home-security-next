@@ -27,7 +27,7 @@ beforeEach(() => {
   store = openTestStore(dir.path, new TestClock());
 });
 afterEach(() => {
-  store.db.close();
+  store.db.close(true);
   dir.remove();
 });
 

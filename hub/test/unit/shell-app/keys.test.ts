@@ -108,8 +108,13 @@ describe("addresses and names", () => {
 describe("the app keys in hub_keys", () => {
   async function store() {
     const dir = tempDir("hsn-a2-keys-");
-    folders.push(dir);
     const opened = openTestStore(dir.path, new TestClock());
+    folders.push({
+      remove: () => {
+        opened.db.close(true);
+        dir.remove();
+      },
+    });
     (await ensureHubKeys(opened.snapshot.hubKeys, opened.writer)).match(
       () => undefined,
       () => undefined,
@@ -167,8 +172,13 @@ describe("the app keys in hub_keys", () => {
 
   test("need the signing keys first, and say so without a key in the error", () => {
     const dir = tempDir("hsn-a2-keys-");
-    folders.push(dir);
     const opened = openTestStore(dir.path, new TestClock());
+    folders.push({
+      remove: () => {
+        opened.db.close(true);
+        dir.remove();
+      },
+    });
     const refused = ensureAppKeys(opened.db, opened.writer, NAMES, NOW, random);
     expect(refused.isErr()).toBe(true);
     if (refused.isErr()) noteValue(refused.error);

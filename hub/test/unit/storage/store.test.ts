@@ -62,12 +62,12 @@ beforeEach(() => {
   store = openTestStore(dir.path, clock);
 });
 afterEach(() => {
-  store.db.close();
+  store.db.close(true);
   dir.remove();
 });
 
 function reopen(): OpenedStore {
-  store.db.close();
+  store.db.close(true);
   store = openTestStore(dir.path, clock);
   return store;
 }
@@ -117,7 +117,7 @@ describe("SQLite's settings (section 5)", () => {
 
   test("a database opened under the old marks gets the new hard stop at its next open", () => {
     // `max_page_count` belongs to the connection, not the file: it is set at every open.
-    store.db.close();
+    store.db.close(true);
     const old = openTestStore(dir.path, clock, {
       rules: {
         ...DEFAULT_RULES,
@@ -130,7 +130,7 @@ describe("SQLite's settings (section 5)", () => {
     expect(old.db.query<{ max_page_count: number }, []>("PRAGMA max_page_count").get()).toEqual({
       max_page_count: 61_440,
     });
-    old.db.close();
+    old.db.close(true);
     store = openTestStore(dir.path, clock);
     expect(store.db.query<{ max_page_count: number }, []>("PRAGMA max_page_count").get()).toEqual({
       max_page_count: 72_448,
@@ -138,12 +138,12 @@ describe("SQLite's settings (section 5)", () => {
   });
 
   test("a page size SQLite cannot give is refused, not ignored", () => {
-    store.db.close();
+    store.db.close(true);
     const other = tempDir("pages");
     const db = new Database(join(other.path, DATABASE_FILE), { create: true });
     db.run("PRAGMA page_size = 1024");
     db.run("CREATE TABLE early (x)");
-    db.close();
+    db.close(true);
     const result = openStore({
       dataDir: other.path,
       migrationsFolder: MIGRATIONS,
@@ -578,7 +578,7 @@ describe("migrations (section 6)", () => {
         );
         db.run(`INSERT INTO "${table}" VALUES (${values.join(", ")})`);
       }
-      db.close();
+      db.close(true);
       const opened = openTestStore(before.path, clock);
       expect(opened.migrations.ran).toEqual(
         Array.from({ length: journal.entries.length - n }, (_, k) => n + k),
@@ -589,14 +589,14 @@ describe("migrations (section 6)", () => {
           { n: 1 },
         ]);
       }
-      opened.db.close();
+      opened.db.close(true);
       before.remove();
     }
   });
 
   test("one that changes a table is applied to a database holding rows, after a copy", () => {
     fillEveryTable();
-    store.db.close();
+    store.db.close(true);
     const folder = withMigration("ALTER TABLE `devices` ADD `note` text;");
     store = openTestStore(dir.path, clock, { migrations: folder });
     expect(store.migrations.ran).toEqual([CODE_MIGRATIONS]);
@@ -608,14 +608,14 @@ describe("migrations (section 6)", () => {
     const copy = new Database(store.migrations.backup ?? "", { readonly: true });
     expect(copy.query("SELECT count(*) AS n FROM devices").get()).toEqual({ n: 1 });
     expect(copy.query("SELECT count(*) AS n FROM rx_event").get()).toEqual({ n: 1 });
-    copy.close();
+    copy.close(true);
   });
 
   test("only the newest copy is kept: making one deletes the older ones (section 6)", () => {
     const db = join(dir.path, DATABASE_FILE);
     writeFileSync(`${db}.before-0`, "an older copy");
     writeFileSync(`${db}.before-7`, "another");
-    store.db.close();
+    store.db.close(true);
     const folder = withMigration("ALTER TABLE `devices` ADD `note` text;");
     store = openTestStore(dir.path, clock, { migrations: folder });
     expect(store.migrations.backup).toBe(backupPath(db, CODE_MIGRATIONS));
@@ -630,15 +630,15 @@ describe("migrations (section 6)", () => {
     const copies = () => names().filter((n) => n.includes(".before-"));
     /** The start of a migration, stopped where a kill would stop it. */
     function killedAt(stop: CopyStop, folder: string): void {
-      store.db.close();
+      store.db.close(true);
       const open = new Database(db());
       migrateAtStart(open, db(), folder, stop)._unsafeUnwrap();
-      open.close();
+      open.close(true);
     }
     const holdsRows = (path: string) => {
       const copy = new Database(path, { readonly: true });
       const n = copy.query<{ n: number }, []>("SELECT count(*) AS n FROM devices").get()?.n;
-      copy.close();
+      copy.close(true);
       return n;
     };
     /** The database still the version before's: the migration's column is not there. */
@@ -648,7 +648,7 @@ describe("migrations (section 6)", () => {
         .query<{ name: string }, []>("PRAGMA table_info(devices)")
         .all()
         .map((c) => c.name);
-      open.close();
+      open.close(true);
       return !columns.includes("note");
     };
     /** The next start, which finishes the copy and the migration. */
@@ -696,7 +696,7 @@ describe("migrations (section 6)", () => {
 
     test("a leftover temporary file goes at a start with nothing to migrate too", () => {
       writeFileSync(`${db()}.copying`, "half a database");
-      store.db.close();
+      store.db.close(true);
       store = openTestStore(dir.path, clock);
       expect(store.migrations.backup).toBeUndefined();
       expect(names().some((n) => n.endsWith(".copying"))).toBe(false);
@@ -707,7 +707,7 @@ describe("migrations (section 6)", () => {
     const db = join(dir.path, DATABASE_FILE);
     writeFileSync(`${db}.before-0`, "an older copy");
     writeFileSync(`${db}.before-restore`, "the database before a restore");
-    store.db.close();
+    store.db.close(true);
     const folder = withMigration("ALTER TABLE `devices` ADD `note` text;");
     store = openTestStore(dir.path, clock, { migrations: folder });
     expect(
@@ -721,7 +721,7 @@ describe("migrations (section 6)", () => {
   });
 
   test("one that only adds a table is copied first too: a rollback needs the copy (step 1, wave 2)", () => {
-    store.db.close();
+    store.db.close(true);
     const folder = withMigration("CREATE TABLE `extra` (`x` integer);");
     store = openTestStore(dir.path, clock, { migrations: folder });
     expect(store.migrations.ran).toEqual([CODE_MIGRATIONS]);
@@ -732,7 +732,7 @@ describe("migrations (section 6)", () => {
   });
 
   test("a database with nothing outstanding is not copied", () => {
-    store.db.close();
+    store.db.close(true);
     store = openTestStore(dir.path, clock);
     expect(store.migrations.ran).toEqual([]);
     expect(store.migrations.backup).toBeUndefined();
@@ -742,7 +742,7 @@ describe("migrations (section 6)", () => {
     store.db.run(
       `INSERT INTO "__drizzle_migrations" ("hash", "created_at") VALUES ('newer', 99999999999999)`,
     );
-    store.db.close();
+    store.db.close(true);
     const result = openStore({
       dataDir: dir.path,
       migrationsFolder: MIGRATIONS,

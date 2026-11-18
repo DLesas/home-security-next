@@ -14,7 +14,7 @@
  * which reads the whole configuration at once (SPEC-QUESTION in A8's report), is measured and
  * printed, not asserted.
  */
-import { afterAll, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -40,6 +40,10 @@ const KEY = new Uint8Array(32).fill(0x31);
  */
 const SEALED_PIECE_MAX = SEAL_PIECE_BYTES + 65_536 + (SEAL_PIECE_BYTES / 65_536 + 2) * 16 + 64;
 const folders: string[] = [];
+const stores: OpenedStore[] = [];
+afterEach(() => {
+  for (const opened of stores.splice(0)) opened.db.close(true);
+});
 
 afterAll(() => {
   for (const f of folders) rmSync(f, { recursive: true, force: true });
@@ -77,6 +81,7 @@ function hub(people: number): { store: OpenedStore; root: string } {
     if (i % 5000 === 0) db.run("COMMIT");
   }
   if (db.inTransaction) db.run("COMMIT");
+  stores.push(store);
   return { store, root };
 }
 
