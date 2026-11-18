@@ -191,7 +191,7 @@ async function startBench(
   const lines: BenchLine[] = [];
   const waiting = new Map<number, (state: BenchState) => void>();
   let pending = "";
-  child.stdout?.on("data", (chunk: Buffer) => {
+  child.stdout.on("data", (chunk: Buffer) => {
     pending += chunk.toString();
     const parts = pending.split("\n");
     pending = parts.pop() ?? "";
@@ -204,7 +204,7 @@ async function startBench(
       } else lines.push(line);
     }
   });
-  const send = (command: BenchCommand) => child.stdin?.write(`${JSON.stringify(command)}\n`);
+  const send = (command: BenchCommand) => child.stdin.write(`${JSON.stringify(command)}\n`);
   await until(() => lines.some((l) => l.kind === "ports"), 10_000);
   const ports = lines.find((l) => l.kind === "ports");
   if (ports?.kind !== "ports") {
