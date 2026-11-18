@@ -29,6 +29,7 @@ import { join } from "node:path";
 import { icacls, ownSid } from "../../test/unit/shell-control/windows-folders.ts";
 import { endProcesses, spawnTracked } from "../../test/world/processes.ts";
 import { Backoff } from "../src/backoff.ts";
+import { names } from "../src/io.ts";
 import { Launcher, type LauncherOptions, STATUS_FILE } from "../src/launcher.ts";
 import {
   installPaths,
@@ -492,6 +493,33 @@ describe("updates", () => {
 });
 
 describe('a package\'s version (section 9, "The privilege boundary")', () => {
+  test("a failed package listing starts only a version already recorded in state", async () => {
+    install = installWith([], ["1.0.0"]);
+    // Above both the POSIX filename limit and the Windows NT path limit. Listing must fail,
+    // while an absent folder would be returned as an empty list.
+    const packageRoot = join(install.packageRoot, "x".repeat(32_768));
+    const list = names(join(packageRoot, "packaged"));
+    expect(list.isErr()).toBe(true);
+    const message = list._unsafeUnwrapErr().message;
+    if (process.platform === "win32") expect(message).toContain("FindFirstFileW failed");
+    const logged: string[] = [];
+    const fresh = launcher({
+      packageRoot,
+      log: (line) => {
+        logged.push(line);
+      },
+    });
+    expect(await fresh.run()).toBe(1);
+    expect(logged).toContain(`cannot start: ${message}`);
+    expect(startsLog()).toEqual([]);
+
+    current("1.0.0");
+    plan("1.0.0", [{ exit: 0 }]);
+    expect(await launcher({ packageRoot }).run()).toBe(0);
+    expect(startsLog()).toEqual(["1.0.0 1"]);
+    expect(state()).toMatchObject({ current: "1.0.0", trial: null });
+  });
+
   test("a newer packaged version: on trial at the next start, told so; healthy as an update is, it stays", async () => {
     install = installWith(["1.0.0", "1.1.0"]);
     current("1.0.0");

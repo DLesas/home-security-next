@@ -36,6 +36,16 @@
  * every system.
  */
 import { dlopen, FFIType, ptr, toArrayBuffer } from "bun:ffi";
+import {
+  ERROR_FILE_NOT_FOUND,
+  ERROR_PATH_NOT_FOUND,
+  FIND_DATA_BYTES,
+  fromWide,
+  INVALID_HANDLE,
+  listWindowsDirectory,
+  wide,
+  Win32Failure,
+} from "./ffi-windows-list.ts";
 import { Result } from "neverthrow";
 import type { HubError } from "../../core/model/errors.ts";
 import { errorFrom } from "./thrown.ts";
@@ -110,7 +120,6 @@ const KERNEL32 = {
   LocalFree: { args: [FFIType.u64], returns: FFIType.u64 },
   GetFileAttributesW: { args: [FFIType.ptr], returns: FFIType.u32 },
   FindFirstFileW: { args: [FFIType.ptr, FFIType.ptr], returns: FFIType.i64 },
-  FindNextFileW: { args: [FFIType.i64, FFIType.ptr], returns: FFIType.i32 },
   FindClose: { args: [FFIType.i64], returns: FFIType.i32 },
   GetVolumePathNameW: { args: [FFIType.ptr, FFIType.ptr, FFIType.u32], returns: FFIType.i32 },
   GetVolumeInformationW: {
@@ -190,11 +199,7 @@ function win32(): { readonly kernel: Kernel32; readonly advapi: Advapi32 } {
   return libraries;
 }
 
-/** `INVALID_HANDLE_VALUE`, as the i64 a handle is returned in. */
-const INVALID_HANDLE = -1n;
 const INVALID_FILE_ATTRIBUTES = 0xffff_ffff;
-const ERROR_FILE_NOT_FOUND = 2;
-const ERROR_PATH_NOT_FOUND = 3;
 const READ_CONTROL = 0x0002_0000;
 const WRITE_DAC = 0x0004_0000;
 const WRITE_OWNER = 0x0008_0000;
@@ -214,8 +219,6 @@ const OWNER_SECURITY_INFORMATION = 0x1;
 const DACL_SECURITY_INFORMATION = 0x4;
 const TOKEN_QUERY = 0x8;
 const TOKEN_USER_CLASS = 1;
-/** sizeof(WIN32_FIND_DATAW) on x64, and where dwReserved0 lies in it. */
-const FIND_DATA_BYTES = 592;
 const FIND_DATA_RESERVED0 = 36;
 /** Room for a volume's root path, in UTF-16 units. */
 const PATH_UNITS = 1024;
@@ -224,26 +227,6 @@ const PATH_UNITS = 1024;
 const ADMINISTRATORS_SID_BYTES = new Uint8Array([
   1, 2, 0, 0, 0, 0, 0, 5, 0x20, 0, 0, 0, 0x20, 2, 0, 0,
 ]);
-
-/** A Win32 failure, by its error code. */
-class Win32Failure extends Error {
-  readonly code: string;
-
-  constructor(call: string, code: number) {
-    super(`${call} failed with Windows error ${code}`);
-    this.code = `WIN32_${code}`;
-  }
-}
-
-function wide(text: string): Buffer {
-  return Buffer.from(`${text}\0`, "utf16le");
-}
-
-function fromWide(bytes: Uint8Array): string {
-  const text = Buffer.from(bytes).toString("utf16le");
-  const end = text.indexOf("\0");
-  return end === -1 ? text : text.slice(0, end);
-}
 
 function wrap<T>(what: string, run: () => T): Result<T, HubError> {
   return Result.fromThrowable(run, (thrown) => errorFrom("control", ORIGIN, what, thrown))();
@@ -425,44 +408,6 @@ function findEntry(path: string): FoundEntry | undefined {
   };
 }
 
-/** Where `cFileName` lies in WIN32_FIND_DATAW, and its length in UTF-16 units. */
-const FIND_DATA_NAME = 44;
-const FIND_DATA_NAME_UNITS = 260;
-const ERROR_NO_MORE_FILES = 18;
-
-/**
- * The names in a folder, by `FindFirstFileW`/`FindNextFileW`, which open it to list only. Not
- * `readdir`: Bun opens the folder for generic read, which asks for `FILE_READ_EA` too, a right the
- * service account does not hold on a top folder (run 43869303145: EPERM as the stand-in service).
- */
-function list(path: string): readonly string[] {
-  const { kernel } = win32();
-  const data = new Uint8Array(FIND_DATA_BYTES);
-  const search = kernel.FindFirstFileW(wide(`${path.replace(/[\\/]+$/u, "")}\\*`), data);
-  if (search === INVALID_HANDLE) {
-    const code = kernel.GetLastError();
-    if (code === ERROR_FILE_NOT_FOUND || code === ERROR_PATH_NOT_FOUND) return [];
-    throw new Win32Failure("FindFirstFileW", code);
-  }
-  const names: string[] = [];
-  try {
-    for (;;) {
-      const name = fromWide(
-        data.subarray(FIND_DATA_NAME, FIND_DATA_NAME + FIND_DATA_NAME_UNITS * 2),
-      );
-      if (name !== "." && name !== "..") names.push(name);
-      if (kernel.FindNextFileW(search, data) === 0) {
-        const code = kernel.GetLastError();
-        if (code === ERROR_NO_MORE_FILES) break;
-        throw new Win32Failure("FindNextFileW", code);
-      }
-    }
-  } finally {
-    kernel.FindClose(search);
-  }
-  return names;
-}
-
 function volume(path: string): Volume {
   const { kernel } = win32();
   const root = new Uint8Array(PATH_UNITS * 2);
@@ -482,7 +427,7 @@ export const WINDOWS_CALLS: WindowsCalls = {
   attributes: (path) => wrap(`read the attributes of ${path}`, () => attributes(path)),
   findEntry: (path) => wrap(`look at ${path}`, () => findEntry(path)),
   volume: (path) => wrap(`read the volume of ${path}`, () => volume(path)),
-  list: (path) => wrap(`list ${path}`, () => list(path)),
+  list: (path) => wrap(`list ${path}`, () => listWindowsDirectory(path)),
   isAdministrator: () =>
     wrap("tell whether the hub runs as an elevated administrator", () =>
       isAdministrator(ADMINISTRATORS_SID_BYTES),

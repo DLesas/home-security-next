@@ -1,8 +1,8 @@
 /**
  * The launcher's file work, behind results (hub-design.md section 10: our own code never throws;
  * `node:fs` does, so each call is wrapped by neverthrow's `Result.fromThrowable`, as
- * `shell/calendar/temporal.ts` wraps Temporal). On Windows it uses the shell's Win32 directory
- * listing so it can read the data folder with the service's assigned rights.
+ * `shell/calendar/temporal.ts` wraps Temporal). The launcher depends only on Bun, neverthrow and
+ * the shared list-only Win32 adapter, so it can start without the hub or its control socket.
  */
 import {
   closeSync,
@@ -20,7 +20,7 @@ import {
 } from "node:fs";
 import { dirname } from "node:path";
 import { err, ok, Result } from "neverthrow";
-import { WINDOWS_CALLS } from "../../src/shell/safe/control-socket-windows.ts";
+import { listWindowsDirectory } from "../../src/shell/safe/ffi-windows-list.ts";
 
 export interface IoError {
   readonly what: string;
@@ -109,12 +109,7 @@ export function makeFolder(path: string): Result<void, IoError> {
 export function names(path: string): Result<readonly string[], IoError> {
   const what = `list ${path}`;
   // Bun's generic read asks for FILE_READ_EA. The service can list its data folder without it.
-  if (process.platform === "win32")
-    return WINDOWS_CALLS.list(path).mapErr((error) => ({
-      what,
-      code: undefined,
-      message: error.message,
-    }));
+  if (process.platform === "win32") return call(what, () => listWindowsDirectory(path));
   return call<readonly string[]>(what, () => readdirSync(path)).orElse((error) =>
     error.code === "ENOENT" ? ok([]) : err(error),
   );

@@ -22,6 +22,7 @@ on:
       - "hub/src/shell/links/usb-watch.ts"
       - "hub/src/shell/safe/serial*.ts"
       - "hub/src/shell/safe/ffi-windows-serial*.ts"
+      - "hub/src/shell/safe/ffi-windows-list.ts"
       - "hub/src/shell/safe/worker-*serial*.ts"
       - "hub/src/shell/safe/control-socket*.ts"
       - "hub/test/unit/shell-control/**"
