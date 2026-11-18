@@ -1,0 +1,23 @@
+{
+  "name": "@hsn/relay",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "The relay: hub and phone links, presence and hub-unreachable alerts, push to Apple and Google, signed releases (docs/m4-design.md section 3).",
+  "scripts": {
+    "test": "bun test",
+    "start": "bun src/shell/main.ts",
+    "compile": "bun build --compile src/shell/main.ts --outfile dist/hsn-relay",
+    "db:generate": "drizzle-kit generate --config src/shell/storage/drizzle.config.ts"
+  },
+  "dependencies": {
+    "@hsn/deployment": "workspace:*",
+    "@hsn/protocol": "workspace:*",
+    "drizzle-orm": "0.45.4",
+    "neverthrow": "8.2.0",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "drizzle-kit": "0.31.11"
+  }
+}

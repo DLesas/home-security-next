@@ -1,0 +1,13 @@
+{
+  "name": "@hsn/push-standins",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Local stand-ins for Apple's and Google's push services (APNs over HTTP/2, FCM HTTP v1 and its token endpoint), on loopback with keys made for each test, recording what they receive (docs/m4-design.md section 11).",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "bun test"
+  }
+}
