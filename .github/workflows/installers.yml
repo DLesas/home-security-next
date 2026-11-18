@@ -843,6 +843,24 @@ jobs:
           # Result; a step that must stop the job says so with Stop-Job.
           exit 0
 
+      - name: The installed Windows serial watcher
+        if: ${{ !cancelled() && env.HSN_STOPPED == '' }}
+        shell: pwsh
+        run: |
+          . .github/workflows/installer-checks.ps1
+          $log = Join-Path $env:ProgramData "HSN Hub\logs\HSNHub.err.log"
+          Test-Check "The installed hub registered the Windows serial watcher" {
+            if (Wait-Until 30 {
+              (Test-Path -LiteralPath $log) -and
+              (Select-String -LiteralPath $log -SimpleMatch "watching Windows serial ports" -Quiet)
+            }) { $true } else { "no ready message in the service log" }
+          }
+          Test-Check "The installed Windows hub does not watch /dev" {
+            if ((Test-Path -LiteralPath $log) -and (Select-String -LiteralPath $log -SimpleMatch "watch /dev" -Quiet)) {
+              "the service log still contains watch /dev"
+            } else { $true }
+          }
+
       - name: hsn status, and the console
         if: ${{ !cancelled() && env.HSN_STOPPED == '' }}
         shell: pwsh

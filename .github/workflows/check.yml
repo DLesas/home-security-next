@@ -196,7 +196,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
           [ "$failed" -eq 0 ]
 
-      - name: List serial ports using Windows and Bun
+      - name: Probe native serial ports from Bun
         if: runner.os == 'Windows'
         working-directory: hub
         run: |
@@ -209,6 +209,25 @@ jobs:
           }
           bun -e 'import { SerialPort } from "serialport"; const ports = (await SerialPort.list()).map(port => port.path).sort(); console.log("Bun serial ports: " + (ports.join(", ") || "none"));'
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if ($ports.Count -eq 0) {
+            Write-Output "No native COM port is present. The open, settings and reopen probe did not run."
+          }
+          foreach ($port in $ports) {
+            bun test/windows/serial-probe.ts $port
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            # mode can inspect the same device now because the adapter released its exclusive handle.
+            $settings = (& mode.com ("${port}:") 2>&1) -join "`n"
+            if ($LASTEXITCODE -ne 0) { throw "mode failed for $port" }
+            Write-Output $settings
+            foreach ($setting in @(
+              'Parity:\s+None', 'Data Bits:\s+8', 'Stop Bits:\s+1', 'XON/XOFF:\s+OFF',
+              'CTS handshaking:\s+OFF', 'DSR handshaking:\s+OFF', 'DSR sensitivity:\s+OFF',
+              'DTR circuit:\s+OFF', 'RTS circuit:\s+OFF'
+            )) {
+              if ($settings -notmatch "(?m)^\s*${setting}\s*$") { throw "mode $port did not show $setting" }
+            }
+            Write-Output "$port agrees with the requested DCB settings in mode.exe"
+          }
 
   # hsn's drop of root (m2-design.md section 9, "Dropping privileges in Bun"), proved where it
   # runs: hub/test/root/ as root through sudo, with the system's own `daemon` account as the one to
