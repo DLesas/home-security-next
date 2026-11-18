@@ -116,9 +116,15 @@ jobs:
             log="$out/$n-$name.txt"
             echo "::group::$stage"
             start=$SECONDS
-            bash -c "$stage" > "$log" 2>&1 < /dev/null
-            code=$?
-            cat "$log"
+            if [ "$RUNNER_OS" = Windows ]; then
+              # Keep the last test in the log even if a runner times out mid-stage.
+              bash -c "$stage" 2>&1 < /dev/null | tee "$log"
+              code=${PIPESTATUS[0]}
+            else
+              bash -c "$stage" > "$log" 2>&1 < /dev/null
+              code=$?
+              cat "$log"
+            fi
             echo "::endgroup::"
             if [ "$code" -eq 0 ]; then mark="✅"; else mark="❌ exit $code"; failed=$((failed + 1)); fi
             if [ "$RUNNER_OS" = Windows ]; then
@@ -126,7 +132,8 @@ jobs:
               if [ "$code" -ne 0 ]; then result=fail; fi
               case "$name" in
                 test)
-                  counts=$(awk '/^[[:space:]]*[0-9]+ (pass|fail|skip|todo)[[:space:]]*$/ { n[$2] = $1; found = 1 }
+                  counts=$(awk '{ sub(/\r$/, "") }
+                    /^[[:space:]]*[0-9]+ (pass|fail|skip|todo)[[:space:]]*$/ { n[$2] = $1; found = 1 }
                     END { if (found) printf "%d pass, %d fail, %d skip, %d todo", n["pass"], n["fail"], n["skip"], n["todo"]; else print "no test counts reported" }' "$log")
                   ;;
                 typecheck) counts="$(grep -cE 'error TS[0-9]+' "$log") TypeScript errors" ;;
