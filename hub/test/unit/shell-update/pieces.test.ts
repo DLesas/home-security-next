@@ -100,20 +100,37 @@ describe("staging a 112 MB program in pieces", () => {
     const p = prefix("bytes");
     const job = staging(p);
     let read = 0;
-    let longest: { phase: Staging["phase"]; ms: number; bytes: number } = {
+    let longest: {
+      phase: Staging["phase"];
+      ms: number;
+      bytes: number;
+      read: number;
+      cpuMs?: number;
+    } = {
       phase: job.phase,
       ms: 0,
       bytes: 0,
+      read: 0,
     };
     let pieces = 0;
     let madeBefore = 0;
     let outcome;
     for (;;) {
       const phase = job.phase;
+      const cpuStart = process.platform === "win32" ? process.threadCpuUsage() : undefined;
       const s = performance.now();
       outcome = job.next();
       const ms = performance.now() - s;
-      if (ms > longest.ms) longest = { phase, ms, bytes: job.bytesRead - read };
+      if (ms > longest.ms) {
+        const cpu = cpuStart === undefined ? undefined : process.threadCpuUsage(cpuStart);
+        longest = {
+          phase,
+          ms,
+          bytes: job.bytesRead - read,
+          read,
+          ...(cpu === undefined ? {} : { cpuMs: (cpu.user + cpu.system) / 1000 }),
+        };
+      }
       pieces += 1;
       expect(job.bytesRead - read).toBeLessThanOrEqual(STAGING_PIECE_BYTES);
       read = job.bytesRead;

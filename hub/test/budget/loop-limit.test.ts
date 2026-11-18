@@ -70,6 +70,7 @@ import { writeOlderRows } from "./run.ts";
 
 /** The hub's own entry with the clock taken as synchronised (a Linux runner may not say it is). */
 const MAIN = join(import.meta.dir, "..", "world", "hub-entry.ts");
+const SLOW_TURNS = join(import.meta.dir, "slow-turns.ts");
 const MIGRATIONS = join(import.meta.dir, "..", "..", "drizzle");
 const TIMING = process.env.HSN_TIMING === "1";
 /** A report behind a piece and a commit is taken within about 50 ms (section 3), asserted opt-in. */
@@ -234,7 +235,7 @@ class Bench {
   #open = false;
   #socket: WebSocket | undefined;
   #pump: ReturnType<typeof setInterval> | undefined;
-  #hub: ReturnType<typeof spawnTracked> | undefined;
+  #hub: ReturnType<typeof spawnTestHub<"pipe">> | undefined;
   readonly #gateway: ScriptedGateway;
   readonly #started = performance.now();
 
@@ -244,7 +245,18 @@ class Bench {
 
   static async start(port: number, dataDir: string): Promise<Bench | string> {
     const hub = spawnTestHub(
-      [MAIN, "--data", dataDir, "--port", String(port), "--no-usb-watch", "--app-ports", "0,0"],
+      [
+        "--preload",
+        SLOW_TURNS,
+        MAIN,
+        "--data",
+        dataDir,
+        "--port",
+        String(port),
+        "--no-usb-watch",
+        "--app-ports",
+        "0,0",
+      ],
       "pipe",
     );
     const random = new SeededBytes(5);
@@ -354,8 +366,12 @@ class Bench {
   async stop(): Promise<void> {
     clearInterval(this.#pump);
     this.#socket?.close();
-    if (this.#hub !== undefined) stopTestHub(this.#hub);
-    await this.#hub?.exited;
+    const hub = this.#hub;
+    if (hub === undefined) return;
+    stopTestHub(hub);
+    await hub.exited;
+    const log = await new Response(hub.stderr).text();
+    for (const line of log.split("\n")) if (line.startsWith("Slow hub turn: ")) console.log(line);
   }
 }
 
