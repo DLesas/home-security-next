@@ -13,6 +13,7 @@ import {
   describe,
   expect,
   setDefaultTimeout,
+  spyOn,
   test,
 } from "bun:test";
 import {
@@ -27,10 +28,11 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { err } from "neverthrow";
 import { icacls, ownSid } from "../../test/unit/shell-control/windows-folders.ts";
 import { endProcesses, spawnTracked } from "../../test/world/processes.ts";
 import { Backoff } from "../src/backoff.ts";
-import { names } from "../src/io.ts";
+import * as io from "../src/io.ts";
 import { Launcher, type LauncherOptions, STATUS_FILE } from "../src/launcher.ts";
 import {
   installPaths,
@@ -48,12 +50,10 @@ const RULES = {
   restartMeExitCode: 70,
 };
 const folders: string[] = [];
-let deniedList: { folder: string; sid: string } | undefined;
+let restoreListing: (() => void) | undefined;
 afterEach(() => {
-  if (deniedList === undefined) return;
-  const { folder, sid } = deniedList;
-  deniedList = undefined;
-  expect(icacls(folder, "/remove:d", sid).code).toBe(0);
+  restoreListing?.();
+  restoreListing = undefined;
 });
 // Real child processes: on a machine running the whole suite a start can take seconds; the
 // waits below (`until`, 8 s) bound each test, not the runner's 5 s default.
@@ -502,24 +502,18 @@ describe("updates", () => {
 
 describe('a package\'s version (section 9, "The privilege boundary")', () => {
   test("a failed package listing starts only a version already recorded in state", async () => {
-    install = installWith([], ["1.0.0"]);
-    let packageRoot = install.packageRoot;
-    if (process.platform === "win32") {
-      // FindFirstFileW can report a too-long path as missing. Deny list on an existing directory.
-      const folder = join(packageRoot, "packaged");
-      const sid = `*${ownSid()}`;
-      deniedList = { folder, sid };
-      expect(icacls(folder, "/deny", `${sid}:(RD)`).code).toBe(0);
-    } else {
-      packageRoot = join(packageRoot, "x".repeat(32_768));
-    }
-    const list = names(join(packageRoot, "packaged"));
-    expect(list.isErr()).toBe(true);
-    const message = list._unsafeUnwrapErr().message;
-    if (process.platform === "win32") expect(message).toContain("FindFirstFileW failed");
+    install = installWith(["1.1.0"], ["1.0.0"]);
+    const packaged = join(install.packageRoot, "packaged");
+    const message = "FindFirstFileW failed with Windows error 5";
+    const list = io.names;
+    const listing = spyOn(io, "names").mockImplementation((path) =>
+      path === packaged ? err({ what: `list ${path}`, code: "WIN32_5", message }) : list(path),
+    );
+    restoreListing = () => {
+      listing.mockRestore();
+    };
     const logged: string[] = [];
     const fresh = launcher({
-      packageRoot,
       log: (line) => {
         logged.push(line);
       },
@@ -530,7 +524,8 @@ describe('a package\'s version (section 9, "The privilege boundary")', () => {
 
     current("1.0.0");
     plan("1.0.0", [{ exit: 0 }]);
-    expect(await launcher({ packageRoot }).run()).toBe(0);
+    expect(await launcher().run()).toBe(0);
+    expect(listing).toHaveBeenCalledTimes(2);
     expect(startsLog()).toEqual(["1.0.0 1"]);
     expect(state()).toMatchObject({ current: "1.0.0", trial: null });
   });
