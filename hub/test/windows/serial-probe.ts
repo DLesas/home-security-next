@@ -6,6 +6,7 @@ import {
   SetupType,
   UsbFrameDecoder,
 } from "@hsn/protocol";
+import { setTimeout as deadline } from "node:timers/promises";
 import { parentPort, Worker, workerData } from "node:worker_threads";
 import { serialCalls, type SerialIoCalls } from "../../src/shell/safe/ffi-windows-serial.ts";
 import { serveSerial } from "../../src/shell/safe/worker-serial-transfer.ts";
@@ -62,7 +63,8 @@ async function probe(
       });
     }),
     port.closed.then(() => false),
-    Bun.sleep(5000).then(() => false),
+    // A losing deadline must not keep the probe alive and delay mode.exe after release.
+    deadline(5000, false, { ref: false }),
   ]);
   if (!ready) {
     port.close();
@@ -91,7 +93,10 @@ async function probe(
     );
     ok = sent.isOk() && elapsed < BUDGET_MS;
     if (identify) {
-      const answered = await Promise.race([identity.promise, Bun.sleep(2000).then(() => false)]);
+      const answered = await Promise.race([
+        identity.promise,
+        deadline(2000, false, { ref: false }),
+      ]);
       console.log(`${port.path}: ${answered ? "received Identity" : "no Identity within 2 s"}`);
       ok &&= answered;
     } else if (ok) {
