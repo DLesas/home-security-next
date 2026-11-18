@@ -6,12 +6,12 @@
  * the helper that opens a person's file starts with that person's ids, never follows a link, and
  * writes 0600 files owned by them.
  */
+import { shortTempFolder } from "../world/temp-folder.ts";
 import { afterAll, describe, expect, test } from "bun:test";
 import {
   chmodSync,
   chownSync,
   mkdirSync,
-  mkdtempSync,
   readFileSync,
   rmSync,
   statSync,
@@ -27,7 +27,7 @@ const ROOT = process.geteuid?.() === 0 && process.platform !== "win32";
 const NAME = process.env.HSN_TEST_ACCOUNT ?? "";
 const HSN = join(import.meta.dir, "..", "..", "cli", "hsn.ts");
 const CHILD = join(import.meta.dir, "drop-child.ts");
-const work = mkdtempSync("/tmp/hsn-root-");
+const work = shortTempFolder("hsn-root-");
 afterAll(() => {
   rmSync(work, { recursive: true, force: true });
 });

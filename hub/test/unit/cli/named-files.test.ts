@@ -4,11 +4,11 @@
  * created exclusively and renamed only when the hash matches; as root without `sudo`, only in
  * root's own folders outside the hub's trees.
  */
+import { shortTempFolder } from "../../world/temp-folder.ts";
 import { afterAll, describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import {
   mkdirSync,
-  mkdtempSync,
   readdirSync,
   readFileSync,
   rmSync,
@@ -20,7 +20,7 @@ import {
 import { join } from "node:path";
 import { readNoFollow, rootMayUse, writeExclusively } from "../../../cli/named-files.ts";
 
-const root = mkdtempSync("/tmp/hsn-named-");
+const root = shortTempFolder("hsn-named-");
 afterAll(() => {
   rmSync(root, { recursive: true, force: true });
 });

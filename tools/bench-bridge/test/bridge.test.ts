@@ -4,8 +4,9 @@
  * first, a WebSocket server standing in for the hub, then the real hub (`hub/src/shell/main.ts`)
  * with a scripted gateway behind the terminal. They need `python3`; they are skipped without it.
  */
+import { shortTempFolder } from "../../../hub/test/world/temp-folder.ts";
 import { afterAll, afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { rmSync } from "node:fs";
 import { join } from "node:path";
 import {
   encodeUsbFrame,
@@ -216,7 +217,7 @@ describe.skipIf(python === null)("the bench bridge, against a stand-in hub", () 
 });
 
 // Short, so the hub's control socket path stays under 104 bytes.
-const dataDir = mkdtempSync("/tmp/hsn-br-");
+const dataDir = shortTempFolder("hsn-br-");
 afterAll(() => {
   rmSync(dataDir, { recursive: true, force: true });
 });

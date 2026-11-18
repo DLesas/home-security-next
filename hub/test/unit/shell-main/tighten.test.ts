@@ -4,12 +4,12 @@
  * is neither followed nor changed, so a link the hub's account planted to a file elsewhere cannot
  * make the walk touch that file.
  */
+import { shortTempFolder } from "../../world/temp-folder.ts";
 import { afterAll, describe, expect, test } from "bun:test";
 import {
   chmodSync,
   lstatSync,
   mkdirSync,
-  mkdtempSync,
   rmSync,
   statSync,
   symlinkSync,
@@ -18,7 +18,7 @@ import {
 import { join } from "node:path";
 import { tightenContents } from "../../../src/shell/safe/fs.ts";
 
-const root = mkdtempSync("/tmp/hsn-tighten-");
+const root = shortTempFolder("hsn-tighten-");
 afterAll(() => {
   rmSync(root, { recursive: true, force: true });
 });

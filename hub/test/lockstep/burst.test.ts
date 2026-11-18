@@ -4,8 +4,9 @@
  * together. Every `advance` must be answered, with `idle` or `error`, in this process and on the
  * socket, however large the answer.
  */
+import { shortTempFolder } from "../world/temp-folder.ts";
 import { afterAll, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { rmSync } from "node:fs";
 import { join } from "node:path";
 import { Role } from "@hsn/protocol";
 import { err } from "neverthrow";
@@ -18,7 +19,7 @@ import { Controller, type HubEnd, MINUTE, SECOND } from "./controller.ts";
 import { InProcessEnd, ProcessEnd } from "./ends.ts";
 import { provision, SEED, wallAt } from "./sessions.ts";
 
-const work = mkdtempSync("/tmp/hsn-bu-");
+const work = shortTempFolder("hsn-bu-");
 afterAll(async () => {
   await endProcesses();
   rmSync(work, { recursive: true, force: true });
@@ -142,7 +143,7 @@ describe("every advance is answered, whatever happens inside (section 11)", () =
   test("commits that fail: the advance is still answered", async () => {
     const end = new InProcessEnd(folder());
     const c = await provision(end);
-    end.hub?.store.db.close();
+    end.hub?.store.db.close(true);
     c.command({ kind: "arm", sensors: "all", continue: false });
     await c.runTo(c.now + 10 * MINUTE);
     everyAdvanceAnswered(c);

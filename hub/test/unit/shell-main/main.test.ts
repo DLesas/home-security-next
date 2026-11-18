@@ -2,8 +2,9 @@
  * The hub's process (`shell/main.ts`; hub-design.md sections 7 and 10): its command line, the
  * starts it refuses, and a clean stop. A crash is the `kill -9` layer's (`test/crash/kill.test.ts`).
  */
+import { shortTempFolder } from "../../world/temp-folder.ts";
 import { afterAll, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { socketPath } from "../../../cli/paths.ts";
 import { DEFAULT_RULES } from "../../../src/core/model/rules.ts";
@@ -15,7 +16,7 @@ import { endProcesses, spawnTracked } from "../../world/processes.ts";
 const MAIN = join(import.meta.dir, "..", "..", "..", "src", "shell", "main.ts");
 const MIGRATIONS = join(import.meta.dir, "..", "..", "..", "drizzle");
 // Short, so the control socket's path stays under 104 bytes (section 9).
-const root = mkdtempSync("/tmp/hsn-m-");
+const root = shortTempFolder("hsn-m-");
 // Every hub this file starts is ended, also when a test fails before its own stop.
 afterAll(async () => {
   await endProcesses();
@@ -153,7 +154,7 @@ describe("a clean stop (section 7)", () => {
       platform: process.platform,
     })._unsafeUnwrap();
     expect(store.boot.previousExit).toBe("clean");
-    store.db.close();
+    store.db.close(true);
   }, 20_000);
 
   test("SIGTERM once the control socket is there: exit 0 (the next start reads a clean stop)", async () => {
@@ -180,6 +181,6 @@ describe("a clean stop (section 7)", () => {
       platform: process.platform,
     })._unsafeUnwrap();
     expect(store.boot.previousExit).toBe("clean");
-    store.db.close();
+    store.db.close(true);
   }, 20_000);
 });

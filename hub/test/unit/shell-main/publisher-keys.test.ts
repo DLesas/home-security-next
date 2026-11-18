@@ -5,6 +5,7 @@
  * A release signed with the tests' key is refused by the product's `main.ts` however it is
  * started, and staged by a test's own entry (`hub-with-test-key.ts`), the same hub with that key.
  */
+import { shortTempFolder } from "../../world/temp-folder.ts";
 import { afterAll, describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -17,7 +18,7 @@ const HUB = join(import.meta.dir, "..", "..", "..");
 const MAIN = join(HUB, "src", "shell", "main.ts");
 const TEST_ENTRY = join(import.meta.dir, "hub-with-test-key.ts");
 const HSN = join(HUB, "cli", "hsn.ts");
-const root = mkdtempSync("/tmp/hsn-keys-");
+const root = shortTempFolder("hsn-keys-");
 afterAll(async () => {
   await endProcesses();
   rmSync(root, { recursive: true, force: true });

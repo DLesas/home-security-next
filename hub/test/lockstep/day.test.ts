@@ -4,15 +4,16 @@
  * clock driven by the controller. Prints how long it took; checks the routine commits come every
  * five minutes as in the write-budget test, and every device was heard all day.
  */
+import { shortTempFolder } from "../world/temp-folder.ts";
 import { afterAll, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { rmSync } from "node:fs";
 import { join } from "node:path";
 import { Role } from "@hsn/protocol";
 import { Controller, DAY, MINUTE, SECOND } from "./controller.ts";
 import { InProcessEnd } from "./ends.ts";
 import { SEED, wallAt } from "./sessions.ts";
 
-const work = mkdtempSync("/tmp/hsn-day-");
+const work = shortTempFolder("hsn-day-");
 afterAll(() => {
   rmSync(work, { recursive: true, force: true });
 });

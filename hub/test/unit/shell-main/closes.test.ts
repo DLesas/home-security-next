@@ -4,8 +4,9 @@
  * `idle.closed`: the session replaced by a newer one proven, and an unproven one while another
  * is live. So the controller's view of a close and a real device's agree.
  */
+import { shortTempFolder } from "../../world/temp-folder.ts";
 import { afterAll, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { rmSync } from "node:fs";
 import { join } from "node:path";
 import { cobsDecode, encodeUsbFrame, ResumeStep } from "@hsn/protocol";
 import { deviceId } from "../../../src/core/model/ids.ts";
@@ -28,7 +29,7 @@ const ADDRESS = 0x6a000001;
 const KEY = new Uint8Array(16).map((_, i) => 0x40 + i);
 const ptys = process.platform !== "win32";
 
-const root = mkdtempSync("/tmp/hsn-c-");
+const root = shortTempFolder("hsn-c-");
 afterAll(async () => {
   await endProcesses();
   rmSync(root, { recursive: true, force: true });
@@ -99,7 +100,7 @@ function seeded(): string {
   store.writer.stage(ops.map((op) => ({ kind: "write", durability: "now", op })));
   store.writer.flush("now")._unsafeUnwrap();
   store.writer.stop()._unsafeUnwrap();
-  store.db.close();
+  store.db.close(true);
   return dataDir;
 }
 

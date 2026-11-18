@@ -5,6 +5,7 @@
  * restored file, not the old one: the order is what this checks); refused (an outside reader
  * holds the old database's log), it runs the old database and warns `restore_waiting`.
  */
+import { shortTempFolder } from "../../world/temp-folder.ts";
 import { afterAll, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { copyFileSync, existsSync, mkdtempSync, rmSync } from "node:fs";
@@ -12,7 +13,7 @@ import { join } from "node:path";
 import { endProcesses, spawnTracked } from "../../world/processes.ts";
 
 const MAIN = join(import.meta.dir, "..", "..", "..", "src", "shell", "main.ts");
-const root = mkdtempSync("/tmp/hsn-rr-");
+const root = shortTempFolder("hsn-rr-");
 afterAll(async () => {
   await endProcesses();
   rmSync(root, { recursive: true, force: true });
@@ -47,14 +48,14 @@ async function waitingRestore(name: string): Promise<string> {
     db.run(
       "INSERT INTO backup_state (overdue_raised, last_result, restored_from_ms) VALUES (0, 0, 1700000000000)",
     );
-  db.close();
+  db.close(true);
   return dataDir;
 }
 
 const count = (dataDir: string, sql: string): number => {
   const db = new Database(join(dataDir, "hub.db"), { readonly: true });
   const n = db.query<{ n: number }, []>(sql).get()?.n ?? -1;
-  db.close();
+  db.close(true);
   return n;
 };
 

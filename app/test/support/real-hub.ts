@@ -6,8 +6,9 @@
  *
  * `consoleCode()` is what `hsn open` does: a one-time console token over the control socket.
  */
+import { shortTempFolder } from "../../../hub/test/world/temp-folder.ts";
 import { type Subprocess } from "bun";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, rmSync } from "node:fs";
 import { connect as connectSocket, createServer } from "node:net";
 import { networkInterfaces } from "node:os";
 import { join } from "node:path";
@@ -94,7 +95,7 @@ function portOpen(port: number): Promise<boolean> {
 
 export async function startRealHub(): Promise<RealHub> {
   // Short, so the control socket's path stays under 104 bytes (HD 9).
-  const dataDir = mkdtempSync("/tmp/hsn-a7-");
+  const dataDir = shortTempFolder("hsn-a7-");
   folders.add(dataDir);
   const consolePort = await freePort();
   const lanPort = await freePort();

@@ -32,8 +32,9 @@
  * release before its pieces: `PUBLISHER_KEYS` is empty, and no option admits the test key), and
  * restore's read and rebuild (it waits for a phone's key over Noise on the apps' listener).
  */
+import { shortTempFolder } from "../world/temp-folder.ts";
 import { afterAll, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync, statSync } from "node:fs";
 import { availableParallelism, cpus } from "node:os";
 import { join } from "node:path";
 import {
@@ -379,7 +380,7 @@ async function during(bench: Bench, work: () => Promise<void>): Promise<void> {
 
 describe("door reports while the hub writes whole files (section 3, the loop's time)", () => {
   test("a backup and two exports run in pieces: the reports are taken between them, every one recorded", async () => {
-    const dataDir = mkdtempSync("/tmp/hsn-ll-");
+    const dataDir = shortTempFolder("hsn-ll-");
     folders.push(dataDir);
     const backups = join(dataDir, "..", `${dataDir.split("/").at(-1)}-backups`);
     mkdirSync(backups);

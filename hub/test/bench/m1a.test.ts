@@ -22,8 +22,9 @@
  * hsn_bench`). It takes about two minutes, so it runs only with `HSN_M1A=1`: `bun run m1a` at
  * the repository's root.
  */
+import { shortTempFolder } from "../world/temp-folder.ts";
 import { afterAll, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { benchManifest } from "../../src/control-protocol/manifest.ts";
 import { endProcesses, spawnTracked } from "../world/processes.ts";
@@ -53,7 +54,7 @@ interface TimelineLine {
   readonly text?: string;
 }
 
-const work = mkdtempSync("/tmp/hsn-m1a-");
+const work = shortTempFolder("hsn-m1a-");
 afterAll(async () => {
   await endProcesses();
   if (process.env.HSN_M1A_KEEP !== "1") rmSync(work, { recursive: true, force: true });

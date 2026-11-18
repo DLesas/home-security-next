@@ -12,6 +12,7 @@
  * its first chunk and by the hub killed under `hsn` after its first chunk, with nothing saved and
  * the hub (restarted, after the kill) exporting whole again.
  */
+import { shortTempFolder } from "../../world/temp-folder.ts";
 import { afterAll, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
@@ -44,7 +45,7 @@ import { endProcesses, spawnTracked } from "../../world/processes.ts";
 // The tests' entry: `main.ts`'s, with the clock synchronised on any Linux (`test/world`).
 const MAIN = join(import.meta.dir, "..", "..", "world", "hub-entry.ts");
 const HSN = join(import.meta.dir, "..", "..", "..", "cli", "hsn.ts");
-const root = mkdtempSync("/tmp/hsn-e2e-");
+const root = shortTempFolder("hsn-e2e-");
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
@@ -363,7 +364,7 @@ function fileTheHubWouldWrite(dataDir: string, exported: Uint8Array): Uint8Array
     { folder, keep: 1, key: new Uint8Array(key?.key ?? []), epoch: key?.epoch ?? 0 },
     { nowMs: () => header.value.madeMs, salt: () => ok(header.value.salt) },
   );
-  db.close();
+  db.close(true);
   expect(written.kind).toBe("backupWritten");
   return written.kind === "backupWritten"
     ? new Uint8Array(readFileSync(join(folder, written.name)))
@@ -412,7 +413,7 @@ function expectWholeHistory(dataDir: string, file: Uint8Array): void {
   ).toSorted((a, b) => a - b);
   const rejects = db.query<{ n: number }, []>(`SELECT count(*) AS n FROM rejects`).get()?.n ?? 0;
   const losses = db.query<{ n: number }, []>(`SELECT count(*) AS n FROM loss_daily`).get()?.n ?? 0;
-  db.close();
+  db.close(true);
   expect(held.length).toBeGreaterThan(0);
   expect(seqs).toEqual(held);
   expect(lines.filter((line) => line.kind === "reject")).toHaveLength(rejects);
