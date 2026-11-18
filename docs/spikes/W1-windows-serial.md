@@ -15,7 +15,7 @@ A second worker watches `HKLM\HARDWARE\DEVICEMAP` with `RegNotifyChangeKeyValue`
 | Mac, Win32 doubles | Check DCB, timeout and x64 `OVERLAPPED` bytes, diagnostic read-back refusal, COM names, native call order and error handling. Send all 256 byte values both ways through an actual Bun worker. |
 | Mac, held-open read doubles | Measure write through completion and close through handle release, with a 10 ms bound to allow local worker scheduling around a 5 ms target. Cover writes during a pending read, just before and after a read, amid repeated read completions, successive writes, a write racing a close and late data after stop. |
 | Mac, framed link over the worker doubles | Check the failed send references, handle release, one reopen, delimiter and fresh traffic. A second failure before a received frame leaves the port closed until discovery. |
-| Hosted Windows | Windows and Bun both listed virtual COM2. The native probe checks overlapped open and DCB read-back, observes a pending kernel read at the write call and when cancelling on a fresh open, and times completion and release. `mode.exe` independently checks the released port. |
+| Hosted Windows | Windows and Bun both listed virtual COM2. The native probe checks overlapped open and DCB read-back, verifies a write after an idle read timeout, then reopens and verifies that a write completes before the same outstanding read is cancelled. It uses the native completion status to identify the cancelled read and times both write completion and handle release. `mode.exe` independently checks the released port. |
 | Hosted Windows, installed service | Check that the embedded worker starts the registry watcher, instead of attempting to watch `/dev`. |
 
 ## What is not shown

@@ -27,6 +27,7 @@ on:
       - "hub/src/shell/safe/control-socket*.ts"
       - "hub/test/unit/shell-control/**"
       - "hub/test/unit/safe/control-socket*.ts"
+      - "hub/test/windows/serial-probe.ts"
       - "hub/cli/**"
       - ".github/workflows/windows-control-socket.yml"
 

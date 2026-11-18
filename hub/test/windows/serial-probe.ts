@@ -8,52 +8,67 @@ import {
 } from "@hsn/protocol";
 import { setTimeout as deadline } from "node:timers/promises";
 import { parentPort, Worker, workerData } from "node:worker_threads";
-import { serialCalls, type SerialIoCalls } from "../../src/shell/safe/ffi-windows-serial.ts";
+import {
+  serialCalls,
+  serialCompletion,
+  type SerialCompletion,
+  type SerialIoCalls,
+} from "../../src/shell/safe/ffi-windows-serial.ts";
 import { serveSerial } from "../../src/shell/safe/worker-serial-transfer.ts";
 import type { SerialWorkerData } from "../../src/shell/safe/worker-windows-serial.ts";
 import { openWindowsSerial, type WindowsSerialPort } from "../../src/shell/safe/serial-windows.ts";
 
-const PENDING_AT_WRITE = 0;
-const CANCELLED_PENDING_READ = 1;
+const READ_AT_WRITE = 0;
+const ABORTED_READ = 1;
+const IDLE_READS = 2;
+const ERROR_OPERATION_ABORTED = 995;
 
 type NativeProbeData = Extract<SerialWorkerData, { kind: "port" }> & {
   readonly observed: Int32Array;
 };
 
-/** Looks at the actual OVERLAPPED passed to the kernel, without changing the worker's decisions. */
-function observeReads(observed: Int32Array): SerialIoCalls {
-  const calls = serialCalls();
-  let read: Uint8Array | undefined;
-  /** OVERLAPPED.Internal is STATUS_PENDING (0x103) while the native request is outstanding. */
-  const pending = (): boolean =>
-    read !== undefined && new DataView(read.buffer, read.byteOffset).getUint32(0, true) === 0x103;
-  return {
-    ...calls,
+/** Numbers accepted reads and matches writes to the native completion of the same read. */
+function observeReads(observed: Int32Array) {
+  const native = serialCalls();
+  let readCallback: Parameters<SerialIoCalls["ReadFileEx"]>[4];
+  let reads = 0;
+  let outstanding = 0;
+  const calls: SerialIoCalls = {
+    ...native,
     ReadFileEx: (...args) => {
-      if (args[3] instanceof Uint8Array) read = args[3];
-      return calls.ReadFileEx(...args);
+      const accepted = native.ReadFileEx(...args);
+      if (accepted !== 0) {
+        readCallback = args[4];
+        outstanding = ++reads;
+      }
+      return accepted;
     },
     WriteFileEx: (...args) => {
-      if (pending()) Atomics.store(observed, PENDING_AT_WRITE, 1);
-      return calls.WriteFileEx(...args);
-    },
-    CancelIoEx: (...args) => {
-      const reading = pending();
-      const cancelled = calls.CancelIoEx(...args);
-      if (reading && cancelled !== 0) Atomics.store(observed, CANCELLED_PENDING_READ, 1);
-      return cancelled;
+      Atomics.store(observed, READ_AT_WRITE, outstanding);
+      return native.WriteFileEx(...args);
     },
   };
+  const completion: SerialCompletion = (complete) => {
+    const callback = serialCompletion((code, count) => {
+      if (callback.ptr === readCallback) {
+        if (code === ERROR_OPERATION_ABORTED) Atomics.store(observed, ABORTED_READ, outstanding);
+        if (code === 0 && count === 0) Atomics.add(observed, IDLE_READS, 1);
+        outstanding = 0;
+      }
+      complete(code, count);
+    });
+    return callback;
+  };
+  return { calls, completion };
 }
 
 // COM2 on a shared VM can lose some scheduling time. Still reject half-second serialization.
 const BUDGET_MS = 100;
 
-/** Waits for the first read submission, then tries one write or a direct close. */
+/** Writes on the first read, after an idle timeout, or as an Identify exchange with a board. */
 async function probe(
   port: WindowsSerialPort,
-  write: boolean,
-  identify: boolean,
+  trial: "overlap" | "idle" | "identify",
   observed: Int32Array,
 ): Promise<boolean> {
   const ready = await Promise.race([
@@ -72,9 +87,8 @@ async function probe(
     console.error("The serial worker failed before accepting its first overlapped read");
     return false;
   }
-  let ok = true;
-  if (write) {
-    const identity = Promise.withResolvers<boolean>();
+  const identity = Promise.withResolvers<boolean>();
+  if (trial === "identify") {
     const decoder = new UsbFrameDecoder();
     port.stream.on("data", (chunk: Buffer) => {
       for (const received of decoder.push(chunk)) {
@@ -83,41 +97,41 @@ async function probe(
         if (message.ok && message.value.type === SetupType.Identity) identity.resolve(true);
       }
     });
-    const asked = performance.now();
-    const frame = encodeUsbFrame(encodeSetupMessage({ type: SetupType.Identify }));
-    const sent = await port.write(frame);
-    const elapsed = performance.now() - asked;
-    const duringRead = Atomics.load(observed, PENDING_AT_WRITE) === 1;
-    console.log(
-      `${port.path}: WriteFileEx ${sent.isOk() ? "completed" : sent.error.message} in ${elapsed.toFixed(3)} ms (submitted during pending native read: ${duringRead})`,
-    );
-    ok = sent.isOk() && elapsed < BUDGET_MS;
-    if (identify) {
-      const answered = await Promise.race([
-        identity.promise,
-        deadline(2000, false, { ref: false }),
-      ]);
-      console.log(`${port.path}: ${answered ? "received Identity" : "no Identity within 2 s"}`);
-      ok &&= answered;
-    } else if (ok) {
-      // An ordinary idle timeout must keep the worker alive and able to submit another write.
-      await Bun.sleep(600);
-      const next = await port.write(frame);
-      console.log(
-        `${port.path}: write after an idle read timeout ${next.isOk() ? "completed" : next.error.message}`,
-      );
-      ok &&= duringRead && next.isOk();
-    }
+  }
+  if (trial === "idle") await Bun.sleep(600);
+  const idleReads = Atomics.load(observed, IDLE_READS);
+  const frame = encodeUsbFrame(encodeSetupMessage({ type: SetupType.Identify }));
+  const asked = performance.now();
+  const sent = await port.write(frame);
+  const writeMs = performance.now() - asked;
+  let answered = true;
+  if (trial === "identify" && sent.isOk()) {
+    answered = await Promise.race([identity.promise, deadline(2000, false, { ref: false })]);
   }
   const stopping = performance.now();
   port.close();
   await port.closed;
-  const elapsed = performance.now() - stopping;
-  const cancelled = Atomics.load(observed, CANCELLED_PENDING_READ) === 1;
+  const closeMs = performance.now() - stopping;
+  const readAtWrite = Atomics.load(observed, READ_AT_WRITE);
+  const abortedRead = Atomics.load(observed, ABORTED_READ);
   console.log(
-    `${port.path}: close released the handle in ${elapsed.toFixed(3)} ms (cancelled pending native read: ${cancelled})`,
+    `${port.path}: ${trial} WriteFileEx ${sent.isOk() ? "completed" : sent.error.message} in ${writeMs.toFixed(3)} ms (read at write: ${readAtWrite}, prior idle completions: ${idleReads})`,
   );
-  return ok && elapsed < BUDGET_MS && (write || cancelled);
+  console.log(
+    `${port.path}: ${trial} close released the handle in ${closeMs.toFixed(3)} ms (aborted read: ${abortedRead})`,
+  );
+  if (trial === "identify")
+    console.log(`${port.path}: ${answered ? "received Identity" : "no Identity within 2 s"}`);
+  // The kernel aborted this very read after our write. It had not completed at submission.
+  const overlapped = readAtWrite !== 0 && readAtWrite === abortedRead;
+  return (
+    sent.isOk() &&
+    writeMs < BUDGET_MS &&
+    closeMs < BUDGET_MS &&
+    answered &&
+    (trial !== "overlap" || overlapped) &&
+    (trial !== "idle" || idleReads > 0)
+  );
 }
 
 /** Runs with an empty hosted port, or asks a real board for Identity under two line settings. */
@@ -137,8 +151,8 @@ async function main(): Promise<void> {
   }
   const identify = option === "--identify";
   const lines = { dtr: dtr === "on", rts: rts === "on" };
-  for (const write of identify ? [true] : [true, false]) {
-    const observed = new Int32Array(new SharedArrayBuffer(8));
+  for (const trial of identify ? (["identify"] as const) : (["idle", "overlap"] as const)) {
+    const observed = new Int32Array(new SharedArrayBuffer(3 * Int32Array.BYTES_PER_ELEMENT));
     const opened = openWindowsSerial(path, {
       lines,
       startWorker: (job, stopping) =>
@@ -155,7 +169,7 @@ async function main(): Promise<void> {
       console.error(failure.message);
     });
     console.log(`${path}: opened overlapped and verified DCB read-back (DTR ${dtr}, RTS ${rts})`);
-    if (!(await probe(opened.value, write, identify, observed))) process.exit(1);
+    if (!(await probe(opened.value, trial, observed))) process.exit(1);
   }
 }
 
@@ -163,12 +177,6 @@ if (parentPort === null) {
   await main();
 } else {
   const data = workerData as NativeProbeData;
-  serveSerial(
-    parentPort,
-    data.incoming,
-    data.stopping,
-    data.handle,
-    data.wake,
-    observeReads(data.observed),
-  );
+  const { calls, completion } = observeReads(data.observed);
+  serveSerial(parentPort, data.incoming, data.stopping, data.handle, data.wake, calls, completion);
 }
