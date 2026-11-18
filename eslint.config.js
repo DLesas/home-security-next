@@ -9,10 +9,22 @@ import hsn from "./tools/eslint-plugin-hsn/src/index.ts";
 // Each restriction has a probe in hub/test/lint-probes/, whose folders mirror hub/'s, so every
 // glob below names a hub folder and the same folder under the probes. A test lints the probes
 // (which the ordinary run ignores) and requires each to fail with exactly its rule and message.
+// The new workspaces' probes (relay/, packages/deployment/) mirror their paths from the
+// repository's root under the probes, as the app's do.
 
 const PROBES = "hub/test/lint-probes";
 /** @param {string[]} globs paths under hub/ */
 const hubAndProbes = (...globs) => globs.flatMap((glob) => [`hub/${glob}`, `${PROBES}/${glob}`]);
+/** @param {string[]} globs paths from the repository's root */
+const rootAndProbes = (...globs) => globs.flatMap((glob) => [glob, `${PROBES}/${glob}`]);
+
+/**
+ * The workspaces the joint step 0 of M3 and M4 added (docs/m3-m4-plan.md, rule 3), under the
+ * hub's rules on results, `throw` and `try`, with their probes.
+ */
+const NEW_WORKSPACES = rootAndProbes("relay/**/*.ts", "packages/deployment/**/*.ts");
+/** Their probes sit under hub/, so the hub's own blocks leave them out (see below). */
+const NEW_WORKSPACE_PROBES = [`${PROBES}/relay/**`, `${PROBES}/packages/**`];
 
 /** Names of @hsn/protocol the core may not use at all: they touch the runtime's crypto. */
 const IMPURE_PROTOCOL_NAMES = [
@@ -42,6 +54,7 @@ const THROWING_PROTOCOL_NAMES = [
   "tenthsFromMilliseconds",
   "batteryCode",
   "fromHex",
+  "encodeStartedWithImage",
 ];
 
 const impureProtocol = {
@@ -158,6 +171,21 @@ const dynamicImport = {
   message: "[core-dynamic-import] The core imports nothing at run time (section 1).",
 };
 
+/** The browser's objects the app may use only in a `*.web.ts(x)` file (m3-design.md section 2), beside `crypto.subtle`. */
+const WEB_GLOBALS = [
+  "window",
+  "document",
+  "navigator",
+  "indexedDB",
+  "localStorage",
+  "BroadcastChannel",
+  "Notification",
+  "AudioContext",
+];
+/** @param {string} what */
+const webOnly = (what) =>
+  `[web-global] ${what}: the browser's, used only in a *.web.ts(x) file behind a platform interface (m3-design.md section 2).`;
+
 export default defineConfig(
   {
     ignores: [
@@ -233,6 +261,7 @@ export default defineConfig(
   // Every Result is used (section 10).
   {
     files: ["hub/**/*.ts", "tools/**/*.ts"],
+    ignores: NEW_WORKSPACE_PROBES,
     plugins: { hsn },
     rules: { "hsn/must-use-result": "error" },
   },
@@ -240,7 +269,46 @@ export default defineConfig(
   // No `throw` and no `try` anywhere in the hub ...
   {
     files: ["hub/**/*.ts"],
+    ignores: NEW_WORKSPACE_PROBES,
     rules: { "no-restricted-syntax": ["error", ...throwAndTry] },
+  },
+
+  // ... nor in the relay or the deployment package (docs/m3-m4-plan.md, rule 3), whose Results
+  // are used as the hub's are. A later block that sets `no-restricted-syntax` for the same files
+  // would replace this one (flat config merges a rule's setting whole, the last block winning):
+  // none does but the `safe/` exception at the end. The hub's two blocks above leave out these
+  // workspaces' probes, so the probes test this block and not the hub's.
+  {
+    files: NEW_WORKSPACES,
+    plugins: { hsn },
+    rules: {
+      "hsn/must-use-result": "error",
+      "no-restricted-syntax": ["error", ...throwAndTry],
+    },
+  },
+
+  // The browser's globals stay in the web build's files (m3-design.md section 2, "Choosing a file
+  // per platform"): under app/src, only a `*.web.ts(x)` file may use them, behind an interface its
+  // `.native.ts` twin also implements, so the phone build cannot quietly come to depend on them.
+  // Its probes mirror app/src; it comes after the hub's `no-restricted-syntax`, which would
+  // otherwise replace it for the probes, which sit under hub/.
+  {
+    files: ["app/src/**/*.{ts,tsx}", `${PROBES}/app/src/**/*.ts`],
+    ignores: ["**/*.web.ts", "**/*.web.tsx"],
+    rules: {
+      "no-restricted-globals": [
+        "error",
+        ...WEB_GLOBALS.map((name) => ({ name, message: webOnly(name) })),
+      ],
+      "no-restricted-syntax": [
+        "error",
+        { selector: "MemberExpression[property.name='subtle']", message: webOnly("crypto.subtle") },
+        {
+          selector: `MemberExpression[property.name=/^(?:${WEB_GLOBALS.join("|")})$/]:matches([object.name='globalThis'], [object.expression.name='globalThis'])`,
+          message: webOnly("globalThis's browser objects"),
+        },
+      ],
+    },
   },
 
   // The core: no clocks, timers, process, runtime, crypto or console, no Math.random, no
@@ -426,9 +494,15 @@ export default defineConfig(
     },
   },
 
-  // Where `try` and `throw` may appear (section 10).
+  // Where `try` and `throw` may appear (section 10): the hub's, and in the relay a `safe/` folder
+  // directly under any of its parts (`relay/src/push/safe/`, `relay/src/shell/safe/`), each part
+  // having its own owner (docs/m3-m4-plan.md, rule 3; the coordinator's ruling). A `safe` folder
+  // deeper down is not one: `*` matches one folder only.
   {
-    files: hubAndProbes("src/shell/safe/**/*.ts", "src/shell/main.ts"),
+    files: [
+      ...hubAndProbes("src/shell/safe/**/*.ts", "src/shell/main.ts"),
+      ...rootAndProbes("relay/src/*/safe/**/*.ts"),
+    ],
     rules: { "no-restricted-syntax": "off" },
   },
 );

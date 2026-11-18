@@ -5,11 +5,12 @@
   "workspaces": [
     "packages/*",
     "hub",
+    "relay",
     "tools/*",
     "app"
   ],
   "scripts": {
-    "typecheck": "tsc -p tsconfig.json && tsc -p app/tsconfig.json && tsc -p app/test/tsconfig.json && tsc -p app/scripts/tsconfig.json && tsc -p app/e2e/tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json && tsc -p app/tsconfig.json && tsc -p app/test/tsconfig.json && tsc -p app/scripts/tsconfig.json && tsc -p app/e2e/tsconfig.json && tsc -p app/tsconfig.native.json",
     "lint": "bun --bun eslint --max-warnings 0 .",
     "format:check": "prettier --check .",
     "format": "prettier --write .",
