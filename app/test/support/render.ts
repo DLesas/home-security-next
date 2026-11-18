@@ -4,23 +4,17 @@
  * `expo-router` as a stand-in whose `Link` is a plain link (the router itself runs only in the
  * build, where the browser check covers it).
  */
-import { plugin } from "bun";
+import { mock } from "bun:test";
+import { createElement } from "react";
 
 const web = Bun.resolveSync("react-native-web", import.meta.dir);
-const react = Bun.resolveSync("react", import.meta.dir);
-plugin({
-  name: "react-native as react-native-web, expo-router as links",
-  setup(build) {
-    build.onLoad({ filter: /[\\/]node_modules[\\/]react-native[\\/]index\.js$/u }, () => ({
-      contents: `export * from ${JSON.stringify(web)};`,
-      loader: "js",
-    }));
-    build.onLoad({ filter: /[\\/]node_modules[\\/]expo-router[\\/]build[\\/]index\.js$/u }, () => ({
-      contents: `import { createElement } from ${JSON.stringify(react)};
-export function Link({ href, children }) { return createElement("a", { href }, children); }
-export function useLocalSearchParams() { return {}; }
-export function usePathname() { return "/"; }`,
-      loader: "js",
-    }));
-  },
-});
+mock.module("react-native", () => require(web) as Record<string, unknown>);
+mock.module("expo-router", () => ({
+  /** Render the router's link as the web build does. */
+  Link: ({ href, children }: { href: string; children: React.ReactNode }) =>
+    createElement("a", { href }, children),
+  /** The stand-in has no route parameters. */
+  useLocalSearchParams: () => ({}),
+  /** The stand-in serves the root route. */
+  usePathname: () => "/",
+}));
