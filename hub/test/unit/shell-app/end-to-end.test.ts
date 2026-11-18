@@ -667,9 +667,18 @@ describe("the channel end to end on the real hub (m2-design.md section 11)", () 
     // nothing was saved, and neither the file nor its temporary one is there.
     const slowPath = join(root, "slow.sock");
     let killedAt = "";
+    let windowsKill: number | undefined;
     const slow = await slowControlLink(sock, slowPath, async () => {
       killedAt = "after its first chunk";
-      hub.kill(9);
+      if (process.platform === "win32") {
+        // Windows has no SIGKILL status. Assert the native force-termination tool succeeded.
+        const command = spawnTracked(["taskkill.exe", "/F", "/PID", String(hub.pid)], {
+          stdout: "ignore",
+          stderr: "ignore",
+        });
+        windowsKill = await command.exited;
+        if (windowsKill !== 0) return;
+      } else hub.kill(9);
       await hub.exited;
     });
     const viaKilled = join(root, "killed.hsnb");
@@ -679,7 +688,8 @@ describe("the channel end to end on the real hub (m2-design.md section 11)", () 
       `end to end: hsn when the hub was killed half-way: exit ${String(killed.code)}, ${killed.err.trim()}; out: ${killed.out.trim()}`,
     );
     expect(killedAt).toBe("after its first chunk");
-    expect(hub.signalCode).toBe("SIGKILL");
+    if (process.platform === "win32") expect(windowsKill).toBe(0);
+    else expect(hub.signalCode).toBe("SIGKILL");
     expect(killed.code).not.toBe(0);
     expect(existsSync(viaKilled)).toBe(false);
     expect(existsSync(`${viaKilled}.part`)).toBe(false);
