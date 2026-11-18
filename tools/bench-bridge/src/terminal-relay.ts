@@ -8,14 +8,14 @@
  * letting go of one is as sure as ending a process. (The hub's own serial links close in-process,
  * `hub/src/shell/safe/serial.ts`, `closeTty`.)
  */
-import { openTty, writeTty } from "@hsn/hub/src/shell/safe/serial.ts";
+import { openUnixTty, writeTty } from "@hsn/hub/src/shell/safe/serial.ts";
 
 const path = process.argv[2];
 if (path === undefined) {
   process.stderr.write("usage: terminal-relay <terminal>\n");
   process.exit(2);
 }
-const port = openTty(path);
+const port = openUnixTty(path);
 if (port.isErr()) {
   process.stderr.write(`terminal-relay: ${port.error.message}\n`);
   process.exit(1);

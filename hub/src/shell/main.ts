@@ -52,6 +52,7 @@ import { PUBLISHER_KEYS } from "./update/publisher-keys.ts";
 import { LinkRegistry } from "./links/registry.ts";
 import { SerialLinks } from "./links/serial.ts";
 import { UsbWatch } from "./links/usb-watch.ts";
+import { WINDOWS_SERIAL } from "./safe/serial-windows.ts";
 import { serveDevices } from "./links/websocket.ts";
 import { randomBytes } from "./safe/crypto.ts";
 import { tightenContents, writeStandardError } from "./safe/fs.ts";
@@ -480,6 +481,9 @@ export async function runHub(options: MainOptions, trusted: HubTrust): Promise<n
     extraPaths: options.serial,
     ...(options.watchUsb ? {} : { folders: [] }),
     failed: report,
+    started: () => {
+      say("watching Windows serial ports");
+    },
   });
   for (const started of watch.start()) if (started.isErr()) report(started.error);
   const control = await UnixControlServer.open({
@@ -522,6 +526,7 @@ export async function runHub(options: MainOptions, trusted: HubTrust): Promise<n
   if (timer !== undefined) clearTimeout(timer);
   trust.stop();
   watch.stop();
+  if (WINDOWS_SERIAL) await Promise.all([watch.settled(), serial.closeWindows()]);
   void devices.stop(true);
   (await (holder.control?.close() ?? okAsync(undefined))).match(
     () => undefined,

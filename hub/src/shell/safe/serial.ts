@@ -23,12 +23,13 @@
 import { dlopen, FFIType } from "bun:ffi";
 import { closeSync, constants, openSync, write } from "node:fs";
 import { ReadStream } from "node:tty";
-import { err, Result, ResultAsync } from "neverthrow";
+import { err, ok, Result, ResultAsync } from "neverthrow";
 import { SerialPort } from "serialport";
 import type { HubError } from "../../core/model/errors.ts";
 import type { LinkError } from "../../ports/links.ts";
 import { linkError } from "./link-error.ts";
 import { errorFrom } from "./thrown.ts";
+import { openWindowsSerial, WINDOWS_SERIAL, type WindowsSerialPort } from "./serial-windows.ts";
 
 const ORIGIN = "shell/safe/serial";
 
@@ -82,10 +83,18 @@ export function listedPorts(
 /**
  * An open serial port, read through `node:tty` in raw mode (see above: not `serialport`, O18).
  */
-export interface TtyPort {
+export interface UnixTtyPort {
   readonly path: string;
   readonly fd: number;
   readonly stream: ReadStream;
+}
+
+/** One open USB port, with byte events and operations routed through this module. */
+export type TtyPort = UnixTtyPort | WindowsSerialPort;
+
+/** Selects the native adapter before exposing a port to the links shell. */
+export function openTty(path: string): Result<TtyPort, LinkError> {
+  return WINDOWS_SERIAL ? openWindowsSerial(path) : openUnixTty(path);
 }
 
 /** Where each field of `struct termios` is, and the flag values, on one system. */
@@ -424,7 +433,7 @@ function releaseRead(fd: number, platform: NodeJS.Platform): void {
  * byte-clean (see the top of this file), and only then starts reading it. Node's
  * `setRawMode(true)` is not used: the settings above are all a link needs.
  */
-export function openTty(path: string): Result<TtyPort, LinkError> {
+export function openUnixTty(path: string): Result<UnixTtyPort, LinkError> {
   const opened = Result.fromThrowable(
     () => openSync(path, constants.O_RDWR | constants.O_NOCTTY),
     (thrown) => linkError("writeFailed", ORIGIN, `open serial port ${path}`, thrown),
@@ -440,7 +449,7 @@ export function openTty(path: string): Result<TtyPort, LinkError> {
         closeSync(fd);
       },
       (): LinkError => clean.error,
-    )().andThen((): Result<TtyPort, LinkError> => err(clean.error));
+    )().andThen((): Result<UnixTtyPort, LinkError> => err(clean.error));
   }
   return Result.fromThrowable(
     () => {
@@ -456,6 +465,7 @@ export function openTty(path: string): Result<TtyPort, LinkError> {
 
 /** Writes all of `bytes`; resolves when the terminal has taken them. */
 export function writeTty(port: TtyPort, bytes: Uint8Array): ResultAsync<void, LinkError> {
+  if (!("fd" in port)) return port.write(bytes);
   const written = new Promise<void>((resolve, reject) => {
     const from = (offset: number): void => {
       write(port.fd, bytes, offset, bytes.length - offset, null, (error, count) => {
@@ -482,6 +492,10 @@ export function closeTty(
   port: TtyPort,
   platform: NodeJS.Platform = process.platform,
 ): Result<void, LinkError> {
+  if (!("fd" in port)) {
+    port.close();
+    return ok(undefined);
+  }
   return Result.fromThrowable(
     () => {
       // Closed already (by the far end, or before): its number may be another file's now.

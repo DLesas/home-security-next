@@ -57,7 +57,12 @@ function exe(target: Target, name: string): string {
 }
 
 function compile(target: Target, entry: string, outfile: string): string | undefined {
-  return compileExecutable(target, entry, outfile, REPO);
+  const windowsHub =
+    target === "bun-windows-x64" && entry === join(HUB, "packaging", "shared", "program.ts");
+  const worker = windowsHub
+    ? { root: HUB, entry: join(HUB, "src", "shell", "safe", "worker-windows-serial.ts") }
+    : undefined;
+  return compileExecutable(target, entry, outfile, REPO, worker);
 }
 
 /** Builds into `out`; the version, or why not. */

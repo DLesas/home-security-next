@@ -28,6 +28,7 @@ export function compileCommand(
   target: string,
   entry: string,
   outfile: string,
+  worker?: { readonly root: string; readonly entry: string },
 ): readonly string[] {
   return [
     bun,
@@ -36,6 +37,7 @@ export function compileCommand(
     ...NO_AUTOLOAD_FLAGS,
     `--target=${target}`,
     entry,
+    ...(worker === undefined ? [] : ["--root", worker.root, worker.entry]),
     "--outfile",
     outfile,
   ];
@@ -47,11 +49,15 @@ export function compileExecutable(
   entry: string,
   outfile: string,
   cwd: string,
+  worker?: Parameters<typeof compileCommand>[4],
 ): string | undefined {
-  const built = Bun.spawnSync([...compileCommand(process.execPath, target, entry, outfile)], {
-    cwd,
-    stdout: "pipe",
-    stderr: "pipe",
-  });
+  const built = Bun.spawnSync(
+    [...compileCommand(process.execPath, target, entry, outfile, worker)],
+    {
+      cwd,
+      stdout: "pipe",
+      stderr: "pipe",
+    },
+  );
   return built.exitCode === 0 ? undefined : built.stderr.toString() || built.stdout.toString();
 }
