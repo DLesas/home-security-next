@@ -116,7 +116,7 @@ describe("hsn checks who serves the socket on Windows (section 9)", () => {
     );
     expect(await runCli(SOCKET, t.io)).toBe(ExitCode.NoPermission);
     expect(t.err).toEqual([
-      "hsn: this account may not use the hub at /tmp/hsn-peer-test-none.sock: run hsn from an administrator prompt (Run as administrator).",
+      "hsn: this account may not use the hub: run hsn from an administrator prompt (Run as administrator).",
     ]);
   });
 });

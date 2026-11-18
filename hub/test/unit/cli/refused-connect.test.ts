@@ -152,7 +152,7 @@ describe("hsn's answer", () => {
     );
     expect(code).toBe(ExitCode.NoPermission);
     expect(run.err[0]).toBe(
-      `hsn: this account may not use the hub at ${SOCKET}: run hsn from an administrator prompt (Run as administrator).`,
+      "hsn: this account may not use the hub: run hsn from an administrator prompt (Run as administrator).",
     );
     expect(run.err[0]).toContain("administrator prompt");
   });
