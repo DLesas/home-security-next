@@ -484,7 +484,7 @@ export async function runHub(
   registry.listen((event) => {
     loop.enqueue(event);
   });
-  const serial = new SerialLinks(registry, serialFixture?.open);
+  const serial = new SerialLinks(registry, serialFixture?.open, report);
   const watch = new UsbWatch(serial, {
     extraPaths: options.serial,
     ...(options.watchUsb ? {} : { folders: [] }),

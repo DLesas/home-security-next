@@ -42,10 +42,12 @@ export class SerialLinks {
   /** Open ports by path, so a port is never opened twice. */
   readonly #byPath = new Map<string, LinkId>();
   readonly #asyncPorts = new Map<SerialBytes, Promise<void>>();
+  #closing = false;
 
   constructor(
     registry: LinkRegistry,
     private readonly openPort: typeof nativePort = nativePort,
+    private readonly reopenFailed?: (error: LinkError) => void,
   ) {
     this.#registry = registry;
   }
@@ -62,16 +64,21 @@ export class SerialLinks {
 
   /** Opens the port at `path` as a USB link; an open one is left as it is. */
   open(path: string): Result<LinkId, LinkError> {
+    return this.#open(path, false);
+  }
+
+  #open(path: string, recovering: boolean): Result<LinkId, LinkError> {
     const label = serialPath(path);
     const open = this.#byPath.get(label);
     if (open !== undefined) return ok(open);
     const port = this.openPort(label);
     if (port.isErr()) return err(port.error);
-    return ok(this.#attach(port.value));
+    return ok(this.#attach(port.value, recovering));
   }
 
   /** Waits for ports with asynchronous close, including Windows serial workers. */
   async closeAsyncPorts(): Promise<void> {
+    this.#closing = true;
     const pending = [...this.#asyncPorts.values()];
     for (const port of this.#asyncPorts.keys())
       port.close().match(
@@ -81,15 +88,25 @@ export class SerialLinks {
     await Promise.all(pending);
   }
 
-  #attach(port: SerialBytes): LinkId {
+  #attach(port: SerialBytes, recovering: boolean): LinkId {
     if (port.closed !== undefined) {
       this.#asyncPorts.set(port, port.closed);
       void port.closed.then(() => this.#asyncPorts.delete(port));
     }
     const decoder = new UsbFrameDecoder();
+    let canRecover = !recovering;
+    let resync = recovering;
     const opened: { link: LinkId | undefined } = { link: undefined };
     const queue = new SendQueue(
-      (bytes) => port.write(encodeUsbFrame(bytes)),
+      (bytes) => {
+        const frame = encodeUsbFrame(bytes);
+        if (!resync) return port.write(frame);
+        // The board may still have the prefix of the frame that timed out.
+        const delimited = new Uint8Array(frame.length + 1);
+        delimited.set(frame, 1);
+        resync = false;
+        return port.write(delimited);
+      },
       (error, refs) => {
         // A write that failed after `send` returned: each send that will not leave is
         // `sendFailed`, and the link is closed (registry.ts).
@@ -97,6 +114,14 @@ export class SerialLinks {
         if (link === undefined) return;
         for (const ref of refs) this.#registry.failed(link, ref, error);
         this.#gone(port, link, "error");
+        // Reopen a Windows port once after a failed write. A healthy inbound frame restores
+        // the allowance; a permanently failing port waits for a real device notification.
+        if (canRecover && error.code === "writeFailed" && port.closed !== undefined)
+          void port.closed.then(() => {
+            if (this.#closing || this.has(port.path)) return;
+            const reopened = this.#open(port.path, true);
+            if (reopened.isErr()) this.reopenFailed?.(reopened.error);
+          });
       },
     );
     const link = this.#registry.open("usb", port.path, {
@@ -111,8 +136,10 @@ export class SerialLinks {
     this.#byPath.set(port.path, link);
     port.stream.on("data", (chunk: Buffer) => {
       for (const frame of decoder.push(new Uint8Array(chunk))) {
-        if (frame.ok) this.#registry.frame(link, frame.value);
-        else this.#registry.reject(link, rejectionOf(frame.error.code));
+        if (frame.ok) {
+          canRecover = true;
+          this.#registry.frame(link, frame.value);
+        } else this.#registry.reject(link, rejectionOf(frame.error.code));
       }
     });
     port.stream.on("close", () => {
