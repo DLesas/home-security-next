@@ -100,7 +100,11 @@ describe("staging a 112 MB program in pieces", () => {
     const p = prefix("bytes");
     const job = staging(p);
     let read = 0;
-    let longest = 0;
+    let longest: { phase: Staging["phase"]; ms: number; bytes: number } = {
+      phase: job.phase,
+      ms: 0,
+      bytes: 0,
+    };
     let pieces = 0;
     let madeBefore = 0;
     let outcome;
@@ -108,7 +112,8 @@ describe("staging a 112 MB program in pieces", () => {
       const phase = job.phase;
       const s = performance.now();
       outcome = job.next();
-      longest = Math.max(longest, performance.now() - s);
+      const ms = performance.now() - s;
+      if (ms > longest.ms) longest = { phase, ms, bytes: job.bytesRead - read };
       pieces += 1;
       expect(job.bytesRead - read).toBeLessThanOrEqual(STAGING_PIECE_BYTES);
       read = job.bytesRead;
@@ -126,7 +131,7 @@ describe("staging a 112 MB program in pieces", () => {
     expect(pieces).toBeGreaterThanOrEqual(
       2 * Math.floor((payload - 1024 * 1024) / STAGING_PIECE_BYTES),
     );
-    expect(longest).toBeLessThan(LOADED_BOUND_MS);
+    expect(longest.ms, `longest piece: ${JSON.stringify(longest)}`).toBeLessThan(LOADED_BOUND_MS);
     for (const path of [programPath, "web/f0.js", "web/f199.js", "drizzle/0000.sql"])
       expect(
         Buffer.from(readFileSync(join(p, "staged", "9.0.0", path))).equals(
