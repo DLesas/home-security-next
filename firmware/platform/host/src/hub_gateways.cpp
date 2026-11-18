@@ -26,13 +26,27 @@ void TestHub::on_gateway_packet(std::size_t index, LinkWire& wire, const Bytes& 
   }
 
   // A hello, which carries no binding, opens a new connection whatever came before.
-  const auto plain = open(gateway, view, protocol::Binding::none(), protocol::PacketLimit::link);
+  std::optional<Opened> plain;
+  const KeyUsed used =
+      open_any(gateway, view, protocol::Binding::none(), protocol::PacketLimit::link, plain);
   if (plain.has_value() && plain->type == protocol::message_type::hello) {
     protocol::Hello hello;
     if (protocol::decode_body(protocol::ByteView(plain->body.data(), plain->body.size()), hello) !=
         protocol::Error::none) {
       record_received(&gateway, meta, HubVerdict::malformed, &*plain);
       return;
+    }
+    if (gateway.rekey && used == KeyUsed::current) {
+      // A hello under the old key after a restore: no session, a Key change in place of the
+      // welcome, bound to its random (m3-updates-design.md section 7).
+      gateway.session = Session{};
+      record_received(&gateway, meta, HubVerdict::old_key, &*plain);
+      decide(HubAction::old_key_packet, gateway.name, plain->counter);
+      answer_old_key(index, *plain, meta, &wire, &hello.gateway_random);
+      return;
+    }
+    if (used == KeyUsed::next) {
+      switch_key(gateway);
     }
     Session& session = gateway.session;
     session = Session{};
@@ -51,6 +65,7 @@ void TestHub::on_gateway_packet(std::size_t index, LinkWire& wire, const Bytes& 
                    protocol::PacketLimit::link),
               protocol::message_type::welcome);
     send_gateway_settings(index);
+    push_offer(index);
     return;
   }
 
@@ -123,6 +138,16 @@ void TestHub::on_gateway_packet(std::size_t index, LinkWire& wire, const Bytes& 
     }
     case protocol::message_type::log_entries:
       on_log_entries(index, *opened, meta);
+      break;
+    case protocol::message_type::started: {
+      protocol::Started started;
+      static_cast<void>(protocol::decode_body(body, started));
+      on_update_started(index, started);
+      break;
+    }
+    case protocol::message_type::update_query:
+    case protocol::message_type::update_status:
+      static_cast<void>(on_update_packet(index, *opened, meta, &wire));
       break;
     default:
       break;

@@ -9,6 +9,7 @@
 #include "hsn/device/hal/link.hpp"
 #include "hsn/device/time.hpp"
 #include "hsn/host/call_meter.hpp"
+#include "hsn/host/power_cut.hpp"
 
 namespace hsn::host {
 
@@ -40,8 +41,12 @@ protected:
   ~LinkObserver() = default;
 };
 
-/** A USB or WebSocket link, recording connects and every packet sent. */
-class FakeLink final : public device::Link, public Metered {
+/**
+ * A USB, WebSocket or Bluetooth link, recording connects and every packet sent. A network or
+ * Bluetooth link sends only while up; a USB link whenever asked, as a serial port does. While the
+ * board's power is cut, a call does nothing: nothing is recorded or sent.
+ */
+class FakeLink final : public device::Link, public Metered, public Powered {
 public:
   /** One packet the device sent. */
   struct Sent {
@@ -64,7 +69,11 @@ public:
   }
   std::int8_t signal_dbm() const override {
     tick();
-    return kind_ == device::LinkKind::usb ? std::int8_t{0} : wifi_signal_dbm;
+    return kind_ == device::LinkKind::network ? wifi_signal_dbm : std::int8_t{0};
+  }
+  std::uint16_t largest_packet() const override {
+    tick();
+    return largest_packet_bytes;
   }
 
   /** Builders for the events a platform would deliver; they also move the link's state. */
@@ -83,8 +92,13 @@ public:
   /** Fault switches: sends are refused as by a full queue; connect fails. */
   bool refuse_sends = false;
   bool fail_connect = false;
-  /** The Wi-Fi signal strength a network link reports; 0 means not known. USB always says 0. */
+  /**
+   * The Wi-Fi signal strength a network link reports; 0 means not known. USB and Bluetooth always
+   * say 0.
+   */
   std::int8_t wifi_signal_dbm = 0;
+  /** What largest_packet() reports: on Bluetooth the agreed MTU less 3; 0, not known. */
+  std::uint16_t largest_packet_bytes = 0;
 
 private:
   const device::Clock& clock_;

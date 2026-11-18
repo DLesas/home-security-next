@@ -127,4 +127,11 @@ device::Duration GatewayRole::longest_awake() const {
   return device::Duration{};  // always powered: no bound
 }
 
+void GatewayRole::report_again(device::Instant now) {
+  // Step 4 of the key change after a hub restore (m3-updates-design.md section 7), the role
+  // owner's to build. Device calls it only after SecureChannel::change_key succeeds, which it
+  // does not yet.
+  static_cast<void>(now);
+}
+
 }  // namespace hsn::roles::gateway

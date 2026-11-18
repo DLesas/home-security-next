@@ -79,6 +79,7 @@ public:
   std::uint8_t state_layout() const override;
   std::uint8_t state_id() const override;
   device::Duration longest_awake() const override;
+  void report_again(device::Instant) override {}
 
   /** Events this boot has seen: RAM, lost on every reset. */
   std::uint32_t ram_events() const {

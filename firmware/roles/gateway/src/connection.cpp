@@ -21,7 +21,15 @@ std::int32_t refusal_value(device::Status status, protocol::Error detail) {
 }  // namespace
 
 device::Link* GatewayRole::link(device::LinkKind kind) const {
-  return kind == device::LinkKind::usb ? services_.hal.usb : services_.hal.network;
+  switch (kind) {
+    case device::LinkKind::usb:
+      return services_.hal.usb;
+    case device::LinkKind::network:
+      return services_.hal.network;
+    case device::LinkKind::bluetooth:
+      return services_.hal.bluetooth;
+  }
+  return nullptr;
 }
 
 bool GatewayRole::session_open() const {

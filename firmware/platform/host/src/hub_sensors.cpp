@@ -94,6 +94,8 @@ void TestHub::disarm() {
     }
   }
   retry_waiting_switch();
+  // A disarm may let a verified image install (D91).
+  push_go_aheads();
 }
 
 std::uint8_t TestHub::reply_rate(const Known& sensor, std::uint8_t held_version,
@@ -161,6 +163,7 @@ void TestHub::on_sensor_packet(std::size_t index, const Opened& opened, const Ar
       static_cast<void>(protocol::decode_body(body, started));
       held_version = started.settings_version;
       note_confirmation(sensor, held_version);
+      on_update_started(index, started);
       // The hub always replies to a sensor's Started (protocol section 6).
       reply_to_sensor(index, arrival, held_version, opened.counter, false, false);
       if (move_.stage == MoveStage::switched && arrived_on_new(arrival)) {
@@ -168,6 +171,10 @@ void TestHub::on_sensor_packet(std::size_t index, const Opened& opened, const Ar
       }
       return;
     }
+    case protocol::message_type::update_query:
+    case protocol::message_type::update_status:
+      static_cast<void>(on_update_packet(index, opened, arrival, arrival.wire));
+      return;
     default:
       return;
   }
@@ -178,7 +185,8 @@ void TestHub::on_sensor_packet(std::size_t index, const Opened& opened, const Ar
   if (sensor.arm_when_closed && !sensor.door_open) {
     arm_sensor(sensor);
   }
-  wanted = status.flags.reply_wanted || held_version != sensor.version;
+  // While an update offer waits for it, every heartbeat is answered (design section 4).
+  wanted = status.flags.reply_wanted || held_version != sensor.version || offer_waiting(index);
   // Until a reply goes, a fallen-back sensor listens at its sending rate after any packet.
   sensor.listening_at_send_rate = status.flags.listening_at_send_rate;
   if (status.flags.local_alarm_sounded) {
@@ -280,6 +288,7 @@ void TestHub::reply_to_sensor(std::size_t index, const Arrival& arrival, std::ui
   protocol::Reply reply;
   reply.settings_version = sensor.version;
   reply.flags.armed = sensor.armed;
+  reply.flags.update_available = offer_waiting(index);
   Countdown& countdown = sensor.countdown;
   if (countdown.active) {
     reply.flags.countdown_started = true;

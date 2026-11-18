@@ -208,6 +208,9 @@ std::uint64_t Medium::transmit(StationId id, const device::RadioChannel& channel
   tx.end = now + *airtime;
   tx.label = labels_.label(protocol::ByteView(packet.data(), packet.size()));
   recent_.push_back(tx);
+  if (keep_) {
+    archive_[tx.id] = Kept{channel, packet};
+  }
 
   Station& self = station(id);
   self.mode = Mode::transmitting;
@@ -243,6 +246,26 @@ std::uint64_t Medium::transmit(StationId id, const device::RadioChannel& channel
     sender.listener->tx_done(scheduler_.now());
   });
   return tx.id;
+}
+
+const Bytes& Medium::kept_packet(std::uint64_t transmission) const {
+  const auto found = archive_.find(transmission);
+  if (found == archive_.end()) {
+    throw SimulationError("transmission " + std::to_string(transmission) +
+                          " was not kept (Medium::keep_transmissions)");
+  }
+  return found->second.packet;
+}
+
+std::uint64_t Medium::replay(std::uint64_t transmission, StationId station, std::int8_t power_dbm) {
+  const auto found = archive_.find(transmission);
+  if (found == archive_.end()) {
+    throw SimulationError("transmission " + std::to_string(transmission) +
+                          " was not kept (Medium::keep_transmissions)");
+  }
+  // Copied: transmit() may archive the replay itself, which can move the map's nodes' contents.
+  const Kept kept = found->second;
+  return transmit(station, kept.channel, power_dbm, kept.packet);
 }
 
 void Medium::offer(const Transmission& tx, StationId receiver) {

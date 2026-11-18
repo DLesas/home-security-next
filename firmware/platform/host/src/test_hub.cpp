@@ -111,6 +111,32 @@ const char* hub_action_name(HubAction action) {
       return "device_followed";
     case HubAction::move_done:
       return "move_done";
+    case HubAction::firmware_offer:
+      return "firmware_offer";
+    case HubAction::firmware_query:
+      return "firmware_query";
+    case HubAction::firmware_status:
+      return "firmware_status";
+    case HubAction::firmware_installing:
+      return "firmware_installing";
+    case HubAction::firmware_on_trial:
+      return "firmware_on_trial";
+    case HubAction::firmware_confirmed:
+      return "firmware_confirmed";
+    case HubAction::firmware_rolled_back:
+      return "firmware_rolled_back";
+    case HubAction::firmware_refused:
+      return "firmware_refused";
+    case HubAction::rollout_paused:
+      return "rollout_paused";
+    case HubAction::rollout_done:
+      return "rollout_done";
+    case HubAction::old_key_packet:
+      return "old_key_packet";
+    case HubAction::key_change_sent:
+      return "key_change_sent";
+    case HubAction::key_changed:
+      return "key_changed";
   }
   return "?";
 }
@@ -131,6 +157,8 @@ const char* hub_verdict_name(HubVerdict verdict) {
       return "malformed";
     case HubVerdict::no_session:
       return "no_session";
+    case HubVerdict::old_key:
+      return "old_key";
   }
   return "?";
 }
@@ -140,7 +168,8 @@ TestHub::TestHub(Simulation& sim, HubOptions options)
       options_(options),
       actor_(sim.add_actor("hub")),
       site_frequency_hz_(device::site_channel_frequency(options.site_channel).value_or(868300000u)),
-      random_state_(options.seed == 0 ? 1 : options.seed) {
+      random_state_(options.seed == 0 ? 1 : options.seed),
+      signing_key_(kRfc6979TestKey) {
   sim_.labels().add(*this);
   if (options_.mode == HubMode::direct_radio) {
     radio_ = std::make_unique<HubRadio>(
@@ -167,6 +196,7 @@ TestHub::TestHub(Simulation& sim, HubOptions options)
 
 TestHub::~TestHub() {
   for (Known& device : known_) {
+    // A Bluetooth wire is a phone's, never the hub's: it is left as it is.
     device.device->wire(device::LinkKind::usb).detach();
     device.device->wire(device::LinkKind::network).detach();
   }
@@ -197,6 +227,9 @@ TestHub::Known& TestHub::add_known(SimDevice& device, std::uint8_t role, std::ui
   provisioning.address = address;
   provisioning.key = added.key;
   provisioning.site_channel = options_.site_channel;
+  // The hub's own signing key, so the images it signs pass a board's checks. The identity stays
+  // the bench's fixed one, which image headers carry (add_image).
+  provisioning.signing_key = signing_key_.public_key();
   provisioning.allowed_data_rate_mask = options_.allowed_data_rate_mask;
   provision(device.board(), provisioning);
   known_.push_back(std::move(added));
@@ -214,6 +247,9 @@ void TestHub::add_sensor(SimDevice& device, const SensorConfig& config) {
   sensor.announce_version = sensor.version;
   sensor.announce_send_rate = config.send_data_rate;
   sensor.move_followed = move_.stage == MoveStage::switched;
+  if (config.wifi_in_range) {
+    device.wire(device::LinkKind::network).attach(*this, options_.link_latency);
+  }
 }
 
 void TestHub::add_siren(SimDevice& device, const SirenConfig& config) {
@@ -266,6 +302,7 @@ std::size_t TestHub::index_of_address(std::uint32_t address) const {
 }
 
 std::size_t TestHub::index_of_wire(const LinkWire& wire) const {
+  // Only USB and network wires reach the hub; a Bluetooth wire's far end is a phone.
   for (std::size_t i = 0; i < known_.size(); ++i) {
     SimDevice& device = *known_[i].device;
     if (&device.wire(device::LinkKind::usb) == &wire ||
@@ -406,10 +443,22 @@ void TestHub::on_arrival(const Arrival& arrival) {
     return;
   }
   Known& device = known_[index];
-  const auto opened = open(device, view, protocol::Binding::none(), limit);
-  if (!opened.has_value()) {
+  std::optional<Opened> opened;
+  const KeyUsed used = open_any(device, view, protocol::Binding::none(), limit, opened);
+  if (used == KeyUsed::none) {
     record_received(&device, arrival, HubVerdict::bad_tag, nullptr);
     return;
+  }
+  if (device.rekey && used == KeyUsed::current) {
+    // After a restore the hub acts on no packet under the old key: recorded, its window
+    // untouched, answered with a Key change (m3-updates-design.md section 7).
+    record_received(&device, arrival, HubVerdict::old_key, &*opened);
+    decide(HubAction::old_key_packet, device.name, opened->counter);
+    answer_old_key(index, *opened, arrival, arrival.wire, nullptr);
+    return;
+  }
+  if (used == KeyUsed::next) {
+    switch_key(device);
   }
   // Any authentic copy tells which gateway hears a siren best (protocol section 7).
   if (device.role == protocol::Role::siren && arrival.gateway != kNone &&
@@ -670,9 +719,15 @@ void TestHub::link_up(LinkWire& wire) {
     known_[index].session = Session{};
     known_[index].session.wire = &wire;
   }
+  if (index != kNone && known_[index].role == protocol::Role::siren) {
+    // A siren whose update waits is offered it when its Wi-Fi is up.
+    sim_.schedule(sim_.now(), [this, index]() { push_offer(index); });
+  }
 }
 
 void TestHub::link_down(LinkWire& wire) {
+  // A grant lasts as long as its connection (section 5, "Resume").
+  grants_.erase(&wire);
   const std::size_t index = index_of_wire(wire);
   if (index != kNone && known_[index].role == protocol::Role::gateway &&
       known_[index].session.wire == &wire) {
@@ -685,6 +740,11 @@ void TestHub::link_packet(LinkWire& wire, const Bytes& packet) {
   if (index == kNone) {
     return;
   }
+  if (!packet.empty() && packet[0] == protocol::kTransferMarker) {
+    // A transfer frame, not a packet (m3-updates-design.md section 5): served, never opened.
+    on_transfer_frame(index, wire, packet);
+    return;
+  }
   if (known_[index].role == protocol::Role::gateway) {
     on_gateway_packet(index, wire, packet);
     return;
@@ -693,6 +753,7 @@ void TestHub::link_packet(LinkWire& wire, const Bytes& packet) {
   arrival.packet = packet;
   arrival.path = HubPath::link;
   arrival.ended_at = sim_.now();
+  arrival.wire = &wire;
   on_arrival(arrival);
 }
 
@@ -710,8 +771,9 @@ std::optional<std::uint8_t> TestHub::message_type(protocol::ByteView packet,
     return std::nullopt;
   }
   Known& device = known_[index];
-  const auto plain = open(device, packet, protocol::Binding::none(), protocol::PacketLimit::link);
-  if (plain.has_value()) {
+  std::optional<Opened> plain;
+  if (open_any(device, packet, protocol::Binding::none(), protocol::PacketLimit::link, plain) !=
+      KeyUsed::none) {
     return plain->type;
   }
   if (device.role == protocol::Role::gateway && device.session.open) {

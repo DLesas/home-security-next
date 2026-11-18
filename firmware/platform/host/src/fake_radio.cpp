@@ -4,6 +4,9 @@ namespace hsn::host {
 
 device::HalError FakeRadio::record(RadioCall call) {
   tick();
+  if (unpowered()) {
+    return device::HalError::none;
+  }
   call.at = clock_.now();
   if (refuse_all) {
     call.result = device::HalError::io;
@@ -26,7 +29,7 @@ device::HalError FakeRadio::transmit(const device::RadioChannel& channel, std::i
   call.power_dbm = power_dbm;
   call.packet.assign(packet.begin(), packet.end());
   const device::HalError error = record(call);
-  if (error == device::HalError::none) {
+  if (error == device::HalError::none && !unpowered()) {
     mode_ = RadioMode::transmitting;
     channel_ = channel;
   }
@@ -39,7 +42,7 @@ device::HalError FakeRadio::receive(const device::RxParams& params) {
   call.channel = params.channel;
   call.rx = params;
   const device::HalError error = record(call);
-  if (error == device::HalError::none) {
+  if (error == device::HalError::none && !unpowered()) {
     mode_ = RadioMode::receiving;
     channel_ = params.channel;
     rx_ = params;
@@ -53,7 +56,7 @@ device::HalError FakeRadio::detect_activity(const device::CadParams& params) {
   call.channel = params.channel;
   call.cad = params;
   const device::HalError error = record(call);
-  if (error == device::HalError::none) {
+  if (error == device::HalError::none && !unpowered()) {
     mode_ = RadioMode::detecting;
     channel_ = params.channel;
   }
@@ -78,7 +81,7 @@ device::HalError FakeRadio::sleep(bool warm) {
   call.kind = RadioCall::Kind::sleep;
   call.warm = warm;
   const device::HalError error = record(call);
-  if (error == device::HalError::none) {
+  if (error == device::HalError::none && !unpowered()) {
     mode_ = RadioMode::sleeping;
   }
   return error;
@@ -88,7 +91,9 @@ device::HalError FakeRadio::recover() {
   RadioCall call;
   call.kind = RadioCall::Kind::recover;
   const device::HalError error = record(call);
-  mode_ = RadioMode::standby;
+  if (!unpowered()) {
+    mode_ = RadioMode::standby;
+  }
   return error;
 }
 

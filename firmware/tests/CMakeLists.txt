@@ -37,6 +37,7 @@ hsn_test_executable(hsn_tests
   protocol/packet_test.cpp
   protocol/radio_units_test.cpp
   protocol/random_test.cpp
+  protocol/update_codec_test.cpp
   protocol/vectors_test.cpp
   device/airtime_test.cpp
   device/device_runner_test.cpp
@@ -46,6 +47,15 @@ hsn_test_executable(hsn_tests
   device/secure_channel_test.cpp
   device/setup_health_test.cpp
   device/time_test.cpp
+  device/update_interfaces_test.cpp
+  device/record_test.cpp
+  device/update_bench.cpp
+  device/update_service_test.cpp
+  device/update_trial_test.cpp
+  device/update_power_cut_test.cpp
+  device/update_session_test.cpp
+  device/update_vectors_test.cpp
+  device/update_gate_test.cpp
   host/fake_link_test.cpp
   host/medium_test.cpp
   host/simulation_test.cpp
@@ -63,11 +73,24 @@ hsn_test_executable(hsn_tests
   host/bench_script_test.cpp
   host/restart_links_test.cpp
   host/wire_json_test.cpp
+  host/update_flash_test.cpp
+  host/update_bootloader_test.cpp
+  host/update_crypto_test.cpp
+  host/update_sim_test.cpp
+  host/update_harness_test.cpp
+  host/update_phone_test.cpp
+  host/update_hub_test.cpp
+  host/update_rekey_test.cpp
+  host/update_scenarios_test.cpp
   system/armed_door_test.cpp)
 target_compile_definitions(hsn_tests PRIVATE
   HSN_VECTORS_DIR="${PROJECT_SOURCE_DIR}/../packages/protocol/vectors")
 file(GLOB hsn_sim_test_sources CONFIGURE_DEPENDS host/*.cpp system/*.cpp)
-set_source_files_properties(device/device_runner_test.cpp ${hsn_sim_test_sources}
+set_source_files_properties(device/device_runner_test.cpp device/update_interfaces_test.cpp
+  device/update_bench.cpp device/update_service_test.cpp device/update_trial_test.cpp
+  device/update_power_cut_test.cpp device/update_session_test.cpp device/update_vectors_test.cpp
+  device/update_gate_test.cpp
+  ${hsn_sim_test_sources}
   PROPERTIES COMPILE_OPTIONS -fno-rtti)
 
 # A short real-time run of the bench executable, hsn_bench, with no hub: its own executable, since

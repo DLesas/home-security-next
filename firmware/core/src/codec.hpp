@@ -225,6 +225,39 @@ inline void encode_value(Encoder& e, const CarriedPacket& value) {
   encode_bytes(e, value.bytes);
 }
 
+// Trailing bytes run to the end of the body: at least one, at most their limit.
+
+inline Error check_trailing_size(std::size_t size, std::size_t max) {
+  if (size == 0) {
+    return Error::truncated;
+  }
+  return size > max ? Error::too_long : Error::none;
+}
+
+template <std::size_t Max>
+void decode_value(Decoder& d, TrailingBytes<Max>& out) {
+  if (!d.ok()) {
+    return;
+  }
+  const ByteView rest = d.reader.read_rest();
+  const Error size_error = check_trailing_size(rest.size(), Max);
+  if (size_error != Error::none) {
+    d.fail(size_error);
+    return;
+  }
+  out.bytes = rest;
+}
+
+template <std::size_t Max>
+void encode_value(Encoder& e, const TrailingBytes<Max>& value) {
+  const Error size_error = check_trailing_size(value.bytes.size(), Max);
+  if (e.ok() && size_error != Error::none) {
+    e.fail(size_error);
+    return;
+  }
+  encode_bytes(e, value.bytes);
+}
+
 // Log entries are validated as a whole; defined in messages.cpp.
 
 void decode_value(Decoder& d, LogEntryList& out);
@@ -240,6 +273,32 @@ template <typename T>
 std::enable_if_t<has_layout<T>::value> decode_value(Decoder& d, T& out);
 template <typename T>
 std::enable_if_t<has_layout<T>::value> encode_value(Encoder& e, const T& value);
+
+// Fields added at the end (section 11): absent when the body ends where they start, whole
+// otherwise; written only when present.
+
+template <typename Fields>
+void decode_value(Decoder& d, Appended<Fields>& out) {
+  out = Appended<Fields>{};
+  if (!d.ok() || d.reader.remaining() == 0) {
+    return;
+  }
+  decode_value(d, out.fields);
+  out.present = d.ok();
+}
+
+template <typename Fields>
+void encode_value(Encoder& e, const Appended<Fields>& value) {
+  if (value.present) {
+    encode_value(e, value.fields);
+  }
+}
+
+template <typename Member>
+struct is_appended : std::false_type {};
+
+template <typename Fields>
+struct is_appended<Appended<Fields>> : std::true_type {};
 
 // The descriptors are read as compile-time constants, one index at a time. Only their member
 // pointers, checks and constants are used, so the field names never reach the binary.
@@ -319,6 +378,23 @@ constexpr std::size_t flag_count = std::tuple_size_v<decltype(T::flag_bits())>;
 template <typename T>
 constexpr std::size_t field_count = std::tuple_size_v<decltype(T::layout())>;
 
+/** True when element I of T's layout is an appended group. */
+template <typename T, std::size_t I>
+constexpr bool element_is_appended() {
+  using Element = std::decay_t<decltype(layout_element<T, I>)>;
+  if constexpr (std::is_same_v<Element, FixedByte>) {
+    return false;
+  } else {
+    return is_appended<std::decay_t<decltype(T{}.*(layout_element<T, I>.member))>>::value;
+  }
+}
+
+/** True when no element but the last of T's layout is an appended group. */
+template <typename T, std::size_t... I>
+constexpr bool appended_only_last(std::index_sequence<I...>) {
+  return ((!element_is_appended<T, I>() || I + 1 == sizeof...(I)) && ...);
+}
+
 template <typename T>
 std::enable_if_t<has_flag_bits<T>::value> decode_value(Decoder& d, T& out) {
   static_assert(flag_count<T> <= 8, "a flags byte has eight bits");
@@ -338,11 +414,15 @@ std::enable_if_t<has_flag_bits<T>::value> encode_value(Encoder& e, const T& valu
 
 template <typename T>
 std::enable_if_t<has_layout<T>::value> decode_value(Decoder& d, T& out) {
+  static_assert(appended_only_last<T>(std::make_index_sequence<field_count<T>>()),
+                "an appended group is the last element of a layout");
   decode_fields(d, out, std::make_index_sequence<field_count<T>>());
 }
 
 template <typename T>
 std::enable_if_t<has_layout<T>::value> encode_value(Encoder& e, const T& value) {
+  static_assert(appended_only_last<T>(std::make_index_sequence<field_count<T>>()),
+                "an appended group is the last element of a layout");
   encode_fields(e, value, std::make_index_sequence<field_count<T>>());
 }
 

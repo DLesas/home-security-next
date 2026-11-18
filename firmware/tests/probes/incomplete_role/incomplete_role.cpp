@@ -25,6 +25,7 @@ public:
   std::uint8_t state_id() const override {
     return 0;
   }
+  void report_again(device::Instant) override {}
 };
 
 static_assert(device::is_complete_role<IncompleteRole>, "a role must override every Role method");

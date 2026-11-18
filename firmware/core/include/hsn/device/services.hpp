@@ -5,12 +5,15 @@
 #include <type_traits>
 
 #include "hsn/device/hal/build_info.hpp"
+#include "hsn/device/hal/firmware_slots.hpp"
+#include "hsn/device/hal/key_import.hpp"
 #include "hsn/device/hal/link.hpp"
 #include "hsn/device/hal/power.hpp"
 #include "hsn/device/hal/radio.hpp"
 #include "hsn/device/hal/random.hpp"
 #include "hsn/device/hal/retained.hpp"
 #include "hsn/device/hal/storage.hpp"
+#include "hsn/device/hal/update_crypto.hpp"
 #include "hsn/device/services/airtime.hpp"
 #include "hsn/device/services/health.hpp"
 #include "hsn/device/services/log_buffer.hpp"
@@ -18,6 +21,7 @@
 #include "hsn/device/services/random_source.hpp"
 #include "hsn/device/services/secure_channel.hpp"
 #include "hsn/device/services/setup.hpp"
+#include "hsn/device/services/update.hpp"
 #include "hsn/device/time.hpp"
 #include "hsn/protocol/cipher.hpp"
 
@@ -25,8 +29,9 @@ namespace hsn::device {
 
 /**
  * The hardware every role shares, as the platform provides it. Links are null where the board
- * has none (a sensor has no network link until M3). The cipher holds the paired key, imported by
- * the platform at start-up.
+ * has none. A sensor's network link is used only for updates (protocol section 10), and the
+ * Bluetooth link only for update sessions (m3-updates-design.md section 5). The cipher holds the
+ * paired key, imported by the platform at start-up; `key_import` replaces it after a key change.
  */
 struct Hal {
   Storage& storage;
@@ -34,8 +39,12 @@ struct Hal {
   Radio& radio;
   Random& random;
   Power& power;
+  FirmwareSlots& slots;
+  UpdateCrypto& update_crypto;
+  KeyImport& key_import;
   Link* usb;
   Link* network;
+  Link* bluetooth;
   const protocol::PacketCipher& cipher;
   BuildInfo build;
 };
@@ -72,9 +81,10 @@ public:
         log(core.log),
         airtime(core.airtime),
         radio_port(hal_in.radio, airtime, random, log),
-        channel(hal_in.cipher, hal_in.storage, core.counter),
+        channel(hal_in.cipher, hal_in.storage, core.counter, &hal_in.key_import),
         setup(hal_in.storage, hal_in.build),
-        health(hal_in.storage, hal_in.build) {}
+        health(hal_in.storage, hal_in.build),
+        update(hal_in, setup, health, random, log) {}
 
   /**
    * Whole seconds since the last start-up (gateway status, protocol section 6).
@@ -94,6 +104,7 @@ public:
   SecureChannel channel;
   SetupService setup;
   Health health;
+  UpdateService update;
 
 private:
   /** Not copyable: declared and never defined (the core's source rules forbid "= delete"). */

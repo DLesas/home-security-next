@@ -128,11 +128,24 @@ json to_json(const protocol::LengthPrefixed<Max, protocol::TextContent>& value) 
 inline json to_json(const protocol::CarriedPacket& value) {
   return to_hex(value.bytes);
 }
+template <std::size_t Max>
+json to_json(const protocol::TrailingBytes<Max>& value) {
+  return to_hex(value.bytes);
+}
 json to_json(const protocol::LogEntryList& value);
 
 template <typename T, typename Owner, typename Member>
 void add_element(json& object, const T& value, const protocol::Field<Owner, Member>& element) {
   object[element.name] = to_json(value.*(element.member));
+}
+// An appended group is one object under its name, and only when present.
+template <typename T, typename Owner, typename Fields>
+void add_element(json& object, const T& value,
+                 const protocol::Field<Owner, protocol::Appended<Fields>>& element) {
+  const protocol::Appended<Fields>& appended = value.*(element.member);
+  if (appended.present) {
+    object[element.name] = to_json(appended.fields);
+  }
 }
 template <typename T, typename Owner, typename Member>
 void add_element(json& object, const T& value,
@@ -198,12 +211,28 @@ void from_json(const json& j, protocol::LengthPrefixed<Max, protocol::TextConten
 inline void from_json(const json& j, protocol::CarriedPacket& out, Arena& arena) {
   out.bytes = arena.keep(from_hex(j.get<std::string>()));
 }
+template <std::size_t Max>
+void from_json(const json& j, protocol::TrailingBytes<Max>& out, Arena& arena) {
+  out.bytes = arena.keep(from_hex(j.get<std::string>()));
+}
 void from_json(const json& j, protocol::LogEntryList& out, Arena& arena);
 
 template <typename T, typename Owner, typename Member>
 void read_element(const json& j, T& out, const protocol::Field<Owner, Member>& element,
                   Arena& arena) {
   from_json(j.at(element.name), out.*(element.member), arena);
+}
+// An appended group is present when its name is.
+template <typename T, typename Owner, typename Fields>
+void read_element(const json& j, T& out,
+                  const protocol::Field<Owner, protocol::Appended<Fields>>& element, Arena& arena) {
+  protocol::Appended<Fields>& appended = out.*(element.member);
+  appended = protocol::Appended<Fields>{};
+  if (!j.contains(element.name)) {
+    return;
+  }
+  appended.present = true;
+  from_json(j.at(element.name), appended.fields, arena);
 }
 template <typename T, typename Owner, typename Member>
 void read_element(const json& j, T& out, const protocol::CheckedField<Owner, Member>& element,
@@ -250,8 +279,27 @@ Message sample_message(Arena& arena) {
     const json entries =
         json::array({{{"ageTenths", 1}, {"level", 2}, {"code", 3}, {"text", "door"}}});
     from_json(entries, message.entries, arena);
+  } else if constexpr (std::is_same_v<Message, protocol::Started>) {
+    // The whole body, appended fields included.
+    message.image.present = true;
   }
   return message;
+}
+
+/**
+ * The body size of a message as a sender from before its appended fields wrote it: the same as its
+ * whole body for a type without them.
+ */
+template <typename Message>
+std::size_t older_body_size(Message message) {
+  if constexpr (std::is_same_v<Message, protocol::Started>) {
+    message.image.present = false;
+  }
+  Bytes out(protocol::kMaxLinkPacketSize);
+  const auto size =
+      protocol::encode_plaintext(message, protocol::MutableByteView(out.data(), out.size()));
+  REQUIRE(size.ok());
+  return size.value() - 1;
 }
 
 }  // namespace hsn::test

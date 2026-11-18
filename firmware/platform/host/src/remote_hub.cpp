@@ -150,7 +150,8 @@ RemoteHub::RemoteHub(Simulation& sim, HubOptions options, lockstep::HubProgram p
 RemoteHub::~RemoteHub() {
   sim_.labels().remove(*this);
   for (Board& board : boards_) {
-    for (const device::LinkKind kind : {device::LinkKind::usb, device::LinkKind::network}) {
+    for (const device::LinkKind kind :
+         {device::LinkKind::usb, device::LinkKind::network, device::LinkKind::bluetooth}) {
       LinkWire& wire = board.device->wire(kind);
       if (board_of_wire(wire) != kNone && wire.attached()) {
         wire.detach();
@@ -292,7 +293,15 @@ device::Instant RemoteHub::true_of_wall(std::int64_t wall_ms) const {
 }
 
 std::string RemoteHub::link_name(const Board& board, device::LinkKind kind) {
-  return board.name + (kind == device::LinkKind::usb ? ":usb" : ":network");
+  switch (kind) {
+    case device::LinkKind::usb:
+      return board.name + ":usb";
+    case device::LinkKind::network:
+      return board.name + ":network";
+    case device::LinkKind::bluetooth:
+      return board.name + ":bluetooth";
+  }
+  return board.name + ":?";
 }
 
 // Boards and provisioning.
@@ -832,9 +841,10 @@ void RemoteHub::on_closed(const lockstep::ClosedLink& closed) {
   board.hello_seen = false;
   board.session_open = false;
   LinkWire& wire = board.device->wire(kind);
-  if (kind == device::LinkKind::network) {
+  if (kind != device::LinkKind::usb) {
     // The hub closed the WebSocket: the device sees it go down at once and connects again by
-    // itself, as a real one does (section 11, "A link the hub closed").
+    // itself, as a real one does (section 11, "A link the hub closed"). A Bluetooth link is never
+    // the hub's, but would be closed the same way.
     if (wire.connected()) {
       wire.drop();
     }
@@ -1330,7 +1340,7 @@ void RemoteHub::on_reply(const lockstep::Reply& reply) {
 void RemoteHub::link_up(LinkWire& wire) {
   const std::size_t index = board_of_wire(wire);
   if (index == kNone || wire.link().kind() != device::LinkKind::network) {
-    // A USB cable is up while plugged in, whatever the board does.
+    // A USB cable is up while plugged in, whatever the board does; a Bluetooth link is a phone's.
     return;
   }
   Board& board = boards_[index];
@@ -1372,7 +1382,8 @@ std::size_t RemoteHub::board_named(const std::string& name) const {
 
 std::size_t RemoteHub::board_of_link(const std::string& link, device::LinkKind* kind) const {
   for (std::size_t i = 0; i < boards_.size(); ++i) {
-    for (const device::LinkKind k : {device::LinkKind::usb, device::LinkKind::network}) {
+    for (const device::LinkKind k :
+         {device::LinkKind::usb, device::LinkKind::network, device::LinkKind::bluetooth}) {
       if (link_name(boards_[i], k) == link) {
         if (kind != nullptr) {
           *kind = k;
@@ -1387,7 +1398,8 @@ std::size_t RemoteHub::board_of_link(const std::string& link, device::LinkKind* 
 std::size_t RemoteHub::board_of_wire(const LinkWire& wire) const {
   for (std::size_t i = 0; i < boards_.size(); ++i) {
     if (&boards_[i].device->wire(device::LinkKind::usb) == &wire ||
-        &boards_[i].device->wire(device::LinkKind::network) == &wire) {
+        &boards_[i].device->wire(device::LinkKind::network) == &wire ||
+        &boards_[i].device->wire(device::LinkKind::bluetooth) == &wire) {
       return i;
     }
   }

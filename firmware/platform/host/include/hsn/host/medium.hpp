@@ -127,6 +127,30 @@ public:
   std::uint64_t transmit(StationId station, const device::RadioChannel& channel,
                          std::int8_t power_dbm, const Bytes& packet);
 
+  /**
+   * Keeps every transmission's bytes from now on (off: from now on none), so replay() can send one
+   * again. Off by default, since a year-long run would keep them all.
+   */
+  void keep_transmissions(bool keep) {
+    keep_ = keep;
+  }
+
+  /** True when a transmission's bytes are kept (it was sent while keeping was on). */
+  bool kept(std::uint64_t transmission) const {
+    return archive_.count(transmission) != 0;
+  }
+
+  /** A kept transmission's bytes; throws SimulationError when it was not kept. */
+  const Bytes& kept_packet(std::uint64_t transmission) const;
+
+  /**
+   * Sends a kept transmission again (m3-updates-design.md section 7, "How it is proven"): its
+   * bytes, on its channel and data rate, from `station`, at `power_dbm`. The replay is a new
+   * transmission, recorded as one on the timeline, and heard by whoever hears `station`. Returns
+   * its number. Throws SimulationError when the transmission was not kept.
+   */
+  std::uint64_t replay(std::uint64_t transmission, StationId station, std::int8_t power_dbm);
+
   /** Starts a receive. */
   void receive(StationId station, const Listening& listening);
 
@@ -231,6 +255,13 @@ private:
   /** Recent transmissions, oldest first, numbered from 1. */
   std::deque<Transmission> recent_;
   std::uint64_t next_id_ = 1;
+  /** Kept transmissions, for replay: their channel and bytes. */
+  bool keep_ = false;
+  struct Kept {
+    device::RadioChannel channel;
+    Bytes packet;
+  };
+  std::map<std::uint64_t, Kept> archive_;
 };
 
 }  // namespace hsn::host

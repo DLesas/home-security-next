@@ -38,6 +38,28 @@ constexpr std::uint16_t fatal = 0x0008;
 constexpr std::uint16_t unknown_type = 0x0009;
 /** An essential packet went past the legal airtime hour (D111). */
 constexpr std::uint16_t airtime_past_limit = 0x000A;
+
+// Updates and the key change (m3-updates-design.md sections 2, 5 and 7).
+
+/** An offer or a download was refused; the number is the UpdateReason. Warning. */
+constexpr std::uint16_t update_refused = 0x000B;
+/** This boot follows a rollback; the number is the failed version, major·65536 + minor·256 +
+ * patch. Warning. */
+constexpr std::uint16_t update_rolled_back = 0x000C;
+/** The running image passed its health condition and was confirmed. Info. */
+constexpr std::uint16_t update_confirmed = 0x000D;
+/** The image on trial could not be confirmed, or refused itself. Error. */
+constexpr std::uint16_t update_trial_failed = 0x000E;
+/** A transfer frame no transfer wanted: no grant, no outstanding Get, a bad CRC. Debug. */
+constexpr std::uint16_t transfer_dropped = 0x000F;
+/** Something that is not a transfer frame arrived on the Bluetooth link. Warning. */
+constexpr std::uint16_t bluetooth_ignored = 0x0010;
+/** A Bluetooth Open with a wrong tag; the number is the count in this window. Warning. */
+constexpr std::uint16_t session_refused = 0x0011;
+/** The device key was changed after a hub restore. Info. */
+constexpr std::uint16_t key_changed = 0x0012;
+/** A key change could not be stored or imported; the number is the step that failed. Error. */
+constexpr std::uint16_t key_change_failed = 0x0013;
 }  // namespace log_code
 
 /** Longest text kept per entry; a number may follow it. */

@@ -4,8 +4,10 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "hsn/device/hal/key_import.hpp"
 #include "hsn/device/hal/storage.hpp"
 #include "hsn/device/status.hpp"
+#include "hsn/device/time.hpp"
 #include "hsn/protocol/binding.hpp"
 #include "hsn/protocol/bytes.hpp"
 #include "hsn/protocol/cipher.hpp"
@@ -82,8 +84,13 @@ struct SessionState {
  */
 class SecureChannel {
 public:
-  SecureChannel(const protocol::PacketCipher& cipher, Storage& storage, CounterState& state)
-      : cipher_(cipher), storage_(storage), state_(state) {}
+  /**
+   * `keys` replaces the platform's device key in change_key(); without it change_key() is
+   * Status::not_ready.
+   */
+  SecureChannel(const protocol::PacketCipher& cipher, Storage& storage, CounterState& state,
+                KeyImport* keys = nullptr)
+      : cipher_(cipher), storage_(storage), state_(state), keys_(keys) {}
 
   /**
    * Starts sending as `address` with the role's step. With `retained_valid`, continues from the
@@ -156,6 +163,27 @@ public:
     return command_rx_.last_accepted();
   }
 
+  /**
+   * Changes the device key after a hub restore (m3-updates-design.md section 7, D141), when the
+   * role has opened a Key change (0x84) under its own receiving rule. In this order, each step
+   * before the next: (1) the pairing record with the new key, whole or nothing; (2) the resume
+   * point as one step (64 on a sensor, 1,024 on a siren or gateway); (3) the new key into the
+   * platform's crypto (KeyImport). The send counter then continues from that step under the new
+   * key, and nothing is ever sealed under the old key again. A siren's command counter restarts
+   * with the key. On success, Device calls the role's report_again() once the event's handle()
+   * returns (take_key_change()). A failure leaves the steps already done; a cut between (1) and
+   * (2) skips counters under the new key and never repeats one.
+   *
+   * Until the key change's owner builds it, it is Status::refused and changes nothing.
+   */
+  Status change_key(const protocol::DeviceKey& key, Instant now);
+
+  /**
+   * True once after each successful change_key(): Device asks it after every event and then
+   * calls the role's report_again().
+   */
+  bool take_key_change();
+
 private:
   Outcome<Sealed> seal_plaintext(protocol::ByteView plaintext, const protocol::Binding& binding,
                                  protocol::PacketLimit limit, protocol::MutableByteView out);
@@ -165,6 +193,8 @@ private:
   const protocol::PacketCipher& cipher_;
   Storage& storage_;
   CounterState& state_;
+  KeyImport* keys_;
+  bool key_changed_ = false;
   std::uint32_t address_ = 0;
   bool started_ = false;
   protocol::SendCounter counter_{protocol::CounterStep::sensor, 0, 0};

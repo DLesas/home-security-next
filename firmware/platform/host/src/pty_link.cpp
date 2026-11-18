@@ -21,7 +21,15 @@ void set_nonblocking(int fd) {
 }
 
 const char* kind_name(device::LinkKind kind) {
-  return kind == device::LinkKind::usb ? "usb" : "network";
+  switch (kind) {
+    case device::LinkKind::usb:
+      return "usb";
+    case device::LinkKind::network:
+      return "network";
+    case device::LinkKind::bluetooth:
+      return "bluetooth";
+  }
+  return "?";
 }
 
 }  // namespace

@@ -2,6 +2,7 @@
 // A file or section the harness does not handle fails the run, unless it is listed in kSkipped,
 // or is the app channel's (kAppVectorPrefix, kAppVectorFolder), which packages/protocol checks.
 
+#include <psa/crypto.h>
 #include <unistd.h>
 
 #include <algorithm>
@@ -16,12 +17,15 @@
 #include <utility>
 #include <vector>
 
+#include "hsn/protocol/checksum.hpp"
 #include "hsn/protocol/counters.hpp"
 #include "hsn/protocol/framing.hpp"
+#include "hsn/protocol/image.hpp"
 #include "hsn/protocol/messages.hpp"
 #include "hsn/protocol/packet.hpp"
 #include "hsn/protocol/radio.hpp"
 #include "hsn/protocol/setup.hpp"
+#include "hsn/protocol/transfer.hpp"
 #include "hsn/protocol/units.hpp"
 #include "hsn/psa/hub_identity.hpp"
 #include "hsn/psa/psa_packet_cipher.hpp"
@@ -42,10 +46,35 @@ const std::set<std::pair<std::string, std::string>> kSkipped = {
     {"counters.json", "replayWindow"},
     // The private key the signing keys derive from, kept for later firmware-signature tests.
     {"pairing-data.json", "signingPrivateKey"},
+    // The hub's side of the image signature (m3-updates-design.md section 3): its key, its
+    // signing parameters and RFC 6979's sample. Devices only verify.
+    {"image-header.json", "signingPrivateKey"},
+    {"image-header.json", "signing"},
+    {"image-header.json", "rfc6979Sample"},
+    // The device's checks of a header in their order (section 3), with the P-256 verification:
+    // UpdateService's (U1) on UpdateCrypto's PSA implementation (U3), not the codec's.
+    {"image-header.json", "checks"},
+    // The Bluetooth session (section 5): the key's HKDF and the Open tag's HMAC are UpdateCrypto's
+    // on PSA (U3; the harness checks only the HKDF info's bytes here); the service's UUIDs and the
+    // advertised name are the ESP-IDF platform's Bluetooth link (F1).
+    {"ble-update-session.json", "sessionKeys"},
+    {"ble-update-session.json", "openTags"},
+    {"ble-update-session.json", "serviceUuid"},
+    {"ble-update-session.json", "rxUuid"},
+    {"ble-update-session.json", "txUuid"},
+    {"ble-update-session.json", "names"},
 };
 
 // Files in the vectors folder that are not vectors.
 const std::set<std::string> kNotVectors = {"README.md"};
+
+// The relay's vectors share the folder (m4-design.md; owner B1, in packages/protocol): its XN
+// handshake, its frames and the sealing of pushes run between the hub, the relay and the phones,
+// never on a device, so this harness does not handle them; packages/protocol's relay vector tests
+// check them. Named one by one: a new file, relay's or not, still fails until it is listed here or
+// handled.
+const std::set<std::string> kRelayVectors = {"relay-xn.json", "relay-frames.json",
+                                             "relay-push.json"};
 
 // The app channel's vectors share the folder (m2-design.md, the vectors' tooling): this harness
 // answers for the device protocol's alone, so a file named with this prefix, and this folder, are
@@ -198,6 +227,147 @@ void check_message_file(VectorFile& file) {
   REQUIRE(!cases.empty());
   for (const json& item : cases) {
     check_message_case(header, item);
+  }
+}
+
+std::string sha256_hex(const Bytes& bytes) {
+  REQUIRE(psa_crypto_init() == PSA_SUCCESS);
+  std::array<std::uint8_t, 32> digest{};
+  std::size_t length = 0;
+  REQUIRE(psa_hash_compute(PSA_ALG_SHA_256, bytes.data(), bytes.size(), digest.data(),
+                           digest.size(), &length) == PSA_SUCCESS);
+  REQUIRE(length == digest.size());
+  return to_hex(digest);
+}
+
+/**
+ * Started with the image fields appended (m3-updates-design.md section 5). The file keeps them in
+ * "image", beside the version-1 fields; null for an older device's 8-byte body.
+ */
+void check_started_update(VectorFile& file) {
+  const json header = {{"messageType", protocol::message_type::started}, {"direction", 0}};
+  for (const json& item : file.section("valid")) {
+    json whole = item;
+    if (!item.at("image").is_null()) {
+      whole["fields"]["image"] = item.at("image");
+    }
+    whole["canonical"] = true;
+    check_message_case(header, whole);
+  }
+  for (const json& item : file.section("invalid")) {
+    INFO("invalid: " << name_of(item));
+    const Bytes plaintext = hex_of(item, "plaintext");
+    REQUIRE(!plaintext.empty());
+    CHECK(plaintext[0] == protocol::message_type::started);
+    const Error error =
+        protocol::decode_message(plaintext[0], view(plaintext).subspan(1), [](const auto&) {});
+    CHECK(error_name(error) == item.at("error").get<std::string>());
+  }
+}
+
+/** The transfer frames, their prefix and CRC-32 (m3-updates-design.md section 5). */
+void check_transfer_frames(VectorFile& file) {
+  CHECK(file.section("prefix") == protocol::kTransferMarker);
+  for (const json& item : file.section("crc32")) {
+    INFO("crc32: " << name_of(item));
+    CHECK(protocol::crc32(view(hex_of(item, "data"))) == item.at("crc32").get<std::uint32_t>());
+  }
+  for (const json& item : file.section("valid")) {
+    INFO("valid: " << name_of(item));
+    const Bytes bytes = hex_of(item, "bytes");
+    bool visited = false;
+    const Error error = protocol::decode_transfer(view(bytes), [&](const auto& frame) {
+      using Frame = std::decay_t<decltype(frame)>;
+      visited = true;
+      CHECK(Frame::kind == item.at("kind").get<int>());
+      CHECK(to_json(frame) == item.at("fields"));
+      if constexpr (std::is_same_v<Frame, protocol::transfer::Data>) {
+        // A Data frame decodes whatever its CRC; the receiver checks the CRC and drops a bad one.
+        CHECK((protocol::crc32(frame.data.bytes) == frame.crc32) == item.at("intact").get<bool>());
+      }
+      if (!item.at("canonical").get<bool>()) {
+        return;
+      }
+      Arena arena;
+      const auto built = struct_from_json<Frame>(item.at("fields"), arena);
+      Bytes out(protocol::kMaxLinkPacketSize);
+      const auto size =
+          protocol::encode_transfer(built, protocol::MutableByteView(out.data(), out.size()));
+      REQUIRE_MESSAGE(size.ok(), error_name(size.error()));
+      CHECK(to_hex(protocol::ByteView(out.data(), size.value())) == to_hex(view(bytes)));
+    });
+    REQUIRE_MESSAGE(error == Error::none, error_name(error));
+    CHECK(visited);
+  }
+  for (const json& item : file.section("invalid")) {
+    INFO("invalid: " << name_of(item));
+    const Bytes bytes = hex_of(item, "bytes");
+    const Error error = protocol::decode_transfer(view(bytes), [](const auto&) {});
+    CHECK(error_name(error) == item.at("error").get<std::string>());
+    if (error == Error::unknown_type) {
+      REQUIRE(bytes.size() >= 2);
+      CHECK(bytes[1] == item.at("messageType").get<int>());
+    }
+  }
+}
+
+/** The device image header and the bytes its signature covers (m3-updates-design.md section 3). */
+void check_image_header(VectorFile& file) {
+  const std::string label = file.section("label").get<std::string>();
+  const Bytes label_bytes(protocol::kImageSignatureLabel.begin(),
+                          protocol::kImageSignatureLabel.end());
+  // The label, then its zero byte.
+  Bytes expected_label(label.begin(), label.end());
+  expected_label.push_back(0);
+  CHECK(label_bytes == expected_label);
+  // The hub's identity is the hash of the key that verifies its images (protocol section 9).
+  const Bytes key = from_hex(file.section("signingKey").get<std::string>());
+  REQUIRE(key.size() == protocol::SigningKey{}.size());
+  protocol::SigningKey signing_key{};
+  std::copy(key.begin(), key.end(), signing_key.begin());
+  protocol::HubIdentity identity{};
+  REQUIRE(psa::compute_hub_identity(signing_key, identity) == Error::none);
+  CHECK(to_hex(identity) == file.section("hubIdentity").get<std::string>());
+  const std::string image_sha256 = sha256_hex(from_hex(file.section("image").get<std::string>()));
+  for (const json& item : file.section("valid")) {
+    INFO("valid: " << name_of(item));
+    const Bytes header = hex_of(item, "header");
+    REQUIRE(header.size() == protocol::kImageHeaderSize);
+    protocol::ImageHeader decoded;
+    REQUIRE(protocol::decode_image_header(view(header), decoded) == Error::none);
+    json expected = item.at("fields");
+    expected["signature"] = item.at("signature");
+    CHECK(to_json(decoded) == expected);
+    CHECK(to_hex(protocol::image_id_of(decoded)) == item.at("imageId").get<std::string>());
+    CHECK(image_sha256 == item.at("fields").at("imageSha256").get<std::string>());
+    Arena arena;
+    const auto built = struct_from_json<protocol::ImageHeader>(expected, arena);
+    Bytes out(protocol::kImageHeaderSize);
+    const auto size =
+        protocol::encode_image_header(built, protocol::MutableByteView(out.data(), out.size()));
+    REQUIRE_MESSAGE(size.ok(), error_name(size.error()));
+    CHECK(to_hex(view(out)) == to_hex(view(header)));
+    Bytes signed_bytes = label_bytes;
+    signed_bytes.insert(signed_bytes.end(), header.begin(),
+                        header.begin() + protocol::kImageHeaderSignedSize);
+    CHECK(to_hex(view(signed_bytes)) == item.at("signedBytes").get<std::string>());
+    CHECK(sha256_hex(signed_bytes) == item.at("signedSha256").get<std::string>());
+  }
+}
+
+/**
+ * The Bluetooth session (m3-updates-design.md section 5). Only the HKDF info's bytes are the
+ * core's (kSessionKeyLabel, then the address); the rest is skipped above, with its owner.
+ */
+void check_ble_session(VectorFile& file) {
+  for (const json& item : file.section("sessionKeys")) {
+    INFO("sessionKeys: " << name_of(item));
+    Bytes info(protocol::kSessionKeyLabel.begin(), protocol::kSessionKeyLabel.end());
+    const auto address = item.at("address").get<std::uint32_t>();
+    for (int i = 0; i < 4; ++i) {
+      info.push_back(static_cast<std::uint8_t>((address >> (8 * i)) & 0xFFu));
+    }
+    CHECK(to_hex(view(info)) == item.at("info").get<std::string>());
   }
 }
 
@@ -574,6 +744,14 @@ const std::map<std::string, Handler>& handlers() {
       {"cover-changed.json", check_message_file},
       {"button.json", check_message_file},
       {"started.json", check_message_file},
+      {"started-update.json", check_started_update},
+      {"update-query.json", check_message_file},
+      {"update-status.json", check_message_file},
+      {"update-offer.json", check_message_file},
+      {"key-change.json", check_message_file},
+      {"transfer-frames.json", check_transfer_frames},
+      {"image-header.json", check_image_header},
+      {"ble-update-session.json", check_ble_session},
       {"siren-report.json", check_message_file},
       {"hello.json", check_message_file},
       {"forwarded-packet.json", check_message_file},
@@ -613,7 +791,8 @@ std::vector<std::string> unhandled_entries(const std::filesystem::path& folder) 
     const std::string name = entry.path().filename().string();
     const bool app_channel = (entry.is_directory() && name == kAppVectorFolder) ||
                              (entry.is_regular_file() && name.rfind(kAppVectorPrefix, 0) == 0);
-    if (!app_channel && handlers().count(name) == 0 && kNotVectors.count(name) == 0) {
+    if (!app_channel && handlers().count(name) == 0 && kNotVectors.count(name) == 0 &&
+        kRelayVectors.count(name) == 0) {
       unhandled.push_back(name);
     }
   }
@@ -638,7 +817,8 @@ TEST_CASE("the folder check leaves the app channel's vectors alone, and no devic
       std::string(temporary != nullptr ? temporary : "/tmp") + "/hsn-vectors-XXXXXX";
   REQUIRE(mkdtemp(pattern.data()) != nullptr);
   const std::filesystem::path folder = pattern;
-  for (const char* name : {"foo.json", "app-x.json", "README.md", "cobs.json"}) {
+  for (const char* name :
+       {"foo.json", "app-x.json", "README.md", "cobs.json", "relay-xn.json", "relay-other.json"}) {
     std::ofstream(folder / name) << "{}";
   }
   std::filesystem::create_directory(folder / kAppVectorFolder);
@@ -646,7 +826,8 @@ TEST_CASE("the folder check leaves the app channel's vectors alone, and no devic
   std::filesystem::create_directory(folder / "app-folder");
   std::vector<std::string> unhandled = unhandled_entries(folder);
   std::sort(unhandled.begin(), unhandled.end());
-  CHECK(unhandled == std::vector<std::string>{"app-folder", "foo.json"});
+  // The relay's files are listed by name: one not listed is caught like any other.
+  CHECK(unhandled == std::vector<std::string>{"app-folder", "foo.json", "relay-other.json"});
   std::error_code ignored;
   std::filesystem::remove_all(folder, ignored);
 }
@@ -703,11 +884,28 @@ TEST_CASE("vectors: units.json") {
   run_files(check_units);
 }
 
+TEST_CASE("vectors: started-update.json") {
+  run_files(check_started_update);
+}
+
+TEST_CASE("vectors: transfer-frames.json") {
+  run_files(check_transfer_frames);
+}
+
+TEST_CASE("vectors: image-header.json") {
+  run_files(check_image_header);
+}
+
+TEST_CASE("vectors: ble-update-session.json") {
+  run_files(check_ble_session);
+}
+
 TEST_CASE("vectors: every handler has a test case") {
   // A handler added to the map must also get a TEST_CASE above.
   const std::set<Handler> run = {
-      check_message_file,   check_rejected_packets, check_counters,    check_cobs,
-      check_setup_messages, check_pairing_data,     check_time_on_air, check_units};
+      check_message_file,   check_rejected_packets, check_counters,     check_cobs,
+      check_setup_messages, check_pairing_data,     check_time_on_air,  check_units,
+      check_started_update, check_transfer_frames,  check_image_header, check_ble_session};
   for (const auto& entry : handlers()) {
     CHECK_MESSAGE(run.count(entry.second) != 0, entry.first << " has no test case");
   }

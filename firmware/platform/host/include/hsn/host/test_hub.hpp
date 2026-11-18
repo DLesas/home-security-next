@@ -3,6 +3,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <deque>
 #include <map>
 #include <memory>
 #include <optional>
@@ -17,10 +18,13 @@
 #include "hsn/host/replay_window.hpp"
 #include "hsn/host/sim_device.hpp"
 #include "hsn/host/simulation.hpp"
+#include "hsn/host/test_image.hpp"
 #include "hsn/protocol/binding.hpp"
+#include "hsn/protocol/image.hpp"
 #include "hsn/protocol/messages.hpp"
 #include "hsn/protocol/packet.hpp"
 #include "hsn/protocol/radio.hpp"
+#include "hsn/protocol/transfer.hpp"
 #include "hsn/psa/psa_packet_cipher.hpp"
 
 namespace hsn::host {
@@ -86,6 +90,132 @@ struct HubOptions {
    * in lockstep is given it (RemoteHub, `start.zone`); the test hub has no schedules.
    */
   std::string time_zone;
+  /**
+   * Updates: give the go-ahead ("install now") as soon as a device reports its image verified and
+   * the rules allow; otherwise only go_ahead() gives it.
+   */
+  bool auto_install = true;
+  /** The Bluetooth window an offer gives, in units of 10 s (120 s, design section 5). */
+  std::uint8_t bluetooth_window_units = 12;
+  /** At most one Key change per device this often (m3-updates-design.md section 7). */
+  device::Duration key_change_gap = device::seconds(10);
+};
+
+/** An image the test hub holds: the header it made and signed, and the file a device pulls. */
+struct HubImage {
+  protocol::ImageHeader header;
+  /** The header's image id. */
+  protocol::ImageId id{};
+  /** The header's 128 bytes, then the image. */
+  Bytes file;
+};
+
+/** How a device is offered an update (device_updates.method). */
+enum class UpdateMethod : std::uint8_t {
+  /** On its own link: a siren's or gateway's; a sensor has none, so it joins Wi-Fi. */
+  own_link,
+  /** A sensor joins Wi-Fi for it (offer action 2). */
+  join_wifi,
+  /** From a phone over Bluetooth (offer action 3), after open_bluetooth(). */
+  bluetooth,
+};
+
+/** Where one device's update stands on the test hub (device_updates.state, design section 4). */
+enum class UpdateState : std::uint8_t {
+  none,
+  /** Planned; not offered yet (a sensor: until its next query). */
+  planned,
+  offered,
+  fetching,
+  verified,
+  installing,
+  on_trial,
+  confirmed,
+  rolled_back,
+  refused,
+};
+
+/** Returns the snake-case name of an update state. */
+const char* update_state_name(UpdateState state);
+
+/** One device's update, as the test hub holds it. */
+struct DeviceUpdate {
+  UpdateState state = UpdateState::none;
+  protocol::ImageId image{};
+  UpdateMethod method = UpdateMethod::own_link;
+  /** Bytes of the file the hub served it in Data frames. */
+  std::uint64_t bytes_served = 0;
+  /** The reason the latest update status gave. */
+  std::uint8_t reason = 0;
+  /** After a rollback: the version that failed, as its Started said. */
+  protocol::FirmwareVersion failed;
+  /** The go-ahead has been given. */
+  bool go_ahead = false;
+  /** go_ahead() allowed it (with HubOptions::auto_install off). */
+  bool allowed = false;
+};
+
+/**
+ * A rollout's order (m3-updates-design.md section 4, "How a rollout proceeds"), as the test hub
+ * keeps it: the devices in the order given, the first `pilots` one at a time, then the soak, then
+ * the rest, sirens and gateways one at a time, sensors up to `sensors_at_once` at a time. A
+ * rollback or a refusal (not a hold) pauses it.
+ */
+struct RolloutRules {
+  std::size_t pilots = 0;
+  device::Duration soak;
+  std::size_t sensors_at_once = 4;
+};
+
+/**
+ * The reason a rollout paused for a rollback, beyond a device's reasons (protocol::UpdateReason,
+ * 1 to 17): the hub's `rollouts.paused_reason` code for it (hub core/model/rows.ts,
+ * ROLLED_BACK_REASON).
+ */
+constexpr std::uint8_t kRolledBackReason = 20;
+
+/** A Bluetooth session the hub hands a phone (firmware.bluetooth, design section 5). */
+struct BluetoothSession {
+  std::uint32_t address = 0;
+  /** K: HKDF-SHA256 of the device key, the nonce and the address. Never printed. */
+  std::array<std::uint8_t, 32> session_key{};
+  std::array<std::uint8_t, 8> nonce{};
+  std::uint8_t window_units = 0;
+  protocol::ImageId image{};
+  /** The file the phone serves: header and image. */
+  Bytes file;
+};
+
+/** One Get the hub answered on a link. */
+struct HubTransfer {
+  device::Instant at;
+  std::string device;
+  std::uint32_t offset = 0;
+  std::uint16_t length = 0;
+  /** protocol::transfer_kind::data or ::gone. */
+  std::uint8_t answer = 0;
+  /** For a Gone, its reason (protocol::GoneReason). */
+  std::uint8_t gone_reason = 0;
+  /** The frame sent. */
+  Bytes frame;
+};
+
+/**
+ * What a backup of the test hub holds of its devices (keys, pending keys, replay windows, send
+ * counters, settings versions), for TestHub::restore(). Opaque.
+ */
+class HubSnapshot {
+public:
+  struct Device {
+    std::string name;
+    protocol::DeviceKey key{};
+    std::optional<protocol::DeviceKey> next_key;
+    bool rekey = false;
+    ReplayWindow window;
+    std::uint32_t next_counter = 1;
+    std::uint8_t version = 1;
+  };
+  std::vector<Device> devices;
 };
 
 /** What arming does with a sensor whose door is open (D50, D114). */
@@ -106,6 +236,11 @@ struct SensorConfig {
   std::uint8_t send_data_rate = 5;
   std::uint8_t reply_data_rate = 5;
   std::int16_t clock_correction_ten_ppm = 0;
+  /**
+   * The sensor is in range of the home's Wi-Fi: the hub is at the other end of its network link,
+   * which it uses only for updates (protocol section 10).
+   */
+  bool wifi_in_range = true;
 };
 
 /** A siren's settings (protocol section 6, siren settings). */
@@ -262,6 +397,101 @@ public:
     return options_.site_channel;
   }
 
+  // ---- Firmware updates (m3-updates-design.md sections 4 and 5) ----
+
+  /**
+   * Stores an image: makes its 128-byte header (every role; the hub identity boards are paired
+   * with, Provisioning's), signed with the hub's key, and keeps the file. Returns it; it stays
+   * valid as long as the hub.
+   */
+  const HubImage& add_image(const Bytes& image, bool own_build = false);
+
+  /** The hub's signing key, whose public half every board it pairs holds. */
+  const HubSigningKey& signing_key() const {
+    return signing_key_;
+  }
+
+  /**
+   * Plans an update of one device to an image: a siren or gateway is offered it on its link
+   * (action 1) as soon as it is connected; a sensor sees "update available" in its replies (and
+   * every heartbeat is answered while it waits), and its Update query is answered with action 2
+   * (join Wi-Fi and fetch), or action 1 when the query came over its link, or action 3 after
+   * open_bluetooth(). Every Get on a link the hub granted is answered from the file.
+   */
+  void offer_update(const std::string& name, const protocol::ImageId& image,
+                    UpdateMethod method = UpdateMethod::own_link);
+
+  /**
+   * Starts a rollout of `image` to `order` (its device names), by `rules`: offer_update() for each
+   * device when its turn comes; the go-ahead only for a sensor that is disarmed, with no countdown
+   * or alarm, and for a siren or gateway while no other siren or gateway installs or is on trial
+   * and, for a gateway, no sensor is on trial.
+   */
+  void rollout(const protocol::ImageId& image, const std::vector<std::string>& order,
+               const RolloutRules& rules = {});
+
+  /** True while the rollout is paused by a rollback or a refusal; resume_rollout() goes on. */
+  bool rollout_paused() const {
+    return rollout_.paused;
+  }
+  /**
+   * Why the rollout paused, as the hub's `rollouts.paused_reason`: the refusal's reason
+   * (protocol::UpdateReason), or kRolledBackReason for a rollback; 0 while not paused.
+   */
+  std::uint8_t rollout_pause_reason() const {
+    return rollout_.paused ? rollout_.paused_reason : 0;
+  }
+  void resume_rollout();
+
+  /** True once every device of the rollout is confirmed. */
+  bool rollout_done() const;
+
+  /**
+   * Gives the go-ahead to a device whose image is verified (with auto_install off): a siren or
+   * gateway gets "install now" on its link at once, a sensor in answer to its next packet.
+   */
+  void go_ahead(const std::string& name);
+
+  /**
+   * firmware.bluetooth: a session for a phone to update `name` with `image` over Bluetooth. The
+   * hub draws a nonce, derives the session key from the device key, and plans action 3 for the
+   * device's next Update query.
+   */
+  BluetoothSession open_bluetooth(const std::string& name, const protocol::ImageId& image);
+
+  /** One device's update. */
+  const DeviceUpdate& update_of(const std::string& name) const;
+
+  /** Every Get the hub answered, in order. */
+  const std::vector<HubTransfer>& transfers() const {
+    return transfers_;
+  }
+
+  // ---- The key change after a restore (m3-updates-design.md section 7) ----
+
+  /** What a backup taken now would hold of the devices. */
+  HubSnapshot snapshot() const;
+
+  /**
+   * Restores the devices' state from `backup` (keys, pending keys, replay windows, settings
+   * versions; the send counters moved by 2^24) and marks every device: from now on the hub acts
+   * on no packet under a device's old key. It answers each with a Key change (a new key made at the
+   * first such packet, sealed under the old one, at most one per device every key_change_gap): to a
+   * sensor bound to the packet, to a siren under the strictly-higher rule on both paths, to a
+   * gateway's hello in place of the welcome. Every siren gets one at once, as at the restored
+   * hub's first start. The first packet under the new key switches the device to it.
+   */
+  void restore(const HubSnapshot& backup);
+
+  /** True while a device has not been heard under its new key since a restore. */
+  bool rekey_pending(const std::string& name) const;
+
+  /** The key the hub holds for a device now (for a test's own sealing). Never print it. */
+  const protocol::DeviceKey& key_of(const std::string& name) const;
+
+  /** The new key the hub made for a device, if any, not yet confirmed. Never print it. */
+  std::optional<protocol::DeviceKey> next_key_of(const std::string& name) const;
+
   /** Ends a link's connection from the hub's side (a siren's Wi-Fi, a gateway's link). */
   void drop_link(const std::string& name, device::LinkKind kind,
                  device::Duration noticed_after = device::Duration{});
@@ -413,6 +643,15 @@ private:
     std::int16_t best_rssi = 0;
     GatewayConfig gateway;
     Session session;
+    /** Its update. */
+    DeviceUpdate update;
+    /** A Bluetooth session waiting for its next Update query. */
+    std::optional<BluetoothSession> bluetooth;
+    /** The key change after a restore: required, the new key (and its cipher), the last sent. */
+    bool rekey = false;
+    std::optional<protocol::DeviceKey> next_key;
+    std::unique_ptr<psa::PsaPacketCipher> next_cipher;
+    device::Instant last_key_change = device::Instant::never();
   };
 
   /** A packet that reached the hub over the air: directly, or forwarded by a gateway. */
@@ -429,6 +668,8 @@ private:
     std::uint8_t data_rate = 0;
     /** The site channel it arrived on: the hub radio's, or as the gateway forwarded it. */
     std::uint8_t site_channel = 0;
+    /** The device's own link it came by (HubPath::link), else null. */
+    LinkWire* wire = nullptr;
   };
 
   /** The site's move (protocol section 7, D115). */
@@ -544,6 +785,39 @@ private:
   void send_gateway_settings(std::size_t index);
   void request_transmit(const Downlink& downlink);
 
+  // hub_updates.cpp: images, offers, serving Gets, statuses, the go-ahead, the rollout.
+  const HubImage* image(const protocol::ImageId& id) const;
+  void on_transfer_frame(std::size_t index, LinkWire& wire, const Bytes& frame);
+  void answer_get(std::size_t index, LinkWire& wire, const protocol::transfer::Get& get);
+  void send_frame(std::size_t index, LinkWire& wire, const Bytes& frame);
+  /** A sensor's, siren's or gateway's update packet; true when the sensor was answered. */
+  bool on_update_packet(std::size_t index, const Opened& opened, const Arrival& arrival,
+                        LinkWire* wire);
+  void on_update_started(std::size_t index, const protocol::Started& started);
+  protocol::UpdateOffer offer_for(const Known& device, std::uint8_t action) const;
+  void send_offer(std::size_t index, std::uint8_t action, const Arrival* answering,
+                  std::uint32_t answered, LinkWire* wire);
+  void push_offer(std::size_t index);
+  bool may_install(std::size_t index) const;
+  void push_go_aheads();
+  void advance_rollout();
+  void advance_rollout_once();
+  void set_update_state(std::size_t index, UpdateState state);
+  bool offer_waiting(std::size_t index) const;
+  /** Sends a sensor a packet bound to one it sent: on the link it came by, else as soon as
+   * possible within its event listening, at the rate it listens at. */
+  void answer_sensor(std::size_t index, const Arrival& arrival, const Bytes& packet,
+                     std::uint8_t type);
+
+  // hub_rekey.cpp: snapshots, restores and Key changes.
+  enum class KeyUsed : std::uint8_t { none, current, next };
+  KeyUsed open_any(Known& device, protocol::ByteView packet, const protocol::Binding& binding,
+                   protocol::PacketLimit limit, std::optional<Opened>& opened);
+  void switch_key(Known& device);
+  void answer_old_key(std::size_t index, const Opened& opened, const Arrival& arrival,
+                      LinkWire* wire, const protocol::RandomValue* hello_random);
+  const protocol::DeviceKey& make_next_key(Known& device);
+
   Simulation& sim_;
   HubOptions options_;
   ActorId actor_;
@@ -563,6 +837,32 @@ private:
   std::vector<HubSent> sent_;
   std::vector<HubDecision> decisions_;
   std::vector<HubLogEntry> log_entries_;
+  HubSigningKey signing_key_;
+  std::deque<HubImage> images_;
+  /** Links the hub has granted, and for which image. */
+  std::map<const LinkWire*, protocol::ImageId> grants_;
+  std::vector<HubTransfer> transfers_;
+  struct Rollout {
+    /** Its number, from 1, as the hub's `rollouts.id`. */
+    std::uint32_t id = 0;
+    bool active = false;
+    bool paused = false;
+    /** As rollout_pause_reason(), while paused. */
+    std::uint8_t paused_reason = 0;
+    protocol::ImageId image{};
+    std::vector<std::string> order;
+    RolloutRules rules;
+    /** Which devices of the order have been offered their update. */
+    std::vector<bool> offered;
+    bool done_recorded = false;
+    bool advancing = false;
+    bool again = false;
+    /** The soak ends then; never until the pilots are confirmed. */
+    device::Instant soak_until = device::Instant::never();
+  };
+  Rollout rollout_;
+  /** The number the next rollout() takes. */
+  std::uint32_t next_rollout_ = 1;
 };
 
 template <typename Message>

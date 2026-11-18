@@ -33,14 +33,31 @@ TEST_CASE(
   REQUIRE(logs.size() == 1);
   CHECK(logs[0].level == static_cast<std::uint8_t>(device::LogLevel::warning));
   CHECK(logs[0].text == "send rate ignored 3");
-  // Made at the Started reply, about 0.24 s after power-on.
-  CHECK(logs[0].made_at >= at_s(0.1));
-  CHECK(logs[0].made_at <= at_s(0.4));
   // It went right after the first heartbeat's reply window, as routine traffic, and was
   // answered; then it left the buffer, and no second packet carried it.
   const auto beats = sent(door, type::heartbeat);
   const auto packets = sent(door, type::log_entries);
   REQUIRE(packets.size() == 1);
+  // Made at the Started reply, when the sensor heard it (about 0.25 s after power-on). The hub
+  // dates an entry as the end of the packet that carried it less the entry's age, which protocol
+  // section 6 counts in whole tenths of a second from when that packet was sealed, just before
+  // its channel check. So the hub's date is the moment it was made plus the time from sealing to
+  // the packet's end (its time on air, which follows the packet's length), and less than a tenth
+  // of a second later than that.
+  const auto receptions = door.records().kind(RecordKind::reception).records();
+  REQUIRE_FALSE(receptions.empty());
+  const Instant made = receptions.front().at;
+  CHECK(made >= at_s(0.1));
+  Instant sealed;
+  for (const Record& check : door.records().kind(RecordKind::channel_check).records()) {
+    if (check.from <= packets[0].from) {
+      sealed = check.from;
+    }
+  }
+  REQUIRE(sealed > beats[0].until);
+  const device::Duration carried = packets[0].until - sealed;
+  CHECK(logs[0].made_at >= made + carried);
+  CHECK(logs[0].made_at < made + carried + device::milliseconds(100));
   CHECK(packets[0].from > beats[0].until + seconds(1));
   CHECK(packets[0].from < beats[0].until + seconds(2));
   CHECK_FALSE(logged(door, setting_ignored));

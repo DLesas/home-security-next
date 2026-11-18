@@ -58,6 +58,11 @@ public:
     return a.bits_ == b.bits_;
   }
 
+  /** Both sets together. */
+  friend constexpr WakeMask operator|(WakeMask a, WakeMask b) {
+    return WakeMask(static_cast<std::uint8_t>(a.bits_ | b.bits_));
+  }
+
 private:
   static constexpr std::uint8_t kTimerBit = 0x80;
 

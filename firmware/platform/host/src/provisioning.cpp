@@ -15,6 +15,7 @@ void provision(HostBoard& board, const Provisioning& provisioning) {
   pairing.address = provisioning.address;
   pairing.key = provisioning.key;
   pairing.hub_identity = provisioning.hub_identity;
+  pairing.firmware_signing_key = provisioning.signing_key;
   pairing.site_channel = provisioning.site_channel;
   pairing.allowed_data_rate_mask = provisioning.allowed_data_rate_mask;
   pairing.wifi_name_size =

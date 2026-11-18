@@ -29,9 +29,12 @@ enum class RecordKind : std::uint8_t {
   wait,
   /** The device sleeps deep: RAM is lost. until: the timer (or never); value: wake input bits. */
   deep_sleep,
-  /** The device asked for a restart, or a test restarted it. */
+  /** The device asked for a restart, or a test restarted it. flag: the task watchdog fired. */
   restart,
-  /** Power was lost: retained memory is gone. */
+  /**
+   * Power was lost: retained memory is gone. flag: a cut the board's PowerCut made, at the flash
+   * operation numbered `value`.
+   */
   power_loss,
   /** An input changed. value: device::Input; flag: its new level. */
   input,
@@ -69,6 +72,15 @@ enum class RecordKind : std::uint8_t {
   link_sent,
   /** The device received a packet on a link. value: LinkKind; label. */
   link_received,
+  /** A sector of the slot not running was erased. value: its offset; flag: the erase failed. */
+  slot_erase,
+  /** Bytes were programmed into the slot not running. value: offset; length; flag: failed. */
+  slot_write,
+  /**
+   * An otadata copy was rewritten (select, confirm, reject or the bootloader). value: the state
+   * written (ota_state); length: the copy, 0 or 1; flag: the write failed.
+   */
+  otadata_write,
 };
 
 /** Returns the snake-case name of a record kind. */

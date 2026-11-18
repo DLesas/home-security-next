@@ -28,6 +28,7 @@ public:
   device::Duration longest_awake() const override {
     return device::Duration{};
   }
+  void report_again(device::Instant) override {}
 };
 
 static_assert(device::is_complete_role<CompleteRole>, "a role must override every Role method");

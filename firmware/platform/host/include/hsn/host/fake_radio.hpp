@@ -8,6 +8,7 @@
 #include "hsn/device/hal/radio.hpp"
 #include "hsn/device/time.hpp"
 #include "hsn/host/call_meter.hpp"
+#include "hsn/host/power_cut.hpp"
 
 namespace hsn::host {
 
@@ -55,9 +56,10 @@ protected:
  * The SX1262. Records every call and keeps the mode; delivers nothing by itself. A test or the
  * Medium builds the events with the builders below, which also move the mode as the chip would
  * (a timed receive ends in standby, a continuous one keeps receiving) and keep a received
- * packet in the radio's own buffer, as the platform does.
+ * packet in the radio's own buffer, as the platform does. While the board's power is cut, a call
+ * does nothing: it is not recorded and nothing goes on the air.
  */
-class FakeRadio final : public device::Radio, public Metered {
+class FakeRadio final : public device::Radio, public Metered, public Powered {
 public:
   explicit FakeRadio(const device::Clock& clock) : clock_(clock) {}
 

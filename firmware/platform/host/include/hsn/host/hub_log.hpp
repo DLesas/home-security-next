@@ -36,6 +36,11 @@ enum class HubVerdict : std::uint8_t {
   malformed,
   /** A gateway packet with no connection open for it. */
   no_session,
+  /**
+   * Sealed under the device's old key after a restore (m3-updates-design.md section 7): never
+   * acted on, its replay window untouched, answered with a Key change.
+   */
+  old_key,
 };
 
 /** One packet the hub received, accepted or not. */
@@ -179,6 +184,39 @@ enum class HubAction : std::uint8_t {
   device_followed,
   /** Every device has followed. */
   move_done,
+  // Firmware updates and the key change (m3-updates-design.md sections 4 and 7). Every update
+  // name starts `firmware_` or `rollout_`, apart from the hub's own `update_*` (its software
+  // update). Where the hub records a kind with a value, the value is the hub's (its
+  // core/firmware/records.ts); a version is major × 65,536 + minor × 256 + patch.
+  /** An update offer was sent. value: its action (protocol::UpdateAction). */
+  firmware_offer,
+  /** An update query arrived. value: what it holds (protocol::UpdateHeld). */
+  firmware_query,
+  /** An update status arrived. value: stage × 256 + reason. */
+  firmware_status,
+  /** "Install now" was sent. value: the image's version. */
+  firmware_installing,
+  /** A Started said the new image is on trial. value: the image's version. */
+  firmware_on_trial,
+  /** The device runs the new image, confirmed. value: the image's version. */
+  firmware_confirmed,
+  /** A Started said the device rolled back. value: the failed version. */
+  firmware_rolled_back,
+  /** An update status refused the update. value: its reason (protocol::UpdateReason). */
+  firmware_refused,
+  /**
+   * The rollout paused, for the decision's device. value: the rollout, numbered from 1 as the
+   * hub's `rollouts.id`; its reason is TestHub::rollout_pause_reason().
+   */
+  rollout_paused,
+  /** Every device of the rollout is confirmed. value: the rollout. */
+  rollout_done,
+  /** A packet under the old key after a restore was not acted on. value: its counter. */
+  old_key_packet,
+  /** A Key change was sent. No value, as the hub's. */
+  key_change_sent,
+  /** The first packet under the new key arrived: the device has its new key. */
+  key_changed,
 };
 
 /** One decision, with when and for which device. */

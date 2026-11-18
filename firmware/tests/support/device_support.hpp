@@ -77,6 +77,7 @@ public:
   device::Duration longest_awake() const override {
     return longest;
   }
+  void report_again(device::Instant) override {}
 
   device::Services& services() {
     return services_;

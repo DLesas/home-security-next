@@ -7,6 +7,7 @@ namespace hsn::device {
 void Health::boot(const BootInfo& boot, std::uint32_t previous_breadcrumb) {
   reset_cause_ = boot.reset_cause;
   restart_requested_ = false;
+  image_ = protocol::Appended<protocol::StartedImage>{};
   std::array<std::uint8_t, 2> bytes{};
   const auto read = storage_.read(StoreKey::fatal_error, protocol::MutableByteView(bytes));
   const std::uint16_t stored = read.ok() && read.value() == bytes.size()
@@ -23,6 +24,13 @@ void Health::boot(const BootInfo& boot, std::uint32_t previous_breadcrumb) {
   }
 }
 
+void Health::running_image(const BootImage& image) {
+  image_.present = true;
+  image_.fields.flags.on_trial = image.on_trial;
+  image_.fields.flags.rolled_back = image.rolled_back;
+  image_.fields.failed_version = image.rolled_back ? image.failed : protocol::FirmwareVersion{};
+}
+
 protocol::Started Health::started(std::uint8_t role, std::uint8_t settings_version) const {
   protocol::Started started;
   started.role = role;
@@ -30,6 +38,7 @@ protocol::Started Health::started(std::uint8_t role, std::uint8_t settings_versi
   started.reset_cause = reset_cause_;
   started.last_fatal_error = last_fatal_;
   started.settings_version = settings_version;
+  started.image = image_;
   return started;
 }
 

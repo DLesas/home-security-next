@@ -81,6 +81,15 @@ public:
    */
   virtual Duration longest_awake() const;
 
+  /**
+   * The device key has just changed after a hub restore (m3-updates-design.md section 7, step 4):
+   * send again, under the new key, what the role was saying. A sensor sends its current report (a
+   * door report keeps its age from the opening), or after a heartbeat a heartbeat asking for a
+   * reply; a siren a report (reason 1); a gateway a new hello. Device calls it once, after the
+   * handle() in which SecureChannel::change_key succeeded.
+   */
+  virtual void report_again(Instant now);
+
 protected:
   Role() = default;
   Role(const Role&) = default;
@@ -103,6 +112,7 @@ constexpr bool is_complete_role =
     std::is_same_v<decltype(&R::state_bytes), protocol::MutableByteView (R::*)()> &&
     std::is_same_v<decltype(&R::state_layout), std::uint8_t (R::*)() const> &&
     std::is_same_v<decltype(&R::state_id), std::uint8_t (R::*)() const> &&
-    std::is_same_v<decltype(&R::longest_awake), Duration (R::*)() const>;
+    std::is_same_v<decltype(&R::longest_awake), Duration (R::*)() const> &&
+    std::is_same_v<decltype(&R::report_again), void (R::*)(Instant)>;
 
 }  // namespace hsn::device

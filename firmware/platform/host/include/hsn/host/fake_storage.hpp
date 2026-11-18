@@ -9,13 +9,19 @@
 #include "hsn/device/hal/storage.hpp"
 #include "hsn/device/time.hpp"
 #include "hsn/host/call_meter.hpp"
+#include "hsn/host/power_cut.hpp"
 
 namespace hsn::host {
 
 using Bytes = std::vector<std::uint8_t>;
 
-/** Flash: a map of records that survives every reset, with every write recorded. */
-class FakeStorage final : public device::Storage, public Metered {
+/**
+ * Flash: a map of records that survives every reset, with every write recorded. Each write and
+ * erase is one flash operation for the board's PowerCut: one the cut interrupts leaves the record
+ * as it was (NVS writes whole or nothing) and is recorded as failed and interrupted; one after the
+ * cut does nothing, is not recorded, and reports HalError::io.
+ */
+class FakeStorage final : public device::Storage, public Metered, public Powered {
 public:
   /** One write or erase, as the device made it. */
   struct Operation {
@@ -25,6 +31,8 @@ public:
     device::StoreKey key = device::StoreKey::role;
     Bytes value;
     bool failed = false;
+    /** A power cut fell during it: it left nothing. */
+    bool interrupted = false;
   };
 
   explicit FakeStorage(const device::Clock& clock) : clock_(clock) {}
@@ -54,6 +62,8 @@ public:
 
 private:
   bool write_fails();
+  /** Asks the power for `op`'s fate; true when the operation goes ahead (whole). */
+  bool powered(FlashOp op, Operation& operation);
 
   const device::Clock& clock_;
 };

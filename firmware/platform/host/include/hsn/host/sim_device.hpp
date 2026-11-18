@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -25,6 +26,22 @@
 
 namespace hsn::host {
 
+/**
+ * What a board runs when it boots an image of one version (m3-updates-design.md section 8): a test
+ * maps versions to roles, so an update can bring a good role, one that never confirms, one that
+ * cannot open packets, or one that hangs.
+ */
+struct ImageRole {
+  protocol::FirmwareVersion version;
+  /** Built on every boot of that image; empty for none (setup-only mode). */
+  RoleFactory role;
+  /**
+   * The image hangs: the first event this long or more after its boot never returns from
+   * handle(), so the task watchdog resets the chip (SimDevice::hang). Empty: it does not hang.
+   */
+  std::optional<device::Duration> hangs_after;
+};
+
 /** One device in a Simulation. */
 struct DeviceSpec {
   /** Unique in the simulation; names it on the timeline. */
@@ -37,6 +54,13 @@ struct DeviceSpec {
   device::Instant power_on;
   /** From power, reset or deep-sleep wake to the boot event (the worked example's 0.05 s). */
   device::Duration boot_time = device::milliseconds(50);
+  /**
+   * The role per booted image's version; an image whose version is not listed runs `role`. With
+   * none listed, every image runs `role`.
+   */
+  std::vector<ImageRole> images;
+  /** How long the board stays off after a power cut the PowerCut made, before power returns. */
+  device::Duration off_after_cut = device::seconds(1);
 };
 
 /** What the Simulation shares with its devices. */
@@ -177,6 +201,23 @@ public:
   /** Resets the chip at `when` (a software restart): RAM is lost, retained memory kept. */
   void restart(device::Instant when);
 
+  /**
+   * The running image hangs at `when`: the first event at or after it never returns from handle()
+   * (nothing more is delivered or fed), and the task watchdog resets the chip its timeout after
+   * the last feed, with BootInfo::watchdog_reset (reset cause 6, the task watchdog).
+   */
+  void hang(device::Instant when);
+
+  /** Power cuts the board's PowerCut made so far (each one a power loss on the timeline). */
+  std::uint32_t power_cuts() const {
+    return power_cuts_;
+  }
+
+  /** What the fake bootloader chose at the latest boot. */
+  const BootChoice& boot_choice() const {
+    return boot_choice_;
+  }
+
 private:
   /** The device objects of one boot. */
   struct Boot {
@@ -190,6 +231,7 @@ private:
   /** What a handle() may have changed on the board, to put on the timeline afterwards. */
   struct Seen {
     std::size_t storage = 0;
+    std::size_t slot_operations = 0;
     std::size_t sounds = 0;
     std::size_t sensor_blinks = 0;
     std::size_t outputs = 0;
@@ -199,7 +241,16 @@ private:
   };
 
   void power_up();
-  void start_boot(device::BootKind kind, device::WakeMask woke_by, std::uint8_t reset_cause);
+  void start_boot(device::BootKind kind, device::WakeMask woke_by, std::uint8_t reset_cause,
+                  bool watchdog = false);
+  /** The board's PowerCut cut the power: the board goes off, and comes back after a while. */
+  void power_cut();
+  /** True (and the cut carried out) when the power was cut during the call just made. */
+  bool take_cut();
+  /** The role factory for the image this boot runs. */
+  const RoleFactory& role_for(const protocol::FirmwareVersion& version) const;
+  /** A hang begins instead of the event about to be delivered, when one is due. */
+  bool hang_now();
   void boot(device::BootInfo info);
   void go_down(bool finish_sending = false);
   void enter_deep_sleep(const device::WaitRequest& request);
@@ -212,7 +263,8 @@ private:
   template <typename Call>
   void metered(const char* what, Call call);
   Seen snapshot() const;
-  void transcribe(const Seen& before);
+  void transcribe(const Seen& before, const Seen* until = nullptr);
+  void trim_to(const Seen& seen);
   void trim_fake_records();
   Record record(RecordKind kind) const;
 
@@ -224,6 +276,7 @@ private:
   RadioBridge radio_;
   LinkWire usb_;
   LinkWire network_;
+  LinkWire bluetooth_;
   std::unique_ptr<Boot> boot_;
   PowerState state_ = PowerState::off;
   /** Bumped on every change of state; scheduled actions of an older one do nothing. */
@@ -235,6 +288,15 @@ private:
   std::uint32_t boots_ = 0;
   std::uint32_t power_losses_ = 0;
   bool waited_ = false;
+  /** A cut fell during the current call; what had happened by then. */
+  bool cut_pending_ = false;
+  Seen cut_seen_;
+  std::uint32_t power_cuts_ = 0;
+  BootChoice boot_choice_;
+  /** A hang: when it is due, whether it has begun, and the last feed's true time. */
+  device::Instant hang_at_ = device::Instant::never();
+  bool hung_ = false;
+  device::Instant last_fed_;
 };
 
 }  // namespace hsn::host

@@ -231,4 +231,17 @@ Outcome<protocol::OpenedPacket> SecureChannel::open_session(ByteView packet,
   return opened.value();
 }
 
+Status SecureChannel::change_key(const protocol::DeviceKey& key, Instant now) {
+  // Step 0's stub (m3-m4-plan.md): the key change's owner builds the three steps.
+  static_cast<void>(key);
+  static_cast<void>(now);
+  return keys_ == nullptr ? Status::not_ready : Status::refused;
+}
+
+bool SecureChannel::take_key_change() {
+  const bool changed = key_changed_;
+  key_changed_ = false;
+  return changed;
+}
+
 }  // namespace hsn::device

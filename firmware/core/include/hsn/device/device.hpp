@@ -21,6 +21,13 @@ constexpr std::uint8_t kRetainedLayout = 3;
  * Receives every event and passes it on (design section 2). It restores and seals the retained
  * block, writes the breadcrumb, answers USB setup messages itself, keeps an unpaired or role-less
  * board in setup-only mode, and catches a role that stays awake too long.
+ *
+ * For updates (m3-updates-design.md section 2) it passes every transfer frame (0xF2) on any link,
+ * and every event of the Bluetooth link, to UpdateService, never to the role; tells the service
+ * of every USB and network link's up and down, which the role also gets; merges the service's
+ * wake with the role's; never allows deep sleep while the running image is on trial; and raises
+ * the stuck-awake bound to kUpdateLongestAwake while an update is active or the image is on trial.
+ * After an event in which the device key changed, it calls the role's report_again().
  */
 class Device {
 public:
@@ -37,7 +44,9 @@ public:
 
   /**
    * Returns when to run next and how deeply the chip may sleep. In setup-only mode: light sleep
-   * on external power, otherwise deep sleep woken by external power or the button.
+   * on external power, otherwise deep sleep woken by external power or the button. Otherwise the
+   * role's wake merged with UpdateService's (the earlier time, the shallower sleep), never deeper
+   * than light while the image is on trial.
    */
   Wake next_wake() const;
 
@@ -63,6 +72,8 @@ public:
 private:
   void boot(const Event& event);
   bool handle_setup(const Event& event);
+  bool handle_update(const Event& event);
+  Wake active_wake() const;
   void write_breadcrumb(std::uint32_t value);
   std::uint32_t read_breadcrumb();
   bool restore();

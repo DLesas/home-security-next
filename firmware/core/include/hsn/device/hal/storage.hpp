@@ -27,6 +27,11 @@ enum class StoreKey : std::uint8_t {
   command_counter = 0x03,
   /** The last fatal error code (FW5). */
   fatal_error = 0x04,
+  /**
+   * An update in progress (m3-updates-design.md section 2): the image header, the stage and the
+   * checkpoint; UpdateRecord. Removed when the update is confirmed, refused or discarded.
+   */
+  update = 0x05,
   sensor_first = 0x10,
   sensor_last = 0x1F,
   siren_first = 0x20,

@@ -15,6 +15,8 @@ struct Provisioning {
   std::uint32_t address = 0;
   protocol::DeviceKey key{};
   protocol::HubIdentity hub_identity{9, 8, 7, 6, 5, 4, 3, 2};
+  /** The hub's P-256 public key that firmware image headers are checked against (section 9). */
+  protocol::SigningKey signing_key{};
   /** 0 = 868.1, 1 = 868.3, 2 = 868.5 MHz. */
   std::uint8_t site_channel = 1;
   /** One bit per data rate the site allows: DR5 and DR2 by default (protocol section 2). */

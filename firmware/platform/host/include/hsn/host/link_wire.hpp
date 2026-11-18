@@ -35,10 +35,14 @@ protected:
 };
 
 /**
- * One device link (USB or WebSocket) and the wire to whatever is at the other end, with a fixed
- * one-way latency. A connect reaches an attached peer and comes back `up`; with no peer, `down`
- * comes after kLinkDeadAfter, as the platform's ping would report. A network link carries packets
- * only while up; a USB link carries them whenever a peer is attached, as a serial port does.
+ * One device link (USB, WebSocket or Bluetooth) and the wire to whatever is at the other end, with
+ * a fixed one-way latency. A USB or network connect reaches an attached peer and comes back `up`;
+ * with no peer, `down` comes after kLinkDeadAfter, as the platform's ping would report. A
+ * Bluetooth connect starts advertising: a phone (the peer) attached then, or attached later while
+ * it advertises, connects and the link comes `up`; with none, nothing comes back. A network or
+ * Bluetooth link carries packets only while up; a USB link carries them whenever a peer is
+ * attached, as a serial port does. A Bluetooth session the device closes still delivers what the
+ * device sent before closing (its Done), then the phone learns of the close.
  * Packets and state changes reach the device only while it runs: a device in deep sleep or
  * rebooting loses them. Every packet either way, and every up and down, goes on the timeline.
  */
@@ -67,6 +71,17 @@ public:
   bool connected() const {
     return connected_;
   }
+
+  /** True while a Bluetooth link advertises: from its connect to its disconnect or a reset. */
+  bool advertising() const {
+    return advertising_;
+  }
+
+  /**
+   * The phone connects again to a Bluetooth link that still advertises (after a drop); false when
+   * it cannot: not Bluetooth, not advertising, already connected, or no peer.
+   */
+  bool peer_connect();
 
   /** True when a peer is attached. */
   bool attached() const {
@@ -114,6 +129,7 @@ private:
   bool carries() const;
   void close_hub_side();
   void lose_in_flight();
+  void start_connection();
 
   Scheduler& scheduler_;
   Timeline& timeline_;
@@ -125,6 +141,9 @@ private:
   LinkPeer* peer_ = nullptr;
   device::Duration latency_;
   bool connected_ = false;
+  bool advertising_ = false;
+  /** A connection is on its way (its `up` scheduled); bumping the generation cancels it. */
+  bool connecting_ = false;
   /** Bumped when the connection changes; packets in flight on an older one are lost. */
   std::uint64_t generation_ = 0;
   /** The same for packets from the device, which a restart lets finish. */

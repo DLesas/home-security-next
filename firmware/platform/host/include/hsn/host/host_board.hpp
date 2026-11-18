@@ -15,8 +15,10 @@
 #include "hsn/host/fake_random.hpp"
 #include "hsn/host/fake_retained.hpp"
 #include "hsn/host/fake_storage.hpp"
+#include "hsn/host/fake_update.hpp"
 #include "hsn/host/fake_waiter.hpp"
 #include "hsn/host/fake_watchdog.hpp"
+#include "hsn/host/power_cut.hpp"
 #include "hsn/protocol/cipher.hpp"
 #include "hsn/psa/psa_packet_cipher.hpp"
 
@@ -30,7 +32,11 @@ namespace hsn::host {
  */
 class HostBoard {
 public:
-  explicit HostBoard(std::uint64_t seed = 1);
+  /**
+   * A board seeded with `seed`: its slot 0 holds a test image of hal().build.version, otadata is
+   * blank, and its slots are `slot_size` bytes (FakeFirmwareSlots).
+   */
+  explicit HostBoard(std::uint64_t seed = 1, std::size_t slot_size = kDefaultSlotSize);
   HostBoard(const HostBoard&) = delete;
   HostBoard& operator=(const HostBoard&) = delete;
 
@@ -39,26 +45,46 @@ public:
     return hal_;
   }
 
-  /** Imports the device key into the cipher, as the platform does at start-up. */
+  /**
+   * Imports the device key into the cipher, as the platform does at start-up; the key import and
+   * the update crypto's session key then use it.
+   */
   void set_key(const protocol::DeviceKey& key);
 
   /** A boot event at the current time. */
   device::Event boot_event(device::BootKind kind,
                            device::WakeMask woke_by = device::WakeMask()) const;
 
+  /**
+   * The fake bootloader at a reset (FakeFirmwareSlots::boot): chooses the slot, and makes
+   * hal().build.version the booted image's. A board still as made is first given a factory image
+   * of hal().build.version, so a test that sets the version before power-on boots that version.
+   */
+  BootChoice run_bootloader();
+
   /** A power loss: retained memory is garbage, the watchdog record starts again. */
   void power_loss(std::uint32_t seed = 0x9E3779B9u);
 
   /** Counts every call the device makes to this board's hardware (not the clock or watchdog). */
   CallMeter calls;
+  /**
+   * The board's power as its flash sees it: counts flash operations and cuts the power at one
+   * (the power-cut harness arms it). While it is cut, flash, radio and links do nothing.
+   */
+  PowerCut power_cut;
   FakeClock clock;
   FakeStorage storage;
   FakeRetainedMemory retained;
   FakeRadio radio;
   FakeRandom random;
   FakePower power;
+  FakeFirmwareSlots slots;
+  FakeUpdateCrypto update_crypto;
+  FakeKeyImport key_import;
   FakeLink usb;
   FakeLink network;
+  /** Bluetooth: up while a phone is connected; connect() opens the update window. */
+  FakeLink bluetooth;
   FakeWatchdog watchdog;
   FakeWaiter waiter;
   FakeSensorIo sensor_io;

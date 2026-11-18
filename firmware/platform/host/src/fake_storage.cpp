@@ -32,6 +32,20 @@ bool FakeStorage::write_fails() {
   return false;
 }
 
+bool FakeStorage::powered(FlashOp op, Operation& operation) {
+  const FlashFate fate = flash_operation(op);
+  if (fate == FlashFate::lost) {
+    return false;
+  }
+  if (fate == FlashFate::interrupted) {
+    operation.failed = true;
+    operation.interrupted = true;
+    operations.push_back(operation);
+    return false;
+  }
+  return true;
+}
+
 device::HalError FakeStorage::write(device::StoreKey key, protocol::ByteView value) {
   tick();
   Operation operation;
@@ -43,6 +57,9 @@ device::HalError FakeStorage::write(device::StoreKey key, protocol::ByteView val
     operation.failed = true;
     operations.push_back(operation);
     return device::HalError::invalid;
+  }
+  if (!powered(FlashOp::record_write, operation)) {
+    return device::HalError::io;
   }
   if (write_fails()) {
     operation.failed = true;
@@ -60,6 +77,9 @@ device::HalError FakeStorage::erase(device::StoreKey key) {
   operation.at = clock_.now();
   operation.kind = Operation::Kind::erase;
   operation.key = key;
+  if (!powered(FlashOp::record_erase, operation)) {
+    return device::HalError::io;
+  }
   if (write_fails()) {
     operation.failed = true;
     operations.push_back(operation);
@@ -75,6 +95,9 @@ device::HalError FakeStorage::erase_all_but_role() {
   Operation operation;
   operation.at = clock_.now();
   operation.kind = Operation::Kind::erase_all_but_role;
+  if (!powered(FlashOp::record_erase_all, operation)) {
+    return device::HalError::io;
+  }
   if (write_fails()) {
     operation.failed = true;
     operations.push_back(operation);

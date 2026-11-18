@@ -49,6 +49,7 @@ public:
   std::uint8_t state_layout() const override;
   std::uint8_t state_id() const override;
   device::Duration longest_awake() const override;
+  void report_again(device::Instant) override {}
 
 private:
   void send_next(device::Instant now);

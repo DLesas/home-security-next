@@ -5,6 +5,7 @@
 #include <sstream>
 #include <utility>
 
+#include "hsn/device/hal/link.hpp"
 #include "hsn/host/sim_time.hpp"
 #include "hsn/host/simulation_error.hpp"
 
@@ -28,6 +29,19 @@ std::string label_text(const PacketLabel& label) {
       << (label.direction == protocol::Direction::to_hub ? "to hub" : "from hub") << " #"
       << label.counter;
   return out.str();
+}
+
+const char* link_text(std::uint32_t kind) {
+  switch (kind) {
+    case static_cast<std::uint32_t>(device::LinkKind::usb):
+      return "usb";
+    case static_cast<std::uint32_t>(device::LinkKind::network):
+      return "network";
+    case static_cast<std::uint32_t>(device::LinkKind::bluetooth):
+      return "bluetooth";
+    default:
+      return "?";
+  }
 }
 
 std::string radio_text(const Record& record) {
@@ -89,6 +103,12 @@ const char* record_kind_name(RecordKind kind) {
       return "link_sent";
     case RecordKind::link_received:
       return "link_received";
+    case RecordKind::slot_erase:
+      return "slot_erase";
+    case RecordKind::slot_write:
+      return "slot_write";
+    case RecordKind::otadata_write:
+      return "otadata_write";
   }
   return "?";
 }
@@ -177,12 +197,29 @@ std::string Timeline::describe(const Record& record) const {
       break;
     case RecordKind::link_up:
     case RecordKind::link_down:
-      out << (record.value == 0 ? " usb" : " network");
+      out << " " << link_text(record.value);
       break;
     case RecordKind::link_sent:
     case RecordKind::link_received:
-      out << (record.value == 0 ? " usb " : " network ") << record.length << " B "
+      out << " " << link_text(record.value) << " " << record.length << " B "
           << label_text(record.label);
+      break;
+    case RecordKind::slot_erase:
+    case RecordKind::slot_write:
+      out << " at " << record.value << " " << record.length << " B"
+          << (record.flag ? " FAILED" : "");
+      break;
+    case RecordKind::otadata_write:
+      out << " copy " << record.length << " state " << record.value
+          << (record.flag ? " FAILED" : "");
+      break;
+    case RecordKind::power_loss:
+      if (record.flag) {
+        out << " cut at flash operation " << record.value;
+      }
+      break;
+    case RecordKind::restart:
+      out << (record.flag ? " watchdog" : "");
       break;
     default:
       break;

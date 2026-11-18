@@ -2,23 +2,23 @@
 
 #include <cstring>
 
+#include "hsn/protocol/checksum.hpp"
+#include "hsn/protocol/transfer.hpp"
+
 namespace hsn::device {
 namespace {
 
 using protocol::ByteView;
 using protocol::MutableByteView;
 
-/** CRC-32 (IEEE 802.3, reflected), bit by bit: small and bounded by the input length. */
-std::uint32_t crc32(std::uint32_t crc, ByteView bytes) {
-  crc = ~crc;
-  for (std::size_t i = 0; i < bytes.size(); ++i) {
-    crc ^= bytes[i];
-    for (int bit = 0; bit < 8; ++bit) {
-      const std::uint32_t mask = 0u - (crc & 1u);
-      crc = (crc >> 1) ^ (0xEDB88320u & mask);
-    }
-  }
-  return ~crc;
+/** Two wakes as one: the earlier time, the shallower sleep, either's inputs, either's restart. */
+Wake merged(const Wake& a, const Wake& b) {
+  Wake wake;
+  wake.at = earliest(a.at, b.at);
+  wake.deepest = a.deepest < b.deepest ? a.deepest : b.deepest;
+  wake.deep_wake_inputs = a.deep_wake_inputs | b.deep_wake_inputs;
+  wake.restart = a.restart || b.restart;
+  return wake;
 }
 
 void put_u16(MutableByteView out, std::size_t at, std::uint16_t value) {
@@ -58,8 +58,8 @@ constexpr std::size_t kCrcAt = 12;
 
 /** CRC over the header without its CRC field, then the payload. */
 std::uint32_t block_crc(ByteView block, std::size_t payload_size) {
-  const std::uint32_t head = crc32(0, block.first(kCrcAt));
-  return crc32(head, block.subspan(kRetainedHeaderSize, payload_size));
+  const std::uint32_t head = protocol::crc32(block.first(kCrcAt));
+  return protocol::crc32(block.subspan(kRetainedHeaderSize, payload_size), head);
 }
 
 }  // namespace
@@ -186,9 +186,48 @@ void Device::boot(const Event& event) {
       services_.log.add(now, LogLevel::error, log_code::storage_failed, "channel start",
                         static_cast<std::int32_t>(status));
     }
+    services_.update.boot(now);
     write_breadcrumb(breadcrumb_of(EventKind::boot, role_->state_id()));
     role_->handle(delivered);
   }
+}
+
+bool Device::handle_update(const Event& event) {
+  if (event.kind != EventKind::link) {
+    return false;
+  }
+  const LinkEvent& link = event.link;
+  if (link.kind == LinkEventKind::packet && !link.packet.empty() &&
+      link.packet[0] == protocol::kTransferMarker) {
+    services_.update.frame(link.link, link.packet, event.now);
+    return true;
+  }
+  if (link.link != LinkKind::bluetooth) {
+    // A USB or network link's own up and down go to the role as before, and to the service too,
+    // so an update resumes after a break whatever the role does (a sensor's network link is up
+    // only for an update, which the service started).
+    if (link.kind != LinkEventKind::packet) {
+      services_.update.link_changed(link.link, link.kind == LinkEventKind::up, event.now);
+    }
+    return false;
+  }
+  // Bluetooth carries transfer frames only (m3-updates-design.md section 5).
+  if (link.kind == LinkEventKind::packet) {
+    services_.log.add(event.now, LogLevel::warning, log_code::bluetooth_ignored,
+                      "bluetooth not a frame");
+  } else {
+    services_.update.link_changed(link.link, link.kind == LinkEventKind::up, event.now);
+  }
+  return true;
+}
+
+Wake Device::active_wake() const {
+  Wake wake = merged(role_->next_wake(), services_.update.next_wake());
+  if (services_.update.on_trial() && wake.deepest == SleepDepth::deep) {
+    // A deep-sleep wake goes through the bootloader, which would roll the trial image back.
+    wake.deepest = SleepDepth::light;
+  }
+  return wake;
 }
 
 bool Device::handle_setup(const Event& event) {
@@ -221,12 +260,16 @@ void Device::check_awake(Instant now) {
   if (!active_) {
     return;
   }
-  const Wake wake = role_->next_wake();
+  const Wake wake = active_wake();
   if (wake.deepest == SleepDepth::deep) {
     awake_since_ = now;
     return;
   }
-  const Duration bound = role_->longest_awake();
+  Duration bound = role_->longest_awake();
+  if (bound.us > 0 && bound < kUpdateLongestAwake &&
+      (services_.update.active() || services_.update.on_trial())) {
+    bound = kUpdateLongestAwake;
+  }
   if (bound.us > 0 && now - awake_since_ > bound) {
     raise_fatal(fatal_code::stuck_awake, now);
   }
@@ -244,8 +287,14 @@ void Device::handle(const Event& event) {
   } else {
     write_breadcrumb(breadcrumb_of(event.kind, active_ ? role_->state_id() : 0));
     if (!handle_setup(event) && active_) {
-      role_->handle(event);
+      services_.update.poll(event.now);
+      if (!handle_update(event)) {
+        role_->handle(event);
+      }
     }
+  }
+  if (active_ && services_.channel.take_key_change()) {
+    role_->report_again(event.now);
   }
   check_awake(event.now);
   if (event.now > services_.core.last_now) {
@@ -272,7 +321,7 @@ Wake Device::next_wake() const {
     }
     return wake;
   }
-  return role_->next_wake();
+  return active_wake();
 }
 
 }  // namespace hsn::device

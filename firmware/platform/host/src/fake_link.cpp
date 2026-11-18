@@ -6,6 +6,9 @@ namespace hsn::host {
 
 device::HalError FakeLink::connect(const device::LinkTarget& target) {
   tick();
+  if (unpowered()) {
+    return device::HalError::none;
+  }
   connects += 1;
   last_target = target;
   if (fail_connect) {
@@ -19,6 +22,9 @@ device::HalError FakeLink::connect(const device::LinkTarget& target) {
 
 void FakeLink::disconnect() {
   tick();
+  if (unpowered()) {
+    return;
+  }
   disconnects += 1;
   up_ = false;
   if (observer_ != nullptr) {
@@ -28,7 +34,11 @@ void FakeLink::disconnect() {
 
 device::HalError FakeLink::send(protocol::ByteView packet) {
   tick();
-  if (!up_ && kind_ == device::LinkKind::network) {
+  if (unpowered()) {
+    return device::HalError::none;
+  }
+  // A WebSocket or a Bluetooth connection carries packets only while up; a serial port always.
+  if (!up_ && kind_ != device::LinkKind::usb) {
     return device::HalError::io;
   }
   if (refuse_sends) {

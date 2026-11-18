@@ -9,6 +9,10 @@ add_library(hsn_host STATIC
   src/fake_random.cpp
   src/fake_retained.cpp
   src/fake_storage.cpp
+  src/fake_update.cpp
+  src/power_cut.cpp
+  src/sim_flash.cpp
+  src/test_image.cpp
   src/fake_waiter.cpp
   src/fake_watchdog.cpp
   src/host_board.cpp
@@ -37,7 +41,11 @@ add_library(hsn_host STATIC
   src/lockstep.cpp
   src/remote_hub.cpp
   src/hub_sirens.cpp
-  src/hub_gateways.cpp)
+  src/hub_gateways.cpp
+  src/hub_updates.cpp
+  src/hub_rekey.cpp
+  src/replay_radio.cpp
+  src/script_phone.cpp)
 target_include_directories(hsn_host PUBLIC include)
 target_link_libraries(hsn_host PUBLIC hsn_core hsn_psa)
 hsn_warnings(hsn_host)

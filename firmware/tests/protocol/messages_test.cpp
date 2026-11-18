@@ -48,12 +48,47 @@ TEST_CASE("every body shorter than its fields is truncated, and leaves the outpu
         protocol::encode_plaintext(message, MutableByteView(full.data(), full.size()));
     REQUIRE(size.ok());
     const protocol::ByteView body = view(full).subspan(1, size.value() - 1);
+    // A body that ends where its appended fields start is an older sender's (section 11).
+    const std::size_t older = older_body_size(message);
     const json before = to_json(message);
     for (std::size_t length = 0; length < body.size(); ++length) {
+      INFO("length " << length);
+      if (length == older) {
+        Message decoded = message;
+        CHECK(protocol::decode_body(body.first(length), decoded) == Error::none);
+        continue;
+      }
       CHECK(protocol::decode_body(body.first(length), message) == Error::truncated);
       CHECK(to_json(message) == before);
     }
   });
+}
+
+TEST_CASE("Started's image fields are appended: absent in an older body, whole or truncated") {
+  protocol::Started started{};
+  started.role = protocol::Role::sensor;
+  std::array<std::uint8_t, 13> out{};
+  // Absent: the 8-byte body of every Started before updates.
+  auto size = protocol::encode_plaintext(started, out);
+  REQUIRE(size.ok());
+  CHECK(size.value() == 9);
+  // Present: 12 bytes.
+  started.image.present = true;
+  started.image.fields.flags.on_trial = true;
+  size = protocol::encode_plaintext(started, out);
+  REQUIRE(size.ok());
+  CHECK(size.value() == 13);
+  protocol::Started decoded{};
+  REQUIRE(protocol::decode_body(protocol::ByteView(out).subspan(1, 12), decoded) == Error::none);
+  CHECK(decoded.image.present);
+  CHECK(decoded.image.fields.flags.on_trial);
+  REQUIRE(protocol::decode_body(protocol::ByteView(out).subspan(1, 8), decoded) == Error::none);
+  CHECK_FALSE(decoded.image.present);
+  CHECK_FALSE(decoded.image.fields.flags.on_trial);
+  for (const std::size_t length : {9u, 10u, 11u}) {
+    CHECK(protocol::decode_body(protocol::ByteView(out).subspan(1, length), decoded) ==
+          Error::truncated);
+  }
 }
 
 TEST_CASE("unknown message types are refused and never visited") {
@@ -68,7 +103,8 @@ TEST_CASE("unknown message types are refused and never visited") {
     }
     CHECK(protocol::decode_message(byte, protocol::ByteView(), visit) == Error::unknown_type);
   }
-  CHECK(known == 19);
+  // Version 1's nineteen, then update query, update status, update offer and key change.
+  CHECK(known == 23);
   CHECK_FALSE(visited);
 }
 

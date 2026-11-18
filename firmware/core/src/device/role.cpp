@@ -33,4 +33,8 @@ Duration Role::longest_awake() const {
   return Duration{};
 }
 
+void Role::report_again(Instant now) {
+  static_cast<void>(now);
+}
+
 }  // namespace hsn::device

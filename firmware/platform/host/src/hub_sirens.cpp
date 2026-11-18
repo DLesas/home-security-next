@@ -107,6 +107,11 @@ void TestHub::on_siren_packet(std::size_t index, const Opened& opened, const Arr
     protocol::Started started;
     static_cast<void>(protocol::decode_body(body, started));
     held_version = started.settings_version;
+    on_update_started(index, started);
+  } else if (opened.type == protocol::message_type::update_query ||
+             opened.type == protocol::message_type::update_status) {
+    static_cast<void>(on_update_packet(index, opened, arrival, arrival.wire));
+    return;
   } else {
     return;
   }

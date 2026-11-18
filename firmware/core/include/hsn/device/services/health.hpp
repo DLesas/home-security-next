@@ -4,6 +4,7 @@
 
 #include "hsn/device/events.hpp"
 #include "hsn/device/hal/build_info.hpp"
+#include "hsn/device/hal/firmware_slots.hpp"
 #include "hsn/device/hal/storage.hpp"
 #include "hsn/device/services/log_buffer.hpp"
 #include "hsn/device/time.hpp"
@@ -55,7 +56,15 @@ public:
   }
 
   /**
-   * Builds the Started message (protocol section 6).
+   * Records the running image for Started's image fields (m3-updates-design.md section 5).
+   * UpdateService calls it at boot once updates are built; until then Started keeps its older
+   * 8-byte body.
+   */
+  void running_image(const BootImage& image);
+
+  /**
+   * Builds the Started message (protocol section 6), with the image fields once running_image()
+   * has been called this boot.
    */
   protocol::Started started(std::uint8_t role, std::uint8_t settings_version) const;
 
@@ -80,6 +89,7 @@ private:
   std::uint16_t last_fatal_ = 0;
   bool stored_ = false;
   bool restart_requested_ = false;
+  protocol::Appended<protocol::StartedImage> image_;
 };
 
 }  // namespace hsn::device

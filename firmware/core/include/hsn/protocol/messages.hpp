@@ -6,6 +6,7 @@
 #include <tuple>
 
 #include "hsn/protocol/bytes.hpp"
+#include "hsn/protocol/cipher.hpp"
 #include "hsn/protocol/error.hpp"
 #include "hsn/protocol/layout.hpp"
 
@@ -18,6 +19,8 @@ constexpr std::uint8_t door_changed = 0x02;
 constexpr std::uint8_t cover_changed = 0x03;
 constexpr std::uint8_t button = 0x04;
 constexpr std::uint8_t started = 0x05;
+constexpr std::uint8_t update_query = 0x06;
+constexpr std::uint8_t update_status = 0x07;
 constexpr std::uint8_t siren_report = 0x10;
 constexpr std::uint8_t hello = 0x20;
 constexpr std::uint8_t forwarded_packet = 0x21;
@@ -27,6 +30,8 @@ constexpr std::uint8_t interference = 0x24;
 constexpr std::uint8_t log_entries = 0x30;
 constexpr std::uint8_t reply = 0x81;
 constexpr std::uint8_t disarmed_notice = 0x82;
+constexpr std::uint8_t update_offer = 0x83;
+constexpr std::uint8_t key_change = 0x84;
 constexpr std::uint8_t siren_command = 0x90;
 constexpr std::uint8_t siren_settings = 0x91;
 constexpr std::uint8_t welcome = 0xA0;
@@ -213,6 +218,37 @@ struct Button : SensorStatus {
   }
 };
 
+/** Image flags of a Started (m3-updates-design.md section 5). */
+struct StartedImageFlags {
+  /** The running image is on trial: not yet confirmed (PENDING_VERIFY). */
+  bool on_trial = false;
+  /** The image tried since the last confirmed one was rolled back. */
+  bool rolled_back = false;
+
+  /**
+   * Bits 0 and 1.
+   */
+  static constexpr auto flag_bits() {
+    return std::make_tuple(field("onTrial", &StartedImageFlags::on_trial),
+                           field("rolledBack", &StartedImageFlags::rolled_back));
+  }
+};
+
+/** The fields Started gained at its end for updates (m3-updates-design.md section 5). */
+struct StartedImage {
+  StartedImageFlags flags;
+  /** The version that was rolled back; zeros for none. */
+  FirmwareVersion failed_version;
+
+  /**
+   * Wire layout, 4 bytes, at Started's offset 8.
+   */
+  static constexpr auto layout() {
+    return std::make_tuple(field("flags", &StartedImage::flags),
+                           field("failedVersion", &StartedImage::failed_version));
+  }
+};
+
 /** Started (0x05), sent once after every start-up. */
 struct Started {
   static constexpr std::uint8_t type = message_type::started;
@@ -222,16 +258,137 @@ struct Started {
   std::uint8_t reset_cause = 0;
   std::uint16_t last_fatal_error = 0;
   std::uint8_t settings_version = 0;
+  /**
+   * The running image's state, added for updates. Absent, the body is the older 8 bytes, which a
+   * receiver still accepts; present, 12.
+   */
+  Appended<StartedImage> image;
 
   /**
-   * Wire layout, 8 bytes.
+   * Wire layout: 8 bytes, then the image fields' 4 when present.
    */
   static constexpr auto layout() {
-    return std::make_tuple(field("role", &Started::role),
-                           field("firmwareVersion", &Started::firmware_version),
-                           field("resetCause", &Started::reset_cause),
-                           field("lastFatalError", &Started::last_fatal_error),
-                           field("settingsVersion", &Started::settings_version));
+    return std::make_tuple(
+        field("role", &Started::role), field("firmwareVersion", &Started::firmware_version),
+        field("resetCause", &Started::reset_cause),
+        field("lastFatalError", &Started::last_fatal_error),
+        field("settingsVersion", &Started::settings_version), field("image", &Started::image));
+  }
+};
+
+/** Image id: the first 8 bytes of the image's SHA-256 (m3-updates-design.md section 3). */
+using ImageId = std::array<std::uint8_t, 8>;
+
+/** What a device holds of an image, in an update query (m3-updates-design.md section 5). */
+struct UpdateHeld {
+  static constexpr std::uint8_t nothing = 0;
+  static constexpr std::uint8_t part = 1;
+  static constexpr std::uint8_t verified = 2;
+  static constexpr std::array<std::uint8_t, 3> known{nothing, part, verified};
+};
+
+/** Flags of an update query. */
+struct UpdateQueryFlags {
+  /** The device holds Wi-Fi details (D47). */
+  bool has_wifi_details = false;
+  /** On USB power, or on mains. */
+  bool external_power = false;
+
+  /**
+   * Bits 0 and 1.
+   */
+  static constexpr auto flag_bits() {
+    return std::make_tuple(field("hasWifiDetails", &UpdateQueryFlags::has_wifi_details),
+                           field("externalPower", &UpdateQueryFlags::external_power));
+  }
+};
+
+/**
+ * Update query (0x06), any device to the hub: sent when a reply carries "update available", and on
+ * every (re)connection while the device holds part of an image.
+ */
+struct UpdateQuery {
+  static constexpr std::uint8_t type = message_type::update_query;
+  /** The image held; zeros for none. */
+  ImageId image_id{};
+  /** See UpdateHeld. */
+  std::uint8_t held = 0;
+  /** Bytes held, up to the last checkpoint. */
+  std::uint32_t bytes_held = 0;
+  /** Battery, encoded as in a sensor status (battery_code_from_millivolts). */
+  std::uint8_t battery_code = 0;
+  UpdateQueryFlags flags;
+
+  /**
+   * Wire layout, 15 bytes.
+   */
+  static constexpr auto layout() {
+    return std::make_tuple(
+        field("imageId", &UpdateQuery::image_id), field("held", &UpdateQuery::held),
+        field("bytesHeld", &UpdateQuery::bytes_held),
+        field("batteryCode", &UpdateQuery::battery_code), field("flags", &UpdateQuery::flags));
+  }
+};
+
+/** Stages in an update status (m3-updates-design.md section 5). */
+struct UpdateStage {
+  static constexpr std::uint8_t fetching = 1;
+  static constexpr std::uint8_t verified = 2;
+  static constexpr std::uint8_t refused = 3;
+  /** Sent just before the restart into the new image. */
+  static constexpr std::uint8_t installing = 4;
+  static constexpr std::uint8_t confirmed = 5;
+  static constexpr std::uint8_t cancelled = 6;
+  static constexpr std::array<std::uint8_t, 6> known{fetching,   verified,  refused,
+                                                     installing, confirmed, cancelled};
+};
+
+/** Reasons in an update status (m3-updates-design.md section 5). */
+struct UpdateReason {
+  static constexpr std::uint8_t none = 0;
+  static constexpr std::uint8_t battery = 1;
+  static constexpr std::uint8_t armed = 2;
+  static constexpr std::uint8_t no_wifi = 3;
+  static constexpr std::uint8_t hub_not_found = 4;
+  static constexpr std::uint8_t link_lost = 5;
+  static constexpr std::uint8_t bad_header = 6;
+  static constexpr std::uint8_t wrong_hub = 7;
+  static constexpr std::uint8_t wrong_role = 8;
+  static constexpr std::uint8_t too_large = 9;
+  static constexpr std::uint8_t bad_signature = 10;
+  static constexpr std::uint8_t hash_mismatch = 11;
+  static constexpr std::uint8_t flash = 12;
+  static constexpr std::uint8_t image_check = 13;
+  /** The Bluetooth window ended. */
+  static constexpr std::uint8_t window_ended = 14;
+  static constexpr std::uint8_t session_refused = 15;
+  static constexpr std::uint8_t on_trial = 16;
+  /** A gateway wrote no sector for its bound because a transmission always waited. */
+  static constexpr std::uint8_t radio_busy = 17;
+  static constexpr std::array<std::uint8_t, 18> known{
+      none,       battery,     armed,        no_wifi,         hub_not_found, link_lost,
+      bad_header, wrong_hub,   wrong_role,   too_large,       bad_signature, hash_mismatch,
+      flash,      image_check, window_ended, session_refused, on_trial,      radio_busy};
+};
+
+/** Update status (0x07), any device to the hub. */
+struct UpdateStatus {
+  static constexpr std::uint8_t type = message_type::update_status;
+  ImageId image_id{};
+  /** See UpdateStage. */
+  std::uint8_t stage = 0;
+  /** See UpdateReason. */
+  std::uint8_t reason = 0;
+  std::uint32_t bytes_written = 0;
+
+  /**
+   * Wire layout, 14 bytes.
+   */
+  static constexpr auto layout() {
+    return std::make_tuple(field("imageId", &UpdateStatus::image_id),
+                           field("stage", &UpdateStatus::stage),
+                           field("reason", &UpdateStatus::reason),
+                           field("bytesWritten", &UpdateStatus::bytes_written));
   }
 };
 
@@ -594,6 +751,73 @@ struct DisarmedNotice {
   }
 };
 
+/** Actions in an update offer (m3-updates-design.md section 5). */
+struct UpdateAction {
+  /** Discard anything held. */
+  static constexpr std::uint8_t nothing = 0;
+  /** Fetch on the link this offer came by. */
+  static constexpr std::uint8_t fetch = 1;
+  static constexpr std::uint8_t join_wifi_and_fetch = 2;
+  static constexpr std::uint8_t open_bluetooth = 3;
+  /** Install the verified image now. */
+  static constexpr std::uint8_t install_now = 4;
+  /** Keep what is held and wait. */
+  static constexpr std::uint8_t wait = 5;
+  /**
+   * Fetch on the link this offer came by without waiting for the radio to be quiet: a gateway a
+   * person chose to update although its site is always busy (m3-updates-design.md section 5).
+   */
+  static constexpr std::uint8_t forced_fetch = 6;
+  static constexpr std::array<std::uint8_t, 7> known{
+      nothing, fetch, join_wifi_and_fetch, open_bluetooth, install_now, wait, forced_fetch};
+};
+
+/**
+ * Update offer (0x83), hub to any device: bound to the packet it answers for a sensor, as settings
+ * are for a siren (strictly higher counter), in the session for a gateway.
+ */
+struct UpdateOffer {
+  static constexpr std::uint8_t type = message_type::update_offer;
+  /** See UpdateAction. */
+  std::uint8_t action = 0;
+  ImageId image_id{};
+  /** The file's bytes: the 128-byte image header and the image. */
+  std::uint32_t file_bytes = 0;
+  FirmwareVersion version;
+  /** The Bluetooth session nonce for action 3, else zeros. */
+  std::array<std::uint8_t, 8> bluetooth_nonce{};
+  /** The Bluetooth window for action 3, in units of 10 seconds. */
+  std::uint8_t bluetooth_window_units = 0;
+
+  /**
+   * Wire layout, 25 bytes.
+   */
+  static constexpr auto layout() {
+    return std::make_tuple(
+        field("action", &UpdateOffer::action), field("imageId", &UpdateOffer::image_id),
+        field("fileBytes", &UpdateOffer::file_bytes), field("version", &UpdateOffer::version),
+        field("bluetoothNonce", &UpdateOffer::bluetooth_nonce),
+        field("bluetoothWindowUnits", &UpdateOffer::bluetooth_window_units));
+  }
+};
+
+/**
+ * Key change (0x84), hub to any device after a hub restore (m3-updates-design.md section 7): the
+ * device's new key, sealed under the old one with the answer's usual binding. "Report again" is
+ * always meant: the device's next packet goes under the new key.
+ */
+struct KeyChange {
+  static constexpr std::uint8_t type = message_type::key_change;
+  DeviceKey new_key{};
+
+  /**
+   * Wire layout, 16 bytes.
+   */
+  static constexpr auto layout() {
+    return std::make_tuple(field("newKey", &KeyChange::new_key));
+  }
+};
+
 /** Siren command (0x90). */
 struct SirenCommand {
   static constexpr std::uint8_t type = message_type::siren_command;
@@ -710,10 +934,11 @@ struct GatewaySettings {
 };
 
 /** Every message type of version 1, for dispatch on the type byte. */
-using Messages = std::tuple<Heartbeat, DoorChanged, CoverChanged, Button, Started, SirenReport,
-                            Hello, ForwardedPacket, GatewayStatus, TransmitResult, Interference,
-                            LogEntries, Reply, DisarmedNotice, SirenCommand, SirenSettings, Welcome,
-                            TransmitRequest, GatewaySettings>;
+using Messages =
+    std::tuple<Heartbeat, DoorChanged, CoverChanged, Button, Started, UpdateQuery, UpdateStatus,
+               SirenReport, Hello, ForwardedPacket, GatewayStatus, TransmitResult, Interference,
+               LogEntries, Reply, DisarmedNotice, UpdateOffer, KeyChange, SirenCommand,
+               SirenSettings, Welcome, TransmitRequest, GatewaySettings>;
 
 /**
  * Decodes a body into `out`. A body shorter than its fields is Error::truncated; extra bytes are

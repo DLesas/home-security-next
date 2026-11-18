@@ -96,6 +96,29 @@ struct CarriedPacket {
 };
 
 /**
+ * One to `Max` bytes to the end of the body, kept as a view into the input: a transfer frame's
+ * data (m3-updates-design.md section 5). None is Error::truncated, more than `Max` Error::too_long.
+ */
+template <std::size_t Max>
+struct TrailingBytes {
+  static constexpr std::size_t max_size = Max;
+  ByteView bytes;
+};
+
+/**
+ * Fields added at the end of a body after its type was first defined (section 11), kept as one
+ * group with its own layout(). It must be the last element of its owner's layout. A body that ends
+ * exactly where the group starts is an older sender's: it decodes with `present` false and the
+ * fields at their defaults. A body that holds only part of the group is Error::truncated. The group
+ * is written only while `present` is true, so a sender that sets none of it writes the older body.
+ */
+template <typename Fields>
+struct Appended {
+  bool present = false;
+  Fields fields;
+};
+
+/**
  * Returns true when an enumerated byte holds a value this protocol version lists. Enumerated
  * fields keep the raw byte, because unlisted values are valid and pass through (section 3);
  * `Kind` is a struct of named constants with a `known` array.
