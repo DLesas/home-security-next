@@ -1257,14 +1257,22 @@ jobs:
           . .github/workflows/installer-checks.ps1
           Write-Heading "Removal with data: installed again, then msiexec /x … REMOVEDATA=1 (what the Start menu's entry runs after its confirmation)"
           if (-not $env:MSI) { Write-Fail "msiexec /x … REMOVEDATA=1" "no package was built"; exit 0 }
-          $log = Join-Path $env:RUNNER_TEMP "msi-reinstall.log"
-          $p = Start-Process msiexec.exe -ArgumentList @("/i", "`"$env:MSI`"", "/qn", "/l*v", "`"$log`"") -Wait -PassThru
-          Test-Check "Installed again over the kept data" { if ($p.ExitCode -eq 0) { $true } else { "exit $($p.ExitCode)" } }
+          # Wait for the installer PID and keep its own log even if it has not returned.
+          function Invoke-RemovalMsi([string]$Label, [string[]]$Arguments) {
+            $log = Join-Path $env:RUNNER_TEMP "$Label.log"
+            Write-Host "Starting $Label for $env:VERSION"
+            $p = Start-Process msiexec.exe -ArgumentList ($Arguments + @("/l*v", "`"$log`"")) -PassThru
+            $exited = $p.WaitForExit(180000)
+            Save-Log "$Label.log" $log 30
+            if (!$exited) { Stop-Job "$Label installer PID $($p.Id) did not exit in 180 s" }
+            Write-Host "$Label exited $($p.ExitCode)"
+            return $p.ExitCode
+          }
+          $reinstalled = Invoke-RemovalMsi "msi-reinstall" @("/i", "`"$env:MSI`"", "/qn")
+          Test-Check "Installed again over the kept data" { if ($reinstalled -eq 0) { $true } else { "exit $reinstalled" } }
           Test-Check "The service runs again within 60 s" { if (Wait-Until 60 { (Get-Service HSNHub -ErrorAction SilentlyContinue).Status -eq "Running" }) { $true } else { "not running" } }
-          $log = Join-Path $env:RUNNER_TEMP "msi-remove-data.log"
-          $p = Start-Process msiexec.exe -ArgumentList @("/x", "`"$env:MSI`"", "/qn", "REMOVEDATA=1", "/l*v", "`"$log`"") -Wait -PassThru
-          Test-Check "msiexec /x $(Split-Path -Leaf $env:MSI) /qn REMOVEDATA=1" { if ($p.ExitCode -eq 0) { $true } else { "exit $($p.ExitCode)" } }
-          Save-Log "msi-remove-data.log" $log 30
+          $removed = Invoke-RemovalMsi "msi-remove-data" @("/x", "`"$env:MSI`"", "/qn", "REMOVEDATA=1")
+          Test-Check "msiexec /x $(Split-Path -Leaf $env:MSI) /qn REMOVEDATA=1" { if ($removed -eq 0) { $true } else { "exit $removed" } }
           Test-Check "The data folder is gone" { if (-not (Test-Path (Join-Path $env:ProgramData "HSN Hub"))) { $true } else { "still there" } }
           Test-Check "The hub's program tree is gone" { if (-not (Test-Path (Join-Path $env:ProgramData "HSN Hub Program"))) { $true } else { "still there" } }
           Test-Check "The package's tree is gone" { if (-not (Test-Path (Join-Path $env:ProgramFiles "HSN Hub"))) { $true } else { "still there" } }
