@@ -414,6 +414,8 @@ describe("files and reads, on the real hub", () => {
 
   test("a history export is a readable JSON Lines file, hsn-history/1; restore refuses it as badFile", async () => {
     const { downloadFile, sendFile, uploadJob } = await import("../src/hub/files");
+    // This test also runs alone and may be discovered before any of the screen tests.
+    await import("./support/render");
     const { isHistoryExport } = await import("../src/ui/backup");
     const got = await downloadFile(consoleClient, true, realTimers);
     if (!got.ok || !("bytes" in got)) throw new Error(JSON.stringify(got));
