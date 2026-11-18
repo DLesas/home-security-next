@@ -178,5 +178,5 @@ if (parentPort === null) {
 } else {
   const data = workerData as NativeProbeData;
   const { calls, completion } = observeReads(data.observed);
-  serveSerial(parentPort, data.incoming, data.stopping, data.handle, data.wake, calls, completion);
+  serveSerial(parentPort, data, calls, completion);
 }

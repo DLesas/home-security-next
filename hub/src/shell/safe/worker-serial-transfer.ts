@@ -7,37 +7,65 @@ import {
   type SerialIoCalls,
   type SerialWake,
 } from "./ffi-windows-serial.ts";
+import { SERIAL_TIMEOUT_MS } from "./serial-windows-layout.ts";
 
 export type WorkerReply =
   | { kind: "ready" }
   | { kind: "data"; bytes: Uint8Array }
   | { kind: "written" }
+  | { kind: "drained" }
   | { kind: "failed"; message: string };
 
 const WAIT_IO_COMPLETION = 0xc0;
 const WAIT_TIMEOUT = 0x102;
-const INFINITE = 0xffff_ffff;
+const ERROR_NOT_FOUND = 1168;
+// The read and write deadlines run concurrently. Allow one more driver timeout for completion delivery.
+const DRAIN_MS = 2 * SERIAL_TIMEOUT_MS;
+
+export interface SerialBuffers {
+  readonly read: Uint8Array<SharedArrayBuffer>;
+  readonly readOverlapped: Uint8Array<SharedArrayBuffer>;
+  readonly writeOverlapped: Uint8Array<SharedArrayBuffer>;
+}
+
+export interface SerialTransfer {
+  readonly incoming: MessagePort;
+  readonly stopping: Int32Array;
+  readonly handle: bigint;
+  readonly wake: SerialWake;
+  readonly buffers: SerialBuffers;
+}
 
 /** Keeps one read pending. Writes and stop wake the worker independently of its read. */
 export function serveSerial(
   channel: MessagePort,
-  incoming: MessagePort,
-  stopping: Int32Array,
-  handle: bigint,
-  wake: SerialWake,
+  { incoming, stopping, handle, wake, buffers }: SerialTransfer,
   calls: SerialIoCalls,
   completion: SerialCompletion = serialCompletion,
 ): void {
-  const read = new OverlappedSerialOperation(calls, handle, "ReadFileEx", completion);
+  const read = new OverlappedSerialOperation(
+    calls,
+    handle,
+    "ReadFileEx",
+    buffers.readOverlapped,
+    completion,
+  );
   let write: OverlappedSerialOperation | undefined;
+  const failures: string[] = [];
   /** Transfers one packet or outcome to the hub. */
   const send = (reply: WorkerReply): void => {
     channel.postMessage(reply);
   };
-  const bytes = new Uint8Array(4096);
+  const bytes = buffers.read;
   const events = BigInt64Array.of(wake.stop, wake.write);
   try {
-    write = new OverlappedSerialOperation(calls, handle, "WriteFileEx", completion);
+    write = new OverlappedSerialOperation(
+      calls,
+      handle,
+      "WriteFileEx",
+      buffers.writeOverlapped,
+      completion,
+    );
     if (Atomics.load(stopping, 0) !== 0) return;
     read.start(bytes);
     send({ kind: "ready" });
@@ -57,7 +85,11 @@ export function serveSerial(
       // on either wake. Its event is harmless if we already took the message on a read wake.
       const next: unknown = receiveMessageOnPort(incoming)?.message;
       if (next !== undefined) {
-        if (!(next instanceof Uint8Array) || write.pending)
+        if (
+          !(next instanceof Uint8Array) ||
+          !(next.buffer instanceof SharedArrayBuffer) ||
+          write.pending
+        )
           throw new Error("serial write message without a free request");
         write.start(next);
       }
@@ -68,18 +100,27 @@ export function serveSerial(
       }
     }
   } catch (failure) {
-    send({
-      kind: "failed",
-      message: failure instanceof Error ? failure.message : "a serial call failed",
-    });
+    failures.push(failure instanceof Error ? failure.message : "a serial call failed");
   } finally {
     if (read.pending || write?.pending === true) {
-      // Cancel does not wait, and an I/O that won the race can complete normally.
-      calls.CancelIoEx(handle, null);
-      while (read.pending || write?.pending === true) calls.SleepEx(INFINITE, 1);
+      const deadline = performance.now() + DRAIN_MS;
+      if (calls.CancelIoEx(handle, null) === 0) {
+        // A completed request can still have its APC queued. The code is diagnostic only.
+        const code = calls.GetLastError();
+        if (code !== ERROR_NOT_FOUND) failures.push(`CancelIoEx failed (Win32 ${code})`);
+      }
+      while (read.pending || write?.pending === true) {
+        const remaining = Math.ceil(deadline - performance.now());
+        if (remaining <= 0 || calls.SleepEx(remaining, 1) === 0) break;
+      }
+      if (read.pending || write?.pending === true)
+        failures.push(`serial I/O drain timed out after ${DRAIN_MS} ms`);
     }
-    write?.close();
-    read.close();
+    if (failures.length > 0) send({ kind: "failed", message: failures.join("; ") });
+    if (!read.pending && write?.pending !== true) send({ kind: "drained" });
+    // Leave pending callbacks alone while the issuing worker exits. Its APCs run only on that thread.
+    if (write?.pending === false) write.close();
+    if (!read.pending) read.close();
     incoming.close();
     channel.close();
   }

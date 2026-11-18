@@ -5,7 +5,7 @@ const DCB_BYTES = 18;
 const DCB_PARITY = 19;
 const DCB_STOP = 20;
 const MAXDWORD = 0xffff_ffff;
-const TIMEOUT_MS = 500;
+export const SERIAL_TIMEOUT_MS = 500;
 
 export interface SerialLines {
   readonly dtr: boolean;
@@ -82,10 +82,10 @@ export function byteCleanMismatch(
 /** Five DWORDs in the order specified by COMMTIMEOUTS. */
 export function serialTimeouts(): Uint32Array<ArrayBuffer> {
   // First available bytes or 500 ms. A write also has 500 ms to complete.
-  return Uint32Array.of(MAXDWORD, MAXDWORD, TIMEOUT_MS, 0, TIMEOUT_MS);
+  return Uint32Array.of(MAXDWORD, MAXDWORD, SERIAL_TIMEOUT_MS, 0, SERIAL_TIMEOUT_MS);
 }
 
 /** On Windows x64: two ULONG_PTRs, the 8-byte offset union, and an unused HANDLE for Ex I/O. */
-export function newOverlapped(): Uint8Array<ArrayBuffer> {
-  return new Uint8Array(32);
+export function newOverlapped(): Uint8Array<SharedArrayBuffer> {
+  return new Uint8Array(new SharedArrayBuffer(32));
 }

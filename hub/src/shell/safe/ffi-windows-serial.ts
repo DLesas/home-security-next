@@ -4,7 +4,6 @@ import {
   byteCleanMismatch,
   devicePath,
   newDcb,
-  newOverlapped,
   serialTimeouts,
   setByteClean,
   type SerialLines,
@@ -129,7 +128,7 @@ export function signalSerial(calls: WindowsSerialCalls, event: bigint): void {
   succeeded(calls.SetEvent(event), "SetEvent", calls);
 }
 
-/** Releases all handles after the worker drains pending operations. */
+/** Releases all handles after the worker stops issuing and waiting on I/O. */
 export function releaseSerial(calls: WindowsSerialCalls, ...handles: bigint[]): void {
   let failed = false;
   for (const handle of handles) if (calls.CloseHandle(handle) === 0) failed = true;
@@ -159,7 +158,6 @@ export const serialCompletion: SerialCompletion = (complete) =>
 
 /** Owns an OVERLAPPED, its buffer and callback until Windows has delivered completion. */
 export class OverlappedSerialOperation {
-  readonly #overlapped = newOverlapped();
   readonly #callback: ReturnType<SerialCompletion>;
   #buffer: Uint8Array | undefined;
   #result: { code: number; count: number } | undefined;
@@ -168,6 +166,7 @@ export class OverlappedSerialOperation {
     private readonly calls: SerialIoCalls,
     private readonly handle: bigint,
     private readonly functionName: "ReadFileEx" | "WriteFileEx",
+    private readonly overlapped: Uint8Array<SharedArrayBuffer>,
     createCompletion: SerialCompletion,
   ) {
     this.#callback = createCompletion((code, count) => {
@@ -182,12 +181,12 @@ export class OverlappedSerialOperation {
 
   /** Starts a request. The Ex functions distinguish submission failure by their BOOL return. */
   start(bytes: Uint8Array): void {
-    this.#overlapped.fill(0);
+    this.overlapped.fill(0);
     const started = this.calls[this.functionName](
       this.handle,
       bytes,
       bytes.length,
-      this.#overlapped,
+      this.overlapped,
       this.#callback.ptr,
     );
     succeeded(started, this.functionName, this.calls);

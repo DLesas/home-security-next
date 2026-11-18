@@ -12,12 +12,18 @@ import {
   type WindowsSerialCalls,
 } from "./ffi-windows-serial.ts";
 import { linkError } from "./link-error.ts";
-import { devicePath, type SerialLines } from "./serial-windows-layout.ts";
+import { devicePath, newOverlapped, type SerialLines } from "./serial-windows-layout.ts";
 import type { SerialWorkerData } from "./worker-windows-serial.ts";
-import type { WorkerReply } from "./worker-serial-transfer.ts";
+import type { SerialBuffers, WorkerReply } from "./worker-serial-transfer.ts";
 
 const ORIGIN = "shell/safe/serial-windows";
 export const WINDOWS_SERIAL = process.platform === "win32";
+
+// Closing a handle does not prove I/O completed. Keep unconfirmed buffers until process exit.
+const undrained: {
+  readonly buffers: SerialBuffers;
+  readonly write: Uint8Array<SharedArrayBuffer> | undefined;
+}[] = [];
 
 /** Uses one label for both explicit and automatically listed names of a Windows port. */
 export function serialPath(path: string): string {
@@ -46,7 +52,11 @@ export class WindowsSerialPort {
   readonly #done = Promise.withResolvers<undefined>();
   readonly closed = this.#done.promise;
   readonly #worker: Worker;
-  #pending: ReturnType<typeof Promise.withResolvers<Result<void, LinkError>>> | undefined;
+  #pending:
+    | (ReturnType<typeof Promise.withResolvers<Result<void, LinkError>>> & {
+        readonly bytes: Uint8Array<SharedArrayBuffer>;
+      })
+    | undefined;
   #failure: LinkError | undefined;
 
   constructor(
@@ -59,6 +69,7 @@ export class WindowsSerialPort {
   ) {
     this.#worker = startWorker(job, this.#stopping);
     this.stream.on("error", () => undefined);
+    let drained = false;
     this.#worker.on("message", (reply: WorkerReply) => {
       switch (reply.kind) {
         case "data":
@@ -72,6 +83,9 @@ export class WindowsSerialPort {
         case "failed":
           this.#failure = linkError("writeFailed", ORIGIN, `${path}: ${reply.message}`);
           break;
+        case "drained":
+          drained = true;
+          break;
         case "ready":
           this.stream.emit("ready");
           break;
@@ -82,6 +96,7 @@ export class WindowsSerialPort {
     });
     this.#worker.once("exit", () => {
       this.outgoing.close();
+      if (!drained) undrained.push({ buffers: job.buffers, write: this.#pending?.bytes });
       const released = Result.fromThrowable(release, (error) =>
         linkError("closed", ORIGIN, `close serial port ${path}`, error),
       )();
@@ -106,10 +121,12 @@ export class WindowsSerialPort {
     if (this.#pending !== undefined)
       return errAsync(linkError("queueFull", ORIGIN, `${this.path} has a pending write`));
     const pending = Promise.withResolvers<Result<void, LinkError>>();
-    this.#pending = pending;
     const posted = Result.fromThrowable(
       () => {
-        this.outgoing.postMessage(bytes);
+        const queued = new Uint8Array(new SharedArrayBuffer(bytes.byteLength));
+        queued.set(bytes);
+        this.#pending = { ...pending, bytes: queued };
+        this.outgoing.postMessage(queued);
       },
       (error) => linkError("writeFailed", ORIGIN, `write to serial port ${this.path}`, error),
     )();
@@ -163,7 +180,17 @@ export function openWindowsSerial(
         try {
           const port = new WindowsSerialPort(
             path,
-            { kind: "port", handle, wake, incoming: port2 },
+            {
+              kind: "port",
+              handle,
+              wake,
+              incoming: port2,
+              buffers: {
+                read: new Uint8Array(new SharedArrayBuffer(4096)),
+                readOverlapped: newOverlapped(),
+                writeOverlapped: newOverlapped(),
+              },
+            },
             port1,
             (event) => {
               signalSerial(calls, wake[event]);

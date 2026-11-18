@@ -47,7 +47,7 @@ export class SerialLinks {
   constructor(
     registry: LinkRegistry,
     private readonly openPort: typeof nativePort = nativePort,
-    private readonly reopenFailed?: (error: LinkError) => void,
+    private readonly report?: (error: LinkError) => void,
   ) {
     this.#registry = registry;
   }
@@ -120,7 +120,7 @@ export class SerialLinks {
           void port.closed.then(() => {
             if (this.#closing || this.has(port.path)) return;
             const reopened = this.#open(port.path, true);
-            if (reopened.isErr()) this.reopenFailed?.(reopened.error);
+            if (reopened.isErr()) this.report?.(reopened.error);
           });
       },
     );
@@ -146,7 +146,8 @@ export class SerialLinks {
       queue.stop();
       this.#gone(port, link, "remote");
     });
-    port.stream.on("error", () => {
+    port.stream.on("error", (error: LinkError | Error) => {
+      if ("kind" in error) this.report?.(error);
       queue.stop();
       this.#gone(port, link, "error");
     });

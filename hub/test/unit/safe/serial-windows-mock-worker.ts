@@ -19,6 +19,9 @@ export type FakeMode =
   | "before-read"
   | "after-read"
   | "late-data"
+  | "no-completion"
+  | "cancel-failed"
+  | "cancel-not-found"
   | "close-race";
 
 export const WAKE = 0;
@@ -27,6 +30,7 @@ export const GATE = 2;
 export const DRAINED = 3;
 export const WRITES = 4;
 export const FIRST_BYTE = 5;
+export const ESCAPE = 6;
 export const STOP = 1;
 export const WRITE = 2;
 
@@ -65,14 +69,16 @@ function driver({ shared, mode, handle, wake }: FakeWorkerData) {
   };
 
   const calls: SerialIoCalls = {
-    GetLastError: () => 1167,
+    GetLastError: () => (mode === "cancel-not-found" ? 1168 : 1167),
     ReadFileEx: (port, bytes, length, overlap, callback) => {
       const complete = callbacks.get(callback);
       if (
         port !== handle ||
         !(bytes instanceof Uint8Array) ||
+        !(bytes.buffer instanceof SharedArrayBuffer) ||
         length !== bytes.length ||
         !(overlap instanceof Uint8Array) ||
+        !(overlap.buffer instanceof SharedArrayBuffer) ||
         overlap.length !== 32 ||
         overlap.some((byte) => byte !== 0) ||
         complete === undefined
@@ -82,7 +88,11 @@ function driver({ shared, mode, handle, wake }: FakeWorkerData) {
         gate();
       Atomics.add(shared, READS, 1);
       if (mode === "unplug" && Atomics.load(shared, READS) > 1) return 0;
-      reading = { bytes, complete, until: performance.now() + 500 };
+      reading = {
+        bytes,
+        complete,
+        until: mode === "no-completion" ? Infinity : performance.now() + 500,
+      };
       // Windows owns the status and count fields after submission.
       overlap.fill(0xff, 0, 16);
       return 1;
@@ -92,8 +102,10 @@ function driver({ shared, mode, handle, wake }: FakeWorkerData) {
       if (
         port !== handle ||
         !(bytes instanceof Uint8Array) ||
+        !(bytes.buffer instanceof SharedArrayBuffer) ||
         length !== bytes.length ||
         !(overlap instanceof Uint8Array) ||
+        !(overlap.buffer instanceof SharedArrayBuffer) ||
         overlap.length !== 32 ||
         overlap.some((byte) => byte !== 0) ||
         complete === undefined ||
@@ -120,7 +132,7 @@ function driver({ shared, mode, handle, wake }: FakeWorkerData) {
       for (;;) {
         const signal = Atomics.load(shared, WAKE);
         if ((signal & STOP) !== 0) return 0;
-        if (writing !== undefined) {
+        if (writing !== undefined && mode !== "no-completion") {
           writing.complete(0, writing.count);
           writing = undefined;
           return 0xc0;
@@ -158,10 +170,15 @@ function driver({ shared, mode, handle, wake }: FakeWorkerData) {
     CancelIoEx: (port, overlap) => {
       if (port !== handle || overlap !== null) return 0;
       Atomics.store(shared, DRAINED, 1);
-      return 1;
+      return mode === "cancel-failed" || mode === "cancel-not-found" ? 0 : 1;
     },
-    SleepEx: (_timeout, alertable) => {
-      if (alertable !== 1 || Atomics.load(shared, DRAINED) !== 1) return 0;
+    SleepEx: (timeout, alertable) => {
+      if (alertable !== 1) return 0;
+      // The watchdog can free even a worker regressed to an infinite wait.
+      if (mode === "no-completion" || Atomics.load(shared, DRAINED) !== 1) {
+        Atomics.wait(shared, ESCAPE, 0, timeout);
+        if (Atomics.load(shared, ESCAPE) === 0) return 0;
+      }
       reading?.complete(995, 0);
       writing?.complete(995, 0);
       reading = undefined;
@@ -180,18 +197,11 @@ if (parentPort !== null) {
     Atomics.wait(job.shared, WAKE, 0, 500);
     // Simulates a data message already in flight when the parent asks the worker to stop.
     parentPort.postMessage({ kind: "data", bytes: Uint8Array.of(0, 1, 255) });
+    parentPort.postMessage({ kind: "drained" });
     job.incoming.close();
     parentPort.close();
   } else {
     const { calls, createCompletion } = driver(job);
-    serveSerial(
-      parentPort,
-      job.incoming,
-      job.stopping,
-      job.handle,
-      job.wake,
-      calls,
-      createCompletion,
-    );
+    serveSerial(parentPort, job, calls, createCompletion);
   }
 }

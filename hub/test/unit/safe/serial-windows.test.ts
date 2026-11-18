@@ -18,6 +18,7 @@ import {
 import { openWindowsSerial } from "../../../src/shell/safe/serial-windows.ts";
 import {
   DRAINED,
+  ESCAPE,
   FIRST_BYTE,
   GATE,
   READS,
@@ -116,7 +117,7 @@ async function until(check: () => boolean): Promise<boolean> {
 
 /** Opens COM10 with native-call doubles and the actual message loop in a worker. */
 function fakePort(mode: FakeMode) {
-  const shared = new Int32Array(new SharedArrayBuffer(6 * 4));
+  const shared = new Int32Array(new SharedArrayBuffer((ESCAPE + 1) * 4));
   const { calls, operations } = windows(undefined, 5, shared);
   const port = openWindowsSerial("COM10", {
     system: calls,
@@ -141,6 +142,19 @@ function fakePort(mode: FakeMode) {
     errors.push(error.message);
   });
   return { port, shared, received, errors, operations, ready: () => ready };
+}
+
+/** Bounds the test separately from the drain and frees the double if the worker hangs. */
+async function expectClosed(shared: Int32Array, closed: Promise<void>): Promise<void> {
+  const watchdog = Promise.withResolvers<boolean>();
+  const timer = setTimeout(() => {
+    watchdog.resolve(false);
+    Atomics.store(shared, ESCAPE, 1);
+    Atomics.notify(shared, ESCAPE);
+  }, 2200);
+  const exited = await Promise.race([closed.then(() => true), watchdog.promise]);
+  clearTimeout(timer);
+  expect(exited).toBe(true);
 }
 
 // Aim for 5 ms. Leave 5 ms for local cross-thread scheduling and more on the hosted Windows VM.
@@ -283,7 +297,7 @@ describe("the Windows COM adapter", () => {
     const started = performance.now();
     port.close();
     port.close();
-    await port.closed;
+    await expectClosed(shared, port.closed);
     const elapsed = performance.now() - started;
     console.log(`COM double: pending read to released handle ${elapsed.toFixed(3)} ms`);
     expect(reading).toBe(true);
@@ -292,6 +306,20 @@ describe("the Windows COM adapter", () => {
     expect(Atomics.load(shared, DRAINED)).toBe(2);
     expect(received).toEqual([]);
     expect(operations.filter((name) => name === "CloseHandle")).toHaveLength(1);
+  });
+
+  test.each([
+    ["cancel-failed", ["COM10: CancelIoEx failed (Win32 1167)"]],
+    ["cancel-not-found", []],
+  ] as const)("%s still drains the queued completion and closes once", async (mode, expected) => {
+    const { port, shared, errors, operations, ready } = fakePort(mode);
+    const reading = await until(ready);
+    port.close();
+    await expectClosed(shared, port.closed);
+    expect(reading).toBe(true);
+    expect(Atomics.load(shared, DRAINED)).toBe(2);
+    expect(operations.filter((name) => name === "CloseHandle")).toHaveLength(1);
+    expect(errors).toEqual([...expected]);
   });
 
   test("OVERLAPPED x64 starts with the documented zero fields", () => {
@@ -355,8 +383,8 @@ describe("the Windows COM adapter", () => {
     port.close();
     Atomics.store(shared, GATE, 2);
     Atomics.notify(shared, GATE);
+    await expectClosed(shared, port.closed);
     const result = await pending;
-    await port.closed;
     expect(reached).toBe(true);
     expect(result._unsafeUnwrapErr().code).toBe("closed");
     expect(Atomics.load(shared, WRITES)).toBe(0);
@@ -374,33 +402,59 @@ describe("the Windows COM adapter", () => {
 });
 
 /** Runs the framed link over a succession of real workers with doubled serial devices. */
-function recoveringLink(second: FakeMode) {
+function recoveringLink(second: FakeMode, initial: FakeMode = "partial") {
   const registry = new LinkRegistry();
   const events: HubEvent[] = [];
   const ports: ReturnType<typeof fakePort>[] = [];
+  const errors: string[] = [];
   registry.listen((event) => {
     events.push(event);
   });
-  const links = new SerialLinks(registry, (path) => {
-    expect(path).toBe("COM10");
-    if (ports.length > 0) expect(ports.at(-1)?.operations).toContain("CloseHandle");
-    const opened = fakePort(ports.length === 0 ? "partial" : second);
-    ports.push(opened);
-    const { port } = opened;
-    return ok({
-      path,
-      stream: port.stream,
-      write: (bytes) => port.write(bytes),
-      close: () => {
-        port.close();
-        return ok(undefined);
-      },
-      closed: port.closed,
-    });
-  });
+  const links = new SerialLinks(
+    registry,
+    (path) => {
+      expect(path).toBe("COM10");
+      if (ports.length > 0) expect(ports.at(-1)?.operations).toContain("CloseHandle");
+      const opened = fakePort(ports.length === 0 ? initial : second);
+      ports.push(opened);
+      const { port } = opened;
+      return ok({
+        path,
+        stream: port.stream,
+        write: (bytes) => port.write(bytes),
+        close: () => {
+          port.close();
+          return ok(undefined);
+        },
+        closed: port.closed,
+      });
+    },
+    (error) => {
+      errors.push(error.message);
+    },
+  );
   const first = links.open("COM10")._unsafeUnwrap();
-  return { registry, links, events, ports, first };
+  return { registry, links, events, ports, first, errors };
 }
+
+test("a driver that never completes either request still lets the hub close and reports why", async () => {
+  const { registry, links, first, ports, errors } = recoveringLink("loopback", "no-completion");
+  const [opened] = ports;
+  expect(opened).toBeDefined();
+  if (opened === undefined) return;
+  registry.send(first, Uint8Array.of(7, 1), sendRef(1))._unsafeUnwrap();
+  const writing = await until(() => Atomics.load(opened.shared, WRITES) === 1);
+  const started = performance.now();
+  await expectClosed(opened.shared, links.closeAsyncPorts());
+  const elapsed = performance.now() - started;
+  expect(writing).toBe(true);
+  expect(elapsed).toBeGreaterThanOrEqual(995);
+  expect(Atomics.load(opened.shared, READS)).toBe(1);
+  expect(Atomics.load(opened.shared, DRAINED)).toBe(1);
+  expect(errors).toEqual(["COM10: serial I/O drain timed out after 1000 ms"]);
+  expect(opened.operations.filter((name) => name === "CloseHandle")).toHaveLength(1);
+  expect(ports).toHaveLength(1);
+}, 6000);
 
 test("a timed-out serial write reports every queued frame and reopens once on a fresh link", async () => {
   const { registry, links, first, ports, events } = recoveringLink("loopback");
