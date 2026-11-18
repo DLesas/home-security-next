@@ -3,7 +3,12 @@ import { ByteWriter, concatBytes } from "../bytes.ts";
 import { type BlockCipher, type BlockCipherFactory, nodeAes128 } from "../crypto/blockCipher.ts";
 import { createAesCcm } from "../crypto/ccm.ts";
 import { decodeMessage, encodeMessage, type Message } from "../messages/message.ts";
-import { messageDirection } from "../messages/messageType.ts";
+import { MessageType, messageDirection } from "../messages/messageType.ts";
+import {
+  decodeStartedImage,
+  encodeStartedWithImage,
+  type StartedImage,
+} from "../messages/started.ts";
 import { fail, ok, type Result } from "../result.ts";
 import { isValidBindingLength } from "./binding.ts";
 import {
@@ -59,6 +64,11 @@ export interface SealOptions {
    * cipher per packet. Without it, one is made on the runtime's AES for this call.
    */
   readonly cipher?: BlockCipher;
+  /**
+   * A Started only: the M3 fields written after its version-1 body (m3-updates-design.md section
+   * 5), as an M3 device sends them. Given with any other type, a programmer error.
+   */
+  readonly startedImage?: StartedImage;
 }
 
 /**
@@ -73,7 +83,14 @@ export function sealPacket(message: Message, options: SealOptions): Uint8Array {
   if (messageDirection(message.type) !== direction) {
     throw new RangeError(`message type ${message.type} does not travel in this direction`);
   }
-  const plaintext = encodeMessage(message);
+  const version1 = encodeMessage(message);
+  if (options.startedImage !== undefined && message.type !== MessageType.Started) {
+    throw new RangeError("only a Started carries image fields");
+  }
+  const plaintext =
+    options.startedImage === undefined
+      ? version1
+      : encodeStartedWithImage(version1, options.startedImage);
   if (CLEAR_HEADER_LENGTH + plaintext.length + TAG_LENGTH > maxLength) {
     throw new RangeError(`packet would exceed ${maxLength} bytes`);
   }
@@ -101,6 +118,11 @@ export interface OpenOptions {
 export interface OpenedPacket {
   readonly header: PacketHeader;
   readonly message: Message;
+  /**
+   * A Started whose body carries the M3 fields (12 bytes or more): those fields. Absent for any
+   * other packet and for an 8-byte Started from a device older than M3.
+   */
+  readonly startedImage?: StartedImage;
 }
 
 /**
@@ -128,5 +150,12 @@ export function openPacket(packet: Uint8Array, options: OpenOptions): Result<Ope
   if (!message.ok) return message;
   // Section 5: the type must match the direction, even though the tag checked.
   if (messageDirection(message.value.type) !== direction) return fail("wrongDirection");
-  return ok({ header: header.value, message: message.value });
+  if (message.value.type !== MessageType.Started) {
+    return ok({ header: header.value, message: message.value });
+  }
+  const image = decodeStartedImage(plaintext);
+  if (!image.ok) return image;
+  return image.value === null
+    ? ok({ header: header.value, message: message.value })
+    : ok({ header: header.value, message: message.value, startedImage: image.value });
 }

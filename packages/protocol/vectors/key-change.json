@@ -1,0 +1,63 @@
+{
+  "schemaVersion": 1,
+  "protocolVersion": 1,
+  "messageType": 132,
+  "name": "KeyChange",
+  "direction": 1,
+  "cases": [
+    {
+      "name": "key change to a sensor, bound to its old-key heartbeat",
+      "canonical": true,
+      "key": "000102030405060708090a0b0c0d0e0f",
+      "direction": 1,
+      "address": 439041101,
+      "counter": 312,
+      "binding": "03000000",
+      "maxLength": 255,
+      "messageType": 132,
+      "fields": {
+        "newKey": "404142434445464748494a4b4c4d4e4f"
+      },
+      "plaintext": "84404142434445464748494a4b4c4d4e4f",
+      "nonce": "4d3c2b1a013801000000000000",
+      "associatedData": "184d3c2b1a3801000003000000",
+      "packet": "184d3c2b1a380100003286765d05f19a96476dfcb559ffd76340d30f72ebf8bcf652"
+    },
+    {
+      "name": "key change to a siren, strictly higher counter, no binding",
+      "canonical": true,
+      "key": "101112131415161718191a1b1c1d1e1f",
+      "direction": 1,
+      "address": 1584361601,
+      "counter": 2052,
+      "binding": "",
+      "maxLength": 255,
+      "messageType": 132,
+      "fields": {
+        "newKey": "505152535455565758595a5b5c5d5e5f"
+      },
+      "plaintext": "84505152535455565758595a5b5c5d5e5f",
+      "nonce": "81706f5e010408000000000000",
+      "associatedData": "1881706f5e04080000",
+      "packet": "1881706f5e0408000056080d04d40e628014215a29210338d69b887a70609e64f964"
+    },
+    {
+      "name": "key change to a gateway in place of the welcome, bound to its hello's random",
+      "canonical": true,
+      "key": "202122232425262728292a2b2c2d2e2f",
+      "direction": 1,
+      "address": 2460202181,
+      "counter": 61,
+      "binding": "a0a1a2a3a4a5a6a7",
+      "maxLength": 1024,
+      "messageType": 132,
+      "fields": {
+        "newKey": "606162636465666768696a6b6c6d6e6f"
+      },
+      "plaintext": "84606162636465666768696a6b6c6d6e6f",
+      "nonce": "c5b4a392013d00000000000000",
+      "associatedData": "18c5b4a3923d000000a0a1a2a3a4a5a6a7",
+      "packet": "18c5b4a3923d000000dd0ba6106d83f2d5a7e28151cc8324bc3d2934f1607bc398c1"
+    }
+  ]
+}

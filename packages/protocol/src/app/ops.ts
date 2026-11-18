@@ -608,7 +608,10 @@ export type AppOpReply<N extends AppOpName> = z.infer<(typeof APP_OPS)[N]["reply
 /** The changes: every operation that carries `seq`. */
 export const CHANGE_OPS = APP_OP_NAMES.filter((name) => APP_OPS[name].change);
 
-/** An operation and its body, as the core sees it: one variant per row of section 6. */
+/**
+ * An operation and its body, as the core sees it: one variant per row of section 6, version 1's.
+ * Version 2's are `AppOpV2` (ops-v2.ts), of which every `AppOp` is one.
+ */
 export type AppOp = {
   readonly [N in AppOpName]: { readonly op: N; readonly body: AppOpBody<N> };
 }[AppOpName];

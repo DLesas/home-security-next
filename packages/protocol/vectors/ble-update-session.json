@@ -1,0 +1,73 @@
+{
+  "schemaVersion": 1,
+  "protocolVersion": 1,
+  "serviceUuid": "1012a7e5-5d53-44e0-9170-6c34720148a4",
+  "rxUuid": "9e848f59-78c5-4f7e-b604-38d088ceda4f",
+  "txUuid": "0a218c6e-e0b9-4cfe-9580-e13887bcd840",
+  "sessionKeys": [
+    {
+      "name": "the sensor's key",
+      "deviceKey": "000102030405060708090a0b0c0d0e0f",
+      "nonce": "5a5b5c5d5e5f6061",
+      "address": 439041101,
+      "info": "68736e2d626c652d7570646174652f31004d3c2b1a",
+      "sessionKey": "42a197c9141c8e3ad4435269a9823d9e0a35e8f9dd417e811a58dc013555afe9"
+    },
+    {
+      "name": "the siren's key, another nonce",
+      "deviceKey": "101112131415161718191a1b1c1d1e1f",
+      "nonce": "0000000000000001",
+      "address": 1584361601,
+      "info": "68736e2d626c652d7570646174652f310081706f5e",
+      "sessionKey": "9112eb7d192d00ea7e3d1f060807b3e72e3deea16c514e32aaf3758996dcba6d"
+    },
+    {
+      "name": "the largest address",
+      "deviceKey": "000102030405060708090a0b0c0d0e0f",
+      "nonce": "5a5b5c5d5e5f6061",
+      "address": 4294967294,
+      "info": "68736e2d626c652d7570646174652f3100feffffff",
+      "sessionKey": "ace79d8d2baf83d6de3ec9e8555ea1752059a0a3b9056fb94540c6f111e8a5e4"
+    }
+  ],
+  "openTags": [
+    {
+      "name": "a first Hello",
+      "sessionKey": "42a197c9141c8e3ad4435269a9823d9e0a35e8f9dd417e811a58dc013555afe9",
+      "address": 439041101,
+      "deviceRandom": "c0c1c2c3c4c5c6c7",
+      "imageId": "1122334455667788",
+      "tag": "ee05ccfa4531c8fc85b7dba65f484a50"
+    },
+    {
+      "name": "a reconnection, a new device random",
+      "sessionKey": "42a197c9141c8e3ad4435269a9823d9e0a35e8f9dd417e811a58dc013555afe9",
+      "address": 439041101,
+      "deviceRandom": "d0d1d2d3d4d5d6d7",
+      "imageId": "1122334455667788",
+      "tag": "b11f47c6540cdfe007a129ce656b64e0"
+    },
+    {
+      "name": "another image",
+      "sessionKey": "42a197c9141c8e3ad4435269a9823d9e0a35e8f9dd417e811a58dc013555afe9",
+      "address": 439041101,
+      "deviceRandom": "c0c1c2c3c4c5c6c7",
+      "imageId": "a1b2c3d4e5f60718",
+      "tag": "b3c7038f2fdf85d58995e8c498245296"
+    }
+  ],
+  "names": [
+    {
+      "address": 439041101,
+      "name": "hsn-1a2b3c4d"
+    },
+    {
+      "address": 1,
+      "name": "hsn-00000001"
+    },
+    {
+      "address": 4294967294,
+      "name": "hsn-fffffffe"
+    }
+  ]
+}

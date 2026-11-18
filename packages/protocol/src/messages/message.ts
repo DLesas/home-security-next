@@ -17,6 +17,12 @@ import { MessageType } from "./messageType.ts";
 import { buttonLayout, disarmedNoticeLayout, replyLayout, sensorStatusLayout } from "./sensor.ts";
 import { sirenCommandLayout, sirenReportLayout, sirenSettingsLayout } from "./siren.ts";
 import { startedLayout } from "./started.ts";
+import {
+  keyChangeLayout,
+  updateOfferLayout,
+  updateQueryLayout,
+  updateStatusLayout,
+} from "./update.ts";
 
 const bodyLayouts = {
   [MessageType.Heartbeat]: sensorStatusLayout,
@@ -24,6 +30,8 @@ const bodyLayouts = {
   [MessageType.CoverChanged]: sensorStatusLayout,
   [MessageType.Button]: buttonLayout,
   [MessageType.Started]: startedLayout,
+  [MessageType.UpdateQuery]: updateQueryLayout,
+  [MessageType.UpdateStatus]: updateStatusLayout,
   [MessageType.SirenReport]: sirenReportLayout,
   [MessageType.Hello]: helloLayout,
   [MessageType.ForwardedPacket]: forwardedPacketLayout,
@@ -33,6 +41,8 @@ const bodyLayouts = {
   [MessageType.LogEntries]: logEntriesLayout,
   [MessageType.Reply]: replyLayout,
   [MessageType.DisarmedNotice]: disarmedNoticeLayout,
+  [MessageType.UpdateOffer]: updateOfferLayout,
+  [MessageType.KeyChange]: keyChangeLayout,
   [MessageType.SirenCommand]: sirenCommandLayout,
   [MessageType.SirenSettings]: sirenSettingsLayout,
   [MessageType.Welcome]: welcomeLayout,

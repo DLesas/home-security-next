@@ -1,12 +1,20 @@
 /**
  * The Noise state machine's interface (docs/m2-design.md section 5, "The channel: Noise"), not
  * its implementation: owner A1 writes it in `noise.ts` and checks it against the published Noise
- * vectors and ours. Both patterns use X25519, ChaCha20-Poly1305 and SHA-256 (`@noble/*`).
+ * vectors and ours. Every pattern uses X25519, ChaCha20-Poly1305 and SHA-256 (`@noble/*`).
+ *
+ * `relay` (docs/m4-design.md section 3, D125) is the hub's link to its relay, and a relay's link
+ * to the push service: XN, with the prologue `hsn-relay/1` or `hsn-relay-peer/1` and a zero byte
+ * (`RELAY_PROLOGUE`, `@hsn/protocol/relay`). It uses the hub's one app static key, as IK does
+ * (QR2). Frozen by the joint step 0; B1 implements it in `noise.ts` against the published vectors
+ * for `Noise_XN_25519_ChaChaPoly_SHA256` (one in cacophony.txt, one in snow.txt). Until then
+ * `startHandshake` refuses it as `wrongState`, as it refuses any pattern it has no definition for.
  */
 
 export const NOISE_PATTERNS = {
   session: "Noise_IK_25519_ChaChaPoly_SHA256",
   link: "Noise_XXpsk3_25519_ChaChaPoly_SHA256",
+  relay: "Noise_XN_25519_ChaChaPoly_SHA256",
 } as const;
 export type NoisePattern = (typeof NOISE_PATTERNS)[keyof typeof NOISE_PATTERNS];
 

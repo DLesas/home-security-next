@@ -1,0 +1,303 @@
+{
+  "schemaVersion": 1,
+  "protocolVersion": 1,
+  "label": "hsn-image/1",
+  "signing": {
+    "curve": "P-256",
+    "hash": "SHA-256",
+    "deterministic": "RFC 6979",
+    "prehash": true,
+    "lowS": false
+  },
+  "signingPrivateKey": "c9afa9d845ba75166b5c215767b1d6934e50c3db36e89b127b8a622b120f6721",
+  "signingKey": "60fed4ba255a9d31c961eb74c6356d68c049b8923b61fa6ce669622e60f29fb67903fe1008b8bc99a41ae9e95628bc64f2f1b20c2d7e9f5177a3c294d4462299",
+  "hubIdentity": "d6c23e2744a840cb",
+  "rfc6979Sample": {
+    "message": "73616d706c65",
+    "r": "efd48b2aacb6a8fd1140dd9cd45e81d69d2c877b56aaf991c34d0ea84eaf3716",
+    "s": "f7cb1c942d657c41d436c7a1b6e29f65f3e900dbb9aff4064dc4ab2f843acda8"
+  },
+  "image": "03284d7297bce1062b50759abfe4092e53789dc2e70c31567ba0c5ea0f34597ea3c8ed12375c81a6cbf0153a5f84a9cef3183d6287acd1f61b40658aafd4f91e43688db2d7fc21466b90b5daff24496e93b8dd02274c7196bbe0052a4f7499bee3082d52779cc1e60b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186abd0f51a3f6489aed3f81d42678cb1d6fb20456a8fb4d9fe23486d92b7dc01264b7095badf04294e7398bde2072c51769bc0e50a2f54799ec3e80d32577ca1c6eb10355a7fa4c9ee13385d82a7ccf1163b6085aacff4193e6388add2f71c41668bb0d5fa1f44698eb3d8fd22476c91b6db00254a6f94b9de03284d7297bce1062b50759abfe4092e53789dc2e70c31567ba0c5ea0f34597ea3c8ed12375c81a6cbf0153a5f84a9cef3183d6287acd1f61b40658aafd4f91e43688db2d7fc21466b90b5daff24496e93b8dd02274c7196bbe0052a4f7499bee3082d52779cc1e60b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186abd0f51a3f6489aed3f81d42678cb1d6fb20456a8fb4d9fe23486d92b7dc01264b7095badf04294e7398bde2072c51769bc0e50a2f54799ec3e80d32577ca1c6eb10355a7fa4c9ee13385d82a7ccf1163b6085aacff4193e6388add2f71c41668bb0d5fa1f44698eb3d8fd22476c91b6db00254a6f94b9de03284d7297bce1062b50759abfe4092e53789dc2e70c31567ba0c5ea0f34597ea3c8ed12375c81a6cbf0153a5f84a9cef3183d6287acd1f61b40658aafd4f91e43688db2d7fc21466b90b5daff24496e93b8dd02274c7196bbe0052a4f7499bee3082d52779cc1e60b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186abd0f51a3f6489aed3f81d42678cb1d6fb20456a8fb4d9fe23486d92b7dc01264b7095badf04294e7398bde2072c51769bc0e50a2f54799ec3e80d32577ca1c6eb10355a7fa4c9ee13385d82a7ccf1163b6085aacff4193e6388add2f71c41668bb0d5fa1f44698eb3d8fd22476c91b6db00254a6f94b9de03284d7297bce1062b50759abfe4092e53789dc2e70c31567ba0c5ea0f34597ea3c8ed12375c81a6cbf0153a5f84a9cef3183d6287acd1f61b40658aafd4f91e43688db2d7fc21466b90b5daff24496e93b8dd02274c7196bbe0052a4f7499bee3082d52779cc1e60b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186abd0f51a3f6489aed3f81d42678cb1d6fb20456a8fb4d9fe23486d92b7dc01264b7095badf04294e7398bde2072c51769bc0e50a2f54799ec3e80d32577ca1c6eb10355a7fa4c9ee13385d82a7ccf1163b6085aacff4193e6388add2f71c4166",
+  "valid": [
+    {
+      "name": "an official image for every role",
+      "fields": {
+        "flags": {
+          "ownBuild": false
+        },
+        "roles": 14,
+        "target": 1,
+        "version": {
+          "major": 1,
+          "minor": 4,
+          "patch": 0
+        },
+        "imageBytes": 1000,
+        "imageSha256": "5809a93fbda5fee2a1d80764b42c362e2ebb74b2add07a06ea218d76a79392aa",
+        "hubIdentity": "d6c23e2744a840cb"
+      },
+      "signedBytes": "68736e2d696d6167652f310048534e4901000e0101040000e80300005809a93fbda5fee2a1d80764b42c362e2ebb74b2add07a06ea218d76a79392aad6c23e2744a840cb0000000000000000",
+      "signedSha256": "20fde3e2c04d65799d2886e8aa9f880f1c1e21eaf5568f111b73ecb85a1e031b",
+      "signature": "ecf3d08ca68fdbac795ae3167ddd6e381c2a442b88f43fa8d1dd3acd36e8dd814a262601eaac2e8933ae7a5e56b0e66d0b0619da1fbc8bec7fb4543ae2ad6e87",
+      "header": "48534e4901000e0101040000e80300005809a93fbda5fee2a1d80764b42c362e2ebb74b2add07a06ea218d76a79392aad6c23e2744a840cb0000000000000000ecf3d08ca68fdbac795ae3167ddd6e381c2a442b88f43fa8d1dd3acd36e8dd814a262601eaac2e8933ae7a5e56b0e66d0b0619da1fbc8bec7fb4543ae2ad6e87",
+      "imageId": "5809a93fbda5fee2"
+    },
+    {
+      "name": "an owner's own build for sensors only",
+      "fields": {
+        "flags": {
+          "ownBuild": true
+        },
+        "roles": 2,
+        "target": 1,
+        "version": {
+          "major": 0,
+          "minor": 0,
+          "patch": 1
+        },
+        "imageBytes": 1000,
+        "imageSha256": "5809a93fbda5fee2a1d80764b42c362e2ebb74b2add07a06ea218d76a79392aa",
+        "hubIdentity": "d6c23e2744a840cb"
+      },
+      "signedBytes": "68736e2d696d6167652f310048534e490101020100000100e80300005809a93fbda5fee2a1d80764b42c362e2ebb74b2add07a06ea218d76a79392aad6c23e2744a840cb0000000000000000",
+      "signedSha256": "3712ae9ea68da2095746ad023d25ebb4b9849c338269498b35f88e796f811b85",
+      "signature": "f3d08befe7c856dee107a1df0fad6a5031dacec849b3194691e3bb90d5d573ec7bd683554d84d12c911a0440678058884c997c9671adafe8805d44a256a34c0c",
+      "header": "48534e490101020100000100e80300005809a93fbda5fee2a1d80764b42c362e2ebb74b2add07a06ea218d76a79392aad6c23e2744a840cb0000000000000000f3d08befe7c856dee107a1df0fad6a5031dacec849b3194691e3bb90d5d573ec7bd683554d84d12c911a0440678058884c997c9671adafe8805d44a256a34c0c",
+      "imageId": "5809a93fbda5fee2"
+    },
+    {
+      "name": "the largest version and size fields",
+      "fields": {
+        "flags": {
+          "ownBuild": false
+        },
+        "roles": 14,
+        "target": 1,
+        "version": {
+          "major": 255,
+          "minor": 255,
+          "patch": 255
+        },
+        "imageBytes": 3670016,
+        "imageSha256": "5809a93fbda5fee2a1d80764b42c362e2ebb74b2add07a06ea218d76a79392aa",
+        "hubIdentity": "d6c23e2744a840cb"
+      },
+      "signedBytes": "68736e2d696d6167652f310048534e4901000e01ffffff00000038005809a93fbda5fee2a1d80764b42c362e2ebb74b2add07a06ea218d76a79392aad6c23e2744a840cb0000000000000000",
+      "signedSha256": "0608f134b1cfd6a34c5c4b5191d5a393b871fc82f7309d684737bec4dde6cd1d",
+      "signature": "b29acadbce3ee2afd778108e0ca7e308e97738ff8a35f512e906f3bb48d5cc8c523ee4b3c6e08617ce92354e6ab9314989f5530c64e1af9c978d9f88038f6831",
+      "header": "48534e4901000e01ffffff00000038005809a93fbda5fee2a1d80764b42c362e2ebb74b2add07a06ea218d76a79392aad6c23e2744a840cb0000000000000000b29acadbce3ee2afd778108e0ca7e308e97738ff8a35f512e906f3bb48d5cc8c523ee4b3c6e08617ce92354e6ab9314989f5530c64e1af9c978d9f88038f6831",
+      "imageId": "5809a93fbda5fee2"
+    }
+  ],
+  "checks": [
+    {
+      "name": "passes every check",
+      "header": "48534e4901000e0101040000e80300005809a93fbda5fee2a1d80764b42c362e2ebb74b2add07a06ea218d76a79392aad6c23e2744a840cb0000000000000000ecf3d08ca68fdbac795ae3167ddd6e381c2a442b88f43fa8d1dd3acd36e8dd814a262601eaac2e8933ae7a5e56b0e66d0b0619da1fbc8bec7fb4543ae2ad6e87",
+      "expect": {
+        "hubIdentity": "d6c23e2744a840cb",
+        "signingKey": "60fed4ba255a9d31c961eb74c6356d68c049b8923b61fa6ce669622e60f29fb67903fe1008b8bc99a41ae9e95628bc64f2f1b20c2d7e9f5177a3c294d4462299",
+        "role": 1,
+        "capacity": 3670016
+      },
+      "reason": 0
+    },
+    {
+      "name": "an image exactly the slot's size passes",
+      "header": "48534e4901000e0101040000e80300005809a93fbda5fee2a1d80764b42c362e2ebb74b2add07a06ea218d76a79392aad6c23e2744a840cb0000000000000000ecf3d08ca68fdbac795ae3167ddd6e381c2a442b88f43fa8d1dd3acd36e8dd814a262601eaac2e8933ae7a5e56b0e66d0b0619da1fbc8bec7fb4543ae2ad6e87",
+      "expect": {
+        "hubIdentity": "d6c23e2744a840cb",
+        "signingKey": "60fed4ba255a9d31c961eb74c6356d68c049b8923b61fa6ce669622e60f29fb67903fe1008b8bc99a41ae9e95628bc64f2f1b20c2d7e9f5177a3c294d4462299",
+        "role": 1,
+        "capacity": 1000
+      },
+      "reason": 0
+    },
+    {
+      "name": "wrong magic",
+      "header": "48534e5801000e0101040000e80300005809a93fbda5fee2a1d80764b42c362e2ebb74b2add07a06ea218d76a79392aad6c23e2744a840cb0000000000000000ecf3d08ca68fdbac795ae3167ddd6e381c2a442b88f43fa8d1dd3acd36e8dd814a262601eaac2e8933ae7a5e56b0e66d0b0619da1fbc8bec7fb4543ae2ad6e87",
+      "expect": {
+        "hubIdentity": "d6c23e2744a840cb",
+        "signingKey": "60fed4ba255a9d31c961eb74c6356d68c049b8923b61fa6ce669622e60f29fb67903fe1008b8bc99a41ae9e95628bc64f2f1b20c2d7e9f5177a3c294d4462299",
+        "role": 1,
+        "capacity": 3670016
+      },
+      "reason": 6
+    },
+    {
+      "name": "format 2",
+      "header": "48534e4902000e0101040000e80300005809a93fbda5fee2a1d80764b42c362e2ebb74b2add07a06ea218d76a79392aad6c23e2744a840cb0000000000000000ecf3d08ca68fdbac795ae3167ddd6e381c2a442b88f43fa8d1dd3acd36e8dd814a262601eaac2e8933ae7a5e56b0e66d0b0619da1fbc8bec7fb4543ae2ad6e87",
+      "expect": {
+        "hubIdentity": "d6c23e2744a840cb",
+        "signingKey": "60fed4ba255a9d31c961eb74c6356d68c049b8923b61fa6ce669622e60f29fb67903fe1008b8bc99a41ae9e95628bc64f2f1b20c2d7e9f5177a3c294d4462299",
+        "role": 1,
+        "capacity": 3670016
+      },
+      "reason": 6
+    },
+    {
+      "name": "target 2",
+      "header": "48534e4901000e0201040000e80300005809a93fbda5fee2a1d80764b42c362e2ebb74b2add07a06ea218d76a79392aad6c23e2744a840cb0000000000000000ecf3d08ca68fdbac795ae3167ddd6e381c2a442b88f43fa8d1dd3acd36e8dd814a262601eaac2e8933ae7a5e56b0e66d0b0619da1fbc8bec7fb4543ae2ad6e87",
+      "expect": {
+        "hubIdentity": "d6c23e2744a840cb",
+        "signingKey": "60fed4ba255a9d31c961eb74c6356d68c049b8923b61fa6ce669622e60f29fb67903fe1008b8bc99a41ae9e95628bc64f2f1b20c2d7e9f5177a3c294d4462299",
+        "role": 1,
+        "capacity": 3670016
+      },
+      "reason": 6
+    },
+    {
+      "name": "byte 11 not zero",
+      "header": "48534e4901000e0101040001e80300005809a93fbda5fee2a1d80764b42c362e2ebb74b2add07a06ea218d76a79392aad6c23e2744a840cb0000000000000000ecf3d08ca68fdbac795ae3167ddd6e381c2a442b88f43fa8d1dd3acd36e8dd814a262601eaac2e8933ae7a5e56b0e66d0b0619da1fbc8bec7fb4543ae2ad6e87",
+      "expect": {
+        "hubIdentity": "d6c23e2744a840cb",
+        "signingKey": "60fed4ba255a9d31c961eb74c6356d68c049b8923b61fa6ce669622e60f29fb67903fe1008b8bc99a41ae9e95628bc64f2f1b20c2d7e9f5177a3c294d4462299",
+        "role": 1,
+        "capacity": 3670016
+      },
+      "reason": 6
+    },
+    {
+      "name": "byte 63 not zero",
+      "header": "48534e4901000e0101040000e80300005809a93fbda5fee2a1d80764b42c362e2ebb74b2add07a06ea218d76a79392aad6c23e2744a840cb0000000000000001ecf3d08ca68fdbac795ae3167ddd6e381c2a442b88f43fa8d1dd3acd36e8dd814a262601eaac2e8933ae7a5e56b0e66d0b0619da1fbc8bec7fb4543ae2ad6e87",
+      "expect": {
+        "hubIdentity": "d6c23e2744a840cb",
+        "signingKey": "60fed4ba255a9d31c961eb74c6356d68c049b8923b61fa6ce669622e60f29fb67903fe1008b8bc99a41ae9e95628bc64f2f1b20c2d7e9f5177a3c294d4462299",
+        "role": 1,
+        "capacity": 3670016
+      },
+      "reason": 6
+    },
+    {
+      "name": "cut to 127 bytes",
+      "header": "48534e4901000e0101040000e80300005809a93fbda5fee2a1d80764b42c362e2ebb74b2add07a06ea218d76a79392aad6c23e2744a840cb0000000000000000ecf3d08ca68fdbac795ae3167ddd6e381c2a442b88f43fa8d1dd3acd36e8dd814a262601eaac2e8933ae7a5e56b0e66d0b0619da1fbc8bec7fb4543ae2ad6e",
+      "expect": {
+        "hubIdentity": "d6c23e2744a840cb",
+        "signingKey": "60fed4ba255a9d31c961eb74c6356d68c049b8923b61fa6ce669622e60f29fb67903fe1008b8bc99a41ae9e95628bc64f2f1b20c2d7e9f5177a3c294d4462299",
+        "role": 1,
+        "capacity": 3670016
+      },
+      "reason": 6
+    },
+    {
+      "name": "another hub's identity",
+      "header": "48534e4901000e0101040000e80300005809a93fbda5fee2a1d80764b42c362e2ebb74b2add07a06ea218d76a79392aad6c23e2744a840cb0000000000000000ecf3d08ca68fdbac795ae3167ddd6e381c2a442b88f43fa8d1dd3acd36e8dd814a262601eaac2e8933ae7a5e56b0e66d0b0619da1fbc8bec7fb4543ae2ad6e87",
+      "expect": {
+        "hubIdentity": "0102030405060708",
+        "signingKey": "60fed4ba255a9d31c961eb74c6356d68c049b8923b61fa6ce669622e60f29fb67903fe1008b8bc99a41ae9e95628bc64f2f1b20c2d7e9f5177a3c294d4462299",
+        "role": 1,
+        "capacity": 3670016
+      },
+      "reason": 7
+    },
+    {
+      "name": "a sensor-only image on a siren",
+      "header": "48534e490100020101040000e80300005809a93fbda5fee2a1d80764b42c362e2ebb74b2add07a06ea218d76a79392aad6c23e2744a840cb00000000000000001892a6ec489b872b65c3294413bd6e1c72202e483740174473757c6d7d538e02e3dda22a18991925ecf716804e555bdb24eee9ff0a87f949122b2f8deeaace8b",
+      "expect": {
+        "hubIdentity": "d6c23e2744a840cb",
+        "signingKey": "60fed4ba255a9d31c961eb74c6356d68c049b8923b61fa6ce669622e60f29fb67903fe1008b8bc99a41ae9e95628bc64f2f1b20c2d7e9f5177a3c294d4462299",
+        "role": 2,
+        "capacity": 3670016
+      },
+      "reason": 8
+    },
+    {
+      "name": "one byte over the slot",
+      "header": "48534e4901000e0101040000e80300005809a93fbda5fee2a1d80764b42c362e2ebb74b2add07a06ea218d76a79392aad6c23e2744a840cb0000000000000000ecf3d08ca68fdbac795ae3167ddd6e381c2a442b88f43fa8d1dd3acd36e8dd814a262601eaac2e8933ae7a5e56b0e66d0b0619da1fbc8bec7fb4543ae2ad6e87",
+      "expect": {
+        "hubIdentity": "d6c23e2744a840cb",
+        "signingKey": "60fed4ba255a9d31c961eb74c6356d68c049b8923b61fa6ce669622e60f29fb67903fe1008b8bc99a41ae9e95628bc64f2f1b20c2d7e9f5177a3c294d4462299",
+        "role": 1,
+        "capacity": 999
+      },
+      "reason": 9
+    },
+    {
+      "name": "a signature byte changed",
+      "header": "48534e4901000e0101040000e80300005809a93fbda5fee2a1d80764b42c362e2ebb74b2add07a06ea218d76a79392aad6c23e2744a840cb0000000000000000ecf3d08ca68fdbac795ae3167ddd6e381c2a442b88f43fa8d1dd3acd36e8dd814a262601ebac2e8933ae7a5e56b0e66d0b0619da1fbc8bec7fb4543ae2ad6e87",
+      "expect": {
+        "hubIdentity": "d6c23e2744a840cb",
+        "signingKey": "60fed4ba255a9d31c961eb74c6356d68c049b8923b61fa6ce669622e60f29fb67903fe1008b8bc99a41ae9e95628bc64f2f1b20c2d7e9f5177a3c294d4462299",
+        "role": 1,
+        "capacity": 3670016
+      },
+      "reason": 10
+    },
+    {
+      "name": "the version changed after signing",
+      "header": "48534e4901000e0101040100e80300005809a93fbda5fee2a1d80764b42c362e2ebb74b2add07a06ea218d76a79392aad6c23e2744a840cb0000000000000000ecf3d08ca68fdbac795ae3167ddd6e381c2a442b88f43fa8d1dd3acd36e8dd814a262601eaac2e8933ae7a5e56b0e66d0b0619da1fbc8bec7fb4543ae2ad6e87",
+      "expect": {
+        "hubIdentity": "d6c23e2744a840cb",
+        "signingKey": "60fed4ba255a9d31c961eb74c6356d68c049b8923b61fa6ce669622e60f29fb67903fe1008b8bc99a41ae9e95628bc64f2f1b20c2d7e9f5177a3c294d4462299",
+        "role": 1,
+        "capacity": 3670016
+      },
+      "reason": 10
+    },
+    {
+      "name": "signed by another key",
+      "header": "48534e4901000e0101040000e80300005809a93fbda5fee2a1d80764b42c362e2ebb74b2add07a06ea218d76a79392aad6c23e2744a840cb0000000000000000c42d2351a938315e3a999cf5a36136739757512e9a96ac54e6c202b92b105ed437bc87e3749213b96eafda2335aee40e617ac9deb90dd2bc5bb32d3d04c3eaa4",
+      "expect": {
+        "hubIdentity": "d6c23e2744a840cb",
+        "signingKey": "60fed4ba255a9d31c961eb74c6356d68c049b8923b61fa6ce669622e60f29fb67903fe1008b8bc99a41ae9e95628bc64f2f1b20c2d7e9f5177a3c294d4462299",
+        "role": 1,
+        "capacity": 3670016
+      },
+      "reason": 10
+    },
+    {
+      "name": "unused flag and role bits set, then signed: ignored",
+      "header": "48534e4901feff0101040000e80300005809a93fbda5fee2a1d80764b42c362e2ebb74b2add07a06ea218d76a79392aad6c23e2744a840cb000000000000000004218a09bfda5fd35c4dbc974ac89d95572dbf6211aa2580feb9a4aee6f74a45ee5246fa7789694613276729a2f93c88d00b0199c4fbdbbaae0d95740e081848",
+      "expect": {
+        "hubIdentity": "d6c23e2744a840cb",
+        "signingKey": "60fed4ba255a9d31c961eb74c6356d68c049b8923b61fa6ce669622e60f29fb67903fe1008b8bc99a41ae9e95628bc64f2f1b20c2d7e9f5177a3c294d4462299",
+        "role": 1,
+        "capacity": 3670016
+      },
+      "reason": 0
+    },
+    {
+      "name": "target 2 and another hub: the header is checked first",
+      "header": "48534e4901000e0201040000e80300005809a93fbda5fee2a1d80764b42c362e2ebb74b2add07a06ea218d76a79392aad6c23e2744a840cb0000000000000000ecf3d08ca68fdbac795ae3167ddd6e381c2a442b88f43fa8d1dd3acd36e8dd814a262601eaac2e8933ae7a5e56b0e66d0b0619da1fbc8bec7fb4543ae2ad6e87",
+      "expect": {
+        "hubIdentity": "0102030405060708",
+        "signingKey": "60fed4ba255a9d31c961eb74c6356d68c049b8923b61fa6ce669622e60f29fb67903fe1008b8bc99a41ae9e95628bc64f2f1b20c2d7e9f5177a3c294d4462299",
+        "role": 1,
+        "capacity": 3670016
+      },
+      "reason": 6
+    },
+    {
+      "name": "another hub and the wrong role: the hub is checked first",
+      "header": "48534e490100020101040000e80300005809a93fbda5fee2a1d80764b42c362e2ebb74b2add07a06ea218d76a79392aad6c23e2744a840cb00000000000000001892a6ec489b872b65c3294413bd6e1c72202e483740174473757c6d7d538e02e3dda22a18991925ecf716804e555bdb24eee9ff0a87f949122b2f8deeaace8b",
+      "expect": {
+        "hubIdentity": "0102030405060708",
+        "signingKey": "60fed4ba255a9d31c961eb74c6356d68c049b8923b61fa6ce669622e60f29fb67903fe1008b8bc99a41ae9e95628bc64f2f1b20c2d7e9f5177a3c294d4462299",
+        "role": 3,
+        "capacity": 3670016
+      },
+      "reason": 7
+    },
+    {
+      "name": "the wrong role and over the slot: the role is checked first",
+      "header": "48534e490100020101040000e80300005809a93fbda5fee2a1d80764b42c362e2ebb74b2add07a06ea218d76a79392aad6c23e2744a840cb00000000000000001892a6ec489b872b65c3294413bd6e1c72202e483740174473757c6d7d538e02e3dda22a18991925ecf716804e555bdb24eee9ff0a87f949122b2f8deeaace8b",
+      "expect": {
+        "hubIdentity": "d6c23e2744a840cb",
+        "signingKey": "60fed4ba255a9d31c961eb74c6356d68c049b8923b61fa6ce669622e60f29fb67903fe1008b8bc99a41ae9e95628bc64f2f1b20c2d7e9f5177a3c294d4462299",
+        "role": 3,
+        "capacity": 1
+      },
+      "reason": 8
+    },
+    {
+      "name": "over the slot and a bad signature: the size is checked first",
+      "header": "48534e4901000e0101040000e80300005809a93fbda5fee2a1d80764b42c362e2ebb74b2add07a06ea218d76a79392aad6c23e2744a840cb0000000000000000ecf3d08ca68fdbac795ae3167ddd6e381c2a442b88f43fa8d1dd3acd36e8dd814a262601ebac2e8933ae7a5e56b0e66d0b0619da1fbc8bec7fb4543ae2ad6e87",
+      "expect": {
+        "hubIdentity": "d6c23e2744a840cb",
+        "signingKey": "60fed4ba255a9d31c961eb74c6356d68c049b8923b61fa6ce669622e60f29fb67903fe1008b8bc99a41ae9e95628bc64f2f1b20c2d7e9f5177a3c294d4462299",
+        "role": 1,
+        "capacity": 1
+      },
+      "reason": 9
+    }
+  ]
+}

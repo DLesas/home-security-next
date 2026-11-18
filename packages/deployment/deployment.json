@@ -1,0 +1,10 @@
+{
+  "productName": "HSN",
+  "domain": "example.invalid",
+  "hubsDomain": "hubs.example.invalid",
+  "iosBundleId": "invalid.hsn.app",
+  "iosAppGroup": "group.invalid.hsn.app",
+  "iosTeamId": null,
+  "androidApplicationId": "invalid.hsn.app",
+  "acmeDirectory": "https://acme-v02.api.letsencrypt.org/directory"
+}

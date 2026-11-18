@@ -1,6 +1,6 @@
 /**
  * The Noise state machine against the published Noise test vectors (docs/m2-design.md section
- * 10): every vector of our two pattern names in cacophony's and snow's sets, kept byte for byte
+ * 10): every vector of our three pattern names in cacophony's and snow's sets, kept byte for byte
  * in `vectors/noise-published/` with their source and SHA-256 in `sources.json`. The files are
  * data: only the fields of the Noise wiki's vector format are read.
  */
@@ -12,10 +12,14 @@ import { x25519 } from "@noble/curves/ed25519.js";
 import { z } from "zod";
 import { fromHex, toHex } from "../bytes.ts";
 import { NOISE_PATTERNS, type NoisePattern, type TransportSession } from "./noise-interface.ts";
-import { startHandshake, x25519StaticKey } from "./noise.ts";
+import { NO_STATIC_KEY, PATTERNS, startHandshake, x25519StaticKey } from "./noise.ts";
 
 const DIRECTORY = join(import.meta.dir, "..", "..", "vectors", "noise-published");
-const OUR_PATTERNS: readonly string[] = Object.values(NOISE_PATTERNS);
+// The patterns `noise.ts` defines: IK, XXpsk3 and XN (`NOISE_PATTERNS.relay`, B1's), each with its
+// counts in sources.json (the joint step 0, docs/m3-m4-plan.md).
+const OUR_PATTERNS: readonly string[] = Object.values(NOISE_PATTERNS).filter((p) =>
+  Object.hasOwn(PATTERNS, p),
+);
 
 const sources = z
   .strictObject({
@@ -64,8 +68,10 @@ function ours(file: string): readonly PublishedVector[] {
     .map((v) => publishedVector.parse(v));
 }
 
+/** A side's static key; a side the vector gives none (XN's responder) gets `NO_STATIC_KEY`. */
 function staticKey(privateHex: string | undefined) {
-  const key = x25519StaticKey(fromHex(privateHex ?? ""));
+  if (privateHex === undefined) return NO_STATIC_KEY;
+  const key = x25519StaticKey(fromHex(privateHex));
   if (!key.ok) throw new Error("bad static key in a published vector");
   return key.value;
 }
@@ -172,7 +178,12 @@ describe("published Noise vectors (Noise revision 34)", () => {
     },
   );
 
-  test("both pattern names are covered by at least one published vector", () => {
+  test("noise.ts defines every pattern NOISE_PATTERNS names, so none is skipped here", () => {
+    expect(OUR_PATTERNS).toEqual(Object.values(NOISE_PATTERNS));
+    expect(OUR_PATTERNS).toContain("Noise_XN_25519_ChaChaPoly_SHA256");
+  });
+
+  test("every pattern name is covered by at least one published vector", () => {
     const all = sources.files.flatMap((f) => ours(f.file));
     for (const pattern of OUR_PATTERNS) {
       expect(all.some((v) => v.protocol_name === pattern)).toBe(true);

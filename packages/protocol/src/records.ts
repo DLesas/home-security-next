@@ -36,6 +36,11 @@ const rxRow = z
     body: hexBytes,
     /** The counter of the gateway's forwarded packet that carried it; null for none (D110). */
     gwCounter: nullableInteger,
+    /**
+     * Migration 3 (D141): a packet under the device's old key, never acted on. Absent in a record
+     * written before it (a recorded lockstep session's): false.
+     */
+    oldKey: z.boolean().default(false),
   })
   .readonly();
 
@@ -198,13 +203,20 @@ export const DECISION_KINDS = [
   "countdown_started",
   /** Another report of an opening whose countdown runs. value: seconds left. */
   "countdown_continued",
-  /** A late report: the countdown had ended; sirens sound for what is left. value: seconds (D106). */
+  /**
+   * A late report: the countdown had ended; sirens sound for what is left. value: seconds (D106);
+   * detail: when the countdown ended or would have ended, as `eventAtDetail` writes it (D102).
+   */
   "late_report_sirens",
   /** A report so late even the sirens' time has passed. value: the opening's wall time, whole seconds since 1970 UTC. */
   "late_report_notification",
   /** A door report while disarmed or waiting: recorded only (AL2b). */
   "report_while_disarmed",
-  /** An alarm started: a countdown ended while armed, or a zero countdown (critical). */
+  /**
+   * An alarm started: a countdown ended while armed, or a zero countdown (critical). detail: none
+   * when it ended on time; when it is raised at a start for a countdown that ended before the stop
+   * (D113), when it ended, as `eventAtDetail` writes it (D102).
+   */
   "alarm",
   /** A disarmed notice was sent. value: the counter it is bound to (D24). */
   "disarmed_notice",
@@ -352,8 +364,118 @@ export const DECISION_KINDS = [
   "backup_no_folder",
 ] as const;
 
-/** One kind of decision (section 6, `decisions.kind`). */
-export type DecisionKind = (typeof DECISION_KINDS)[number];
+/** The bytes of an event time in a decision's `detail` (`eventAtDetail`): u64 little-endian. */
+export const EVENT_AT_DETAIL_BYTES = 8;
+
+/**
+ * An event time as a decision's `detail` (D102: a late notification says when the event happened):
+ * the wall time it happened, whole milliseconds since 1970-01-01 UTC, rounded down, as 8 bytes,
+ * u64 little-endian. `late_report_sirens` carries it always, an `alarm` raised at a start for a
+ * countdown that ended before the stop carries it, and a notification raised from either (or from
+ * `late_report_notification`, whose value is the opening's time) carries it in its own `detail`.
+ * A time before 1970, or one that is not a finite number, is written as 0; it never throws.
+ */
+export function eventAtDetail(wallMs: number): Uint8Array {
+  const detail = new Uint8Array(EVENT_AT_DETAIL_BYTES);
+  const floored = Math.floor(wallMs);
+  const whole = Number.isSafeInteger(floored) && floored > 0 ? floored : 0;
+  new DataView(detail.buffer).setBigUint64(0, BigInt(whole), true);
+  return detail;
+}
+
+/** The event time `eventAtDetail` wrote, or undefined for any other detail (none, or not 8 bytes). */
+export function eventAtOf(detail: Uint8Array | null | undefined): number | undefined {
+  if (detail?.length !== EVENT_AT_DETAIL_BYTES) return undefined;
+  const value = new DataView(detail.buffer, detail.byteOffset, detail.byteLength).getBigUint64(
+    0,
+    true,
+  );
+  return value <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(value) : undefined;
+}
+
+/**
+ * The decisions the three designs of the joint step 0 add (docs/m3-m4-plan.md), kept as their own
+ * list so `DECISION_KINDS` stays the list whose words the app holds today: the app's owner (P5)
+ * adds their words and moves its test to `ALL_DECISION_KINDS`. Every one is snake case and new.
+ * Each kind's `value` and `detail` are as its design's table gives them.
+ */
+export const M3M4_DECISION_KINDS = [
+  // docs/m4-design.md sections 4, 5 and 6 (the relay module and upkeep).
+  /** relay: a phone registered its push target and key (`push.register`), written now. value: the client. */
+  "push_registered",
+  /** relay: a phone removed its target (`push.unregister`, or its client removed), written now. */
+  "push_unregistered",
+  /** relay: the push service answered `badToken`: the target is marked invalid, written now. */
+  "push_target_invalid",
+  /** upkeep: a relay offered a hub release, once per version; notified in `updates` (D75). */
+  "update_offered",
+  // docs/m3-updates-design.md section 4 (the firmware module); every name starts `firmware_` or
+  // `rollout_`, apart from M2's `update_*` for the hub's own updates.
+  /** value: the image's row id. */
+  "firmware_added",
+  "firmware_removed",
+  /** value: the rollout. */
+  "rollout_started",
+  "rollout_resumed",
+  "rollout_done",
+  "rollout_cancelled",
+  /** A warning. value: the rollout; detail: the device and the reason. */
+  "rollout_paused",
+  /** The relay offered a firmware release (M4). value: the version (major << 16 | minor << 8 | patch). */
+  "firmware_release_offered",
+  /** A hold began or changed. value: `device_updates.held`'s code. */
+  "firmware_held",
+  /** value: the method (`device_updates.method`). */
+  "firmware_device_offered",
+  /** A Bluetooth session key handed to a phone; detail: the client. */
+  "firmware_session_opened",
+  /** value: the version, as `firmware_release_offered`. */
+  "firmware_verified",
+  "firmware_installing",
+  "firmware_on_trial",
+  "firmware_confirmed",
+  /** A warning. value: the device's reason (Update status's reason byte; 18 for the hub's `noContact`). */
+  "firmware_refused",
+  /** A warning. value: the failed version. */
+  "firmware_rolled_back",
+  /** D91's reminder. value: days armed. */
+  "firmware_reminder",
+  // docs/m3-updates-design.md section 7 (the key change after a restore, D141).
+  /** A Key change (0x84) sent under a device's old key. */
+  "key_change_sent",
+  /** A device's first packet under its new key: it switched. */
+  "key_changed",
+  // The firmware bench's `HubAction`s that come from packet records, as `reply`, `transmit_result`
+  // and `too_late` do (hub-design section 11, `benchActions`): never written as decision rows.
+  /** From a sent Update offer's `tx` row (0x83). */
+  "firmware_offer",
+  /** From a received Update query's `rx` row (0x06). */
+  "firmware_query",
+  /** From a received Update status's `rx` row (0x07). */
+  "firmware_status",
+  /** From an `rx` row flagged `oldKey` (D141): a packet under the old key, never acted on. */
+  "old_key_packet",
+] as const;
+
+/**
+ * The kinds of `M3M4_DECISION_KINDS` that are only the bench's names for packet records
+ * (`benchActions`): no decision row is ever written with one, so the app needs no words for them.
+ */
+export const PACKET_BENCH_ACTIONS = [
+  "firmware_offer",
+  "firmware_query",
+  "firmware_status",
+  "old_key_packet",
+] as const satisfies readonly (typeof M3M4_DECISION_KINDS)[number][];
+
+/** One kind of decision (section 6, `decisions.kind`), of M2 or of the joint step 0. */
+export type DecisionKind = (typeof DECISION_KINDS)[number] | (typeof M3M4_DECISION_KINDS)[number];
+
+/** Every decision kind: M2's, then the joint step 0's. */
+export const ALL_DECISION_KINDS: readonly DecisionKind[] = [
+  ...DECISION_KINDS,
+  ...M3M4_DECISION_KINDS,
+];
 
 /**
  * The hub events M2 adds (`hub_events.code`, HD 6): the level each is recorded at, and its class.
@@ -395,3 +517,39 @@ export const M2_HUB_EVENTS = {
 
 /** One of M2's hub event codes. */
 export type M2HubEventCode = keyof typeof M2_HUB_EVENTS;
+
+/**
+ * The hub events the joint step 0 adds (docs/m4-design.md section 4; docs/m3-updates-design.md
+ * section 4): the level and class of each, as `M2_HUB_EVENTS`. Kept apart for the same reason as
+ * `M3M4_DECISION_KINDS`.
+ */
+export const M3M4_HUB_EVENTS = {
+  /** One per hour in which the relay link went up or down: detail `{ups, downs, longestDownMs}`. */
+  relay_link: { level: "info", durability: "routine" },
+  /**
+   * The relay unreachable for 180 s ‡, once per outage: notified to manage system and the console
+   * in `hub`, to open sessions only (never pushed).
+   */
+  relay_unreachable: { level: "warning", durability: "now" },
+  /** The relay reachable again after `relay_unreachable`. */
+  relay_reachable: { level: "info", durability: "routine" },
+  /** The link was replaced by another computer with this hub's key (close 4001 `replaced`). */
+  relay_identity_in_use: { level: "warning", durability: "now" },
+  /** An outbox row older than 7 days ‡ dropped unsent. */
+  push_dropped: { level: "info", durability: "routine" },
+  /** A firmware file refused: `badFile`, `badSignature`, `wrongTarget`, `tooLarge`, `storeFull`. */
+  firmware_file_refused: { level: "warning", durability: "routine" },
+  /** An indexed image's file missing or wrong at start. */
+  firmware_store_damaged: { level: "critical", durability: "now" },
+} as const satisfies Readonly<
+  Record<
+    string,
+    {
+      readonly level: "info" | "warning" | "critical";
+      readonly durability: "routine" | "now";
+    }
+  >
+>;
+
+/** One of the joint step 0's hub event codes. */
+export type M3M4HubEventCode = keyof typeof M3M4_HUB_EVENTS;

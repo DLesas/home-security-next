@@ -5,6 +5,7 @@ import { messageVectorFiles } from "./packets.ts";
 import { timeOnAirVectorFile } from "./radio.ts";
 import { rejectedVectorFile } from "./rejected.ts";
 import { unitVectorFile } from "./units.ts";
+import { updateVectorFiles } from "./update.ts";
 import { usbVectorFiles } from "./usb.ts";
 
 /**
@@ -14,6 +15,7 @@ import { usbVectorFiles } from "./usb.ts";
  * generator and tests in `src/app/vectors/` (m2-design.md section 11, "Step 1's questions").
  */
 export const DEVICE_VECTOR_FILES = [
+  "ble-update-session.json",
   "button.json",
   "cobs.json",
   "counters.json",
@@ -25,7 +27,9 @@ export const DEVICE_VECTOR_FILES = [
   "gateway-status.json",
   "heartbeat.json",
   "hello.json",
+  "image-header.json",
   "interference.json",
+  "key-change.json",
   "log-entries.json",
   "pairing-data.json",
   "rejected-packets.json",
@@ -34,11 +38,16 @@ export const DEVICE_VECTOR_FILES = [
   "siren-command.json",
   "siren-report.json",
   "siren-settings.json",
+  "started-update.json",
   "started.json",
   "time-on-air.json",
   "transmit-request.json",
+  "transfer-frames.json",
   "transmit-result.json",
   "units.json",
+  "update-offer.json",
+  "update-query.json",
+  "update-status.json",
   "welcome.json",
 ] as const;
 
@@ -53,6 +62,7 @@ export function vectorFiles(): Map<string, string> {
     ...usbVectorFiles(),
     ["time-on-air.json", timeOnAirVectorFile()],
     ["units.json", unitVectorFile()],
+    ...updateVectorFiles(),
   ]);
   return new Map(
     [...contents].map(([name, json]) => [

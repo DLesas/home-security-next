@@ -1,0 +1,14 @@
+{
+  "name": "@hsn/deployment",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "The one configuration point: the product's name, domain, identifiers and default relay, in deployment.json, with the rules a release build checks (docs/m4-design.md section 2).",
+  "exports": {
+    ".": "./src/deployment.ts",
+    "./deployment.json": "./deployment.json"
+  },
+  "scripts": {
+    "test": "bun test"
+  }
+}

@@ -1,0 +1,114 @@
+{
+  "schemaVersion": 1,
+  "protocolVersion": 1,
+  "messageType": 7,
+  "name": "UpdateStatus",
+  "direction": 0,
+  "cases": [
+    {
+      "name": "sensor update status over LoRa: verified",
+      "canonical": true,
+      "key": "000102030405060708090a0b0c0d0e0f",
+      "direction": 0,
+      "address": 439041101,
+      "counter": 301,
+      "binding": "",
+      "maxLength": 255,
+      "messageType": 7,
+      "fields": {
+        "imageId": "1122334455667788",
+        "stage": 2,
+        "reason": 0,
+        "bytesWritten": 1572992
+      },
+      "plaintext": "071122334455667788020080001800",
+      "nonce": "4d3c2b1a002d01000000000000",
+      "associatedData": "104d3c2b1a2d010000",
+      "packet": "104d3c2b1a2d0100009428a76c1de5ed91fa5b3e76851806a1c5137215a446c3"
+    },
+    {
+      "name": "sensor update status over LoRa: refused, bad signature",
+      "canonical": true,
+      "key": "000102030405060708090a0b0c0d0e0f",
+      "direction": 0,
+      "address": 439041101,
+      "counter": 303,
+      "binding": "",
+      "maxLength": 255,
+      "messageType": 7,
+      "fields": {
+        "imageId": "1122334455667788",
+        "stage": 3,
+        "reason": 10,
+        "bytesWritten": 128
+      },
+      "plaintext": "071122334455667788030a80000000",
+      "nonce": "4d3c2b1a002f01000000000000",
+      "associatedData": "104d3c2b1a2f010000",
+      "packet": "104d3c2b1a2f010000df75462747dd5278618403d6293374665cb402c14e752e"
+    },
+    {
+      "name": "siren update status over Wi-Fi: fetching",
+      "canonical": true,
+      "key": "101112131415161718191a1b1c1d1e1f",
+      "direction": 0,
+      "address": 1584361601,
+      "counter": 5101,
+      "binding": "",
+      "maxLength": 1024,
+      "messageType": 7,
+      "fields": {
+        "imageId": "a1b2c3d4e5f60718",
+        "stage": 1,
+        "reason": 0,
+        "bytesWritten": 262144
+      },
+      "plaintext": "07a1b2c3d4e5f60718010000000400",
+      "nonce": "81706f5e00ed13000000000000",
+      "associatedData": "1081706f5eed130000",
+      "packet": "1081706f5eed1300004e1d59fab234fb230ef9d123551a6ce49e20e0aa87825a"
+    },
+    {
+      "name": "gateway update status on its connection: refused, radio busy",
+      "canonical": true,
+      "key": "202122232425262728292a2b2c2d2e2f",
+      "direction": 0,
+      "address": 2460202181,
+      "counter": 41,
+      "binding": "a0a1a2a3a4a5a6a7b0b1b2b3b4b5b6b7",
+      "maxLength": 1024,
+      "messageType": 7,
+      "fields": {
+        "imageId": "a1b2c3d4e5f60718",
+        "stage": 3,
+        "reason": 17,
+        "bytesWritten": 655360
+      },
+      "plaintext": "07a1b2c3d4e5f60718031100000a00",
+      "nonce": "c5b4a392002900000000000000",
+      "associatedData": "10c5b4a39229000000a0a1a2a3a4a5a6a7b0b1b2b3b4b5b6b7",
+      "packet": "10c5b4a39229000000999343138e290b8ca39defbbb5b038b9d7c9cfdcfa7949"
+    },
+    {
+      "name": "update status with unlisted stage 9 and reason 200, which pass through",
+      "canonical": true,
+      "key": "303132333435363738393a3b3c3d3e3f",
+      "direction": 0,
+      "address": 195948557,
+      "counter": 20,
+      "binding": "",
+      "maxLength": 255,
+      "messageType": 7,
+      "fields": {
+        "imageId": "ffffffffffffffff",
+        "stage": 9,
+        "reason": 200,
+        "bytesWritten": 0
+      },
+      "plaintext": "07ffffffffffffffff09c800000000",
+      "nonce": "0df0ad0b001400000000000000",
+      "associatedData": "100df0ad0b14000000",
+      "packet": "100df0ad0b140000009c70e2a84e5e0badaa142e242786cbc90bb374067f50d3"
+    }
+  ]
+}

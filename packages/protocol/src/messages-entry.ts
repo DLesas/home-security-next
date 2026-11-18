@@ -30,6 +30,24 @@ export {
 } from "./messages/gateway.ts";
 export { MAX_LOG_TEXT_BYTES } from "./messages/logEntries.ts";
 export {
+  decodeStartedImage,
+  encodeStartedWithImage,
+  NO_FAILED_VERSION,
+  STARTED_IMAGE_FLAGS,
+  STARTED_IMAGE_OFFSET,
+  STARTED_WITH_IMAGE_LENGTH,
+  type StartedImage,
+} from "./messages/started.ts";
+export {
+  BLUETOOTH_NONCE_LENGTH,
+  IMAGE_ID_LENGTH,
+  UPDATE_QUERY_FLAGS,
+  UpdateAction,
+  UpdateHolding,
+  UpdateReason,
+  UpdateStage,
+} from "./messages/update.ts";
+export {
   airtimePercent,
   batteryCode,
   batteryMillivolts,

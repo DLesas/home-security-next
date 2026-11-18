@@ -227,14 +227,21 @@ export interface LinkQr {
   readonly port: number;
   /** The certificate's SHA-256, 32 bytes. */
   readonly fingerprint: Uint8Array;
+  /**
+   * Version 2 (docs/m4-design.md section 9): `r=`, the hub's relay, only when it is not the
+   * deployment's default. The prefix stays `/1`: a parser ignores parameters it does not know.
+   */
+  readonly relay?: string;
 }
 
 /**
- * `hsn://link/1?h=<identity>&s=<secret>&a=<addresses>&p=<port>&c=<fingerprint>`, or with
- * `hsn://restore/1` for a restore token (section 9), which names the new hub's own app key.
+ * `hsn://link/1?h=<identity>&s=<secret>&a=<addresses>&p=<port>&c=<fingerprint>[&r=<relay>]`,
+ * or with `hsn://restore/1` for a restore token (section 9), which names the new hub's own app
+ * key. `r=` is percent-encoded, and written only when given.
  */
 export function formatLinkQr(qr: LinkQr, purpose: "link" | "restore" = "link"): string {
-  return `${qrPrefix(purpose)}?h=${qr.identity}&s=${base64url(qr.secret)}&a=${qr.addresses.join(",")}&p=${qr.port}&c=${base64url(qr.fingerprint)}`;
+  const relay = qr.relay === undefined ? "" : `&r=${encodeURIComponent(qr.relay)}`;
+  return `${qrPrefix(purpose)}?h=${qr.identity}&s=${base64url(qr.secret)}&a=${qr.addresses.join(",")}&p=${qr.port}&c=${base64url(qr.fingerprint)}${relay}`;
 }
 
 function qrPrefix(purpose: "link" | "restore"): string {
@@ -257,7 +264,11 @@ export function parseLinkQr(
     return undefined;
   if (!Number.isInteger(port) || port < 1 || port > 65_535 || addresses.length === 0)
     return undefined;
-  return { identity, secret, addresses, port, fingerprint };
+  // An empty `r=` is read as none, as a version 1 parser ignored it.
+  const relay = params.get("r");
+  return relay === null || relay === ""
+    ? { identity, secret, addresses, port, fingerprint }
+    : { identity, secret, addresses, port, fingerprint, relay };
 }
 
 /** `https://<address>:<port>/#link=<identity>.<secret>`: the fragment never reaches a server. */

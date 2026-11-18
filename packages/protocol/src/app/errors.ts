@@ -2,6 +2,9 @@
  * The app channel's error codes and their details (docs/m2-design.md section 5, "Requests,
  * replies and events"). Every refusal is one of these; `notBuilt` is step 0's own, so a test can
  * tell an operation not built yet from a real refusal, and goes once every operation is built.
+ *
+ * Channel version 2's refusals are in `errors-v2.ts`: no new code, new `what`, `reason` and
+ * `because` values only, kept apart so version 1's lists stay what version 1 clients know.
  */
 import { z } from "zod";
 import {
@@ -35,7 +38,7 @@ export type AppErrorCode = z.infer<typeof appErrorCode>;
 export const globalPermission = z.enum(["manageUsers", "manageSystem"]);
 
 /** `unauthorized`: the sensors the person may not manage, or the permission missing. */
-const unauthorizedDetail = z
+export const unauthorizedDetail = z
   .strictObject({
     devices: z.array(deviceRef).readonly().optional(),
     permission: globalPermission.optional(),
@@ -43,7 +46,7 @@ const unauthorizedDetail = z
   .readonly();
 
 /** `needsConfirmation`: the open doors and the low batteries (D50, AL12). */
-const needsConfirmationDetail = z
+export const needsConfirmationDetail = z
   .strictObject({
     openDoors: z.array(deviceRef).readonly(),
     lowBattery: z.array(deviceRef).readonly(),
@@ -55,7 +58,7 @@ const needsConfirmationDetail = z
  * reply carries it (the group, mode, schedule, person, permissions or preferences), so the app can
  * show the change it lost to. An object deleted meanwhile is `notFound`, never `conflict`.
  */
-const conflictDetail = z
+export const conflictDetail = z
   .strictObject({
     revision,
     object: z.union([
@@ -69,23 +72,24 @@ const conflictDetail = z
   .readonly();
 
 /** `seqTooLow`: the client's last accepted `seq`. */
-const seqTooLowDetail = z.strictObject({ last: seqValue }).readonly();
+export const seqTooLowDetail = z.strictObject({ last: seqValue }).readonly();
 
 /** `notFound`: what kind of thing the request named, and the number it gave. */
+export const NOT_FOUND_WHATS = [
+  "person",
+  "client",
+  "group",
+  "mode",
+  "schedule",
+  "device",
+  "token",
+  "notification",
+  "job",
+  "upload",
+] as const;
 const notFoundDetail = z
   .strictObject({
-    what: z.enum([
-      "person",
-      "client",
-      "group",
-      "mode",
-      "schedule",
-      "device",
-      "token",
-      "notification",
-      "job",
-      "upload",
-    ]),
+    what: z.enum(NOT_FOUND_WHATS),
     id: z.int().min(0).max(Number.MAX_SAFE_INTEGER),
   })
   .readonly();
@@ -135,19 +139,16 @@ const invalidDetail = z
   .readonly();
 
 /** `busy`: what is in progress; `upload` is a second upload on one connection. */
-const busyDetail = z
-  .strictObject({
-    because: z.enum([
-      "siteMove",
-      "updateSwitch",
-      "provisioning",
-      "countdown",
-      "alarm",
-      "restore",
-      "upload",
-    ]),
-  })
-  .readonly();
+export const BUSY_BECAUSE = [
+  "siteMove",
+  "updateSwitch",
+  "provisioning",
+  "countdown",
+  "alarm",
+  "restore",
+  "upload",
+] as const;
+const busyDetail = z.strictObject({ because: z.enum(BUSY_BECAUSE) }).readonly();
 
 /**
  * One error, with every `detail` exactly as section 5's table gives it. `protoUnsupported` is the

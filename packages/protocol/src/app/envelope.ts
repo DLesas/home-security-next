@@ -39,7 +39,8 @@ export type ParsedRequest =
 
 /**
  * What the shell checks before the core sees a request (section 2): the frame, the operation's
- * body, and that a change carries `seq` and a read does not. Never throws.
+ * body, and that a change carries `seq` and a read does not. Never throws. Version 1's operations
+ * only: a session of another version uses `parseRequestIn` (versions.ts).
  */
 export function parseRequest(json: unknown): ParsedRequest {
   const frame = requestFrame.safeParse(json);

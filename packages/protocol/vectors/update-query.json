@@ -1,0 +1,134 @@
+{
+  "schemaVersion": 1,
+  "protocolVersion": 1,
+  "messageType": 6,
+  "name": "UpdateQuery",
+  "direction": 0,
+  "cases": [
+    {
+      "name": "sensor update query, holding nothing, with Wi-Fi details",
+      "canonical": true,
+      "key": "000102030405060708090a0b0c0d0e0f",
+      "direction": 0,
+      "address": 439041101,
+      "counter": 300,
+      "binding": "",
+      "maxLength": 255,
+      "messageType": 6,
+      "fields": {
+        "imageId": "0000000000000000",
+        "held": 0,
+        "bytesHeld": 0,
+        "batteryCode": 140,
+        "flags": {
+          "hasWifiDetails": true,
+          "externalPower": false
+        }
+      },
+      "plaintext": "06000000000000000000000000008c01",
+      "nonce": "4d3c2b1a002c01000000000000",
+      "associatedData": "104d3c2b1a2c010000",
+      "packet": "104d3c2b1a2c010000e396b92096218bfce0197d5ab1aad36f83f5dd41e51e9f65"
+    },
+    {
+      "name": "sensor update query over Wi-Fi, holding part of an image, on USB power",
+      "canonical": true,
+      "key": "000102030405060708090a0b0c0d0e0f",
+      "direction": 0,
+      "address": 439041101,
+      "counter": 302,
+      "binding": "",
+      "maxLength": 1024,
+      "messageType": 6,
+      "fields": {
+        "imageId": "1122334455667788",
+        "held": 1,
+        "bytesHeld": 327680,
+        "batteryCode": 170,
+        "flags": {
+          "hasWifiDetails": true,
+          "externalPower": true
+        }
+      },
+      "plaintext": "0611223344556677880100000500aa03",
+      "nonce": "4d3c2b1a002e01000000000000",
+      "associatedData": "104d3c2b1a2e010000",
+      "packet": "104d3c2b1a2e0100006cd8c6b39f712019a1560de0db19b2501ad475f5bf531594"
+    },
+    {
+      "name": "gateway update query on its connection, image verified",
+      "canonical": true,
+      "key": "202122232425262728292a2b2c2d2e2f",
+      "direction": 0,
+      "address": 2460202181,
+      "counter": 40,
+      "binding": "a0a1a2a3a4a5a6a7b0b1b2b3b4b5b6b7",
+      "maxLength": 1024,
+      "messageType": 6,
+      "fields": {
+        "imageId": "a1b2c3d4e5f60718",
+        "held": 2,
+        "bytesHeld": 1572992,
+        "batteryCode": 0,
+        "flags": {
+          "hasWifiDetails": false,
+          "externalPower": true
+        }
+      },
+      "plaintext": "06a1b2c3d4e5f6071802800018000002",
+      "nonce": "c5b4a392002800000000000000",
+      "associatedData": "10c5b4a39228000000a0a1a2a3a4a5a6a7b0b1b2b3b4b5b6b7",
+      "packet": "10c5b4a392280000002c07c5cd3c21e0ef31b4cead61db529311fc480f45003153"
+    },
+    {
+      "name": "update query with unlisted held value 7, which passes through",
+      "canonical": true,
+      "key": "101112131415161718191a1b1c1d1e1f",
+      "direction": 0,
+      "address": 1584361601,
+      "counter": 5100,
+      "binding": "",
+      "maxLength": 1024,
+      "messageType": 6,
+      "fields": {
+        "imageId": "0102030405060708",
+        "held": 7,
+        "bytesHeld": 4294967295,
+        "batteryCode": 255,
+        "flags": {
+          "hasWifiDetails": true,
+          "externalPower": true
+        }
+      },
+      "plaintext": "06010203040506070807ffffffffff03",
+      "nonce": "81706f5e00ec13000000000000",
+      "associatedData": "1081706f5eec130000",
+      "packet": "1081706f5eec130000ac8498303276f3927b4f25b3542a062d692748a5bd911f38"
+    },
+    {
+      "name": "update query with unused flag bits set, which receivers ignore",
+      "canonical": false,
+      "key": "000102030405060708090a0b0c0d0e0f",
+      "direction": 0,
+      "address": 439041101,
+      "counter": 304,
+      "binding": "",
+      "maxLength": 255,
+      "messageType": 6,
+      "fields": {
+        "imageId": "0000000000000000",
+        "held": 0,
+        "bytesHeld": 0,
+        "batteryCode": 120,
+        "flags": {
+          "hasWifiDetails": false,
+          "externalPower": true
+        }
+      },
+      "plaintext": "060000000000000000000000000078fe",
+      "nonce": "4d3c2b1a003001000000000000",
+      "associatedData": "104d3c2b1a30010000",
+      "packet": "104d3c2b1a30010000e6e5857751b46c1be6b1eb6ff84e2e024c7f62bbf710857f"
+    }
+  ]
+}

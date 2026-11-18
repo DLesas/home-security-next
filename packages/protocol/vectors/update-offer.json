@@ -1,0 +1,252 @@
+{
+  "schemaVersion": 1,
+  "protocolVersion": 1,
+  "messageType": 131,
+  "name": "UpdateOffer",
+  "direction": 1,
+  "cases": [
+    {
+      "name": "update offer to a sensor: join Wi-Fi and fetch, bound to its query",
+      "canonical": true,
+      "key": "000102030405060708090a0b0c0d0e0f",
+      "direction": 1,
+      "address": 439041101,
+      "counter": 310,
+      "binding": "2c010000",
+      "maxLength": 255,
+      "messageType": 131,
+      "fields": {
+        "action": 2,
+        "imageId": "1122334455667788",
+        "fileBytes": 1573120,
+        "version": {
+          "major": 1,
+          "minor": 4,
+          "patch": 0
+        },
+        "bluetoothNonce": "0000000000000000",
+        "bluetoothWindowUnits": 0
+      },
+      "plaintext": "8302112233445566778800011800010400000000000000000000",
+      "nonce": "4d3c2b1a013601000000000000",
+      "associatedData": "184d3c2b1a360100002c010000",
+      "packet": "184d3c2b1a36010000b0fdf5a38ebc9cd126b0c70280d7a00808953475e4abb4634c836a860e01f049205f"
+    },
+    {
+      "name": "update offer to a sensor: open Bluetooth for 120 s, bound to its status",
+      "canonical": true,
+      "key": "000102030405060708090a0b0c0d0e0f",
+      "direction": 1,
+      "address": 439041101,
+      "counter": 311,
+      "binding": "2d010000",
+      "maxLength": 255,
+      "messageType": 131,
+      "fields": {
+        "action": 3,
+        "imageId": "1122334455667788",
+        "fileBytes": 1573120,
+        "version": {
+          "major": 1,
+          "minor": 4,
+          "patch": 0
+        },
+        "bluetoothNonce": "5a5b5c5d5e5f6061",
+        "bluetoothWindowUnits": 12
+      },
+      "plaintext": "83031122334455667788000118000104005a5b5c5d5e5f60610c",
+      "nonce": "4d3c2b1a013701000000000000",
+      "associatedData": "184d3c2b1a370100002d010000",
+      "packet": "184d3c2b1a37010000f5cba352112fe5764ca65f5b888ffd95cc228db90bf57558f8930e68ce670df0d7f7"
+    },
+    {
+      "name": "update offer to a siren over Wi-Fi: install now",
+      "canonical": true,
+      "key": "101112131415161718191a1b1c1d1e1f",
+      "direction": 1,
+      "address": 1584361601,
+      "counter": 2050,
+      "binding": "",
+      "maxLength": 1024,
+      "messageType": 131,
+      "fields": {
+        "action": 4,
+        "imageId": "a1b2c3d4e5f60718",
+        "fileBytes": 1048704,
+        "version": {
+          "major": 2,
+          "minor": 0,
+          "patch": 1
+        },
+        "bluetoothNonce": "0000000000000000",
+        "bluetoothWindowUnits": 0
+      },
+      "plaintext": "8304a1b2c3d4e5f6071880001000020001000000000000000000",
+      "nonce": "81706f5e010208000000000000",
+      "associatedData": "1881706f5e02080000",
+      "packet": "1881706f5e02080000fed2524459970906978deb4685e8687141b47a00fe46da89bc953022ad5137fbf012"
+    },
+    {
+      "name": "update offer to a gateway in its session: fetch on this link",
+      "canonical": true,
+      "key": "202122232425262728292a2b2c2d2e2f",
+      "direction": 1,
+      "address": 2460202181,
+      "counter": 60,
+      "binding": "a0a1a2a3a4a5a6a7b0b1b2b3b4b5b6b7",
+      "maxLength": 1024,
+      "messageType": 131,
+      "fields": {
+        "action": 1,
+        "imageId": "a1b2c3d4e5f60718",
+        "fileBytes": 1048704,
+        "version": {
+          "major": 2,
+          "minor": 0,
+          "patch": 1
+        },
+        "bluetoothNonce": "0000000000000000",
+        "bluetoothWindowUnits": 0
+      },
+      "plaintext": "8301a1b2c3d4e5f6071880001000020001000000000000000000",
+      "nonce": "c5b4a392013c00000000000000",
+      "associatedData": "18c5b4a3923c000000a0a1a2a3a4a5a6a7b0b1b2b3b4b5b6b7",
+      "packet": "18c5b4a3923c0000009d7355108beb7faf0fa1db50d1e72562ed2f302d7015a4c57d339cb5b85a77d30bf6"
+    },
+    {
+      "name": "update offer, action 6 at the other fields' limits: zero image, bytes and version, a nonce and window of all ones, which pass through",
+      "canonical": true,
+      "key": "101112131415161718191a1b1c1d1e1f",
+      "direction": 1,
+      "address": 1584361601,
+      "counter": 2051,
+      "binding": "",
+      "maxLength": 255,
+      "messageType": 131,
+      "fields": {
+        "action": 6,
+        "imageId": "0000000000000000",
+        "fileBytes": 0,
+        "version": {
+          "major": 0,
+          "minor": 0,
+          "patch": 0
+        },
+        "bluetoothNonce": "ffffffffffffffff",
+        "bluetoothWindowUnits": 255
+      },
+      "plaintext": "8306000000000000000000000000000000ffffffffffffffffff",
+      "nonce": "81706f5e010308000000000000",
+      "associatedData": "1881706f5e03080000",
+      "packet": "1881706f5e03080000734bf3d37d585fe4e24f65dd724a3dd8ba5e179c6797b91aba7574933e972562b171"
+    },
+    {
+      "name": "update offer to a sensor: nothing, discard what you hold (a cancelled rollout), bound to its query",
+      "canonical": true,
+      "key": "000102030405060708090a0b0c0d0e0f",
+      "direction": 1,
+      "address": 439041101,
+      "counter": 313,
+      "binding": "2e010000",
+      "maxLength": 255,
+      "messageType": 131,
+      "fields": {
+        "action": 0,
+        "imageId": "1122334455667788",
+        "fileBytes": 1573120,
+        "version": {
+          "major": 1,
+          "minor": 4,
+          "patch": 0
+        },
+        "bluetoothNonce": "0000000000000000",
+        "bluetoothWindowUnits": 0
+      },
+      "plaintext": "8300112233445566778800011800010400000000000000000000",
+      "nonce": "4d3c2b1a013901000000000000",
+      "associatedData": "184d3c2b1a390100002e010000",
+      "packet": "184d3c2b1a39010000ee9cd2c0e9e625f03d56c60cfb35b8984e707a9b39eb562e254e067e33ce262ca044"
+    },
+    {
+      "name": "update offer to a sensor: keep what you hold and wait, bound to its status",
+      "canonical": true,
+      "key": "000102030405060708090a0b0c0d0e0f",
+      "direction": 1,
+      "address": 439041101,
+      "counter": 314,
+      "binding": "2f010000",
+      "maxLength": 255,
+      "messageType": 131,
+      "fields": {
+        "action": 5,
+        "imageId": "1122334455667788",
+        "fileBytes": 1573120,
+        "version": {
+          "major": 1,
+          "minor": 4,
+          "patch": 0
+        },
+        "bluetoothNonce": "0000000000000000",
+        "bluetoothWindowUnits": 0
+      },
+      "plaintext": "8305112233445566778800011800010400000000000000000000",
+      "nonce": "4d3c2b1a013a01000000000000",
+      "associatedData": "184d3c2b1a3a0100002f010000",
+      "packet": "184d3c2b1a3a0100002a1a14ec90a97bbb286b2193ed96375db3dacc81f6a7bfb072ebb7cea8f5eba574b3"
+    },
+    {
+      "name": "update offer to a gateway in its session: fetch on this link without waiting for a quiet radio",
+      "canonical": true,
+      "key": "202122232425262728292a2b2c2d2e2f",
+      "direction": 1,
+      "address": 2460202181,
+      "counter": 62,
+      "binding": "a0a1a2a3a4a5a6a7b0b1b2b3b4b5b6b7",
+      "maxLength": 1024,
+      "messageType": 131,
+      "fields": {
+        "action": 6,
+        "imageId": "a1b2c3d4e5f60718",
+        "fileBytes": 1048704,
+        "version": {
+          "major": 2,
+          "minor": 0,
+          "patch": 1
+        },
+        "bluetoothNonce": "0000000000000000",
+        "bluetoothWindowUnits": 0
+      },
+      "plaintext": "8306a1b2c3d4e5f6071880001000020001000000000000000000",
+      "nonce": "c5b4a392013e00000000000000",
+      "associatedData": "18c5b4a3923e000000a0a1a2a3a4a5a6a7b0b1b2b3b4b5b6b7",
+      "packet": "18c5b4a3923e000000b7811ce82c9a661e066f576a5c673edea9a90cc0fcd1280f71cceafe54b052371b1d"
+    },
+    {
+      "name": "update offer with unlisted action 7, which passes through",
+      "canonical": true,
+      "key": "101112131415161718191a1b1c1d1e1f",
+      "direction": 1,
+      "address": 1584361601,
+      "counter": 2060,
+      "binding": "",
+      "maxLength": 255,
+      "messageType": 131,
+      "fields": {
+        "action": 7,
+        "imageId": "a1b2c3d4e5f60718",
+        "fileBytes": 1048704,
+        "version": {
+          "major": 2,
+          "minor": 0,
+          "patch": 1
+        },
+        "bluetoothNonce": "0000000000000000",
+        "bluetoothWindowUnits": 0
+      },
+      "plaintext": "8307a1b2c3d4e5f6071880001000020001000000000000000000",
+      "nonce": "81706f5e010c08000000000000",
+      "associatedData": "1881706f5e0c080000",
+      "packet": "1881706f5e0c0800006cc2732116da29ff6e8a3894894004883d7dfe2954b6c7f5ee0e43ee70c150f4c7ba"
+    }
+  ]
+}

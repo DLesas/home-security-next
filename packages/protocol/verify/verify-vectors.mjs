@@ -22,6 +22,8 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { TextDecoder } from "node:util";
 import { verifyAppVectors } from "./verify-app-vectors.mjs";
+import { verifyRelayVectors } from "./verify-relay-vectors.mjs";
+import { verifyUpdateVectors } from "./verify-update-vectors.mjs";
 
 // An optional argument points at another copy of the vectors (used to test this script).
 const VECTORS = process.argv[2] ?? join(dirname(fileURLToPath(import.meta.url)), "..", "vectors");
@@ -238,7 +240,8 @@ function rawOpen(packet, key, binding) {
 // "entries" (records back to back to the end of the body), or an array of flag
 // names, bit 0 first. options.values lists the values section 6 allows;
 // options.max is a numeric upper bound; options.silent marks a reading the spec
-// does not state.
+// does not state; options.covered asks that the file hold a case for every listed
+// value and one for a value not listed.
 
 const DATA_RATE = { values: [0, 1, 2, 3, 4, 5] };
 // Section 6: the packet inside a forwarded packet or transmit request is 18 to 255 bytes.
@@ -293,6 +296,30 @@ const MESSAGES = {
       ["resetCause", 4, 1, "u"],
       ["lastFatalError", 5, 2, "u"],
       ["settingsVersion", 7, 1, "u"],
+    ],
+  },
+  // m3-updates-design.md section 5: update query and update status, any device, any path.
+  0x06: {
+    file: "update-query.json",
+    fromHub: false,
+    paths: "any",
+    fields: [
+      ["imageId", 0, 8, "bytes"],
+      ["held", 8, 1, "u", { values: [0, 1, 2] }],
+      ["bytesHeld", 9, 4, "u"],
+      ["batteryCode", 13, 1, "u"],
+      ["flags", 14, 1, ["hasWifiDetails", "externalPower"]],
+    ],
+  },
+  0x07: {
+    file: "update-status.json",
+    fromHub: false,
+    paths: "any",
+    fields: [
+      ["imageId", 0, 8, "bytes"],
+      ["stage", 8, 1, "u", { values: [1, 2, 3, 4, 5, 6] }],
+      ["reason", 9, 1, "u", { values: [...Array(18).keys()] }],
+      ["bytesWritten", 10, 4, "u"],
     ],
   },
   0x10: {
@@ -397,6 +424,28 @@ const MESSAGES = {
     ],
   },
   0x82: { file: "disarmed-notice.json", fromHub: true, paths: "lora", fields: [] },
+  // m3-updates-design.md sections 5 and 7: update offer and key change, to any device.
+  0x83: {
+    file: "update-offer.json",
+    fromHub: true,
+    paths: "any",
+    fields: [
+      // Section 6: 0 nothing, 1 fetch, 2 join Wi-Fi and fetch, 3 open Bluetooth, 4 install now,
+      // 5 keep and wait, 6 fetch on this link without waiting for the radio to be quiet.
+      ["action", 0, 1, "u", { values: [0, 1, 2, 3, 4, 5, 6], covered: true }],
+      ["imageId", 1, 8, "bytes"],
+      ["fileBytes", 9, 4, "u"],
+      ["version", 13, 3, "version"],
+      ["bluetoothNonce", 16, 8, "bytes"],
+      ["bluetoothWindowUnits", 24, 1, "u"], // units of 10 s
+    ],
+  },
+  0x84: {
+    file: "key-change.json",
+    fromHub: true,
+    paths: "any",
+    fields: [["newKey", 0, 16, "bytes"]],
+  },
   0x90: {
     file: "siren-command.json",
     fromHub: true,
@@ -757,9 +806,11 @@ for (const [typeKey, m] of Object.entries(MESSAGES)) {
         mismatch(m.file, c.name, `LoRa-only type opened with maxLength ${c.maxLength}`);
       if (m.paths === "link" && c.maxLength !== 1024)
         mismatch(m.file, c.name, `Wi-Fi/USB-only type opened with maxLength ${c.maxLength}`);
-      // Section 3: the largest radio packets are the reply (32) and a LoRa log entry (up to 50).
+      // Section 3: the largest radio packets are the reply (32) and a LoRa log entry (up to 50);
+      // m3-updates-design.md section 5 adds the update offer (43), query (33) and status (32), and
+      // section 7 the key change (34).
       if (c.maxLength === 255) {
-        const limit = type === 0x30 ? 50 : 32;
+        const limit = { 0x30: 50, 0x83: 43, 0x84: 34, 0x06: 33 }[type] ?? 32;
         if (packet.length > limit)
           mismatch(
             m.file,
@@ -772,6 +823,17 @@ for (const [typeKey, m] of Object.entries(MESSAGES)) {
       if (c.canonical && packet[0] & 0x07)
         mismatch(m.file, c.name, "canonical packet has header low bits set");
     });
+
+  // A field whose every value must have a case: each listed one, and one version 1 does not list.
+  for (const [name, , , , options = {}] of m.fields) {
+    if (!options.covered) continue;
+    const seen = new Set(list(F, file, "cases").map((c) => c?.fields?.[name]));
+    for (const v of options.values)
+      if (!seen.has(v)) mismatch(m.file, "(file)", `no case with ${name} ${v}`);
+    if (![...seen].some((v) => Number.isInteger(v) && !options.values.includes(v)))
+      mismatch(m.file, "(file)", `no case with an unlisted ${name}`);
+    count(`bodies: every ${name} of ${m.file.replace(".json", "")} has a case`);
+  }
 }
 
 // Cross-file checks of bindings (section 4) and keys.
@@ -791,8 +853,16 @@ for (const [typeKey, m] of Object.entries(MESSAGES)) {
   for (const w of welcomes)
     if (hellos.some((h) => h.c.address === w.c.address && h.c.fields.gatewayRandom === w.c.binding))
       sessions.add(w.c.binding + w.c.fields.hubRandom);
+  const sensorAddresses = new Set(
+    allValid.filter((v) => SENSOR_TYPES.has(v.type)).map((v) => v.c.address),
+  );
+  // A sensor's packets: its status reports, a Started naming the sensor role, and any other
+  // packet to the hub from a sensor's address (its update queries and statuses).
   const sensorPackets = allValid.filter(
-    (v) => SENSOR_TYPES.has(v.type) || (v.type === 0x05 && v.c.fields.role === 1),
+    (v) =>
+      SENSOR_TYPES.has(v.type) ||
+      (v.type === 0x05 && v.c.fields.role === 1) ||
+      (v.type < 0x80 && sensorAddresses.has(v.c.address)),
   );
 
   for (const { file, c, type } of allValid) {
@@ -804,10 +874,21 @@ for (const [typeKey, m] of Object.entries(MESSAGES)) {
         (h) => h.c.address === c.address && h.c.fields.gatewayRandom === c.binding,
       );
       if (!ok) mismatch(file, c.name, `binding ${c.binding} is not the random of any hello`);
+    } else if (type === 0x84 && gatewayAddresses.has(c.address)) {
+      // m3-updates-design.md section 7: a key change to a gateway goes in place of the welcome,
+      // bound as the welcome is, to its hello's random.
+      const ok = hellos.some(
+        (h) => h.c.address === c.address && h.c.fields.gatewayRandom === c.binding,
+      );
+      if (!ok) mismatch(file, c.name, `binding ${c.binding} is not the random of any hello`);
     } else if (GATEWAY_TYPES.has(type) || gatewayAddresses.has(c.address)) {
       if (!sessions.has(c.binding))
         mismatch(file, c.name, `binding ${c.binding} is not the session value of any connection`);
-    } else if (type === 0x81 || type === 0x82) {
+    } else if (
+      type === 0x81 ||
+      type === 0x82 ||
+      ((type === 0x83 || type === 0x84) && sensorAddresses.has(c.address))
+    ) {
       // The counter (4 bytes) of the sensor packet it answers.
       if (hex(c.binding).length !== 4) {
         mismatch(file, c.name, `binding of ${hex(c.binding).length} bytes; section 4 gives 4`);
@@ -1611,8 +1692,22 @@ const UNITS = {
   }
 }
 
+// The firmware update vectors that are not message files (m3-updates-design.md sections 3 and 5).
+for (const name of verifyUpdateVectors(VECTORS, {
+  mismatch,
+  count,
+  note,
+  sealPacket,
+  openPacket,
+  errorOf,
+}))
+  loadedFiles.add(name);
+
 // The app's vectors (`app-*.json`, the app channel's, m2-design.md section 10): A9's part.
 const appFiles = verifyAppVectors(VECTORS, { mismatch, count, note });
+
+// The relay's vectors (`relay-*.json`, m4-design.md sections 3 and 5): B1's part.
+for (const name of verifyRelayVectors(VECTORS, { mismatch, count, note })) loadedFiles.add(name);
 
 // Every vector file, the device's and the app's, must be one this script checks.
 for (const name of readdirSync(VECTORS))

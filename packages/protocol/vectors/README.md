@@ -37,7 +37,7 @@ Every file has `schemaVersion` (1 for the layout described here) and `protocolVe
 
 ## Message files
 
-One file per message type, named after it: `heartbeat.json`, `door-changed.json`, `cover-changed.json`, `button.json`, `started.json`, `siren-report.json`, `hello.json`, `forwarded-packet.json`, `gateway-status.json`, `transmit-result.json`, `interference.json`, `log-entries.json`, `reply.json`, `disarmed-notice.json`, `siren-command.json`, `siren-settings.json`, `welcome.json`, `transmit-request.json`, `gateway-settings.json`.
+One file per message type, named after it: `heartbeat.json`, `door-changed.json`, `cover-changed.json`, `button.json`, `started.json`, `update-query.json`, `update-status.json`, `siren-report.json`, `hello.json`, `forwarded-packet.json`, `gateway-status.json`, `transmit-result.json`, `interference.json`, `log-entries.json`, `reply.json`, `disarmed-notice.json`, `update-offer.json`, `key-change.json`, `siren-command.json`, `siren-settings.json`, `welcome.json`, `transmit-request.json`, `gateway-settings.json`.
 
 Top level: `messageType` (the type byte), `name`, `direction` (of every case in the file), `cases`.
 
@@ -80,6 +80,10 @@ Listed in wire order. `u8`, `u16`, `u32` are unsigned, `i8`, `i16` signed, all l
 | Log entries (0x30) | `entries`: an array of one or more `{ ageTenths` u32 (how long before the packet was sealed the entry was made, × 0.1 s), `level` u8, `code` u16, `text` (length u8 then UTF-8, at most 64 bytes) `}`, back to back to the end of the body |
 | Reply (0x81) | `settingsVersion` u8, `flags` {`armed`, `countdownStarted`, `updateAvailable`}, `countdownSeconds` u8, `countdownRemainingSeconds` u8, `heartbeatIntervalUnits` u8 (× 15 s), `linkCheckEvery` u8, `sendDataRate` u8, `replyDataRate` u8, `nextHeartbeatTenths` u16 (× 0.1 s), `clockCorrectionTenPpm` i16 (× 10 parts per million), `nextSiteChannel` u8, `nextSendDataRate` u8. The last two announce a move of the site (section 7, D115); 0xFF (255) in either means that one stays as it is, and both 255 means no move is announced. The body is 14 bytes; a 12-byte body is `truncated` |
 | Disarmed notice (0x82) | none; `fields` is `{}` |
+| Update query (0x06), M3 | `imageId` bytes(8) (zeros for none), `held` u8 (0 nothing, 1 part, 2 verified), `bytesHeld` u32, `batteryCode` u8 (as sensor status), `flags` {`hasWifiDetails`, `externalPower`}. The body is 15 bytes |
+| Update status (0x07), M3 | `imageId` bytes(8), `stage` u8 (1 fetching to 6 cancelled), `reason` u8 (0 none to 17 radioBusy, m3-updates-design.md section 5), `bytesWritten` u32. The body is 14 bytes |
+| Update offer (0x83), M3 | `action` u8 (0 nothing to 6 fetch without waiting for a quiet radio), `imageId` bytes(8), `fileBytes` u32 (the 128-byte header and the image), `version` version, `bluetoothNonce` bytes(8) (zeros unless action 3), `bluetoothWindowUnits` u8 (× 10 s). The body is 25 bytes |
+| Key change (0x84), M3 | `newKey` bytes(16). Bound as the hub's other answers: to a sensor, the counter of the packet it answers; to a siren, none; to a gateway, its hello's random, in place of the welcome |
 | Siren command (0x90) | `action` u8, `soundSeconds` u16 |
 | Siren settings (0x91) | `settingsVersion` u8, `wifiReportIntervalSeconds` u8, `loraCheckIntervalUnits` u8 (× 15 s), `maxSoundSeconds` u16, `sendDataRate` u8, `commandDataRate` u8, `siteChannel` u8. The body is 8 bytes; a 7-byte body is `truncated` |
 | Welcome (0xA0) | `hubRandom` bytes(8) |
@@ -159,6 +163,66 @@ Unit conversions, so every implementation rounds the same way. Encoding rounds t
 
 `eventListen`: the event listen time (section 8 †), how long a sensor listens for the hub's answer after a door, cover, button or started report, by the data rate the report was sent at. Each entry: `dataRate`, `spreadingFactor` and `milliseconds`. The hub times its event replies from the same table, so both sides test against this one list.
 
+## The firmware update vectors (M3)
+
+From [m3-updates-design.md](../../../docs/m3-updates-design.md) sections 3, 5 and 7, frozen by the joint step 0. The four update messages above are ordinary message files. The C++ codec passes these four files as well:
+
+### started-update.json
+
+Started (0x05) with the two fields M3 adds at the end of its body: offset 8, image flags (bit 0 on trial, bit 1 rolled back since the last confirmed image; other bits ignored); offset 9, the failed version (3 bytes, zeros for none). A receiver that knows them reads them when the body is 12 bytes or more; an 8-byte body is a Started from a device older than M3 and has none (`image` is `null`); a body of 9 to 11 bytes is `truncated`. The library's `decodeMessage` keeps reading Started's 8-byte version-1 body and ignores what follows, as every older receiver does; `decodeStartedImage` reads the new fields, and `openPacket` returns them as `startedImage`. They are kept apart from `started.json`, whose cases stay version 1.
+
+`valid`: sealed packets, with the fields of a message file's case (`name`, `key`, `direction`, `address`, `counter`, `binding`, `maxLength`, `messageType`, `plaintext`, `nonce`, `associatedData`, `packet`; all canonical), and `fields` the version-1 body's fields as in `started.json`, plus `image`: `{flags: {onTrial, rolledBack}, failedVersion}` or `null`. `invalid`: `name`, `plaintext` (type byte and body) and `error`.
+
+### transfer-frames.json
+
+Transfer frames: not packets, in the clear, one per WebSocket message, COBS frame or Bluetooth write or notification. Byte 0 is `prefix` (0xF2), byte 1 the kind, then the body, little-endian:
+
+| Kind | Name | Fields |
+| --- | --- | --- |
+| 0x01 | Get | `imageId` bytes(8), `offset` u32, `length` u16 (1 to 1,000; else `badValue`) |
+| 0x02 | Data | `imageId` bytes(8), `offset` u32, `crc32` u32, `data` rest (1 to 1,000 bytes; none is `truncated`, more `tooLong`) |
+| 0x03 | Gone | `imageId` bytes(8), `reason` u8 (0 not available, 1 not granted, 2 paused, 3 out of range) |
+| 0x10 | Hello | `address` u32, `deviceRandom` bytes(8), `imageId` bytes(8), `bytesHeld` u32, `largestData` u16 |
+| 0x11 | Open | `tag` bytes(16) |
+| 0x12 | Done | `imageId` bytes(8), `result` u8 (0 verified, 1 refused), `reason` u8 (as update status) |
+
+Offsets count from the first byte of the 128-byte image header. Bytes after a fixed frame's fields are ignored. A first byte other than 0xF2 is `badValue`, an unknown kind `unknownType` with `messageType` the kind byte.
+
+`crc32`: `name`, `data`, `crc32` (an integer): CRC-32 with the reflected polynomial 0xEDB88320, initial value and final XOR 0xFFFFFFFF; "123456789" gives 0xCBF43926. `valid`: `name`, `canonical`, `kind`, `fields` (without the kind), `bytes`, and for Data `intact` (whether `crc32` matches the data). Canonical frames encode exactly to `bytes`, the encoder computing a Data frame's CRC; decode-only ones carry extra bytes after the fields, or a Data frame whose CRC does not match (read, then dropped by the receiver). `invalid`: `name`, `bytes`, `error`, plus `messageType` for `unknownType`.
+
+### image-header.json
+
+The 128-byte header the hub signs for every image (section 3). Bytes 0 to 63: `HSNI`, format 1, flags (bit 0 an owner's own build), roles (bit 1 sensor, bit 2 siren, bit 3 gateway: the bit is `1 << role`), target (1), version (3), a zero byte, image bytes u32, the image's SHA-256 (32), the signing hub's identity (8: the first 8 bytes of SHA-256 of its 64-byte signing key, §9), 8 zero bytes. Bytes 64 to 127: ECDSA P-256 over SHA-256 of `label` (`hsn-image/1`), a zero byte and bytes 0 to 63; `r` then `s`, 32 bytes each, big-endian. The image id is bytes 16 to 23. Unused flag and role bits are ignored.
+
+`signing` records how the vectors were signed: RFC 6979 deterministic, the message hashed once with SHA-256, `s` not normalised to the lower half (`lowS: false`), so a signature can be reproduced exactly; a verifier accepts either half. `signingPrivateKey` is RFC 6979 A.2.5's test key (as in `pairing-data.json`), `signingKey` its 64-byte public key and `hubIdentity` its identity. `rfc6979Sample` is that RFC's own signature of "sample" (`message` as hex, `r`, `s`), to pin the primitive. `image` is the test image every valid header's hash names.
+
+`valid`: `name`, `fields` (`flags` {`ownBuild`}, `roles`, `target`, `version`, `imageBytes`, `imageSha256`, `hubIdentity`), `signedBytes` (label, zero byte, bytes 0 to 63), `signedSha256`, `signature`, `header` (all 128 bytes) and `imageId`. Signing `fields` with `signingPrivateKey` must give exactly `header`.
+
+`checks`: what a device checks before it writes a byte, in order: 1. magic, format, target and the zero bytes, or fewer than 128 bytes (`reason` 6, badHeader); 2. the hub identity (7, wrongHub); 3. its role's bit (8, wrongRole); 4. image bytes within the slot (9, tooLarge); 5. the signature (10, badSignature); 0 when all pass. Each case: `name`, `header`, `expect` {`hubIdentity`, `signingKey`, `role`, `capacity`} and `reason` (an update status reason). Cases that break two rules show which check comes first.
+
+### ble-update-session.json
+
+The update service over Bluetooth (section 5): `serviceUuid`, `rxUuid` (the phone writes, without response) and `txUuid` (the device notifies). Every address below is a u32 written **little-endian**, as everywhere in the device protocol.
+
+`sessionKeys`: `name`, `deviceKey` (16), `nonce` (8), `address`, `info` (`hsn-ble-update/1`, a zero byte, the address) and `sessionKey`: HKDF-SHA256 with the device key as input key material, the nonce as salt and `info`, 32 bytes. `openTags`: `name`, `sessionKey`, `address`, `deviceRandom` (8, from Hello), `imageId` (8) and `tag`: the first 16 bytes of HMAC-SHA256 under the session key over `hsn-ble-open/1`, a zero byte, the address, the device random and the image id. `names`: `address` and `name`, the device's name in its scan response during an update window: `hsn-` and the address as 8 lower-case hex digits, most significant first.
+
 ## The app channel's vectors (M2)
 
 `app-*.json` are the app channel's vectors (docs/m2-design.md section 10), owned in step 1 by **A1**, in the formats `packages/protocol/src/app/vector-formats.ts` freezes. The device protocol's vectors above are unchanged by M2.
+
+## The relay's vectors (M4)
+
+`relay-*.json` are the relay's vectors (docs/m4-design.md section 11), owned by **B1**, in the formats `packages/protocol/src/relay/vector-formats.ts` freezes, written by `bun packages/protocol/src/relay/vectors/relay-vectors.ts` and checked independently by `verify/verify-relay-vectors.mjs`. Each file's `description` gives every rule needed to implement from it, in the order a receiver checks:
+
+- `relay-xn.json`: `Noise_XN_25519_ChaChaPoly_SHA256` on a hub's link (`hsn-relay/1`) and a relay's link to the push service (`hsn-relay-peer/1`), and the handshakes that must fail.
+- `relay-push.json`: sealed pushes as exact bytes (the `h` format and `PushContent`, with every field's bounds), and `h` strings that must not open, each with its reason. The phone's own code (Swift and Kotlin) tests against this file.
+- `relay-frames.json`: the links' text frames, accepted or refused by direction, their binary frames with their bytes or their refusal, and the links' close codes with what the closed side does next (4403, `refused`: stop and report once, never retry on a timer).
+
+### Compact values (`relay-frames.json` only)
+
+A few frames are as large as a link allows (131,072 bytes of text, 65,540 and 262,149 bytes of binary) or one byte larger. So that they do not fill the file with hex, four fields may be written compactly: a text frame's `text`, and a binary frame's `bytes`, `frame.message` and `frame.bytes`. Each is either:
+
+- **the value itself**: a JSON string (text, or lower-case hex as everywhere else); or
+- **an array of pieces**, at least one, joined in order into that string. A piece is either a JSON string, taken as it is, or an object `{"repeat": <string>, "times": <n>}`, which stands for `repeat` written `n` times one after another. `repeat` is never empty and `n` is an integer from 1 to 16,777,216; the object has no other fields.
+
+For a hex field every piece, and every `repeat`, is lower-case hex of whole bytes, and the joined string is the bytes' hex. For example `["01ffffffff", {"repeat": "a5", "times": 3}, "02"]` is the bytes `01 ff ff ff ff a5 a5 a5 02`. Expand every field first, then run the case as if the field had been written out in full. The other relay files, and every other file in this folder, write their values in full.

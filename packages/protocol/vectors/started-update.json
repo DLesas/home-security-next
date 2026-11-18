@@ -1,0 +1,198 @@
+{
+  "schemaVersion": 1,
+  "protocolVersion": 1,
+  "valid": [
+    {
+      "name": "sensor started on trial after an update",
+      "key": "000102030405060708090a0b0c0d0e0f",
+      "direction": 0,
+      "address": 439041101,
+      "counter": 320,
+      "binding": "",
+      "maxLength": 255,
+      "messageType": 5,
+      "fields": {
+        "role": 1,
+        "firmwareVersion": {
+          "major": 1,
+          "minor": 4,
+          "patch": 0
+        },
+        "resetCause": 1,
+        "lastFatalError": 0,
+        "settingsVersion": 3
+      },
+      "image": {
+        "flags": {
+          "onTrial": true,
+          "rolledBack": false
+        },
+        "failedVersion": {
+          "major": 0,
+          "minor": 0,
+          "patch": 0
+        }
+      },
+      "plaintext": "05010104000100000301000000",
+      "nonce": "4d3c2b1a004001000000000000",
+      "associatedData": "104d3c2b1a40010000",
+      "packet": "104d3c2b1a4001000014dbb981293ff9fe62711a1aad8296d1c71c7dd9ab"
+    },
+    {
+      "name": "sensor started after a rollback, naming the failed version",
+      "key": "000102030405060708090a0b0c0d0e0f",
+      "direction": 0,
+      "address": 439041101,
+      "counter": 321,
+      "binding": "",
+      "maxLength": 255,
+      "messageType": 5,
+      "fields": {
+        "role": 1,
+        "firmwareVersion": {
+          "major": 1,
+          "minor": 3,
+          "patch": 2
+        },
+        "resetCause": 1,
+        "lastFatalError": 0,
+        "settingsVersion": 3
+      },
+      "image": {
+        "flags": {
+          "onTrial": false,
+          "rolledBack": true
+        },
+        "failedVersion": {
+          "major": 1,
+          "minor": 4,
+          "patch": 0
+        }
+      },
+      "plaintext": "05010103020100000302010400",
+      "nonce": "4d3c2b1a004101000000000000",
+      "associatedData": "104d3c2b1a41010000",
+      "packet": "104d3c2b1a41010000ed5656bbac87db60629ed908ef1f606bb4e145bd87"
+    },
+    {
+      "name": "siren started on a confirmed image, nothing to report",
+      "key": "101112131415161718191a1b1c1d1e1f",
+      "direction": 0,
+      "address": 1584361601,
+      "counter": 5200,
+      "binding": "",
+      "maxLength": 1024,
+      "messageType": 5,
+      "fields": {
+        "role": 2,
+        "firmwareVersion": {
+          "major": 2,
+          "minor": 0,
+          "patch": 1
+        },
+        "resetCause": 1,
+        "lastFatalError": 0,
+        "settingsVersion": 3
+      },
+      "image": {
+        "flags": {
+          "onTrial": false,
+          "rolledBack": false
+        },
+        "failedVersion": {
+          "major": 0,
+          "minor": 0,
+          "patch": 0
+        }
+      },
+      "plaintext": "05020200010100000300000000",
+      "nonce": "81706f5e005014000000000000",
+      "associatedData": "1081706f5e50140000",
+      "packet": "1081706f5e5014000069f826d3015e73e392ec12c01489abe7700fea6627"
+    },
+    {
+      "name": "gateway started on trial, on its connection",
+      "key": "202122232425262728292a2b2c2d2e2f",
+      "direction": 0,
+      "address": 2460202181,
+      "counter": 42,
+      "binding": "a0a1a2a3a4a5a6a7b0b1b2b3b4b5b6b7",
+      "maxLength": 1024,
+      "messageType": 5,
+      "fields": {
+        "role": 3,
+        "firmwareVersion": {
+          "major": 2,
+          "minor": 0,
+          "patch": 1
+        },
+        "resetCause": 1,
+        "lastFatalError": 0,
+        "settingsVersion": 3
+      },
+      "image": {
+        "flags": {
+          "onTrial": true,
+          "rolledBack": true
+        },
+        "failedVersion": {
+          "major": 2,
+          "minor": 0,
+          "patch": 0
+        }
+      },
+      "plaintext": "05030200010100000303020000",
+      "nonce": "c5b4a392002a00000000000000",
+      "associatedData": "10c5b4a3922a000000a0a1a2a3a4a5a6a7b0b1b2b3b4b5b6b7",
+      "packet": "10c5b4a3922a0000001fc40a1444c6ab20b837bb3a836f9b503709ee3ef4"
+    },
+    {
+      "name": "sensor started without the M3 fields, as an M1a device sends it",
+      "key": "000102030405060708090a0b0c0d0e0f",
+      "direction": 0,
+      "address": 439041101,
+      "counter": 322,
+      "binding": "",
+      "maxLength": 255,
+      "messageType": 5,
+      "fields": {
+        "role": 1,
+        "firmwareVersion": {
+          "major": 1,
+          "minor": 2,
+          "patch": 3
+        },
+        "resetCause": 1,
+        "lastFatalError": 0,
+        "settingsVersion": 3
+      },
+      "image": null,
+      "plaintext": "050101020301000003",
+      "nonce": "4d3c2b1a004201000000000000",
+      "associatedData": "104d3c2b1a42010000",
+      "packet": "104d3c2b1a420100007e87f5d1175ed3cd806a089ea7399c12d6"
+    }
+  ],
+  "invalid": [
+    {
+      "name": "one byte of the M3 fields",
+      "plaintext": "05010102030100000301",
+      "error": "truncated"
+    },
+    {
+      "name": "two bytes of the M3 fields",
+      "plaintext": "0501010203010000030101",
+      "error": "truncated"
+    },
+    {
+      "name": "three bytes of the M3 fields",
+      "plaintext": "050101020301000003010104",
+      "error": "truncated"
+    },
+    {
+      "name": "a version-1 body cut short",
+      "plaintext": "0501010203010000",
+      "error": "truncated"
+    }
+  ]
+}

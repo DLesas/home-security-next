@@ -3,12 +3,16 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Device protocol version 1 and app channel version 1: packets, message bodies, counters, USB framing, the app channel's schemas, the audit record as JSON, and test vectors.",
+  "description": "Device protocol version 1 and app channel versions 1 and 2: packets, message bodies, counters, USB framing, firmware update frames and image headers, release manifests, the app channel's schemas, the relay link and push payload, Bluetooth pairing's constants, the audit record as JSON, and test vectors.",
   "exports": {
     ".": "./src/index.ts",
     "./app": "./src/app/index.ts",
     "./records": "./src/records.ts",
-    "./messages": "./src/messages-entry.ts"
+    "./messages": "./src/messages-entry.ts",
+    "./relay": "./src/relay/index.ts",
+    "./pairing": "./src/pairing/index.ts",
+    "./update": "./src/update/index.ts",
+    "./release": "./src/release/index.ts"
   },
   "scripts": {
     "test": "bun test",

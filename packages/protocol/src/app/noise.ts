@@ -1,7 +1,9 @@
 /**
  * The Noise state machine (docs/m2-design.md section 5, "The channel: Noise"), behind the frozen
- * `noise-interface.ts`: `Noise_IK_25519_ChaChaPoly_SHA256` for sessions and
- * `Noise_XXpsk3_25519_ChaChaPoly_SHA256` for linking and restore.
+ * `noise-interface.ts`: `Noise_IK_25519_ChaChaPoly_SHA256` for sessions,
+ * `Noise_XXpsk3_25519_ChaChaPoly_SHA256` for linking and restore, and
+ * `Noise_XN_25519_ChaChaPoly_SHA256` for the relay's links (docs/m4-design.md section 3, D125),
+ * whose responder has no static key: it is given `NO_STATIC_KEY`.
  *
  * Every step follows the Noise Protocol Framework, revision 34 (noiseprotocol.org/noise.html),
  * section by section: the CipherState (5.1), the SymmetricState (5.2), the HandshakeState (5.3),
@@ -260,13 +262,13 @@ interface PatternDefinition {
 }
 
 /**
- * IK:            XXpsk3:
- *   <- s           -> e
- *   ...            <- e, ee, s, es
- *   -> e, es, s, ss  -> s, se, psk
+ * IK:              XXpsk3:            XN (Noise 7.4):
+ *   <- s             -> e               -> e
+ *   ...              <- e, ee, s, es    <- e, ee
+ *   -> e, es, s, ss  -> s, se, psk      -> s, se
  *   <- e, ee, se
  */
-export const PATTERNS: Readonly<Record<NoisePattern, PatternDefinition>> = {
+export const PATTERNS: Readonly<Partial<Record<NoisePattern, PatternDefinition>>> = {
   [NOISE_PATTERNS.session]: {
     responderStaticPremessage: true,
     psk: false,
@@ -280,7 +282,34 @@ export const PATTERNS: Readonly<Record<NoisePattern, PatternDefinition>> = {
     psk: true,
     messages: [["e"], ["e", "ee", "s", "es"], ["s", "se", "psk"]],
   },
+  [NOISE_PATTERNS.relay]: {
+    responderStaticPremessage: false,
+    psk: false,
+    messages: [["e"], ["e", "ee"], ["s", "se"]],
+  },
 };
+
+/**
+ * Whether a side of a pattern holds a static key: the responder of a `<- s` pre-message, or a side
+ * that sends `s` in one of its messages. Every side of IK and XXpsk3 does; XN's responder does not.
+ */
+export function holdsStaticKey(definition: PatternDefinition, initiator: boolean): boolean {
+  if (definition.responderStaticPremessage && !initiator) return true;
+  return definition.messages.some(
+    (tokens, index) => (index % 2 === 0) === initiator && tokens.includes("s"),
+  );
+}
+
+/**
+ * The static key of a side that has none (XN's responder, the relay or the push service): an empty
+ * public key, and a Diffie-Hellman that gives nothing, which `checkedDh` would refuse as
+ * `allZeroDh`. The pattern never calls it; `startHandshake` refuses any other key for such a side,
+ * and this one for a side that holds a static key.
+ */
+export const NO_STATIC_KEY: StaticKey = Object.freeze({
+  publicKey: new Uint8Array(0),
+  dh: () => Promise.resolve(new Uint8Array(0)),
+});
 
 /**
  * The length of a handshake message with `payloadBytes` of payload, given whether the cipher has
@@ -393,9 +422,10 @@ export class NoiseHandshake implements Handshake {
 
   constructor(
     private readonly options: HandshakeOptions,
+    definition: PatternDefinition,
     fixedEphemeral: LocalEphemeral | undefined,
   ) {
-    this.definition = PATTERNS[options.pattern];
+    this.definition = definition;
     this.symmetric = new SymmetricState(options.pattern);
     this.psk = options.psk?.slice();
     this.fixedEphemeral = fixedEphemeral;
@@ -665,18 +695,22 @@ export class NoiseTransport implements TransportSession {
 // ----- Starting a handshake -----
 
 /**
- * Starts either side of either pattern. Options the pattern cannot use are refused as
- * `wrongState`: an IK initiator without the hub's static key, a responder or an XXpsk3 side given
- * one, an XXpsk3 initiator without a 32-byte pre-shared key, an XXpsk3 responder or an IK side
- * with one (the responder's comes later, by `setPsk`), keys of the wrong length, a fixed ephemeral
- * whose public key is not its private key's.
+ * Starts either side of any of the three patterns. Options the pattern cannot use are refused as
+ * `wrongState`: an IK initiator without the hub's static key, a responder or an XXpsk3 or XN side
+ * given one, an XXpsk3 initiator without a 32-byte pre-shared key, an XXpsk3 responder or an IK
+ * or XN side with one (the responder's comes later, by `setPsk`), keys of the wrong length, an XN
+ * responder given any static key but `NO_STATIC_KEY` (one with an empty public key) and any other
+ * side given that one, a fixed ephemeral whose public key is not its private key's.
  */
 export const startHandshake: StartHandshake = (options) => {
   const definition = Object.hasOwn(PATTERNS, options.pattern)
     ? PATTERNS[options.pattern]
     : undefined;
   if (definition === undefined) return fail("wrongState");
-  if (!isKey(options.staticKey.publicKey)) return fail("wrongState");
+  const staticKeyFits = holdsStaticKey(definition, options.initiator)
+    ? isKey(options.staticKey.publicKey)
+    : options.staticKey.publicKey.length === 0;
+  if (!staticKeyFits) return fail("wrongState");
   const wantsRemoteStatic = definition.responderStaticPremessage && options.initiator;
   if (wantsRemoteStatic !== (options.remoteStatic !== undefined)) return fail("wrongState");
   if (options.remoteStatic !== undefined && !isKey(options.remoteStatic)) {
@@ -691,5 +725,5 @@ export const startHandshake: StartHandshake = (options) => {
     fixed = copyEphemeral(options.ephemeral);
     if (fixed === undefined) return fail("wrongState");
   }
-  return ok(new NoiseHandshake(options, fixed));
+  return ok(new NoiseHandshake(options, definition, fixed));
 };
