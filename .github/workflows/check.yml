@@ -229,6 +229,33 @@ jobs:
             Write-Output "$port agrees with the requested DCB settings in mode.exe"
           }
 
+  edge:
+    name: Browser tests (Windows Edge)
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.2
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Export the web app and test in the runner's installed Edge
+        shell: pwsh
+        env:
+          HSN_E2E_CHANNEL: msedge
+          PLAYWRIGHT_FORCE_TTY: "0"
+        run: |
+          . .github/workflows/installer-checks.ps1
+          # Failed navigations can show a console/link URL. Redact before printing any output.
+          & bun run app:e2e 2>&1 | ForEach-Object { Hide-Secrets $_.ToString() }
+          exit $LASTEXITCODE
+
   # hsn's drop of root (m2-design.md section 9, "Dropping privileges in Bun"), proved where it
   # runs: hub/test/root/ as root through sudo, with the system's own `daemon` account as the one to
   # become. The step fails if the tests were skipped or fewer than three of them passed.
