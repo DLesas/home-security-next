@@ -246,13 +246,17 @@ describe("exit codes and errors", () => {
   });
 
   const root = typeof process.getuid === "function" && process.getuid() === 0;
-  test.skipIf(root)("a socket this account may not open: run as the hub's account", async () => {
-    chmodSync(where.socket, 0o000);
-    const run = await hsn("status");
-    chmodSync(where.socket, 0o600);
-    expect(run.code).toBe(ExitCode.NoPermission);
-    expect(run.err[0]).toContain("run hsn as the account the hub runs as");
-  });
+  // Only Unix refuses via chmod(000); windows-hub.test.ts checks the real second-account refusal.
+  test.skipIf(root || process.platform === "win32")(
+    "a socket this account may not open: run as the hub's account",
+    async () => {
+      chmodSync(where.socket, 0o000);
+      const run = await hsn("status");
+      chmodSync(where.socket, 0o600);
+      expect(run.code).toBe(ExitCode.NoPermission);
+      expect(run.err[0]).toContain("run hsn as the account the hub runs as");
+    },
+  );
 
   test("a refusal prints the hub's reason and the names, and exits 1", async () => {
     answer = () => ({

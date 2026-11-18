@@ -43,6 +43,7 @@ import {
 import { SystemClock } from "../../src/shell/clock/system-clock.ts";
 import { openStore } from "../../src/shell/storage/store.ts";
 import { TEST_PUBLISHER_KEY } from "../../src/shell/update/publisher-keys.ts";
+import { programName } from "../../src/shell/update/program-name.ts";
 import { Staging } from "../../src/shell/update/stage.ts";
 import { installPaths } from "../../../hub/launcher/src/layout.ts";
 import { releaseOf } from "../../packaging/shared/make-release.ts";
@@ -405,17 +406,19 @@ describe("whole-file work cut off by a power cut (section 9)", () => {
   test("staging cut off at any piece leaves no version folder; the same release stages after", () => {
     const root = tempDir("cut-stage");
     folders.push(root);
+    const platform = process.platform === "win32" ? "windows-x64" : "darwin-arm64";
+    const program = programName(platform);
     const source = join(root.path, "source");
     mkdirSync(join(source, "bin"), { recursive: true });
     mkdirSync(join(source, "drizzle"), { recursive: true });
-    writeFileSync(join(source, "bin", "hsn-hub"), new Uint8Array(3 * 1024 * 1024).fill(7), {
+    writeFileSync(join(source, "bin", program), new Uint8Array(3 * 1024 * 1024).fill(7), {
       mode: 0o755,
     });
     writeFileSync(join(source, "drizzle", "0000.sql"), "CREATE TABLE x (a);");
     const upload = join(root.path, "upload.hsnr");
     writeFileSync(
       upload,
-      releaseOf(source, "9.0.0", "darwin-arm64", new Uint8Array(32).fill(7), 0)._unsafeUnwrap(),
+      releaseOf(source, "9.0.0", platform, new Uint8Array(32).fill(7), 0)._unsafeUnwrap(),
     );
     // The hub's own program tree (section 9, two trees): its state, and staged versions in
     // `staged/`; the running 0.1.0 is the package's, in the other tree.
@@ -436,7 +439,7 @@ describe("whole-file work cut off by a power cut (section 9)", () => {
         path: upload,
         prefix,
         runningVersion: "0.1.0",
-        platform: "darwin-arm64",
+        platform,
         keys: [TEST_PUBLISHER_KEY],
         wanted: () => true,
       });
@@ -449,7 +452,7 @@ describe("whole-file work cut off by a power cut (section 9)", () => {
       for (let piece = 0; piece < stopAfter && outcome === undefined; piece++) outcome = job.next();
       if (outcome !== undefined) {
         expect(outcome.kind).not.toBe("failed");
-        expect(existsSync(join(staged, "bin", "hsn-hub"))).toBe(true);
+        expect(existsSync(join(staged, "bin", program))).toBe(true);
         break;
       }
       // Power lost mid-staging: no version folder a launcher could switch to.
