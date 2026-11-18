@@ -196,6 +196,20 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
           [ "$failed" -eq 0 ]
 
+      - name: List serial ports using Windows and Bun
+        if: runner.os == 'Windows'
+        working-directory: hub
+        run: |
+          Add-Type -AssemblyName System.IO.Ports
+          $ports = @([System.IO.Ports.SerialPort]::GetPortNames() | Sort-Object)
+          if ($ports.Count -eq 0) {
+            Write-Output "Windows serial ports: none"
+          } else {
+            Write-Output "Windows serial ports: $($ports -join ', ')"
+          }
+          bun -e 'import { SerialPort } from "serialport"; const ports = (await SerialPort.list()).map(port => port.path).sort(); console.log("Bun serial ports: " + (ports.join(", ") || "none"));'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
   # hsn's drop of root (m2-design.md section 9, "Dropping privileges in Bun"), proved where it
   # runs: hub/test/root/ as root through sudo, with the system's own `daemon` account as the one to
   # become. The step fails if the tests were skipped or fewer than three of them passed.
