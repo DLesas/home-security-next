@@ -2,7 +2,8 @@
 # the root package.json's `check` script at run time, so this runs exactly what `bun run check`
 # runs; each stage runs even when one before it failed, so a first run shows every problem, and
 # the job fails if any stage failed. Each stage's result, time and last lines go to the job
-# summary. If `check` is ever not a plain `bun run a && bun run b …` chain, the job runs
+# summary. On Windows the counts are also printed in the log. If `check` is ever not a
+# plain `bun run a && bun run b …` chain, the job runs
 # `bun run check` itself instead. A second job runs the root-only tests (hub/test/root/) under
 # sudo on Linux and macOS.
 name: Check (bun run check)
@@ -16,9 +17,18 @@ permissions:
 
 jobs:
   check:
-    runs-on: ubuntu-latest
+    name: ${{ matrix.os == 'ubuntu-latest' && 'check' || 'check (windows-latest)' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     steps:
+      - name: Keep the repository's line endings
+        if: runner.os == 'Windows'
+        run: git config --global core.autocrlf false
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -30,10 +40,12 @@ jobs:
       - name: Tools
         shell: bash
         run: |
+          if [ "$RUNNER_OS" = Windows ]; then system=$(cmd.exe //d //c ver | tr -d '\r' | grep -v '^$')
+          else system=$(. /etc/os-release && echo "$PRETTY_NAME"); fi
           {
             echo "# bun run check"
             echo
-            echo "Commit \`${GITHUB_SHA}\` on \`${GITHUB_REF_NAME}\`, $(. /etc/os-release && echo "$PRETTY_NAME") $(uname -m)"
+            echo "Commit \`${GITHUB_SHA}\` on \`${GITHUB_REF_NAME}\`, $system $(uname -m)"
             echo
             echo "| Tool | Version | From |"
             echo "| --- | --- | --- |"
@@ -74,6 +86,7 @@ jobs:
           mkdir -p "$out"
           # The stages of `check`, from package.json: `bun run <name>` joined by `&&`.
           chain=$(bun -e 'console.log(JSON.parse(require("fs").readFileSync("package.json","utf8")).scripts.check ?? "")')
+          chain=${chain%$'\r'}
           echo "check is: $chain"
           stages=$(printf '%s\n' "$chain" | awk -F' && ' '{ for (i = 1; i <= NF; i++) print $i }')
           plain=yes
@@ -108,6 +121,22 @@ jobs:
             cat "$log"
             echo "::endgroup::"
             if [ "$code" -eq 0 ]; then mark="✅"; else mark="❌ exit $code"; failed=$((failed + 1)); fi
+            if [ "$RUNNER_OS" = Windows ]; then
+              result=pass
+              if [ "$code" -ne 0 ]; then result=fail; fi
+              case "$name" in
+                test)
+                  counts=$(awk '/^[[:space:]]*[0-9]+ (pass|fail|skip|todo)[[:space:]]*$/ { n[$2] = $1; found = 1 }
+                    END { if (found) printf "%d pass, %d fail, %d skip, %d todo", n["pass"], n["fail"], n["skip"], n["todo"]; else print "no test counts reported" }' "$log")
+                  ;;
+                typecheck) counts="$(grep -cE 'error TS[0-9]+' "$log") TypeScript errors" ;;
+                lint) counts=$(grep -E '[0-9]+ problems? \(' "$log" | tail -n 1 | tr -d '\r'); counts=${counts:-"no problems reported"} ;;
+                format:check) counts="$(grep -cE '^\[warn\] ' "$log") warnings, $(grep -cE '^\[error\] ' "$log") errors" ;;
+                verify:vectors) counts=$(grep -E '^[0-9]+ checks, [0-9]+ mismatches' "$log" | tail -n 1 | tr -d '\r'); counts=${counts:-"no vector counts reported"} ;;
+                *) counts="no counts reported" ;;
+              esac
+              echo "Stage $name: $result (exit $code, $counts)"
+            fi
             echo "| \`$stage\` | $mark | $((SECONDS - start)) s |" >> "$GITHUB_STEP_SUMMARY"
             {
               echo
