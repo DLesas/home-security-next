@@ -878,7 +878,6 @@ jobs:
           $code = $LASTEXITCODE
           Test-Check "hsn --data <the data folder> status answers (as the Start menu and check.ps1 call it)" { if ($code -eq 0) { $true } else { "exit $code" } }
           Write-Summary (@("", '```') + @((Hide-Secrets $status) -split "`n" | Select-Object -First 40) + @('```'))
-          Write-Info "An ordinary account is not tried here" "windows-control-socket.yml (A11) makes one and checks the refusal"
           Test-Check "The console (127.0.0.1:8445) serves the web app within 60 s" {
             $ok = Wait-Until 60 {
               try { $r = Invoke-WebRequest -Uri http://127.0.0.1:8445/ -UseBasicParsing -TimeoutSec 10; $r.StatusCode -eq 200 -and $r.Content -match '<html' } catch { $false }
@@ -889,6 +888,93 @@ jobs:
           # A probe expected to fail (sc.exe query of a removed service, netsh of a removed rule)
           # leaves its exit code behind: the checks above are this step's result, counted by
           # Result; a step that must stop the job says so with Stop-Job.
+          exit 0
+
+      - name: The installed hub from an ordinary local account
+        if: ${{ !cancelled() && env.HSN_STOPPED == '' }}
+        shell: pwsh
+        run: |
+          . .github/workflows/installer-checks.ps1
+          Write-Heading "Ordinary local account"
+          $account = "hsn-msi-test"
+          $folder = Join-Path $env:PUBLIC "hsn-msi-test-$([guid]::NewGuid().ToString('N'))"
+          # A local Users account, as in the checkout probe. The fixture alone is writable to it.
+          $created = $false
+          try {
+            $password = "Hs1!" + [Convert]::ToHexString([System.Security.Cryptography.RandomNumberGenerator]::GetBytes(5))
+            & net.exe user $account $password /add /expires:never /passwordchg:no *> $null
+            if ($LASTEXITCODE -ne 0) { throw "could not create the ordinary test account" }
+            $created = $true
+            $sid = (Get-LocalUser -Name $account).SID
+            $member = @(Get-LocalGroupMember -SID 'S-1-5-32-544' | Where-Object { $_.SID -eq $sid })
+            Test-Check "The second account is outside the local Administrators group" { $member.Count -eq 0 }
+            $credential = [pscredential]::new(".\$account", (ConvertTo-SecureString $password -AsPlainText -Force))
+            New-Item -ItemType Directory -Path $folder | Out-Null
+            & icacls.exe $folder /grant "*${sid}:(OI)(CI)M" /Q *> $null
+            if ($LASTEXITCODE -ne 0) { throw "could not give the test account its result folder" }
+            $script = Join-Path $folder "probe.ps1"
+            @'
+          $ErrorActionPreference = 'Stop'
+          $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent()
+          $principal = [System.Security.Principal.WindowsPrincipal]::new($identity)
+          $env:Path = "$([Environment]::GetEnvironmentVariable('Path', 'Machine'));$([Environment]::GetEnvironmentVariable('Path', 'User'))"
+          $exe = Get-Command hsn -CommandType Application -ErrorAction SilentlyContinue
+          $result = [ordered]@{
+            identity = $identity.Name
+            administrator = $principal.IsInRole([System.Security.Principal.WindowsBuiltInRole]::Administrator)
+            cli = if ($exe) { $exe.Source } else { '' }
+            exitCode = $null
+            cliMessage = ''
+            database = 'unchecked'
+            console = $false
+          }
+          if ($exe) {
+            # The native stderr line is the expected result, including its exit code.
+            $ErrorActionPreference = 'Continue'
+            $result.cliMessage = ((& hsn status 2>&1) -join "`n").Trim()
+            $result.exitCode = $LASTEXITCODE
+            $ErrorActionPreference = 'Stop'
+          }
+          try {
+            [System.IO.File]::OpenRead((Join-Path $env:ProgramData 'HSN Hub\hub.db')).Dispose()
+            $result.database = 'readable'
+          } catch {
+            $cause = $_.Exception.GetBaseException()
+            $result.database = if ($cause -is [UnauthorizedAccessException]) { 'denied' } else { 'other failure' }
+          }
+          try {
+            $page = Invoke-WebRequest -Uri http://127.0.0.1:8445/ -UseBasicParsing -TimeoutSec 10
+            $result.console = $page.StatusCode -eq 200 -and $page.Content -match '<html'
+          } catch { $result.console = $false }
+          $result | ConvertTo-Json -Compress | Set-Content -LiteralPath (Join-Path $PSScriptRoot 'result.json')
+          '@ | Set-Content -LiteralPath $script
+            $shell = Join-Path $PSHOME 'pwsh.exe'
+            $probe = Start-Process $shell -Credential $credential -LoadUserProfile -WorkingDirectory $folder -ArgumentList @('-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', "`"$script`"") -Wait -PassThru
+            if ($probe.ExitCode -ne 0) { throw "the ordinary-account probe exited $($probe.ExitCode)" }
+            $seen = Get-Content -LiteralPath (Join-Path $folder 'result.json') -Raw | ConvertFrom-Json
+            $expected = 'hsn: this account may not use the hub: run hsn from an administrator prompt (Run as administrator).'
+            Test-Check "The probe used the ordinary account's token" {
+              if ($seen.identity -eq "$env:COMPUTERNAME\$account" -and !$seen.administrator) { $true } else { "wrong account or elevated token" }
+            }
+            Test-Check "The machine PATH resolves hsn to the installed executable for that account" {
+              if ($seen.cli -eq (Join-Path $env:ProgramFiles 'HSN Hub\bin\hsn.exe')) { $true } else { "the installed hsn was not found by name" }
+            }
+            Test-Check "Ordinary hsn status exits 77 and gives one administrator prompt instruction" {
+              if ($seen.exitCode -eq 77 -and $seen.cliMessage -ceq $expected) { $true } else { "exit $($seen.exitCode); wording: $(Hide-Secrets $seen.cliMessage)" }
+            }
+            Test-Check "That account cannot read the installed hub's database" {
+              if ((Test-Path (Join-Path $env:ProgramData 'HSN Hub\hub.db')) -and $seen.database -eq 'denied') { $true } else { "read denial was not observed" }
+            }
+            Test-Check "The web console serves the app to that ordinary account" { $seen.console -eq $true }
+          } catch {
+            Write-Fail "The ordinary-account check ran" $_.Exception.Message
+          } finally {
+            if ($created) {
+              & net.exe user $account /delete *> $null
+              Test-Check "The ordinary test account was removed" { $null -eq (Get-LocalUser -Name $account -ErrorAction SilentlyContinue) }
+            }
+            Remove-Item -LiteralPath $folder -Force -Recurse -ErrorAction SilentlyContinue
+          }
           exit 0
 
       - name: The hub's trees
