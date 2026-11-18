@@ -592,19 +592,21 @@ describe("hsn open (m2-design.md section 5, the console)", () => {
     answer = () => ok(TOKEN);
     const run = await hsn("open");
     expect(received).toEqual([{ kind: "consoleToken" }]);
-    expect(browsed).toEqual([SECRET_URL]);
+    expect(browsed.length).toBe(1);
+    expect(browsed[0] === SECRET_URL).toBe(true);
     expect(run.code).toBe(ExitCode.Ok);
-    expect([...run.out, ...run.err].join("\n")).not.toContain(SECRET);
+    expect([...run.out, ...run.err].some((line) => line.includes(SECRET))).toBe(false);
   });
 
   test("with --json, nor then", async () => {
     answer = () => ok(TOKEN);
     const run = await hsn("--json open");
-    expect(browsed).toEqual([SECRET_URL]);
+    expect(browsed.length).toBe(1);
+    expect(browsed[0] === SECRET_URL).toBe(true);
     expect(run.out.map((l) => JSON.parse(l) as unknown)).toEqual([
       { opened: true, expiresInMs: 120_000 },
     ]);
-    expect([...run.out, ...run.err].join("\n")).not.toContain(SECRET);
+    expect([...run.out, ...run.err].some((line) => line.includes(SECRET))).toBe(false);
   });
 
   test("when no browser opens, it says so, exits 1, and still prints no address", async () => {
@@ -615,7 +617,7 @@ describe("hsn open (m2-design.md section 5, the console)", () => {
     expect(run.err[0]).toContain(
       "the console could not be opened: the browser could not be opened for anna",
     );
-    expect([...run.out, ...run.err].join("\n")).not.toContain(SECRET);
+    expect([...run.out, ...run.err].some((line) => line.includes(SECRET))).toBe(false);
   });
 
   test("a refused token opens nothing", async () => {
@@ -624,7 +626,7 @@ describe("hsn open (m2-design.md section 5, the console)", () => {
       error: { code: "failed", message: "the hub has not started yet" },
     });
     const run = await hsn("open");
-    expect(browsed).toEqual([]);
+    expect(browsed.length).toBe(0);
     expect(run.code).toBe(ExitCode.Refused);
   });
 
@@ -634,6 +636,6 @@ describe("hsn open (m2-design.md section 5, the console)", () => {
     const run = await hsn("open");
     expect(run.code).toBe(ExitCode.NoAnswer);
     expect(run.err[0]).toContain("did not open the console within 120 s");
-    expect([...run.out, ...run.err].join("\n")).not.toContain(SECRET);
+    expect([...run.out, ...run.err].some((line) => line.includes(SECRET))).toBe(false);
   });
 });
