@@ -138,6 +138,39 @@ test.each([
   },
 );
 
+test("the sensor detail renders live Last heard over a cached read", async () => {
+  const before: DeviceObjectV2 = {
+    ...FRONT,
+    lastSeenMs: new Date(2026, 0, 1, 12).getTime(),
+    update: null,
+  };
+  const after = { ...before, lastSeenMs: new Date(2026, 0, 3, 12).getTime() };
+  const queries = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity } } });
+  queries.setQueryData(["device.show", JSON.stringify({ device: FRONT.id }), 0, 0], {
+    ok: true,
+    body: { device: before },
+    repeat: false,
+  });
+  const page = createElement(
+    QueryClientProvider,
+    { client: queries },
+    createElement(DeviceDetail, { id: FRONT.id }),
+  );
+  const live = { ...EMPTY_LIVE, devices: { [FRONT.id]: before } };
+  const event = parseEventV2({
+    t: "evt",
+    rev: 1,
+    ev: "device",
+    body: { what: "state", device: after },
+  });
+  if (!event.ok || event.value.ev !== "device") return expect.unreachable();
+  expect(textOf(await renderWith(page, live))).toContain("Last heard Jan 1, 2026");
+  const updated = applyEvent(live, event.value, 0);
+  const visible = textOf(await renderWith(page, updated));
+  expect(visible).toContain("Last heard Jan 3, 2026");
+  expect(visible).not.toContain("Last heard Jan 1, 2026");
+});
+
 describe("the countdown and alarm banner", () => {
   test("the alarm: announced at once, naming its triggers and sirens, with Disarm", async () => {
     const html = await renderWith(createElement(banners.AlarmBanner), {
