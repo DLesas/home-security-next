@@ -20,7 +20,7 @@ import {
 } from "@hsn/protocol";
 import type { AppError, AppOp } from "@hsn/protocol/app";
 import { err, ok, type Result } from "neverthrow";
-import { alarmSummary, countdownSeconds } from "../alarm/view.ts";
+import { alarmSummary, countdownRunning } from "../alarm/view.ts";
 import { coreFault, type CoreFault } from "../model/errors.ts";
 import type { Context } from "../model/handler.ts";
 import { schedulesNaming } from "../schedules/view.ts";
@@ -68,7 +68,7 @@ function removalRefused(view: HubState, device: DeviceId): OpOutcome | undefined
       ok: false,
       error: { code: "invalid", detail: { field: "device", reason: "inUse", refs: [...named] } },
     };
-  if (countdownSeconds(view, device) !== undefined)
+  if (countdownRunning(view, device))
     return { ok: false, error: { code: "busy", detail: { because: "countdown" } } };
   const run = alarmSummary(view);
   if (run !== undefined && (run.triggers.includes(device) || run.sirens.includes(device)))

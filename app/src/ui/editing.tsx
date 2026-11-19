@@ -6,14 +6,11 @@
  */
 import type { AppError } from "@hsn/protocol/app";
 import { useTranslation } from "react-i18next";
-import type { LocalFault } from "../hub/faults";
+import type { RequestFailure } from "../hub/channel";
 import { INVALID_KEYS } from "../state/words";
 import { Actions, Body, Button, Notice } from "./parts";
 
-type Failed =
-  | { readonly ok: false; readonly error: AppError }
-  | { readonly ok: false; readonly local: LocalFault };
-type Outcome = { readonly ok: true } | Failed;
+type Outcome = { readonly ok: true } | RequestFailure;
 
 /** The words for a refusal of `field` (the body's dotted path), when the outcome is one. */
 export function useFieldError(outcome: Outcome | undefined, field: string): string | undefined {

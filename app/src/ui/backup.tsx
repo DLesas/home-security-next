@@ -8,9 +8,10 @@
  * Restore asks before going on (D122): the file's age and what that means are shown first; the
  * restore code only after the person says to go on.
  */
-import type { AppError, AppOpReply } from "@hsn/protocol/app";
+import type { AppOpReply } from "@hsn/protocol/app";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
+import type { AppRefusal } from "../hub/channel";
 import { downloadFile, sendFile, uploadJob } from "../hub/files";
 import { realTimers } from "../hub/wire";
 import { saveFile } from "../platform/save-file";
@@ -207,7 +208,7 @@ export function isHistoryExport(bytes: Uint8Array): boolean {
 
 /** `badFile` when the hub refused the file as not a backup, else undefined. */
 export function restoreRefusal(
-  outcome: { readonly ok: false } & ({ readonly error: AppError } | { readonly local: string }),
+  outcome: { readonly ok: false } & ({ readonly error: AppRefusal } | { readonly local: string }),
 ): "badFile" | undefined {
   return "error" in outcome &&
     outcome.error.code === "invalid" &&

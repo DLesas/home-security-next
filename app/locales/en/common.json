@@ -193,7 +193,10 @@
       "countdown": "A countdown is running. Wait until it has ended.",
       "alarm": "The alarm is sounding. Wait until it has ended.",
       "restore": "A restore is under way.",
-      "upload": "A file is already being sent."
+      "upload": "A file is already being sent.",
+      "rollout": "A device update rollout is already under way. Check under Updates.",
+      "onTrial": "The device is checking a new version. Wait until it has finished.",
+      "keyChange": "The device has not checked in since the hub was restored. Wait until it does."
     },
     "consoleOnly": "Only the browser on the hub computer can do this.",
     "unavailable": "The hub cannot save changes at the moment. Its computer says why.",

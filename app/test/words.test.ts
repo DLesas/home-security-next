@@ -11,6 +11,7 @@ import { join } from "node:path";
 import {
   type AppError,
   APP_ERROR_CODES,
+  BUSY_BECAUSE_V2,
   clientKind,
   historyKind,
   NOTIFICATION_CATEGORIES,
@@ -64,6 +65,9 @@ describe("every text has English", () => {
     expect(keys.filter((k) => !has(k))).toEqual([]);
     expect(Object.keys(LOCAL_FAULT_KEYS).sort()).toEqual([...LOCAL_FAULTS].sort());
     expect(Object.keys(INVALID_KEYS).sort()).toEqual([...INVALID_REASONS].sort());
+    expect(Object.keys(BUSY_KEYS).sort()).toEqual([...BUSY_BECAUSE_V2].sort());
+    const busy = BUSY_BECAUSE_V2.map((because) => text(BUSY_KEYS[because]));
+    expect(new Set(busy).size).toBe(BUSY_BECAUSE_V2.length);
   });
 
   test("keys built from the protocol's values", () => {
@@ -106,7 +110,7 @@ describe("every text has English", () => {
     if (!i18n.isInitialized) await startI18n();
     const t = i18n.t.bind(i18n);
     const devices = { devices: {} };
-    const errors: readonly AppError[] = [
+    const errors: readonly Parameters<typeof appErrorWords>[3][] = [
       { code: "unauthorized", detail: {} },
       { code: "unauthorized", detail: { devices: [3] } },
       { code: "unauthorized", detail: { permission: "manageUsers" } },
@@ -119,9 +123,7 @@ describe("every text has English", () => {
       ...INVALID_REASONS.map(
         (reason) => ({ code: "invalid", detail: { field: "", reason } }) as const,
       ),
-      ...Object.keys(BUSY_KEYS).map(
-        (because) => ({ code: "busy", detail: { because } }) as AppError,
-      ),
+      ...BUSY_BECAUSE_V2.map((because) => ({ code: "busy", detail: { because } }) as const),
       { code: "consoleOnly", detail: {} },
       { code: "unavailable", detail: {} },
       { code: "protoUnsupported", detail: { speaks: [1, 1] } },

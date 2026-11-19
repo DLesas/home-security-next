@@ -10,8 +10,7 @@ import { Link } from "expo-router";
 import { type ComponentRef, type ReactNode, type Ref, useId, useState } from "react";
 import { Pressable, View } from "react-native";
 import { useTranslation } from "react-i18next";
-import type { AppError } from "@hsn/protocol/app";
-import type { LocalFault } from "../hub/faults";
+import type { RequestFailure } from "../hub/channel";
 import { failureWords } from "../state/words";
 import { useLive } from "./hub-context";
 import { Text, TEXT_SCALE_MAX, TextInput } from "./text";
@@ -521,9 +520,7 @@ export function Failure({
   outcome,
   testID,
 }: {
-  readonly outcome:
-    | { readonly ok: false; readonly error: AppError }
-    | { readonly ok: false; readonly local: LocalFault };
+  readonly outcome: RequestFailure;
   readonly testID?: string;
 }) {
   const { t, i18n } = useTranslation();

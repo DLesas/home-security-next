@@ -67,9 +67,9 @@ export function armedSince(
   return arming === undefined ? undefined : { boot: arming.armedBoot, mono: arming.armedMono };
 }
 
-/** A sensor's entry countdown in seconds (D86), as the alarm applies it. */
-export function countdownSeconds(view: HubState, sensor: DeviceId): number | undefined {
-  return view.alarm.sensors.get(sensor)?.countdownS;
+/** Whether this sensor has a running entry countdown. */
+export function countdownRunning(view: HubState, sensor: DeviceId): boolean {
+  return view.alarm.countdowns.has(sensor);
 }
 
 /**

@@ -5,6 +5,7 @@
  * Devices are named by their names when the store knows them.
  */
 import type { AppError } from "@hsn/protocol/app";
+import type { AppRefusal, RequestFailure } from "../hub/channel";
 import type { TFunction } from "i18next";
 import type { LinkView } from "../hub/client";
 import type { LocalFault } from "../hub/faults";
@@ -75,8 +76,11 @@ export const BUSY_KEYS = {
   alarm: "errors.busy.alarm",
   restore: "errors.busy.restore",
   upload: "errors.busy.upload",
+  rollout: "errors.busy.rollout",
+  onTrial: "errors.busy.onTrial",
+  keyChange: "errors.busy.keyChange",
 } as const satisfies Readonly<
-  Record<Extract<AppError, { code: "busy" }>["detail"]["because"], string>
+  Record<Extract<AppRefusal, { code: "busy" }>["detail"]["because"], string>
 >;
 
 export const NOT_FOUND_KEYS = {
@@ -104,7 +108,7 @@ export function appErrorWords(
   t: Translate,
   language: string,
   state: Pick<LiveState, "devices">,
-  error: AppError,
+  error: AppRefusal,
 ): string {
   switch (error.code) {
     case "unauthorized": {
@@ -148,9 +152,7 @@ export function failureWords(
   t: Translate,
   language: string,
   state: Pick<LiveState, "devices">,
-  outcome:
-    | { readonly ok: false; readonly error: AppError }
-    | { readonly ok: false; readonly local: LocalFault },
+  outcome: RequestFailure,
 ): string {
   return "local" in outcome
     ? t(LOCAL_FAULT_KEYS[outcome.local])

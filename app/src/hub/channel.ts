@@ -57,14 +57,19 @@ import type { PlatformSecret } from "../platform/keys";
 import { raiseSeq, type RecordStore, reserveSeq, type StoredClient } from "../platform/client-key";
 import { CLOSE, type Connect, type Timers, type Wire } from "./wire";
 
-export type RequestOutcome<N extends AppOpName> =
-  | { readonly ok: true; readonly body: AppOpReply<N>; readonly repeat: boolean }
-  | { readonly ok: false; readonly error: AppError }
+/** The shared screens understand version 1 refusals and all versions' busy reasons. */
+export type AppRefusal = AppError | Extract<AppErrorV2, { readonly code: "busy" }>;
+
+export type RequestFailure =
+  | { readonly ok: false; readonly error: AppRefusal }
   | { readonly ok: false; readonly local: LocalFault };
+
+export type RequestOutcome<N extends AppOpName> =
+  { readonly ok: true; readonly body: AppOpReply<N>; readonly repeat: boolean } | RequestFailure;
 
 /**
  * A request's outcome as the channel has it: on a version 2 session the hub's error may be one of
- * version 2's (`AppErrorV2`). `request` gives its callers version 1's (`version1Error`).
+ * version 2's (`AppErrorV2`). `request` gives its callers the refusals the shared screens know.
  */
 export type AnyOutcome =
   | { readonly ok: true; readonly body: unknown; readonly repeat: boolean }
@@ -252,9 +257,9 @@ export class Channel implements Requester {
   async request<N extends AppOpName>(op: N, body: AppOpBody<N>): Promise<RequestOutcome<N>> {
     const outcome = await this.requestAny(op, body);
     // The reply was checked against `op`'s reply schema before it resolves (`reply` below); an
-    // error only version 2 names reaches a caller of version 1's types as `protoUnsupported`.
+    // error the shared screens do not know becomes `protoUnsupported`.
     const typed: AnyOutcome =
-      !outcome.ok && "error" in outcome
+      !outcome.ok && "error" in outcome && outcome.error.code !== "busy"
         ? { ok: false, error: version1Error(outcome.error) }
         : outcome;
     return typed as RequestOutcome<N>;

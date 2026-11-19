@@ -7,7 +7,13 @@
  * to `newEvent`, never to the store.
  */
 import { describe, expect, test } from "bun:test";
-import { APP_OPS, APP_OPS_V2, type AppEventV2, type AppOpName } from "@hsn/protocol/app";
+import {
+  APP_OPS,
+  APP_OPS_V2,
+  BUSY_BECAUSE_V2,
+  type AppEventV2,
+  type AppOpName,
+} from "@hsn/protocol/app";
 import { Channel, type ChannelStatus } from "../src/hub/channel";
 import { linkClient, PROTO_RANGE } from "../src/hub/handshake";
 import { memoryRecordStore } from "../src/platform/client-key";
@@ -120,6 +126,18 @@ describe("the channel at version 2", () => {
     expect(s.newEvents.map((e) => e.ev)).toEqual(["deviceUpdate"]);
     expect(s.events).toEqual(["backupKeyChanged"]);
     expect(s.statuses.at(-1)?.kind).toBe("open");
+  });
+
+  test("every version 2 busy reason reaches the shared screens unchanged", async () => {
+    const s = await sessionAt([2, 2]);
+    for (const because of BUSY_BECAUSE_V2) {
+      const refusal = { code: "busy", detail: { because } } as const;
+      s.hub.handleV2("device.remove", () => ({ ok: false, error: refusal }));
+      expect(await s.channel.request("device.remove", { device: 3 })).toEqual({
+        ok: false,
+        error: refusal,
+      });
+    }
   });
 
   test("an event that is not version 2's, or a frame with a field too many, closes the session", async () => {
