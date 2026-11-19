@@ -1,10 +1,22 @@
 /** Device removal through the app and control channel, using the real hub modules. */
 import { expect, test } from "bun:test";
+import { ok } from "neverthrow";
 import { type DurableSnapshot, EMPTY_M3M4_SNAPSHOT } from "../../../src/core/model/events.ts";
 import { DeviceState, DeviceUpdateState } from "../../../src/core/model/rows.ts";
+import { historyPage } from "../../../src/shell/history-page.ts";
 import { imageRow, Runner } from "../firmware/support.ts";
-import { ANNA_PHONE, FRONT } from "../people/support/hub.ts";
-import { Disk, errorOf, PhoneHub, replyTo } from "./support/phone-hub.ts";
+import {
+  ANNA,
+  ANNA_LAPTOP,
+  ANNA_PHONE,
+  BEN,
+  BEN_LAPTOP,
+  FRONT,
+  permission,
+  role,
+} from "../people/support/hub.ts";
+import { rxRecord, seqOf } from "../storage/fixtures.ts";
+import { Disk, errorOf, eventsOn, PhoneHub, replyTo } from "./support/phone-hub.ts";
 
 class DiskWithFirmware extends Disk {
   /** Starts the hub with an image the owner can roll out. */
@@ -51,4 +63,54 @@ test("a sensor with a running entry countdown still refuses removal", () => {
     code: "busy",
     detail: { because: "countdown" },
   });
+});
+
+test("removal preserves a sensor's history for the viewer and keeps it hidden from others", () => {
+  const disk = new Disk().withSettings(1, 1);
+  disk.people.userManagement = true;
+  disk.people.roles.set(ANNA, role(ANNA, true, false));
+  disk.people.roles.set(BEN, role(BEN, false, false));
+  disk.people.permissions.set(`${ANNA}:${FRONT}`, permission(ANNA, FRONT, false, true));
+  const hub = new PhoneHub(disk).boot();
+  const recorded = rxRecord(seqOf(1, 1), FRONT, hub.wall(), "event");
+  const source = { rows: () => ok([recorded]), staged: () => [] };
+  const anna = hub.connect(ANNA_LAPTOP);
+  const ben = hub.connect(BEN_LAPTOP);
+
+  /** Runs the app request and applies its permission filter to the shell's history page. */
+  const historyFor = (conn: typeof anna, client: typeof ANNA_LAPTOP) => {
+    const { effects } = hub.request(conn, client, {
+      op: "history.query",
+      body: { limit: 10 },
+    });
+    const read = effects.find((effect) => effect.kind === "historyRead") ?? expect.unreachable();
+    return historyPage(source, read.query, read.allowed)._unsafeUnwrap().rows;
+  };
+
+  expect(historyFor(anna, ANNA_LAPTOP)).toHaveLength(1);
+  expect(historyFor(ben, BEN_LAPTOP)).toEqual([]);
+  hub.command({ kind: "deviceRemove", name: "front" });
+  expect(hub.device(FRONT)?.state).toBe(DeviceState.Removed);
+  expect(historyFor(ben, BEN_LAPTOP)).toEqual([]);
+  expect(historyFor(anna, ANNA_LAPTOP)).toHaveLength(1);
+});
+
+test.each([1, 2] as const)("version %d announces removal without a forget event", (proto) => {
+  const hub = new PhoneHub().boot();
+  const conn = hub.connect(ANNA_PHONE, proto);
+  const subscribed = hub.request(conn, ANNA_PHONE, {
+    op: "subscribe",
+    body: { topics: ["devices"] },
+  });
+  expect(replyTo(subscribed.effects, conn).ok).toBe(true);
+
+  const removed = hub.command({ kind: "deviceRemove", name: "front" });
+  expect(hub.device(FRONT)?.state).toBe(DeviceState.Removed);
+  expect(
+    eventsOn(removed, conn)
+      .filter((event) => event.ev === "device" || event.ev === "forget")
+      .map((event) =>
+        event.ev === "device" ? [event.ev, event.body.what, event.body.device.id] : [event.ev],
+      ),
+  ).toEqual([["device", "removed", FRONT]]);
 });

@@ -87,16 +87,16 @@ export function deviceObject(
   };
 }
 
-/** The devices the actor may see, excluding the hub and devices removed for good. */
+/** The devices the actor may see, by number, the hub's own row left out. */
 export function visibleDevices(view: HubState, actor: Actor): readonly DeviceRow[] {
   return registeredDevices(view)
-    .filter(
-      (row) =>
-        row.state !== DeviceState.Removed &&
-        roleName(row.role) !== undefined &&
-        deviceVisible(view, actor, row),
-    )
+    .filter((row) => roleName(row.role) !== undefined && deviceVisible(view, actor, row))
     .toSorted((a, b) => a.id - b.id);
+}
+
+/** The visible devices to list in the app, excluding those removed for good. */
+function currentDevices(view: HubState, actor: Actor): readonly DeviceRow[] {
+  return visibleDevices(view, actor).filter((row) => row.state !== DeviceState.Removed);
 }
 
 /** `site.show` and the snapshot's site: no channel (null) until the first survey. */
@@ -290,7 +290,7 @@ export function snapshotObject(
 ): SnapshotObject | undefined {
   const hub = hubInfoObject(view, deps, now);
   if (hub === undefined) return undefined;
-  const devices = visibleDevices(view, actor);
+  const devices = currentDevices(view, actor);
   // The console's (and the hub computer's) are everyone's ‡ (`HubRules.notify.consoleGetsAll`).
   const person = actor.kind === "person" ? actor.person : null;
   const since = now.wall - deps.rules.notify.unreadWindowMs;
@@ -331,7 +331,7 @@ export function deviceList(
   actor: Actor,
 ): AppOpReply<"device.list"> {
   return {
-    devices: visibleDevices(view, actor).flatMap((row) => {
+    devices: currentDevices(view, actor).flatMap((row) => {
       const object = deviceObject(view, deps, row);
       return object === undefined ? [] : [object];
     }),

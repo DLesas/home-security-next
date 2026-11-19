@@ -6,8 +6,9 @@
  * open beside the version 1 ones (a session the code before treated as it treats any). Here both
  * are run again and compared frame by frame.
  *
- * `HSN_RECORD_V1_FRAMES=1 bun test hub/test/unit/app/v1-frames.test.ts` updates the fixture for
- * deliberate version 1 behavior changes. Review the changed frames before keeping the fixture.
+ * The fixture was first recorded before version 2 existed. Use
+ * `HSN_RECORD_V1_FRAMES=1 bun test hub/test/unit/app/v1-frames.test.ts` only for a deliberate
+ * change to version 1's behaviour, and review every changed frame.
  */
 import { describe, expect, test } from "bun:test";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";

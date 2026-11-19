@@ -841,22 +841,6 @@
       "frames": [
         {
           "to": "anna",
-          "json": "{\"t\":\"evt\",\"rev\":13,\"ev\":\"forget\",\"body\":{\"device\":12}}"
-        },
-        {
-          "to": "phone",
-          "json": "{\"t\":\"evt\",\"rev\":13,\"ev\":\"forget\",\"body\":{\"device\":12}}"
-        },
-        {
-          "to": "ben",
-          "json": "{\"t\":\"evt\",\"rev\":13,\"ev\":\"forget\",\"body\":{\"device\":12}}"
-        },
-        {
-          "to": "console",
-          "json": "{\"t\":\"evt\",\"rev\":13,\"ev\":\"forget\",\"body\":{\"device\":12}}"
-        },
-        {
-          "to": "anna",
           "json": "{\"t\":\"evt\",\"rev\":13,\"ev\":\"device\",\"body\":{\"what\":\"removed\",\"device\":{\"id\":12,\"name\":\"#12-garage\",\"role\":\"sensor\",\"state\":\"removed\",\"firmware\":\"1.2.3\",\"batteryPercent\":null,\"signal\":null,\"temperatureC\":null,\"lastSeenMs\":null,\"heardBy\":null,\"health\":{\"silent\":false,\"batteryLow\":false,\"tamperOpen\":false,\"poorLink\":false}}}}"
         },
         {
@@ -1848,22 +1832,6 @@
     {
       "step": "console device.remove",
       "frames": [
-        {
-          "to": "anna",
-          "json": "{\"t\":\"evt\",\"rev\":13,\"ev\":\"forget\",\"body\":{\"device\":12}}"
-        },
-        {
-          "to": "phone",
-          "json": "{\"t\":\"evt\",\"rev\":13,\"ev\":\"forget\",\"body\":{\"device\":12}}"
-        },
-        {
-          "to": "ben",
-          "json": "{\"t\":\"evt\",\"rev\":13,\"ev\":\"forget\",\"body\":{\"device\":12}}"
-        },
-        {
-          "to": "console",
-          "json": "{\"t\":\"evt\",\"rev\":13,\"ev\":\"forget\",\"body\":{\"device\":12}}"
-        },
         {
           "to": "anna",
           "json": "{\"t\":\"evt\",\"rev\":13,\"ev\":\"device\",\"body\":{\"what\":\"removed\",\"device\":{\"id\":12,\"name\":\"#12-garage\",\"role\":\"sensor\",\"state\":\"removed\",\"firmware\":\"1.2.3\",\"batteryPercent\":null,\"signal\":null,\"temperatureC\":null,\"lastSeenMs\":null,\"heardBy\":null,\"health\":{\"silent\":false,\"batteryLow\":false,\"tamperOpen\":false,\"poorLink\":false}}}}"
