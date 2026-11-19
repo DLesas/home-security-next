@@ -64,13 +64,17 @@ constexpr std::uint8_t kSettingsRecordVersion = 2;  // 2: the site channel in pl
 
 /** Body sizes of the packets the siren sends (protocol section 6). */
 constexpr std::size_t kSirenReportBodySize = 10;
-constexpr std::size_t kStartedBodySize = 8;
+/** Started with the image fields every image now sends (m3-updates-design.md section 5). */
+constexpr std::size_t kStartedBodySize = 12;
+constexpr std::size_t kUpdateStatusBodySize = 14;
 /** One log entry's fixed part: age 4, level 1, code 2, text length 1 (protocol section 6). */
 constexpr std::size_t kLogEntryFixedSize = 8;
 
 /** Whole radio packets: clear part, type byte, body, tag (protocol section 3). */
 constexpr std::size_t kReportPacketSize = protocol::kPacketOverhead + 1 + kSirenReportBodySize;
 constexpr std::size_t kStartedPacketSize = protocol::kPacketOverhead + 1 + kStartedBodySize;
+constexpr std::size_t kUpdateStatusPacketSize =
+    protocol::kPacketOverhead + 1 + kUpdateStatusBodySize;
 /** The longest log entries packet with one entry, which bounds a LoRa log's airtime check. */
 constexpr std::size_t kLoraLogPacketBound =
     protocol::kPacketOverhead + 1 + kLogEntryFixedSize + protocol::kMaxLogTextSize;

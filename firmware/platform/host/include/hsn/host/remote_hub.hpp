@@ -24,6 +24,18 @@
 
 namespace hsn::host {
 
+/** An image the real hub stored (`firmware.upload`), as RemoteHub::add_own_build gives it. */
+struct RemoteImage {
+  /** Its number on the hub (`firmware_images.id`). */
+  std::int64_t id = 0;
+  protocol::ImageId image{};
+  protocol::FirmwareVersion version{};
+  /** The file a device pulls: the header (made with the hub's seeded key) and the image. */
+  Bytes file;
+  /** Set once the hub served a header on a device's link: whether it was exactly this one. */
+  std::optional<bool> header_matches;
+};
+
 /**
  * The real hub as one more actor in a Simulation (hub-design.md section 11, "Lockstep: the bench's
  * system tests against the real hub"): a hub process in lockstep mode on a fresh data folder,
@@ -82,6 +94,9 @@ public:
 
   /** `hsn disarm --all`, now or once every board is paired. */
   void disarm();
+
+  /** A board's network link (Wi-Fi) takes `latency` each way from now: a slow or distant one. */
+  void set_network_latency(const std::string& name, device::Duration latency);
 
   /** Ends a link's connection from the hub's side, as TestHub::drop_link does. */
   void drop_link(const std::string& name, device::LinkKind kind,
@@ -162,8 +177,83 @@ public:
   /** True while a sensor's countdown runs, from the hub's decisions. */
   bool countdown_running(const std::string& name) const;
 
+  // ---- Firmware updates (m3-updates-design.md sections 4, 5 and 8) ----
+
+  /**
+   * `hsn firmware add <file> --own --version <v>`: the raw image sent in `fileChunk` lines, then
+   * `firmware.upload` with the confirmation the console asks for (D35, D84). The hub checks and
+   * stages it, makes and signs its header; the returned file is the one a device pulls, made here
+   * with the hub's own seeded signing key (RFC 6979, so the hub's header byte for byte), and
+   * `header_matches` says whether the hub served exactly that header to a device on its link.
+   */
+  const RemoteImage& add_own_build(const Bytes& image, const protocol::FirmwareVersion& version);
+
+  /**
+   * A version 2 operation `hsn` carries (`hsn op`), answered at once: its reply's body, or a
+   * SimulationError with the reply when the hub refuses it. `operation_reply` returns the whole
+   * reply, refused or not.
+   */
+  json::Value operation(const std::string& name, json::Value body);
+  json::Value operation_reply(const std::string& name, json::Value body);
+
+  /**
+   * `rollout.start`: the image, the devices (every device of its roles when empty), the pilots
+   * (the hub's choice when empty). Returns the rollout's number.
+   */
+  std::int64_t rollout_start(std::int64_t image, const std::vector<std::string>& devices = {},
+                             const std::vector<std::string>& pilots = {});
+  /** `rollout.status`: the rollout (null when none) and every planned device. */
+  json::Value rollout_status();
+  /** `rollout.pause`, `rollout.resume` (a device, forced for a gateway held as always busy). */
+  json::Value rollout_pause();
+  json::Value rollout_resume(const std::string& device = "", bool force = false);
+  json::Value rollout_cancel();
+  /** One planned device's row of `rollout.status` (its state, held, method, bytes…). */
+  json::Value update_of(const std::string& name);
+  /** Its state's name in `rollout.status` ("fetching", "confirmed"…), or "" when not planned. */
+  std::string update_state(const std::string& name);
+
+  /**
+   * `firmware.bluetooth`: the session the hub hands a phone, for ScriptPhone; the file is the one
+   * add_own_build made for the image the hub names.
+   */
+  BluetoothSession firmware_bluetooth(const std::string& name);
+
+  /** Every transfer frame the hub sent a device on its link: Data and Gone, in order. */
+  const std::vector<HubTransfer>& transfers() const {
+    return transfers_;
+  }
+
+  // ---- Backups and the key change after a restore (m3-updates-design.md section 7) ----
+
+  /**
+   * `backup.settings {folder}` (once), then `backup.now`: the backup written at once into
+   * `folder`, under the backup key the lockstep hub made from the seed. Returns its path.
+   */
+  std::string backup_now(const std::string& folder);
+
+  /**
+   * `benchRestore {file, key}` with the backup key made from the seed, then the restart that puts
+   * the restored database in place: a clean stop and a new process (with a seed of its own: a
+   * restored database counts its boots again from 1). Throws when the hub refuses it.
+   */
+  void restore(const std::string& file);
+  /** The hub's answer to `benchRestore` with a given key, refused or not; nothing restarts. */
+  json::Value bench_restore_reply(const std::string& file, const std::string& key);
+
+  /** The backup key the lockstep hub made from its seed, as base64url (never printed). */
+  std::string seeded_backup_key() const;
+
   /** The clean stop (`stop`): the hub commits and exits; its links drop. */
   void stop();
+
+  /**
+   * Each clean stop's figures of that run (the lockstep hub's `lockstep-stats.json`): commits,
+   * `commitsByReason`, `walFrames`, `walBytes`, `longestTurnUs`, `longestTransferUs`.
+   */
+  const std::vector<json::Value>& run_stats() const {
+    return run_stats_;
+  }
 
   /** `kill -9`: nothing more is committed; its links drop. */
   void kill();
@@ -285,8 +375,9 @@ private:
     /** Plugged into the hub's USB now; on mains of its own, unplugged. */
     bool usb = false;
     bool own_power = false;
-    /** Its network link's wire is attached to this hub. */
+    /** Its network link's wire is attached to this hub, with this latency each way. */
     bool network = false;
+    device::Duration network_latency{};
     bool identity_seen = false;
     bool paired = false;
     /** From the Provision the hub sent it. */
@@ -303,6 +394,8 @@ private:
     protocol::RandomValue hub_random{};
     /** Its latest packets' counters, newest last: what the hub's packets to it are bound to. */
     std::deque<std::uint32_t> recent;
+    /** The new key a Key change gave it (D141), until a packet of its own comes under it. */
+    std::unique_ptr<psa::PsaPacketCipher> next_cipher;
   };
 
   /** A transmit request seen leaving for a gateway. */
@@ -368,6 +461,14 @@ private:
   void tap_to_device(std::size_t index, const Bytes& packet);
   device::Instant true_of_wall(std::int64_t wall_ms) const;
   json::Value op(const std::string& name, json::Value body);
+  void on_transfer_frame(std::size_t index, const Bytes& frame);
+  void learn_key_change(Board& board, const protocol::OpenedPacket& opened);
+  void key_seen_from(Board& board, protocol::ByteView packet);
+  void learn_from_hub_packet(Board& board, protocol::ByteView packet);
+  void firmware_actions(const json::Value& row, bool received);
+  std::int64_t current_rollout();
+  Bytes seed() const;
+  Bytes seed_of_first_run() const;
   /** The wall clock as last set: it reads `wall_base_` at `wall_from_` and runs with true time. */
   std::int64_t wall_base_ = 0;
   device::Instant wall_from_;
@@ -404,6 +505,15 @@ private:
   std::map<std::string, std::size_t> duplicates_;
   std::size_t rejects_ = 0;
   device::Duration send_delay_;
+  /** Images stored, the upload jobs numbered for them, the latest rollout started. */
+  std::deque<RemoteImage> images_;
+  std::int64_t next_upload_ = 1;
+  std::int64_t rollout_ = 0;
+  std::vector<HubTransfer> transfers_;
+  /** The backup folder set, and restores done (each restart after one takes a new seed). */
+  std::string backup_folder_;
+  std::uint32_t restores_ = 0;
+  std::vector<json::Value> run_stats_;
   std::size_t steps_ = 0;
   std::chrono::steady_clock::duration hub_time_{};
 };

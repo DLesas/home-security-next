@@ -2,6 +2,7 @@
 
 #include <array>
 #include <cstdint>
+#include <optional>
 
 #include "hsn/device/events.hpp"
 #include "hsn/device/hal/firmware_slots.hpp"
@@ -294,7 +295,7 @@ private:
   bool record_verified(const protocol::ImageId& id) const;
   std::uint32_t record_bytes() const;
   HalError write_record(UpdateRecordStage stage, std::uint32_t bytes, Instant now);
-  void erase_record(Instant now);
+  bool erase_record(Instant now);
   void select_image(const protocol::ImageId& id);
   void forget_progress();
   void refuse(std::uint8_t reason, bool keep_part, Instant now);
@@ -348,6 +349,8 @@ private:
   LogBuffer& log_;
   BootImage running_;
   Record<UpdateRecord> record_;
+  /** A discard whose erase failed, hidden until the hub retries or a new record replaces it. */
+  std::optional<protocol::ImageId> discard_pending_;
 
   Phase phase_ = Phase::idle;
   bool restart_ = false;

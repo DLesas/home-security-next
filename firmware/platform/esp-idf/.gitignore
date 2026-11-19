@@ -1,0 +1,6 @@
+# ESP-IDF's output and generated files (the repository's .gitignore also ignores each by name).
+# dependencies.lock is kept: it pins the two managed components' hashes.
+build/
+managed_components/
+sdkconfig
+sdkconfig.old

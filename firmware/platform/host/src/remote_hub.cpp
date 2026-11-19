@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cstdlib>
+#include <fstream>
 #include <iomanip>
 #include <sstream>
 #include <utility>
@@ -54,7 +55,7 @@ const char* path_text(HubPath path) {
 }
 
 std::optional<HubAction> action_named(const std::string& name) {
-  for (int i = 0; i <= static_cast<int>(HubAction::move_done); ++i) {
+  for (int i = 0; i <= static_cast<int>(HubAction::key_changed); ++i) {
     const auto action = static_cast<HubAction>(i);
     if (name == hub_action_name(action)) {
       return action;
@@ -74,15 +75,6 @@ std::uint8_t as_u8(std::int64_t value) {
 
 std::uint32_t as_u32(std::int64_t value) {
   return static_cast<std::uint32_t>(value & 0xFFFFFFFF);
-}
-
-Bytes seed_bytes(std::uint64_t seed) {
-  Bytes out(32);
-  for (std::size_t i = 0; i < out.size(); ++i) {
-    out[i] =
-        static_cast<std::uint8_t>((i % 2 == 0 ? 0x5E : 0xED) ^ ((seed >> (8 * (i % 8))) & 0xFF));
-  }
-  return out;
 }
 
 /** True when a data-rate mask has the bit of `rate` (unsigned throughout: no promotion to int). */
@@ -343,7 +335,14 @@ void RemoteHub::add_sensor(SimDevice& device, const SensorConfig& config) {
   if (!mask_allows(options_.allowed_data_rate_mask, config.send_data_rate)) {
     throw SimulationError(device.name() + "'s sending rate is not the site's");
   }
-  add_board(device, protocol::Role::sensor).sensor = config;
+  Board& board = add_board(device, protocol::Role::sensor);
+  board.sensor = config;
+  if (config.wifi_in_range) {
+    // Its Wi-Fi, which it uses only for updates (protocol section 10), reaches this hub.
+    device.wire(device::LinkKind::network).attach(*this, options_.link_latency);
+    board.network = true;
+    board.network_latency = options_.link_latency;
+  }
 }
 
 void RemoteHub::add_siren(SimDevice& device, const SirenConfig& config) {
@@ -363,6 +362,7 @@ void RemoteHub::add_siren(SimDevice& device, const SirenConfig& config) {
   if (config.wifi) {
     device.wire(device::LinkKind::network).attach(*this, options_.link_latency);
     board.network = true;
+    board.network_latency = options_.link_latency;
   }
 }
 
@@ -378,6 +378,7 @@ void RemoteHub::add_gateway(SimDevice& device, const GatewayConfig& config) {
   if (config.network) {
     device.wire(device::LinkKind::network).attach(*this, options_.link_latency);
     board.network = true;
+    board.network_latency = options_.link_latency;
   }
 }
 
@@ -680,7 +681,7 @@ void RemoteHub::start() {
   }
   const device::Instant now = sim_.now();
   const auto began = std::chrono::steady_clock::now();
-  ToHub start = ToHub::start(micros(now), wall_at(now), true, seed_bytes(options_.seed));
+  ToHub start = ToHub::start(micros(now), wall_at(now), true, seed());
   start.zone = options_.time_zone;
   const auto answers = process_->send(start);
   hub_time_ += std::chrono::steady_clock::now() - began;
@@ -690,10 +691,15 @@ void RemoteHub::start() {
   }
   up_ = true;
   take(answers[0]);
-  // Every cable still plugged in comes up again for the new hub.
-  for (const Board& board : boards_) {
+  // Every cable still plugged in comes up again for the new hub; network links can connect to it
+  // again, which each device does on its own back-off.
+  for (Board& board : boards_) {
     if (board.usb) {
       queue(ToHub::link_up(link_name(board, device::LinkKind::usb), "usb", micros(now)));
+    }
+    LinkWire& wire = board.device->wire(device::LinkKind::network);
+    if (board.network && !wire.attached()) {
+      wire.attach(*this, board.network_latency);
     }
   }
 }
@@ -711,6 +717,13 @@ void RemoteHub::stop() {
   }
   take(answers[0]);
   hub_down();
+  // The run's figures, which the lockstep hub writes at its clean stop (shell/lockstep/files.ts).
+  std::ifstream figures(folder_.data() + "/lockstep-stats.json");
+  if (figures) {
+    std::stringstream text;
+    text << figures.rdbuf();
+    run_stats_.push_back(json::parse(text.str()));
+  }
 }
 
 void RemoteHub::kill() {
@@ -721,7 +734,8 @@ void RemoteHub::kill() {
 void RemoteHub::hub_down() {
   up_ = false;
   inputs_.clear();
-  // Every connection to the hub closes with it; the boards notice at once.
+  // Every connection to the hub closes with it; the boards notice at once. While no hub runs a
+  // WebSocket cannot connect: the wire has no far end until the next start().
   for (Board& board : boards_) {
     board.session_open = false;
     board.hello_seen = false;
@@ -729,6 +743,22 @@ void RemoteHub::hub_down() {
     if (board.network && wire.connected()) {
       wire.drop();
     }
+    if (board.network && wire.attached()) {
+      wire.detach();
+    }
+  }
+}
+
+void RemoteHub::set_network_latency(const std::string& name, device::Duration latency) {
+  Board& board = boards_.at(board_named(name));
+  if (!board.network) {
+    throw SimulationError(name + " has no network link to this hub");
+  }
+  board.network_latency = latency;
+  LinkWire& wire = board.device->wire(device::LinkKind::network);
+  if (wire.attached()) {
+    wire.detach();
+    wire.attach(*this, latency);
   }
 }
 
@@ -813,7 +843,11 @@ void RemoteHub::on_frame_out(const lockstep::FrameOut& frame) {
   if (index == kNone) {
     return;
   }
-  tap_to_device(index, frame.bytes);
+  if (!frame.bytes.empty() && frame.bytes[0] == protocol::kTransferMarker) {
+    on_transfer_frame(index, frame.bytes);
+  } else {
+    tap_to_device(index, frame.bytes);
+  }
   link_frames_.emplace_back(index, frame.bytes);
   // It leaves the hub after the hub's delay, then the wire adds the link's latency.
   const Bytes bytes = frame.bytes;
@@ -872,10 +906,19 @@ std::optional<protocol::OpenedPacket> RemoteHub::open(const Board& board, protoc
   const auto opened =
       protocol::open_packet(*board.cipher, packet, direction, binding, limit,
                             protocol::MutableByteView(plaintext.data(), plaintext.size()));
-  if (!opened.ok()) {
-    return std::nullopt;
+  if (opened.ok()) {
+    return opened.value();
   }
-  return opened.value();
+  // After a Key change (D141), its packets may be under the new key before this side has seen one.
+  if (board.next_cipher != nullptr) {
+    const auto again =
+        protocol::open_packet(*board.next_cipher, packet, direction, binding, limit,
+                              protocol::MutableByteView(plaintext.data(), plaintext.size()));
+    if (again.ok()) {
+      return again.value();
+    }
+  }
+  return std::nullopt;
 }
 
 void RemoteHub::remember_counter(Board& board, std::uint32_t counter) {
@@ -897,6 +940,7 @@ void RemoteHub::tap_from_device(std::size_t index, const Bytes& packet) {
     return;
   }
   remember_counter(board, header.value().counter);
+  key_seen_from(board, view);
   if (board.role != protocol::Role::gateway) {
     return;
   }
@@ -933,6 +977,7 @@ void RemoteHub::tap_from_device(std::size_t index, const Bytes& packet) {
   const std::size_t from = board_of_address(inner.value().address);
   if (from != kNone) {
     remember_counter(boards_[from], inner.value().counter);
+    key_seen_from(boards_[from], forwarded.packet.bytes);
   }
 }
 
@@ -949,7 +994,19 @@ void RemoteHub::tap_to_device(std::size_t index, const Bytes& packet) {
     }
     return;
   }
-  if (board.role != protocol::Role::gateway || !board.hello_seen) {
+  if (board.role != protocol::Role::gateway) {
+    // A Key change on its own link (a siren's Wi-Fi, a sensor's while it updates).
+    const auto header =
+        protocol::read_header(view, protocol::Direction::from_hub, protocol::PacketLimit::link);
+    if (header.ok()) {
+      if (const auto type = message_type(view, header.value());
+          type.has_value() && *type == protocol::message_type::key_change) {
+        learn_from_hub_packet(board, view);
+      }
+    }
+    return;
+  }
+  if (!board.hello_seen) {
     return;
   }
   Bytes plaintext;
@@ -957,6 +1014,11 @@ void RemoteHub::tap_to_device(std::size_t index, const Bytes& packet) {
     const auto welcome = open(board, view, protocol::Direction::from_hub,
                               protocol::Binding::hello(board.gateway_random),
                               protocol::PacketLimit::link, plaintext);
+    if (welcome.has_value() && welcome->type == protocol::message_type::key_change) {
+      // In place of the welcome, after a restore (D141): it says hello again under the new key.
+      learn_key_change(board, *welcome);
+      return;
+    }
     protocol::Welcome body;
     if (welcome.has_value() && welcome->type == protocol::message_type::welcome &&
         protocol::decode_body(welcome->body, body) == protocol::Error::none) {
@@ -981,6 +1043,13 @@ void RemoteHub::tap_to_device(std::size_t index, const Bytes& packet) {
     handovers_[{inner.value().address, inner.value().counter}] =
         Handover{sim_.now() + send_delay_,
                  Bytes(request.packet.bytes.begin(), request.packet.bytes.end()), index};
+    const std::size_t to = board_of_address(inner.value().address);
+    if (to != kNone) {
+      const auto type = message_type(request.packet.bytes, inner.value());
+      if (type.has_value() && *type == protocol::message_type::key_change) {
+        learn_from_hub_packet(boards_[to], request.packet.bytes);
+      }
+    }
   }
 }
 
@@ -1105,7 +1174,9 @@ void RemoteHub::on_rx(const Value& row) {
   packet.from = name_of_id(row.at("deviceId"));
   packet.path = path_of(row.at("path").as_int());
   packet.via = name_of_id(row.at("gatewayId"));
-  packet.verdict = HubVerdict::accepted;
+  const Value* old_key = row.find("oldKey");
+  packet.verdict =
+      old_key != nullptr && old_key->as_bool() ? HubVerdict::old_key : HubVerdict::accepted;
   packet.counter = as_u32(row.at("counter").as_int());
   packet.type = as_u8(row.at("type").as_int());
   packet.body = json::from_hex(row.at("body").as_string());
@@ -1113,6 +1184,7 @@ void RemoteHub::on_rx(const Value& row) {
   packet.snr_quarter_db = static_cast<std::int8_t>(int_or(row, "snrQ"));
   packet.data_rate = as_u8(int_or(row, "rate"));
   received_.push_back(std::move(packet));
+  firmware_actions(row, true);
   // The gateway's forwarded packet that carried it is found by this row (section 6, D110).
   const Value& carrier = row.at("gwCounter");
   if (!carrier.is_null()) {
@@ -1182,6 +1254,7 @@ void RemoteHub::on_tx(const Value& row, bool routine) {
     reported.type = protocol::message_type::transmit_result;
     received_.push_back(std::move(reported));
   }
+  firmware_actions(row, false);
   bench_actions(row, routine);
 }
 

@@ -29,6 +29,7 @@
 #include "hsn/protocol/units.hpp"
 #include "hsn/psa/hub_identity.hpp"
 #include "hsn/psa/psa_packet_cipher.hpp"
+#include "hsn/psa/psa_update_crypto.hpp"
 #include "support.hpp"
 
 namespace hsn::test {
@@ -46,19 +47,13 @@ const std::set<std::pair<std::string, std::string>> kSkipped = {
     {"counters.json", "replayWindow"},
     // The private key the signing keys derive from, kept for later firmware-signature tests.
     {"pairing-data.json", "signingPrivateKey"},
-    // The hub's side of the image signature (m3-updates-design.md section 3): its key, its
-    // signing parameters and RFC 6979's sample. Devices only verify.
+    // The hub's side of the image signature (m3-updates-design.md section 3): its key and its
+    // signing parameters. Devices only verify, which the harness checks below with hsn_psa's
+    // UpdateCrypto (the valid headers, RFC 6979's sample, and the checks' signature verdicts).
     {"image-header.json", "signingPrivateKey"},
     {"image-header.json", "signing"},
-    {"image-header.json", "rfc6979Sample"},
-    // The device's checks of a header in their order (section 3), with the P-256 verification:
-    // UpdateService's (U1) on UpdateCrypto's PSA implementation (U3), not the codec's.
-    {"image-header.json", "checks"},
-    // The Bluetooth session (section 5): the key's HKDF and the Open tag's HMAC are UpdateCrypto's
-    // on PSA (U3; the harness checks only the HKDF info's bytes here); the service's UUIDs and the
-    // advertised name are the ESP-IDF platform's Bluetooth link (F1).
-    {"ble-update-session.json", "sessionKeys"},
-    {"ble-update-session.json", "openTags"},
+    // The Bluetooth session (section 5): the service's UUIDs and the advertised name are the
+    // ESP-IDF platform's Bluetooth link (F1). The session key and the Open tag are checked below.
     {"ble-update-session.json", "serviceUuid"},
     {"ble-update-session.json", "rxUuid"},
     {"ble-update-session.json", "txUuid"},
@@ -75,6 +70,14 @@ const std::set<std::string> kNotVectors = {"README.md"};
 // handled.
 const std::set<std::string> kRelayVectors = {"relay-xn.json", "relay-frames.json",
                                              "relay-push.json"};
+
+// ESP-IDF Bluetooth pairing (owner: the board's Bluetooth engineer). These cover the board's
+// advertisements, QR/script, and provisioning session, outside the device codec. The board is
+// tested against these vectors separately. Each file is named so a new one still needs an owner.
+const std::set<std::string> kPairingVectors = {
+    "pairing-advert.json", "pairing-board-qr.json",          "pairing-board-script.json",
+    "pairing-code.json",   "pairing-security2-counter.json", "pairing-security2.json",
+    "pairing-srp.json"};
 
 // The app channel's vectors share the folder (m2-design.md, the vectors' tooling): this harness
 // answers for the device protocol's alone, so a file named with this prefix, and this folder, are
@@ -117,6 +120,19 @@ Bytes hex_of(const json& item, const char* key) {
 
 std::string name_of(const json& item) {
   return item.contains("name") ? item.at("name").get<std::string>() : item.dump();
+}
+
+/** SHA-256 as a device takes it, in hsn_psa's three steps (the bytes added in two pieces). */
+Bytes device_digest(psa::PsaUpdateCrypto& crypto, const Bytes& bytes) {
+  const std::size_t half = bytes.size() / 2;
+  REQUIRE(crypto.sha256_start() == device::HalError::none);
+  REQUIRE(crypto.sha256_add(protocol::ByteView(bytes.data(), half)) == device::HalError::none);
+  REQUIRE(crypto.sha256_add(protocol::ByteView(bytes.data() + half, bytes.size() - half)) ==
+          device::HalError::none);
+  Bytes digest(device::kSha256Size);
+  REQUIRE(crypto.sha256_finish(protocol::MutableByteView(digest.data(), digest.size())) ==
+          device::HalError::none);
+  return digest;
 }
 
 void set_key(psa::PsaPacketCipher& cipher, const json& item) {
@@ -352,12 +368,56 @@ void check_image_header(VectorFile& file) {
                         header.begin() + protocol::kImageHeaderSignedSize);
     CHECK(to_hex(view(signed_bytes)) == item.at("signedBytes").get<std::string>());
     CHECK(sha256_hex(signed_bytes) == item.at("signedSha256").get<std::string>());
+    // The device's own hash of those bytes, and the signature under the hub's key.
+    psa::PsaUpdateCrypto crypto;
+    const Bytes digest = device_digest(crypto, signed_bytes);
+    CHECK(to_hex(view(digest)) == item.at("signedSha256").get<std::string>());
+    CHECK(crypto.verify_p256(view(key), view(digest),
+                             view(from_hex(item.at("signature").get<std::string>()))));
   }
+  // RFC 6979's sample (A.2.5, SHA-256), whose s is above n / 2: a device verifies it as it is.
+  const json& sample = file.section("rfc6979Sample");
+  const Bytes message = hex_of(sample, "message");
+  Bytes signature = hex_of(sample, "r");
+  const Bytes s = hex_of(sample, "s");
+  signature.insert(signature.end(), s.begin(), s.end());
+  REQUIRE(signature.size() == 64);
+  CHECK(s[0] >= 0x80);
+  psa::PsaUpdateCrypto crypto;
+  const Bytes sample_digest = device_digest(crypto, message);
+  CHECK(crypto.verify_p256(view(key), view(sample_digest), view(signature)));
+  Bytes altered = signature;
+  altered[63] ^= 0x01;
+  CHECK_FALSE(crypto.verify_p256(view(key), view(sample_digest), view(altered)));
+  // The device's checks (section 3): their order is UpdateService's, checked against this section
+  // in tests/device/update_vectors_test.cpp (U1). Here, the signature step alone: a header that
+  // passes every check verifies under the paired key, and one refused badSignature does not.
+  std::size_t verdicts = 0;
+  for (const json& item : file.section("checks")) {
+    INFO("checks: " << name_of(item));
+    const auto reason = item.at("reason").get<std::uint8_t>();
+    if (reason != protocol::UpdateReason::none && reason != protocol::UpdateReason::bad_signature) {
+      continue;
+    }
+    const Bytes header = hex_of(item, "header");
+    REQUIRE(header.size() == protocol::kImageHeaderSize);
+    Bytes covered = label_bytes;
+    covered.insert(covered.end(), header.begin(),
+                   header.begin() + protocol::kImageHeaderSignedSize);
+    const Bytes digest = device_digest(crypto, covered);
+    const Bytes paired = from_hex(item.at("expect").at("signingKey").get<std::string>());
+    const Bytes header_signature(header.begin() + protocol::kImageHeaderSignedSize, header.end());
+    CHECK(crypto.verify_p256(view(paired), view(digest), view(header_signature)) ==
+          (reason == protocol::UpdateReason::none));
+    verdicts += 1;
+  }
+  CHECK(verdicts >= 5);
 }
 
 /**
- * The Bluetooth session (m3-updates-design.md section 5). Only the HKDF info's bytes are the
- * core's (kSessionKeyLabel, then the address); the rest is skipped above, with its owner.
+ * The Bluetooth session (m3-updates-design.md section 5): the HKDF info's bytes (the core's
+ * kSessionKeyLabel, then the address), the session key a device derives from its key with hsn_psa's
+ * UpdateCrypto, and the Open tag, the first 16 bytes of its HMAC-SHA256.
  */
 void check_ble_session(VectorFile& file) {
   for (const json& item : file.section("sessionKeys")) {
@@ -368,6 +428,36 @@ void check_ble_session(VectorFile& file) {
       info.push_back(static_cast<std::uint8_t>((address >> (8 * i)) & 0xFFu));
     }
     CHECK(to_hex(view(info)) == item.at("info").get<std::string>());
+    const Bytes key = hex_of(item, "deviceKey");
+    REQUIRE(key.size() == protocol::kKeySize);
+    protocol::DeviceKey device_key{};
+    std::copy(key.begin(), key.end(), device_key.begin());
+    psa::PsaUpdateCrypto crypto;
+    REQUIRE(crypto.set_device_key(device_key) == device::HalError::none);
+    std::array<std::uint8_t, device::kSessionKeySize> session{};
+    REQUIRE(crypto.session_key(view(hex_of(item, "nonce")), address,
+                               protocol::MutableByteView(session)) == device::HalError::none);
+    CHECK(to_hex(protocol::ByteView(session)) == item.at("sessionKey").get<std::string>());
+  }
+  for (const json& item : file.section("openTags")) {
+    INFO("openTags: " << name_of(item));
+    Bytes message(protocol::kSessionOpenLabel.begin(), protocol::kSessionOpenLabel.end());
+    const auto address = item.at("address").get<std::uint32_t>();
+    for (int i = 0; i < 4; ++i) {
+      message.push_back(static_cast<std::uint8_t>((address >> (8 * i)) & 0xFFu));
+    }
+    const Bytes random = hex_of(item, "deviceRandom");
+    const Bytes image = hex_of(item, "imageId");
+    REQUIRE(random.size() == protocol::DeviceRandom{}.size());
+    REQUIRE(image.size() == protocol::ImageId{}.size());
+    message.insert(message.end(), random.begin(), random.end());
+    message.insert(message.end(), image.begin(), image.end());
+    psa::PsaUpdateCrypto crypto;
+    std::array<std::uint8_t, device::kSha256Size> mac{};
+    REQUIRE(crypto.hmac_sha256(view(hex_of(item, "sessionKey")), view(message),
+                               protocol::MutableByteView(mac)) == device::HalError::none);
+    CHECK(to_hex(protocol::ByteView(mac.data(), protocol::SessionTag{}.size())) ==
+          item.at("tag").get<std::string>());
   }
 }
 
@@ -792,7 +882,7 @@ std::vector<std::string> unhandled_entries(const std::filesystem::path& folder) 
     const bool app_channel = (entry.is_directory() && name == kAppVectorFolder) ||
                              (entry.is_regular_file() && name.rfind(kAppVectorPrefix, 0) == 0);
     if (!app_channel && handlers().count(name) == 0 && kNotVectors.count(name) == 0 &&
-        kRelayVectors.count(name) == 0) {
+        kRelayVectors.count(name) == 0 && kPairingVectors.count(name) == 0) {
       unhandled.push_back(name);
     }
   }
@@ -828,6 +918,12 @@ TEST_CASE("the folder check leaves the app channel's vectors alone, and no devic
   std::sort(unhandled.begin(), unhandled.end());
   // The relay's files are listed by name: one not listed is caught like any other.
   CHECK(unhandled == std::vector<std::string>{"app-folder", "foo.json", "relay-other.json"});
+  std::ofstream(folder / "pairing-board-qr.json") << "{}";
+  std::ofstream(folder / "pairing-other.json") << "{}";
+  unhandled = unhandled_entries(folder);
+  std::sort(unhandled.begin(), unhandled.end());
+  CHECK(unhandled == std::vector<std::string>{"app-folder", "foo.json", "pairing-other.json",
+                                              "relay-other.json"});
   std::error_code ignored;
   std::filesystem::remove_all(folder, ignored);
 }

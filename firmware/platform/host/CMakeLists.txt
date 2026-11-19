@@ -40,6 +40,7 @@ add_library(hsn_host STATIC
   src/wire_json.cpp
   src/lockstep.cpp
   src/remote_hub.cpp
+  src/remote_hub_updates.cpp
   src/hub_sirens.cpp
   src/hub_gateways.cpp
   src/hub_updates.cpp

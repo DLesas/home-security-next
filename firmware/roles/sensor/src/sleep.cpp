@@ -2,7 +2,8 @@
 // sleep whenever it is idle, woken by the door, cover, button, external power or its timer;
 // light sleep while it sends, waits for the reply moment, listens, sounds, times a button hold
 // up to its 15 s mark, or shows the pairing window; never deeper than light sleep on external
-// power, so USB setup messages get through.
+// power, so USB setup messages get through. Never deep while an update packet waits to go over
+// LoRa, since the update service keeps it in RAM only (m3-updates-design.md section 5).
 
 #include "hsn/roles/sensor/sensor_role.hpp"
 
@@ -14,7 +15,8 @@ bool SensorRole::can_sleep_deep() const {
          !state_.timers.armed(SensorTimer::reply_moment) && state_.alert == Alert::none &&
          state_.reset == ResetPhase::none && !state_.pairing &&
          !state_.timers.armed(SensorTimer::button_hold) &&
-         !(state_.gap_wait && state_.timers.armed(SensorTimer::retry));
+         !(state_.gap_wait && state_.timers.armed(SensorTimer::retry)) &&
+         lora_update(now_).packet.kind == device::UpdatePacketKind::none;
 }
 
 device::Wake SensorRole::next_wake() const {
@@ -37,6 +39,13 @@ device::Wake SensorRole::next_wake() const {
       continue;
     }
     at = device::earliest(at, state_.timers.at(id));
+  }
+  const bool again_blocked = state_.waiting != 0 || state_.reset != ResetPhase::none ||
+                             port_busy() || window_open() || radio_held() ||
+                             state_.timers.armed(SensorTimer::reply_moment);
+  if (!again_blocked) {
+    // When it must wait, the event that ends the wait sends it.
+    at = device::earliest(at, state_.heartbeat_again_at);
   }
   if (!timed_receive()) {
     at = device::earliest(at, state_.report_window_end);

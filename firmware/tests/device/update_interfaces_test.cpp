@@ -116,6 +116,40 @@ TEST_CASE("a host board holds the update fakes and reports its confirmed factory
   CHECK(board.calls.calls() == 15);
 }
 
+TEST_CASE("the fake bootloader reports payload IDs only for OTA selections that reached flash") {
+  for (const auto cut : {host::CutPoint::during, host::CutPoint::after}) {
+    host::HostBoard board;
+    CHECK_FALSE(board.slots.running().id.has_value());
+    const Bytes image = host::make_test_image(board.slots.running().version, 4096, 42);
+    protocol::ImageHeader header;
+    header.image_sha256 = host::sha256_of(view_of(image));
+    const auto id = protocol::image_id_of(header);
+    board.slots.install(1, view_of(image));
+    board.power_cut.arm(1, cut);
+    static_cast<void>(board.slots.select());
+    REQUIRE(board.power_cut.cut());
+    board.power_cut.restore();
+    const auto first = board.slots.boot();
+    REQUIRE(first.bootable);
+    if (cut == host::CutPoint::during) {
+      CHECK_FALSE(first.image.id.has_value());
+      CHECK_FALSE(first.image.failed_id.has_value());
+    } else {
+      CHECK(first.image.id == id);
+      CHECK(first.image.on_trial);
+      const auto rollback = board.slots.boot();
+      CHECK_FALSE(rollback.image.id.has_value());
+      CHECK(rollback.image.failed_id == id);
+      CHECK(rollback.image.rolled_back);
+    }
+    REQUIRE(board.slots.select() == HalError::none);
+    REQUIRE(board.slots.boot().image.id == id);
+    REQUIRE(board.slots.confirm() == HalError::none);
+    CHECK(board.slots.boot().image.id == id);
+    CHECK_FALSE(board.slots.running().failed_id.has_value());
+  }
+}
+
 TEST_CASE("UpdateService with nothing offered: reads the running image, gives it to Started") {
   host::HostBoard board;
   pair_board(board, protocol::Role::sensor);
@@ -335,16 +369,25 @@ TEST_CASE("the update record is 134 bytes under key 0x05, and a factory reset re
   CHECK_FALSE(board.storage.has(device::StoreKey::update));
 }
 
-TEST_CASE("change_key is not built yet: refused, nothing written, no report again") {
+TEST_CASE(
+    "change_key refuses the key held, writing nothing; a new key is taken and reported again") {
+  // Built by K2 (m3-updates-design.md section 7); its own tests are secure_channel_rekey_test.cpp.
   host::HostBoard board;
   pair_board(board, protocol::Role::sensor);
   std::optional<Instance> instance;
   Instance& run = boot(instance, board);
   const std::size_t changes = board.storage.change_count();
-  const protocol::DeviceKey new_key{};
-  CHECK(run.services.channel.change_key(new_key, board.clock.now()) == device::Status::refused);
+  REQUIRE(board.key_import.key().has_value());
+  const protocol::DeviceKey held = *board.key_import.key();
+  CHECK(run.services.channel.change_key(held, board.clock.now()) == device::Status::refused);
   CHECK_FALSE(run.services.channel.take_key_change());
   CHECK(board.storage.change_count() == changes);
+  protocol::DeviceKey new_key = held;
+  new_key[0] ^= 0xFF;
+  CHECK(run.services.channel.change_key(new_key, board.clock.now()) == device::Status::ok);
+  CHECK(run.services.channel.take_key_change());
+  CHECK_FALSE(run.services.channel.take_key_change());
+  CHECK(board.storage.change_count() == changes + 2);
   // A channel without a key import cannot change its key at all.
   device::CounterState state;
   device::SecureChannel bare(board.cipher, board.storage, state);

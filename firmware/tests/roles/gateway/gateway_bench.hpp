@@ -16,6 +16,7 @@
 #include "device_support.hpp"
 #include "hsn/host/link_wire.hpp"
 #include "hsn/host/provisioning.hpp"
+#include "hsn/host/test_image.hpp"
 #include "hsn/protocol/binding.hpp"
 #include "hsn/protocol/messages.hpp"
 #include "hsn/protocol/packet.hpp"
@@ -241,9 +242,18 @@ public:
   /** The welcome last sent, for replaying. */
   Bytes last_welcome;
   std::uint32_t next_counter = 1;
+  /**
+   * A firmware file (header and image) this hub serves: each Get is answered with its bytes, one
+   * outside it with Gone. None: Gets are only counted.
+   */
+  const Bytes* file = nullptr;
+  /** Gets the gateway sent, and when each was answered. */
+  std::vector<device::Instant> gets;
 
 private:
   Bytes seal_bytes(const Bytes& plaintext, const protocol::Binding& binding);
+  /** Answers a transfer frame (a Get) from `file`. */
+  void serve(host::LinkWire& wire, const Bytes& frame);
 
   host::Simulation& sim_;
   host::SimDevice& gateway_;
@@ -276,5 +286,39 @@ struct LinkSite {
   host::SimDevice& gateway;
   LinkHub hub;
 };
+
+// ---- Updates (m3-updates-design.md sections 2 and 5) ----
+
+/** The version the update tests offer. */
+inline const protocol::FirmwareVersion kNewImage{1, 4, 0};
+
+/** A firmware file signed as the test hub signs it (its RFC 6979 test key), for LinkHub. */
+struct SignedImage {
+  explicit SignedImage(std::size_t bytes = 30000);
+  protocol::ImageHeader header;
+  protocol::ImageId id{};
+  Bytes file;
+};
+
+/**
+ * A LinkSite whose gateway holds the test hub's signing key, as a gateway the hub paired would,
+ * so it accepts SignedImage's signature.
+ */
+struct UpdateLinkSite {
+  explicit UpdateLinkSite(std::uint8_t listen_mask = 0x20, host::SimulationOptions options = {});
+  LinkSite site;
+};
+
+/** An offer of `action` for `image`, as LinkHub sends it. */
+protocol::UpdateOffer offer_of(std::uint8_t action, const SignedImage& image);
+
+/** The update statuses the gateway sent LinkHub, decoded. */
+std::vector<protocol::UpdateStatus> link_statuses(const LinkHub& hub);
+
+/** The gateway's clock reading (the low 32 bits of its microseconds) at a true instant, no drift.
+ */
+inline std::uint32_t gateway_time(device::Instant when) {
+  return static_cast<std::uint32_t>(when.us & 0xFFFFFFFFu);
+}
 
 }  // namespace hsn::test

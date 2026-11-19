@@ -1,5 +1,6 @@
-// What the hub sends a sensor (protocol sections 4, 6, 7): replies and the disarmed notice, each
-// accepted only when bound to one of the sensor's own recent counters, newest first, up to 16.
+// What the hub sends a sensor (protocol sections 4, 6, 7): replies, the disarmed notice, update
+// offers and Key changes, each accepted only when bound to one of the sensor's own recent
+// counters, newest first, up to 16, on the radio or on the network link of an update.
 // A reply always carries the full settings; they are stored only when a stored field changes,
 // and the armed state and settings version are kept in retained memory only.
 
@@ -8,7 +9,8 @@
 
 namespace hsn::roles::sensor {
 
-void SensorRole::on_packet(protocol::ByteView packet, device::Instant now) {
+void SensorRole::on_packet(protocol::ByteView packet, device::UpdatePath path,
+                           device::Instant now) {
   const std::size_t count = state_.tries.newest_first(candidates_);
   const auto opened = services_.channel.open_bound(
       packet, protocol::Span<const std::uint32_t>(candidates_.data(), count));
@@ -33,6 +35,16 @@ void SensorRole::on_packet(protocol::ByteView packet, device::Instant now) {
     on_reply(reply, answered, kind, now);
   } else if (type == protocol::message_type::disarmed_notice) {
     on_disarmed(kind, now);
+  } else if (type == protocol::message_type::update_offer) {
+    protocol::UpdateOffer offer;
+    if (protocol::decode_body(opened.value().packet.body, offer) != protocol::Error::none) {
+      services_.log.add(now, device::LogLevel::warning, sensor_log::hub_message_ignored,
+                        "offer not decoded");
+      return;
+    }
+    on_offer(offer, kind, path, now);
+  } else if (type == protocol::message_type::key_change) {
+    on_key_change(opened.value().packet.body, now);
   } else {
     // A type the sensor does not act on is dropped and logged (§5).
     services_.log.add(now, device::LogLevel::warning, sensor_log::hub_message_ignored,
@@ -49,6 +61,12 @@ void SensorRole::on_reply(const protocol::Reply& reply, std::uint32_t answered, 
   // Answered: whatever settings it went on work, so the next packet goes on the current ones.
   state_.use_next = false;
   apply_settings(reply, now);
+  // "Update available": the update service asks for a query, which goes over LoRa
+  // (m3-updates-design.md section 5).
+  services_.update.update_flag(reply, now);
+  if (reply.flags.update_available) {
+    state_.update_query_due = true;
+  }
   if (reply.next_heartbeat_tenths != 0) {
     // Counted from the end of the packet this reply answers (§6): the latest heartbeat's or the
     // latest packet's, whose ends are kept; a reply to an older packet gives no slot.
@@ -80,6 +98,10 @@ void SensorRole::on_reply(const protocol::Reply& reply, std::uint32_t answered, 
       state_.log_window_end = device::Instant::never();
       state_.tries.remove(TryKind::log);
       break;
+    case TryKind::update:
+      update_answered(now);
+      report_answered(kind, now);
+      break;
     case TryKind::going_ahead:
     case TryKind::door:
     case TryKind::cover:
@@ -89,6 +111,7 @@ void SensorRole::on_reply(const protocol::Reply& reply, std::uint32_t answered, 
       break;
     case TryKind::countdown:
     case TryKind::settled:
+    case TryKind::update_link:
     case TryKind::none:
       break;
   }

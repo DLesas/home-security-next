@@ -291,6 +291,18 @@ private:
               device::Instant now);
   void drop_requests(device::Instant now);
 
+  // updates.cpp: offers, the service's packets, the quiet rule, health, the key change.
+  /** An update offer opened on the connection. */
+  void on_offer(const protocol::UpdateOffer& offer, device::Instant now);
+  /** A Key change in place of the welcome (§4, §7), on the connection's session or the probe's. */
+  void on_key_change(protocol::ByteView body, bool probe, device::Instant now);
+  /** True while flash must wait: a request in the queue, or the radio receiving or sending. */
+  bool radio_needs_quiet() const;
+  /** Sends the update service's queries and statuses, and the gateway's own refusal. */
+  void pump_update(device::Instant now);
+  /** The quiet rule, the waiting install and the health condition, after every event. */
+  void finish_update(device::Instant now);
+
   // reports.cpp: settings, status, Started, interference, logs.
   void apply_settings(const protocol::GatewaySettings& settings, device::Instant now);
   void send_status(device::Instant now);
@@ -306,6 +318,18 @@ private:
   device::Record<HeldSettings> stored_settings_;
   /** Room for one sealed packet to the hub. */
   std::array<std::uint8_t, protocol::kMaxLinkPacketSize> out_{};
+
+  // RAM only, for this boot: updates and the key change.
+  /** The gateway's own refusal of an offer (off mains), until it has gone. */
+  bool refusal_pending_ = false;
+  protocol::ImageId refusal_image_{};
+  /** An "install now" that waits for the radio to be quiet. */
+  bool install_waiting_ = false;
+  protocol::UpdateOffer install_offer_;
+  /** Its continuous receive has started, and no fault came since (the health condition). */
+  bool receive_healthy_ = false;
+  /** The latest Key change came on the USB probe's session, not the connection's. */
+  bool key_change_on_probe_ = false;
 };
 
 static_assert(device::is_complete_role<GatewayRole>, "a role must override every Role method");

@@ -75,6 +75,10 @@ constexpr std::uint16_t request_displaced = first + 0x1B;
 constexpr std::uint16_t zero_setting = first + 0x1F;
 /** Interference started or ended (GW11, D82); the value is its noise level. */
 constexpr std::uint16_t interference = first + 0x1A;
+/** An "install now" came while a request waited or the radio was busy: it waits. Info. */
+constexpr std::uint16_t install_waits = first + 0x20;
+/** An update query or status could not go to the hub; it goes at the next event. */
+constexpr std::uint16_t update_send_failed = first + 0x21;
 }  // namespace gateway_log
 
 }  // namespace hsn::roles::gateway

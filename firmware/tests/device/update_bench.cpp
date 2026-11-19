@@ -120,6 +120,9 @@ HalError TestStorage::write(device::StoreKey key, protocol::ByteView value) {
 }
 
 HalError TestStorage::erase(device::StoreKey key) {
+  if (key == device::StoreKey::update && fail_update_erase) {
+    return HalError::io;
+  }
   FlashOp op;
   op.kind = FlashOp::Kind::record_erase;
   op.key = key;
@@ -189,6 +192,10 @@ device::BootImage TestSlots::running() {
   image.on_trial = states[static_cast<std::size_t>(running_)] == State::pending;
   image.rolled_back = rolled_back_;
   image.failed = rolled_back_ ? failed_ : protocol::FirmwareVersion{};
+  image.id = selected_ids_[static_cast<std::size_t>(running_)];
+  if (rolled_back_) {
+    image.failed_id = selected_ids_[static_cast<std::size_t>(other_slot())];
+  }
   return image;
 }
 
@@ -211,6 +218,7 @@ HalError TestSlots::erase(std::uint32_t offset) {
   if (outcome == PowerSwitch::Outcome::off) {
     return HalError::io;
   }
+  selected_ids_[static_cast<std::size_t>(other_slot())].reset();
   Bytes& slot = bytes[static_cast<std::size_t>(other_slot())];
   const std::size_t sector = std::min<std::size_t>(device::kSlotSectorSize, capacity_ - offset);
   const std::size_t length = outcome == PowerSwitch::Outcome::cut ? sector / 2 : sector;
@@ -280,6 +288,11 @@ HalError TestSlots::select() {
   if (outcome == PowerSwitch::Outcome::done || otadata_lands) {
     set_state(other_slot(), State::fresh);
     boot_ = other_slot();
+    const auto& slot = bytes[static_cast<std::size_t>(other_slot())];
+    const Bytes digest = sha256(Bytes(slot.begin(), slot.begin() + le32(slot, 4)));
+    protocol::ImageId id{};
+    std::copy_n(digest.begin(), id.size(), id.begin());
+    selected_ids_[static_cast<std::size_t>(other_slot())] = id;
   }
   return outcome == PowerSwitch::Outcome::done ? HalError::none : HalError::io;
 }

@@ -44,8 +44,13 @@ constexpr std::uint8_t door = 0x02;
 constexpr std::uint8_t cover = 0x04;
 constexpr std::uint8_t started = 0x08;
 constexpr std::uint8_t button = 0x10;
+/**
+ * An update query or status over LoRa (protocol section 6): the hub always answers a sensor's, so
+ * it is retried like a report (m3-updates-design.md section 5). Last: a door report goes first.
+ */
+constexpr std::uint8_t update = 0x20;
 /** Every report bit. */
-constexpr std::uint8_t all = 0x1F;
+constexpr std::uint8_t all = 0x3F;
 }  // namespace report_bit
 
 /** What one of the sensor's recent packets was, for the hub packets bound to it (§4). */
@@ -65,6 +70,13 @@ enum class TryKind : std::uint8_t {
    * ignored (§6), until the next opening or until newer counters push it out.
    */
   settled,
+  /** An update query or status over LoRa, a try of the report exchange (report_bit::update). */
+  update,
+  /**
+   * An update query or status on the network link the update service joined: answered on the
+   * link, outside the report exchange. Only the latest is kept.
+   */
+  update_link,
 };
 
 /** The alert the buzzer plays, if any (design §7, parallel states). */
@@ -282,6 +294,24 @@ struct SensorState {
   /** After a log entries packet: the event listen time (§6, §8). */
   device::Instant log_window_end = device::Instant::never();
 
+  // Updates (m3-updates-design.md sections 2, 5) and the key change (section 7).
+  /**
+   * An update query may go over LoRa: a reply said "update available", the sensor started up
+   * holding part of an image, or an offer was just handled. The update service also wants a query
+   * at every deep-sleep wake while it holds a part; that one is not a reason to send.
+   */
+  bool update_query_due = false;
+  /** The sensor refused an offer itself (armed, battery): that status goes next. */
+  bool refusal_pending = false;
+  /** The refused offer's reason (protocol::UpdateReason) and image. */
+  std::uint8_t refusal_reason = 0;
+  std::array<std::uint8_t, 8> refusal_image{};
+  /**
+   * After a key change answered a heartbeat or a log packet: a heartbeat asking for a reply goes
+   * at this instant, under the new key (step 4); never when none is owed.
+   */
+  device::Instant heartbeat_again_at = device::Instant::never();
+
   TryRing tries;
   device::TimerSet<SensorTimer, static_cast<std::size_t>(SensorTimer::count)> timers;
 };
@@ -292,6 +322,6 @@ static_assert(std::is_trivially_copyable_v<SensorState>, "the retained block is 
 constexpr SensorState kFreshState{};
 
 /** Bumped whenever SensorState changes: an old retained copy is then discarded. */
-constexpr std::uint8_t kSensorStateLayout = 5;
+constexpr std::uint8_t kSensorStateLayout = 6;
 
 }  // namespace hsn::roles::sensor

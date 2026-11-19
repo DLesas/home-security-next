@@ -3,6 +3,7 @@
 #include "hsn/roles/gateway/gateway_role.hpp"
 
 #include "hsn/protocol/radio.hpp"
+#include "hsn/protocol/setup.hpp"
 
 namespace hsn::roles::gateway {
 namespace {
@@ -50,6 +51,17 @@ void GatewayRole::boot(device::Instant now) {
 
 void GatewayRole::handle(const device::Event& event) {
   const device::Instant now = event.now;
+  // Device has already answered this trusted setup frame on USB.
+  if (event.kind == device::EventKind::link && event.link.kind == device::LinkEventKind::packet &&
+      event.link.link == device::LinkKind::usb && event.link.packet.size() == 2 &&
+      event.link.packet[0] == protocol::kSetupMarker &&
+      event.link.packet[1] == protocol::Identify::type) {
+    if (session_open() && state_.connection.link == device::LinkKind::usb) {
+      end_connection(now);
+      start_usb_attempt(now);
+    }
+    return;
+  }
   switch (event.kind) {
     case device::EventKind::boot:
       boot(now);
@@ -67,6 +79,8 @@ void GatewayRole::handle(const device::Event& event) {
   run_timers(now);
   serve_queue(now);
   flush_log(now);
+  pump_update(now);
+  finish_update(now);
 }
 
 void GatewayRole::run_timers(device::Instant now) {
@@ -125,13 +139,6 @@ std::uint8_t GatewayRole::state_id() const {
 
 device::Duration GatewayRole::longest_awake() const {
   return device::Duration{};  // always powered: no bound
-}
-
-void GatewayRole::report_again(device::Instant now) {
-  // Step 4 of the key change after a hub restore (m3-updates-design.md section 7), the role
-  // owner's to build. Device calls it only after SecureChannel::change_key succeeds, which it
-  // does not yet.
-  static_cast<void>(now);
 }
 
 }  // namespace hsn::roles::gateway

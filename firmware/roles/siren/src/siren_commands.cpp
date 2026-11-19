@@ -1,6 +1,8 @@
 // Commands and settings on either path, under the secure channel's command rule (§4, §7): a new
 // counter is saved, then acted on, then answered on the path it came by; an exact repeat of the
 // latest is answered the same way and nothing else happens; an older counter gets no answer.
+// Update offers and Key changes come under the same rule; they go to the update service and the
+// key change before anything else, and are never read as settings.
 
 #include "hsn/protocol/layout.hpp"
 #include "hsn/protocol/radio.hpp"
@@ -27,10 +29,34 @@ void SirenRole::on_hub_packet(protocol::ByteView packet, Path path, device::Inst
     services_.log.add(now, device::LogLevel::error, siren_log::counter_not_saved,
                       "counter not saved");
   }
+  const std::uint8_t type = command.packet.type;
+  if (type == protocol::message_type::key_change || type == protocol::message_type::update_offer) {
+    // Neither is a command or settings, and neither is answered with a report here: a Key change
+    // by report_again() under the new key, an offer by the update service's packets. A repeat of
+    // either does nothing more.
+    if (!fresh) {
+      return;
+    }
+    if (type == protocol::message_type::key_change) {
+      on_key_change(command.packet.body, path, now);
+      return;
+    }
+    protocol::UpdateOffer offer;
+    if (protocol::decode_body(command.packet.body, offer) != protocol::Error::none) {
+      services_.log.add(now, device::LogLevel::error, siren_log::body_dropped, "body dropped",
+                        type);
+      return;
+    }
+    on_offer(offer, path, now);
+    return;
+  }
+  // A command or settings packet from its own hub, new or the latest again: half of a new
+  // image's health (m3-updates-design.md section 2).
+  hub_packet_opened_ = true;
   if (fresh) {
     // open_command has already dropped a body shorter than its fields (§3); a decode failure here
     // would be a codec fault, and nothing is acted on or answered.
-    const bool is_command = command.packet.type == protocol::message_type::siren_command;
+    const bool is_command = type == protocol::message_type::siren_command;
     protocol::SirenCommand decoded_command;
     protocol::SirenSettings decoded_settings;
     const protocol::Error error =

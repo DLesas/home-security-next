@@ -247,6 +247,11 @@ bool Device::handle_setup(const Event& event) {
     if (error != HalError::none) {
       services_.log.add(event.now, LogLevel::warning, log_code::setup_ignored, "setup reply");
     }
+    // Only gateways use USB as an operating link. Identify can mean the hub restarted.
+    if (active_ && role_->role_id() == protocol::Role::gateway && event.link.packet.size() == 2 &&
+        event.link.packet[1] == protocol::Identify::type) {
+      role_->handle(event);
+    }
   }
   if (result.action == SetupAction::restart) {
     // The pairing or the role changed: nothing retained may outlive it.

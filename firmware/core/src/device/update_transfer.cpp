@@ -311,9 +311,10 @@ bool UpdateService::flush_sector(Instant now) {
   if (sector_ >= sector_count()) {
     return true;
   }
-  if (written % kCheckpointBytes == 0) {
-    // A failed checkpoint leaves the one before, which is still true; the pull goes on.
-    static_cast<void>(write_record(UpdateRecordStage::partial, kHeader + written, now));
+  if (written % kCheckpointBytes == 0 &&
+      write_record(UpdateRecordStage::partial, kHeader + written, now) != HalError::none) {
+    refuse(protocol::UpdateReason::flash, true, now);
+    return false;
   }
   if (link_ != LinkKind::bluetooth && written - progress_mark_ >= kProgressBytes) {
     progress_mark_ = written;
@@ -368,7 +369,10 @@ void UpdateService::hashed(bool equal, Instant now) {
     return;
   }
   if (phase_ == Phase::hashing) {
-    static_cast<void>(write_record(UpdateRecordStage::verified, file_bytes(), now));
+    if (write_record(UpdateRecordStage::verified, file_bytes(), now) != HalError::none) {
+      refuse(protocol::UpdateReason::flash, true, now);
+      return;
+    }
     phase_ = Phase::idle;
     // Joined only for the pull: the go-ahead comes as any offer does, and may wait (armed) for
     // days, which a cell cannot spend on Wi-Fi.

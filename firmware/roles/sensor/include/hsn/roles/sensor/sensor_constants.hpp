@@ -107,6 +107,16 @@ constexpr device::StoreKey kSettingsKey = device::StoreKey::sensor_first;
 /** The settings record's version byte (design §5); 2 added the site and the move (D115). */
 constexpr std::uint8_t kSettingsRecordVersion = 2;
 
+/**
+ * The battery an update needs, off USB power: 30% on the interim curve, about 3,700 mV ‡
+ * (m3-updates-design.md section 4 and P9). Below it the sensor refuses an offer to fetch, open
+ * Bluetooth or install, with the reason "battery".
+ */
+constexpr std::uint16_t kUpdateBatteryFloorMillivolts = 3700;
+
+/** After a key change, a heartbeat that could not be sealed is tried again this much later. */
+constexpr device::Duration kHeartbeatAgainRetry = device::seconds(1);
+
 /** Data rates the protocol lists, DR0 to DR5 (§2, "Data rates"). */
 constexpr std::uint8_t kDataRateCount = 6;
 

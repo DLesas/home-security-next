@@ -39,7 +39,18 @@ struct Telemetry {
  * The siren controller (design section 7): an always-powered board that switches a separate
  * sounder (D42) on the hub's commands only (D7), heard over Wi-Fi and LoRa at once (D36, D73),
  * reports its state on both paths, stops by itself (SR5) and keeps sounding through a reset
- * (D80). Its source is split by concern: boot, output, commands, reports, LoRa and Wi-Fi.
+ * (D80).
+ *
+ * For firmware updates (m3-updates-design.md sections 2, 5, 6) it takes an update offer under the
+ * command rule on either path and passes it to the update service, sends the service's queries
+ * and statuses on Wi-Fi (a status that is not progress on LoRa when Wi-Fi is down), refuses an
+ * offer while it is off mains, and installs only when its output is off: an "install now" that
+ * comes while it sounds waits for the output to stop. A new image is healthy once a command or
+ * settings packet opened on either path and one LoRa transmission completed. It sounds and answers
+ * on both paths throughout. After a hub restore it takes a Key change under the same rule, changes
+ * its key and answers with a report on the path it came by, under the new key (section 7).
+ *
+ * Its source is split by concern: boot, output, commands, reports, LoRa, Wi-Fi and updates.
  */
 class SirenRole final : public device::Role {
 public:
@@ -166,6 +177,30 @@ private:
   /** Sends every kept log entry on Wi-Fi as it arises (D110). */
   void flush_logs_wifi(device::Instant now);
 
+  // siren_updates.cpp
+  /** What goes to the hub next about an update: the siren's own refusal, or the service's. */
+  struct UpdateOut {
+    device::UpdatePacket packet;
+    bool refusal = false;
+  };
+  /** The siren's refusal if one waits, else the update service's packet. */
+  UpdateOut next_update(device::Instant now) const;
+  /** An update offer opened under the command rule, on `path`. */
+  void on_offer(const protocol::UpdateOffer& offer, Path path, device::Instant now);
+  /** A Key change opened under the command rule (§7): the key changes; the answer follows. */
+  void on_key_change(protocol::ByteView body, Path path, device::Instant now);
+  /** Sends what the update service asks: on Wi-Fi, or a status on LoRa when Wi-Fi is down. */
+  void pump_update(device::Instant now);
+  /** Seals an update packet (`out`) into `buffer` under `limit`. */
+  device::Outcome<device::Sealed> seal_update(const UpdateOut& out, protocol::PacketLimit limit,
+                                              protocol::MutableByteView buffer);
+  /** What was sealed went: the refusal is cleared, or the service is told. */
+  void update_sent(const UpdateOut& out, device::Instant now);
+  /** Calls the update service's healthy() once the siren's condition holds (section 2). */
+  void check_health(device::Instant now);
+  /** Hands over an "install now" that waited for the output to stop. */
+  void release_install(device::Instant now);
+
   // siren_role.cpp
   /** Runs every due timer. */
   void run_timers(device::Instant now);
@@ -192,6 +227,28 @@ private:
   std::array<std::uint8_t, protocol::kMaxLinkPacketSize> link_packet_{};
   /** Scratch for packets sealed for the radio. */
   std::array<std::uint8_t, protocol::kMaxRadioPacketSize> radio_packet_{};
+
+  // RAM only, for this boot: updates and the key change.
+  /** The siren's own refusal of an offer (off mains), until it has gone. */
+  bool refusal_pending_ = false;
+  std::uint8_t refusal_reason_ = 0;
+  protocol::ImageId refusal_image_{};
+  /** The update packet in the LoRa outbox's flight, to tell the service once it is on air. */
+  UpdateOut lora_update_;
+  /** An "install now" that came while the output sounded, and the path it came by. */
+  bool install_waiting_ = false;
+  protocol::UpdateOffer install_offer_;
+  Path install_path_ = Path::wifi;
+  /** The health condition's two halves (m3-updates-design.md section 2). */
+  bool hub_packet_opened_ = false;
+  bool lora_sent_ = false;
+  /** The path the latest Key change came by: report_again() answers on it. */
+  Path key_change_path_ = Path::wifi;
+  /**
+   * This event opened a Key change: nothing more is sent in it, so that if the key changed, the
+   * first packet under the new key is the answer report_again() sends.
+   */
+  bool key_change_in_event_ = false;
 };
 
 static_assert(device::is_complete_role<SirenRole>, "a role must override every Role method");

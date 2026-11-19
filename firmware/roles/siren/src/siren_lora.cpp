@@ -1,9 +1,10 @@
 // LoRa (§2, §7): continuous receive on 869.525 MHz at the command rate of the settings held, and
 // sending on the site channel at the sending rate through the radio port, which checks the channel
 // first and keeps the airtime budget. One item goes at a time, most urgent first: answers, then
-// Started, then reports of a change, then LoRa checks, then regular failed Wi-Fi reports, then one
-// log entry (§2, D110). The first three are urgent (essential, D111); the rest is routine. Checks
-// and regular failed reports are also paced, so they spread over the hour (§7); nothing else is.
+// Started, then reports of a change, then an update status Wi-Fi could not carry, then LoRa
+// checks, then regular failed Wi-Fi reports, then one log entry (§2, D110). The first three are
+// urgent (essential, D111); the rest is routine. Checks and regular failed reports are also paced,
+// so they spread over the hour (§7); nothing else is.
 
 #include "hsn/device/services/radio_plan.hpp"
 #include "hsn/roles/siren/siren_constants.hpp"
@@ -14,9 +15,9 @@ namespace hsn::roles::siren {
 namespace {
 
 /** The outbox in order of priority (§2, "Airtime budgets"). */
-constexpr LoraItem kLoraOrder[kLoraItemCount] = {LoraItem::answer,      LoraItem::started,
-                                                 LoraItem::change,      LoraItem::check,
-                                                 LoraItem::wifi_failed, LoraItem::log};
+constexpr LoraItem kLoraOrder[kLoraItemCount] = {
+    LoraItem::answer, LoraItem::started,     LoraItem::change, LoraItem::update,
+    LoraItem::check,  LoraItem::wifi_failed, LoraItem::log};
 
 /**
  * The class of an item's traffic (§2, "Airtime budgets"; D111). Urgent, so never held back and
@@ -36,6 +37,8 @@ std::size_t size_bound(LoraItem item) {
       return kStartedPacketSize;
     case LoraItem::log:
       return kLoraLogPacketBound;
+    case LoraItem::update:
+      return kUpdateStatusPacketSize;
     default:
       return kReportPacketSize;
   }
@@ -80,7 +83,13 @@ void SirenRole::on_port(const device::PortReport& report, device::Instant now) {
   switch (report.result) {
     case device::PortResult::sent:
       state_.lora.in_flight = LoraItem::none;
-      if (item == LoraItem::log) {
+      // One LoRa transmission completed: half of a new image's health (m3-updates-design.md 2).
+      lora_sent_ = true;
+      if (item == LoraItem::update) {
+        // On the air only now: an "installing" status may let the restart come.
+        update_sent(lora_update_, now);
+        lora_update_ = UpdateOut{};
+      } else if (item == LoraItem::log) {
         // A siren gets no reply to its log entries: the entry leaves once sent (D110).
         services_.log.release();
       } else if (item == LoraItem::started) {
@@ -135,6 +144,9 @@ void SirenRole::requeue(LoraItem item, device::Instant now) {
     case LoraItem::log:
       state_.lora.log = true;
       break;
+    case LoraItem::update:
+      state_.lora.update = true;
+      break;
     case LoraItem::none:
       break;
   }
@@ -161,6 +173,8 @@ bool SirenRole::lora_pending(LoraItem item) const {
       return box.wifi_failed;
     case LoraItem::log:
       return box.log;
+    case LoraItem::update:
+      return box.update;
     case LoraItem::none:
       break;
   }
@@ -206,6 +220,9 @@ void SirenRole::take_lora_item(LoraItem item) {
     case LoraItem::log:
       box.log = false;
       break;
+    case LoraItem::update:
+      box.update = false;
+      break;
     case LoraItem::none:
       break;
   }
@@ -232,6 +249,16 @@ device::Outcome<device::Sealed> SirenRole::seal_lora_item(LoraItem item, device:
     return services_.channel.seal(
         services_.health.started(protocol::Role::siren, state_.settings.settings_version),
         protocol::Binding::none(), protocol::PacketLimit::radio, out);
+  }
+  if (item == LoraItem::update) {
+    // The newest status when it goes; nothing when Wi-Fi carried it meanwhile.
+    const UpdateOut update = next_update(now);
+    if (update.packet.kind != device::UpdatePacketKind::status ||
+        (!update.refusal && update.packet.links_only)) {
+      return device::Sealed{};
+    }
+    lora_update_ = update;
+    return seal_update(update, protocol::PacketLimit::radio, out);
   }
   if (item == LoraItem::log) {
     protocol::LogEntries entries;
@@ -276,7 +303,7 @@ bool SirenRole::send_lora_item(LoraItem item, device::Instant now) {
     return true;
   }
   if (sealed.value().size == 0) {
-    take_lora_item(item);  // a log item with nothing at warning or above left
+    take_lora_item(item);  // a log item with nothing at warning or above left, or no status
     return false;
   }
   const device::Status status = services_.radio_port.send(

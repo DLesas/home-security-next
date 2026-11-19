@@ -112,13 +112,22 @@ public:
                      Instant now);
 
   /**
+   * Handles setup received on USB or inside an authenticated Bluetooth session, writing any
+   * reply into `reply` (at least 32 bytes). USB applies its existing setup rules. Bluetooth
+   * accepts Provision only when a role is set and the board is unpaired, and refuses Erase and
+   * Set role. Other links are ignored.
+   */
+  SetupResult handle(LinkKind link, protocol::ByteView message, protocol::MutableByteView reply,
+                     LogBuffer& log, Instant now);
+
+  /**
    * Erases keys and settings, keeping the role (PR4).
    */
   HalError factory_reset();
 
 private:
   SetupResult provision(const protocol::Provision& message, protocol::MutableByteView reply,
-                        LogBuffer& log, Instant now);
+                        LogBuffer& log, Instant now, LinkKind link);
   SetupResult set_role(const protocol::SetRole& message, protocol::MutableByteView reply,
                        LogBuffer& log, Instant now);
   SetupResult reply_identity(protocol::MutableByteView reply, SetupAction action) const;

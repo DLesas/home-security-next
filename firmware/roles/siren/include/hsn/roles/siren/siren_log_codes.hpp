@@ -60,6 +60,8 @@ constexpr std::uint16_t no_network_link = siren_first + 0x17;
 constexpr std::uint16_t invalid_setting = siren_first + 0x18;
 /** A LoRa item that can never fit the airtime budget was dropped. Value: LoraItem. */
 constexpr std::uint16_t lora_dropped = siren_first + 0x19;
+/** An "install now" came while the output sounded: it waits for the output to stop. Info. */
+constexpr std::uint16_t install_waits = siren_first + 0x1A;
 }  // namespace siren_log
 
 }  // namespace hsn::roles::siren

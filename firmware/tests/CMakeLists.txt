@@ -45,12 +45,15 @@ hsn_test_executable(hsn_tests
   device/radio_port_test.cpp
   device/retry_random_test.cpp
   device/secure_channel_test.cpp
+  device/secure_channel_rekey_test.cpp
   device/setup_health_test.cpp
   device/time_test.cpp
   device/update_interfaces_test.cpp
   device/record_test.cpp
   device/update_bench.cpp
   device/update_service_test.cpp
+  device/update_verified_record_failure_review_test.cpp
+  device/update_same_version_reset_review_test.cpp
   device/update_trial_test.cpp
   device/update_power_cut_test.cpp
   device/update_session_test.cpp
@@ -82,6 +85,8 @@ hsn_test_executable(hsn_tests
   host/update_hub_test.cpp
   host/update_rekey_test.cpp
   host/update_scenarios_test.cpp
+  host/rekey_device_test.cpp
+  psa/update_crypto_test.cpp
   system/armed_door_test.cpp)
 target_compile_definitions(hsn_tests PRIVATE
   HSN_VECTORS_DIR="${PROJECT_SOURCE_DIR}/../packages/protocol/vectors")
@@ -92,6 +97,14 @@ set_source_files_properties(device/device_runner_test.cpp device/update_interfac
   device/update_gate_test.cpp
   ${hsn_sim_test_sources}
   PROPERTIES COMPILE_OPTIONS -fno-rtti)
+
+# Whole-device update and key-change scenarios with the real roles (m3-updates-design.md section
+# 8): the sensor, siren and gateway updating over every path and changing keys, under the power-cut
+# harness. Its own executable, against all three role libraries, so hsn_tests links no role.
+hsn_test_executable(hsn_device_role_tests host/update_roles_test.cpp host/rekey_roles_test.cpp)
+target_link_libraries(hsn_device_role_tests PRIVATE hsn_role_sensor hsn_role_siren
+  hsn_role_gateway hsn_host)
+target_compile_options(hsn_device_role_tests PRIVATE -fno-rtti)
 
 # A short real-time run of the bench executable, hsn_bench, with no hub: its own executable, since
 # it spawns the program and talks to it over pseudo-terminals.
@@ -154,6 +167,10 @@ if(hsn_lockstep_missing STREQUAL "")
     system_roles/interference_test.cpp system_roles/heartbeat_reply_test.cpp
     system_roles/load_test.cpp system_roles/site_move_test.cpp
     system_roles/group_sirens_test.cpp system_roles/schedule_arm_test.cpp
+    system_roles/update_rollout_test.cpp system_roles/update_rollback_test.cpp
+    system_roles/update_held_test.cpp system_roles/update_restart_test.cpp
+    system_roles/restore_rekey_test.cpp system_roles/update_budget_test.cpp
+    system_roles/update_bluetooth_test.cpp system_roles/update_gateway_load_test.cpp
     lockstep/real_hub_test.cpp)
   target_include_directories(hsn_system_lockstep_tests PRIVATE lockstep system_roles)
   target_compile_definitions(hsn_system_lockstep_tests PRIVATE HSN_LOCKSTEP=1 HSN_BUN="${HSN_BUN}"
@@ -250,3 +267,15 @@ add_test(NAME role_incomplete_probe_fails_to_compile
 # code, which is non-zero by design.
 set_tests_properties(role_incomplete_probe_fails_to_compile PROPERTIES
   PASS_REGULAR_EXPRESSION "a role must override every Role method")
+
+# The board's portable pairing logic builds from exactly the sources linked into the ESP image.
+set(f1_platform ${CMAKE_CURRENT_SOURCE_DIR}/../platform/esp-idf)
+hsn_test_executable(hsn_f1_tests
+  f1/bluetooth_setup_test.cpp
+  f1/pairing_test.cpp
+  ${f1_platform}/bluetooth/pairing_logic.cpp
+  ${f1_platform}/display/pairing_bitmap.cpp
+  ${f1_platform}/display/qr.cpp)
+target_include_directories(hsn_f1_tests PRIVATE
+  ${f1_platform}/bluetooth/include
+  ${f1_platform}/display/include)

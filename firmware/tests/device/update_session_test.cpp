@@ -580,6 +580,25 @@ TEST_CASE("a header refused over Bluetooth: Done refused with the reason, then t
   CHECK_FALSE(s.bench.bluetooth.connecting);
 }
 
+TEST_CASE("a failed verified-record write sends Done refused to the phone and refuses to the hub") {
+  Session s(1000);
+  s.bench.slots.after_write = [&] { s.bench.storage.fail_writes = true; };
+  s.offer();
+  s.connect();
+  s.open();
+  REQUIRE(s.run_to(UpdateStage::refused));
+  const auto done = s.dones();
+  REQUIRE(done.size() == 1);
+  CHECK(done[0].image_id == s.file.id);
+  CHECK(done[0].result == protocol::DoneResult::refused);
+  CHECK(done[0].reason == UpdateReason::flash);
+  const auto status = s.status();
+  REQUIRE(status.has_value());
+  CHECK(status->status.reason == UpdateReason::flash);
+  CHECK(status->status.bytes_written == kHeader);
+  CHECK_FALSE(s.bench.bluetooth.is_up);
+}
+
 TEST_CASE("a verified image: Open gives Done verified at once") {
   Session s(20000);
   s.offer();

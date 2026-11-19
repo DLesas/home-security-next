@@ -2,9 +2,11 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 
 #include "hsn/device/status.hpp"
 #include "hsn/protocol/bytes.hpp"
+#include "hsn/protocol/image.hpp"
 #include "hsn/protocol/messages.hpp"
 
 namespace hsn::device {
@@ -21,6 +23,9 @@ struct BootImage {
   bool rolled_back = false;
   /** That slot's version, when rolled_back; zeros otherwise. */
   protocol::FirmwareVersion failed;
+  /** The payload IDs of the running and failed images, if known to the platform. */
+  std::optional<protocol::ImageId> id;
+  std::optional<protocol::ImageId> failed_id;
 };
 
 /**
@@ -33,7 +38,7 @@ struct BootImage {
 class FirmwareSlots {
 public:
   /**
-   * Returns what this boot is running: its version, whether it is on trial, and any rollback.
+   * Returns what this boot is running and any rollback, with IDs when known.
    */
   virtual BootImage running() = 0;
 

@@ -146,6 +146,34 @@ TEST_CASE("healthy off trial does nothing") {
   CHECK_FALSE(bench.take_packet().has_value());
 }
 
+TEST_CASE("confirmation succeeds even when erasing its staging record fails") {
+  OnTrial t;
+  t.bench.storage.fail_update_erase = true;
+  t.bench.update().healthy(t.bench.now);
+  CHECK_FALSE(t.bench.update().on_trial());
+  REQUIRE(t.bench.storage.has(device::StoreKey::update));
+  const auto confirmed = t.bench.take_packet();
+  REQUIRE(confirmed.has_value());
+  CHECK(confirmed->status.stage == UpdateStage::confirmed);
+  CHECK(confirmed->status.image_id == t.file.id);
+  CHECK(t.bench.log_value(device::log_code::storage_failed) ==
+        static_cast<std::int32_t>(HalError::io));
+
+  t.bench.update().offer(make_offer(UpdateAction::install_now, t.file), UpdatePath::network,
+                         t.bench.now);
+  const auto query = t.bench.take_packet();
+  REQUIRE(query.has_value());
+  CHECK(query->kind == UpdatePacketKind::query);
+  CHECK(query->query.held == protocol::UpdateHeld::nothing);
+  CHECK(t.bench.slots.select_calls == 1);
+
+  t.bench.storage.fail_update_erase = false;
+  t.bench.boot(device::BootKind::other_reset);
+  CHECK_FALSE(t.bench.update().on_trial());
+  CHECK_FALSE(t.bench.storage.has(device::StoreKey::update));
+  CHECK_FALSE(t.bench.take_packet().has_value());
+}
+
 TEST_CASE("a confirm that fails leaves the image on trial; the next healthy confirms") {
   OnTrial t;
   t.bench.slots.fail_confirm = true;
@@ -222,6 +250,29 @@ TEST_CASE("any reset on trial rolls back, and the old image reports it") {
   // And it stays reported until a later image is confirmed.
   t.bench.boot(device::BootKind::power_on);
   CHECK(t.bench.update().running().rolled_back);
+}
+
+TEST_CASE("a rollback hides its failed image even if its staging record cannot be erased") {
+  OnTrial t;
+  t.bench.storage.fail_update_erase = true;
+  t.bench.boot(device::BootKind::other_reset);
+  CHECK(t.bench.update().running().rolled_back);
+  REQUIRE(t.bench.storage.has(device::StoreKey::update));
+  CHECK_FALSE(t.bench.take_packet().has_value());
+  CHECK(t.bench.log_value(device::log_code::storage_failed) ==
+        static_cast<std::int32_t>(HalError::io));
+
+  t.bench.update().offer(make_offer(UpdateAction::install_now, t.file), UpdatePath::network,
+                         t.bench.now);
+  const auto query = t.bench.take_packet();
+  REQUIRE(query.has_value());
+  CHECK(query->kind == UpdatePacketKind::query);
+  CHECK(query->query.held == protocol::UpdateHeld::nothing);
+  CHECK(t.bench.slots.select_calls == 1);
+
+  t.bench.storage.fail_update_erase = false;
+  t.bench.boot(device::BootKind::other_reset);
+  check_rolled_back(t.bench);
 }
 
 TEST_CASE("a reject that fails still restarts: a restart on trial rolls back anyway") {

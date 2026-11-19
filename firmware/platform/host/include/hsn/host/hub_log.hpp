@@ -213,7 +213,7 @@ enum class HubAction : std::uint8_t {
   rollout_done,
   /** A packet under the old key after a restore was not acted on. value: its counter. */
   old_key_packet,
-  /** A Key change was sent. No value, as the hub's. */
+  /** A Key change was sent. value: the test hub gives none; the real hub its counter. */
   key_change_sent,
   /** The first packet under the new key arrived: the device has its new key. */
   key_changed,

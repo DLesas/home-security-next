@@ -2,13 +2,13 @@
 
 #include <cstring>
 
+#include "psa_call.hpp"
+#include "psa_keys.hpp"
+
 namespace hsn::psa {
 namespace {
 
 using protocol::Error;
-
-constexpr psa_algorithm_t kAlgorithm =
-    PSA_ALG_AEAD_WITH_SHORTENED_TAG(PSA_ALG_CCM, protocol::kTagSize);
 
 void wipe(protocol::MutableByteView bytes) {
   if (!bytes.empty()) {
@@ -19,26 +19,21 @@ void wipe(protocol::MutableByteView bytes) {
 }  // namespace
 
 PsaPacketCipher::~PsaPacketCipher() {
-  destroy_key();
+  detail::destroy(key_);
 }
 
 Error PsaPacketCipher::set_key(const protocol::DeviceKey& key) {
-  destroy_key();
-  if (psa_crypto_init() != PSA_SUCCESS) {
+  psa_key_id_t imported = PSA_KEY_ID_NULL;
+  if (detail::import_packet_key(key, imported) != PSA_SUCCESS) {
     return Error::cipher_failure;
   }
-  psa_key_attributes_t attributes = PSA_KEY_ATTRIBUTES_INIT;
-  psa_set_key_type(&attributes, PSA_KEY_TYPE_AES);
-  psa_set_key_bits(&attributes, 8 * protocol::kKeySize);
-  psa_set_key_algorithm(&attributes, kAlgorithm);
-  psa_set_key_usage_flags(&attributes, PSA_KEY_USAGE_ENCRYPT | PSA_KEY_USAGE_DECRYPT);
-  const psa_status_t status = psa_import_key(&attributes, key.data(), key.size(), &key_);
-  psa_reset_key_attributes(&attributes);
-  if (status != PSA_SUCCESS) {
-    key_ = PSA_KEY_ID_NULL;
-    return Error::cipher_failure;
-  }
+  adopt(imported);
   return Error::none;
+}
+
+void PsaPacketCipher::adopt(psa_key_id_t key) {
+  detail::destroy(key_);
+  key_ = key;
 }
 
 Error PsaPacketCipher::seal(const protocol::Nonce& nonce, protocol::ByteView associated_data,
@@ -50,9 +45,10 @@ Error PsaPacketCipher::seal(const protocol::Nonce& nonce, protocol::ByteView ass
     return Error::buffer_too_small;
   }
   std::size_t length = 0;
-  const psa_status_t status = psa_aead_encrypt(
-      key_, kAlgorithm, nonce.data(), nonce.size(), associated_data.data(), associated_data.size(),
-      plaintext.data(), plaintext.size(), sealed.data(), sealed.size(), &length);
+  const psa_status_t status =
+      HSN_PSA(psa_aead_encrypt(key_, detail::kPacketAlgorithm, nonce.data(), nonce.size(),
+                               associated_data.data(), associated_data.size(), plaintext.data(),
+                               plaintext.size(), sealed.data(), sealed.size(), &length));
   if (status != PSA_SUCCESS || length != sealed.size()) {
     wipe(sealed);
     return Error::cipher_failure;
@@ -72,23 +68,16 @@ Error PsaPacketCipher::open(const protocol::Nonce& nonce, protocol::ByteView ass
     return Error::cipher_failure;
   }
   std::size_t length = 0;
-  const psa_status_t status = psa_aead_decrypt(
-      key_, kAlgorithm, nonce.data(), nonce.size(), associated_data.data(), associated_data.size(),
-      sealed.data(), sealed.size(), plaintext.data(), plaintext.size(), &length);
+  const psa_status_t status =
+      HSN_PSA(psa_aead_decrypt(key_, detail::kPacketAlgorithm, nonce.data(), nonce.size(),
+                               associated_data.data(), associated_data.size(), sealed.data(),
+                               sealed.size(), plaintext.data(), plaintext.size(), &length));
   if (status == PSA_SUCCESS && length == plaintext.size()) {
     return Error::none;
   }
   // PSA leaves the output unspecified on failure; the interface promises it zeroed.
   wipe(plaintext);
   return status == PSA_ERROR_INVALID_SIGNATURE ? Error::bad_tag : Error::cipher_failure;
-}
-
-void PsaPacketCipher::destroy_key() {
-  if (key_ != PSA_KEY_ID_NULL) {
-    // Destroying a key we imported cannot fail in a way we could act on.
-    static_cast<void>(psa_destroy_key(key_));
-    key_ = PSA_KEY_ID_NULL;
-  }
 }
 
 }  // namespace hsn::psa

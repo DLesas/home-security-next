@@ -188,6 +188,7 @@ device::HalError FakeFirmwareSlots::erase(std::uint32_t offset) {
   tick();
   device::HalError result = device::HalError::invalid;
   if (offset % kSector == 0 && offset < slot_size_) {
+    selected_ids_[other()].reset();
     result = flash.erase(slot_base(other()) + offset, FlashOp::slot_erase);
   }
   record(Operation::Kind::erase, offset, static_cast<std::uint32_t>(kSector), 0, result);
@@ -198,6 +199,7 @@ device::HalError FakeFirmwareSlots::write(std::uint32_t offset, protocol::ByteVi
   tick();
   device::HalError result = device::HalError::invalid;
   if (bytes.size() <= kSector && offset <= slot_size_ && bytes.size() <= slot_size_ - offset) {
+    selected_ids_[other()].reset();
     result = flash.program(slot_base(other()) + offset, bytes, FlashOp::slot_write);
   }
   record(Operation::Kind::write, offset, static_cast<std::uint32_t>(bytes.size()), 0, result);
@@ -276,7 +278,8 @@ protocol::ByteView FakeFirmwareSlots::slot_bytes(std::uint8_t slot) const {
 device::HalError FakeFirmwareSlots::select() {
   tick();
   const std::uint8_t target = other();
-  if (!check(target).ok) {
+  const ImageCheck checked = check(target);
+  if (!checked.ok) {
     record(Operation::Kind::select, target, 0, ota_state::new_image, device::HalError::invalid);
     return device::HalError::invalid;
   }
@@ -297,7 +300,16 @@ device::HalError FakeFirmwareSlots::select() {
     seq += 1;
   }
   const std::size_t index = selected >= 0 ? static_cast<std::size_t>(1 - selected) : 0;
-  return write_entry(index, OtaEntry::make(seq, ota_state::new_image), Operation::Kind::select);
+  const auto result =
+      write_entry(index, OtaEntry::make(seq, ota_state::new_image), Operation::Kind::select);
+  // Use the copy that actually landed, including a simulator cut that left it intact.
+  const OtaEntry written = entry(index);
+  if (written.intact() && written.seq == seq && written.state == ota_state::new_image) {
+    protocol::ImageHeader header;
+    header.image_sha256 = sha256_of(slot_bytes(target).first(checked.bytes));
+    selected_ids_[target] = protocol::image_id_of(header);
+  }
+  return result;
 }
 
 device::HalError FakeFirmwareSlots::confirm() {
@@ -398,6 +410,7 @@ BootChoice FakeFirmwareSlots::boot() {
   choice.bootable = true;
   choice.slot = slot;
   choice.image.version = check(slot).version;
+  choice.image.id = selected_ids_[slot];
   choice.image.on_trial = on_trial;
   const int newest = newest_intact_entry();
   if (newest >= 0) {
@@ -406,6 +419,7 @@ BootChoice FakeFirmwareSlots::boot() {
       choice.image.rolled_back = true;
       choice.image.failed =
           version_in_image(slot_bytes(last.slot())).value_or(protocol::FirmwareVersion{});
+      choice.image.failed_id = selected_ids_[last.slot()];
     }
   }
   running_ = slot;
@@ -421,6 +435,7 @@ BootChoice FakeFirmwareSlots::boot() {
 
 void FakeFirmwareSlots::install(std::uint8_t slot, protocol::ByteView image_bytes) {
   as_made = false;
+  selected_ids_[slot & 1u].reset();
   flash.blank(slot_base(slot & 1u), slot_size_);
   flash.load(slot_base(slot & 1u),
              image_bytes.first(std::min<std::size_t>(image_bytes.size(), slot_size_)));
@@ -466,88 +481,28 @@ device::HalError FakeKeyImport::import_key(const protocol::DeviceKey& key) {
   return device::HalError::none;
 }
 
-// ---- the crypto (test-only path, see the header) ----
-
-FakeUpdateCrypto::~FakeUpdateCrypto() {
-  if (hashing_) {
-    static_cast<void>(psa_hash_abort(&hash_));
-  }
-}
+// ---- the crypto: hsn_psa's PsaUpdateCrypto, metered and counted ----
 
 device::HalError FakeUpdateCrypto::sha256_start() {
   tick();
-  if (hashing_) {
-    static_cast<void>(psa_hash_abort(&hash_));
-    hashing_ = false;
-  }
-  if (psa_crypto_init() != PSA_SUCCESS) {
-    return device::HalError::io;
-  }
-  hash_ = PSA_HASH_OPERATION_INIT;
-  if (psa_hash_setup(&hash_, PSA_ALG_SHA_256) != PSA_SUCCESS) {
-    return device::HalError::io;
-  }
-  hashing_ = true;
-  return device::HalError::none;
+  return psa_.sha256_start();
 }
 
 device::HalError FakeUpdateCrypto::sha256_add(protocol::ByteView bytes) {
   tick();
-  if (!hashing_) {
-    return device::HalError::invalid;
-  }
-  if (psa_hash_update(&hash_, bytes.data(), bytes.size()) != PSA_SUCCESS) {
-    static_cast<void>(psa_hash_abort(&hash_));
-    hashing_ = false;
-    return device::HalError::io;
-  }
-  return device::HalError::none;
+  return psa_.sha256_add(bytes);
 }
 
 device::HalError FakeUpdateCrypto::sha256_finish(protocol::MutableByteView digest) {
   tick();
-  if (!hashing_ || digest.size() != device::kSha256Size) {
-    zero(digest);
-    return device::HalError::invalid;
-  }
-  std::size_t length = 0;
-  const psa_status_t status = psa_hash_finish(&hash_, digest.data(), digest.size(), &length);
-  hashing_ = false;
-  if (status != PSA_SUCCESS || length != digest.size()) {
-    zero(digest);
-    return device::HalError::io;
-  }
-  return device::HalError::none;
+  return psa_.sha256_finish(digest);
 }
 
 bool FakeUpdateCrypto::verify_p256(protocol::ByteView public_xy, protocol::ByteView digest,
                                    protocol::ByteView signature_rs) {
   tick();
   verifications += 1;
-  if (public_xy.size() != 64 || digest.size() != device::kSha256Size || signature_rs.size() != 64 ||
-      psa_crypto_init() != PSA_SUCCESS) {
-    return false;
-  }
-  // PSA takes the public key with its leading 0x04 (HN(a)5).
-  std::array<std::uint8_t, 65> point{};
-  point[0] = 0x04;
-  std::copy(public_xy.begin(), public_xy.end(), point.begin() + 1);
-  psa_key_attributes_t attributes = PSA_KEY_ATTRIBUTES_INIT;
-  psa_set_key_type(&attributes, PSA_KEY_TYPE_ECC_PUBLIC_KEY(PSA_ECC_FAMILY_SECP_R1));
-  psa_set_key_bits(&attributes, 256);
-  psa_set_key_algorithm(&attributes, PSA_ALG_ECDSA(PSA_ALG_SHA_256));
-  psa_set_key_usage_flags(&attributes, PSA_KEY_USAGE_VERIFY_HASH);
-  psa_key_id_t key = PSA_KEY_ID_NULL;
-  const psa_status_t imported = psa_import_key(&attributes, point.data(), point.size(), &key);
-  psa_reset_key_attributes(&attributes);
-  if (imported != PSA_SUCCESS) {
-    return false;
-  }
-  const psa_status_t status =
-      psa_verify_hash(key, PSA_ALG_ECDSA(PSA_ALG_SHA_256), digest.data(), digest.size(),
-                      signature_rs.data(), signature_rs.size());
-  static_cast<void>(psa_destroy_key(key));
-  const bool ok = status == PSA_SUCCESS;
+  const bool ok = psa_.verify_p256(public_xy, digest, signature_rs);
   verified += ok ? 1 : 0;
   return ok;
 }
@@ -555,30 +510,22 @@ bool FakeUpdateCrypto::verify_p256(protocol::ByteView public_xy, protocol::ByteV
 device::HalError FakeUpdateCrypto::session_key(protocol::ByteView nonce, std::uint32_t address,
                                                protocol::MutableByteView out) {
   tick();
-  if (!keys_.key().has_value() || out.size() != device::kSessionKeySize) {
+  if (!keys_.key().has_value()) {
     zero(out);
     return device::HalError::invalid;
   }
-  const auto info = session_info(address);
-  if (!hkdf_sha256(protocol::ByteView(*keys_.key()), nonce, protocol::ByteView(info), out)) {
+  // The board's key may have changed since the last call (FakeKeyImport): PSA gets it each time.
+  if (psa_.set_device_key(*keys_.key()) != device::HalError::none) {
     zero(out);
     return device::HalError::io;
   }
-  return device::HalError::none;
+  return psa_.session_key(nonce, address, out);
 }
 
 device::HalError FakeUpdateCrypto::hmac_sha256(protocol::ByteView key, protocol::ByteView message,
                                                protocol::MutableByteView out) {
   tick();
-  if (out.size() != device::kSha256Size || key.empty()) {
-    zero(out);
-    return device::HalError::invalid;
-  }
-  if (!hmac(key, message, out)) {
-    zero(out);
-    return device::HalError::io;
-  }
-  return device::HalError::none;
+  return psa_.hmac_sha256(key, message, out);
 }
 
 }  // namespace hsn::host

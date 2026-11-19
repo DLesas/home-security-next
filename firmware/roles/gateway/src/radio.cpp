@@ -54,10 +54,14 @@ void GatewayRole::listen(device::Instant now) {
   }
   radio.mode = RadioMode::listening;
   state_.timers.cancel(GatewayTimer::radio_guard);
+  // Continuous receive is running: part of a new image's health (m3-updates-design.md 2).
+  receive_healthy_ = true;
 }
 
 void GatewayRole::recover_radio(device::Instant now, std::uint16_t code, std::int32_t value) {
   services_.log.add(now, device::LogLevel::error, code, "radio reset", value);
+  // A fault: health waits for the receive to start again without one.
+  receive_healthy_ = false;
   if (state_.radio.mode == RadioMode::transmitting) {
     transmission_done(now, protocol::TransmitOutcome::radio_busy);
   }

@@ -1,6 +1,11 @@
 #include "gateway_bench.hpp"
 
+#include <algorithm>
+#include <type_traits>
+
+#include "hsn/protocol/checksum.hpp"
 #include "hsn/protocol/setup.hpp"
+#include "hsn/protocol/transfer.hpp"
 
 namespace hsn::test {
 
@@ -148,7 +153,49 @@ void LinkHub::link_down(host::LinkWire& wire) {
   }
 }
 
+void LinkHub::serve(host::LinkWire& wire, const Bytes& frame) {
+  static_cast<void>(protocol::decode_transfer(
+      protocol::ByteView(frame.data(), frame.size()), [&](const auto& decoded) {
+        using Frame = std::decay_t<decltype(decoded)>;
+        if constexpr (std::is_same_v<Frame, protocol::transfer::Get>) {
+          gets.push_back(sim_.now());
+          if (file == nullptr) {
+            return;
+          }
+          Bytes out(protocol::kTransferDataHeaderSize + protocol::kMaxTransferData);
+          const protocol::MutableByteView room(out.data(), out.size());
+          std::size_t size = 0;
+          if (decoded.offset >= file->size()) {
+            protocol::transfer::Gone gone;
+            gone.image_id = decoded.image_id;
+            gone.reason = protocol::GoneReason::out_of_range;
+            const auto encoded = protocol::encode_transfer(gone, room);
+            REQUIRE(encoded.ok());
+            size = encoded.value();
+          } else {
+            const std::size_t length = std::min<std::size_t>(
+                decoded.length, file->size() - static_cast<std::size_t>(decoded.offset));
+            const protocol::ByteView data(file->data() + decoded.offset, length);
+            protocol::transfer::Data answer;
+            answer.image_id = decoded.image_id;
+            answer.offset = decoded.offset;
+            answer.crc32 = protocol::crc32(data);
+            answer.data.bytes = data;
+            const auto encoded = protocol::encode_transfer(answer, room);
+            REQUIRE(encoded.ok());
+            size = encoded.value();
+          }
+          out.resize(size);
+          wire.send_to_device(out);
+        }
+      }));
+}
+
 void LinkHub::link_packet(host::LinkWire& wire, const Bytes& packet) {
+  if (!packet.empty() && packet[0] == protocol::kTransferMarker) {
+    serve(wire, packet);
+    return;
+  }
   if (packet.size() == 3 && packet[0] == protocol::kSetupMarker &&
       packet[1] == protocol::setup_type::provision_result) {
     provision_results.push_back(packet[2]);
@@ -355,6 +402,43 @@ LinkSite::LinkSite(std::uint8_t listen_mask, host::SimulationOptions options)
     : sim(options), gateway(lone_gateway(sim)), hub(sim, gateway, gateway_pairing()) {
   hub.settings.listen_data_rate_mask = listen_mask;
   hub.attach(device::LinkKind::network);
+}
+
+SignedImage::SignedImage(std::size_t bytes) {
+  const Bytes image = host::make_test_image(kNewImage, bytes);
+  const host::HubSigningKey key;
+  header = key.header_for(protocol::ByteView(image.data(), image.size()));
+  header.hub_identity = host::Provisioning{}.hub_identity;
+  key.sign(header);
+  id = protocol::image_id_of(header);
+  file = host::image_file(header, protocol::ByteView(image.data(), image.size()));
+}
+
+UpdateLinkSite::UpdateLinkSite(std::uint8_t listen_mask, host::SimulationOptions options)
+    : site(listen_mask, options) {
+  host::Provisioning pairing = gateway_pairing();
+  pairing.signing_key = host::HubSigningKey().public_key();
+  host::provision(site.gateway.board(), pairing);
+}
+
+protocol::UpdateOffer offer_of(std::uint8_t action, const SignedImage& image) {
+  protocol::UpdateOffer offer;
+  offer.action = action;
+  offer.image_id = image.id;
+  offer.file_bytes = static_cast<std::uint32_t>(image.file.size());
+  offer.version = kNewImage;
+  return offer;
+}
+
+std::vector<protocol::UpdateStatus> link_statuses(const LinkHub& hub) {
+  std::vector<protocol::UpdateStatus> out;
+  for (const LinkHub::Got& got : hub.got(type::update_status)) {
+    protocol::UpdateStatus status;
+    REQUIRE(protocol::decode_body(protocol::ByteView(got.body.data(), got.body.size()), status) ==
+            protocol::Error::none);
+    out.push_back(status);
+  }
+  return out;
 }
 
 }  // namespace hsn::test

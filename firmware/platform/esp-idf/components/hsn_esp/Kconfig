@@ -1,0 +1,20 @@
+menu "HSN firmware"
+
+    config HSN_DEVELOPMENT_BUILD
+        bool "Development build"
+        default y
+        help
+            A development build accepts Provision and Erase at any time and Set role whenever it
+            is sent, and says so in its identity (protocol section 10, PR5). M1b's bench boards
+            are development builds; a release build turns this off.
+
+    config HSN_LOG_EVENTS
+        bool "Print every radio event and packet on the console"
+        default n
+        help
+            Raises the waiter's own log tag to debug at start-up, so each radio event (its kind,
+            time, size, RSSI and SNR) and each link packet's size is printed on UART0. It needs
+            CONFIG_LOG_MAXIMUM_LEVEL_DEBUG, which sdkconfig.bench sets with this. For the bench
+            only: printing costs time on every event.
+
+endmenu

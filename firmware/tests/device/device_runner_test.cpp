@@ -221,6 +221,34 @@ TEST_CASE("setup messages are answered on USB, never reach the role, and are ign
   CHECK(run.role.seen.size() == 2);
 }
 
+TEST_CASE("USB Identify reaches only the active gateway and only after its Identity reply") {
+  for (const std::uint8_t role :
+       {protocol::Role::sensor, protocol::Role::siren, protocol::Role::gateway}) {
+    host::HostBoard board;
+    pair_board(board, role);
+    Instance run(board, role);
+    run.runner.start(board.boot_event(BootKind::power_on));
+    REQUIRE_FALSE(run.device.setup_only());
+    run.role.on_event = [&](const device::Event& event) {
+      REQUIRE(event.kind == EventKind::link);
+      CHECK(event.link.link == device::LinkKind::usb);
+      CHECK(event.link.packet[1] == protocol::Identify::type);
+      REQUIRE(board.usb.sent.size() == 1);
+      CHECK(board.usb.sent.front().packet[1] == protocol::setup_type::identity);
+    };
+
+    const Bytes identify{protocol::kSetupMarker, protocol::Identify::type};
+    run.runner.deliver(
+        device::Event::from_link(board.clock.now(), board.network.packet_event(identify)));
+    CHECK(board.usb.sent.empty());
+    CHECK(run.role.seen.size() == 1);
+    run.runner.deliver(
+        device::Event::from_link(board.clock.now(), board.usb.packet_event(identify)));
+    CHECK(board.usb.sent.size() == 1);
+    CHECK(run.role.seen.size() == (role == protocol::Role::gateway ? 2 : 1));
+  }
+}
+
 TEST_CASE("an accepted provision restarts the device with nothing retained") {
   host::HostBoard board;
   std::optional<Instance> instance;

@@ -108,8 +108,10 @@ HalError SetupService::factory_reset() {
 }
 
 SetupResult SetupService::provision(const protocol::Provision& message, MutableByteView reply,
-                                    LogBuffer& log, Instant now) {
-  const bool allowed = build_.development || (role() == protocol::Role::gateway && !paired());
+                                    LogBuffer& log, Instant now, LinkKind link) {
+  const bool allowed = link == LinkKind::bluetooth
+                           ? role() != 0 && !paired()
+                           : build_.development || (role() == protocol::Role::gateway && !paired());
   if (!allowed) {
     return reply_provision(protocol::ProvisionOutcome::refused, reply, SetupAction::none);
   }
@@ -150,24 +152,34 @@ SetupResult SetupService::set_role(const protocol::SetRole& message, MutableByte
 
 SetupResult SetupService::handle(ByteView message, MutableByteView reply, LogBuffer& log,
                                  Instant now) {
+  return handle(LinkKind::usb, message, reply, log, now);
+}
+
+SetupResult SetupService::handle(LinkKind link, ByteView message, MutableByteView reply,
+                                 LogBuffer& log, Instant now) {
+  if (link != LinkKind::usb && link != LinkKind::bluetooth) {
+    return {};
+  }
   SetupResult result;
   const protocol::Error error = protocol::decode_setup(message, [&](const auto& decoded) {
     using Message = std::decay_t<decltype(decoded)>;
     if constexpr (std::is_same_v<Message, protocol::Identify>) {
       result = reply_identity(reply, SetupAction::none);
     } else if constexpr (std::is_same_v<Message, protocol::Provision>) {
-      result = provision(decoded, reply, log, now);
+      result = provision(decoded, reply, log, now, link);
     } else if constexpr (std::is_same_v<Message, protocol::Erase>) {
-      if (build_.development) {
+      if (link == LinkKind::usb && build_.development) {
         if (factory_reset() != HalError::none) {
           log.add(now, LogLevel::error, log_code::storage_failed, "erase");
         }
         result = SetupResult{0, SetupAction::restart};
-      } else {
+      } else if (link == LinkKind::usb) {
         log.add(now, LogLevel::warning, log_code::setup_ignored, "erase in release");
       }
     } else if constexpr (std::is_same_v<Message, protocol::SetRole>) {
-      result = set_role(decoded, reply, log, now);
+      if (link == LinkKind::usb) {
+        result = set_role(decoded, reply, log, now);
+      }
     } else {
       // Identity and provision result travel the other way.
       log.add(now, LogLevel::info, log_code::setup_ignored, "setup to hub");

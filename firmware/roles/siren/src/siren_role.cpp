@@ -21,6 +21,7 @@ std::uint8_t SirenRole::role_id() const {
 void SirenRole::handle(const device::Event& event) {
   const device::Instant now = event.now;
   telemetry_read_ = false;
+  key_change_in_event_ = false;
   switch (event.kind) {
     case device::EventKind::boot:
       on_boot(event.boot, now);
@@ -41,9 +42,16 @@ void SirenRole::handle(const device::Event& event) {
     on_port(services_.radio_port.on_timer(now), now);
   }
   run_timers(now);
-  pump_lora(now);
+  if (!key_change_in_event_) {
+    release_install(now);
+    pump_update(now);
+    pump_lora(now);
+  }
   keep_listening(now);
-  flush_logs_wifi(now);
+  if (!key_change_in_event_) {
+    flush_logs_wifi(now);
+  }
+  check_health(now);
   state_.last_seen = now;
 }
 
@@ -123,13 +131,6 @@ std::uint8_t SirenRole::state_id() const {
 
 device::Duration SirenRole::longest_awake() const {
   return device::Duration{};  // always powered: no bound (design section 6)
-}
-
-void SirenRole::report_again(device::Instant now) {
-  // Step 4 of the key change after a hub restore (m3-updates-design.md section 7), the role
-  // owner's to build. Device calls it only after SecureChannel::change_key succeeds, which it
-  // does not yet.
-  static_cast<void>(now);
 }
 
 }  // namespace hsn::roles::siren

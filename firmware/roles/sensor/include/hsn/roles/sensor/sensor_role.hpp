@@ -34,8 +34,16 @@ constexpr device::Duration kSensorLongestAwake = kLongestAwake;
  * when answers stop; sends its warnings over LoRa after heartbeats; handles the button's press
  * and holds, including the factory reset of D89; and sleeps deep whenever it is idle.
  *
+ * For firmware updates (m3-updates-design.md sections 2, 5, 6) it is healthy when the reply to its
+ * Started arrives; it sends the update service's queries and statuses over LoRa as reports of
+ * their own, answered by a reply or an offer bound to them, and on the network link while the
+ * service holds it up for an update; it refuses an offer to fetch, open Bluetooth or install while
+ * it is armed or its battery is below the floor; and its door, cover and button go on exactly as
+ * before throughout. After a hub restore it opens a Key change bound to any of its packets,
+ * changes its key and says again, under the new key, what it was saying (section 7).
+ *
  * The behaviour is split by concern over the files in src/: boot, inputs, button, reports,
- * radio, replies, alerts, heartbeat, sleep.
+ * radio, replies, alerts, heartbeat, updates, sleep.
  */
 class SensorRole final : public device::Role {
 public:
@@ -146,7 +154,8 @@ private:
   bool radio_held() const;
 
   // replies.cpp: what the hub sends (§4, §6).
-  void on_packet(protocol::ByteView packet, device::Instant now);
+  /** A hub packet, on the radio or on the network link the update service joined. */
+  void on_packet(protocol::ByteView packet, device::UpdatePath path, device::Instant now);
   void on_reply(const protocol::Reply& reply, std::uint32_t answered, TryKind kind,
                 device::Instant now);
   /** Keeps the reply's settings: flash only when a stored field changes (design §5). */
@@ -177,12 +186,42 @@ private:
   /** Scales a sleep time by the hub's clock correction (§6, reply). */
   device::Duration corrected(device::Duration nominal) const;
   void run_heartbeat_timers(device::Instant now);
-  void send_heartbeat(device::Instant now);
+  /** Sends a heartbeat; Status::ok when the port took it. */
+  device::Status send_heartbeat(device::Instant now);
   void heartbeat_window_closed(device::Instant now);
   /** The hub's slot: the next heartbeat `tenths` after `answered_end`, the answered packet's end.
    */
   void take_slot(device::Instant answered_end, std::uint16_t tenths);
   void run_log(device::Instant now);
+
+  // updates.cpp: the update service's packets, offers, refusals and the key change's step 4.
+  /** What an update try or a link packet would carry now, if anything. */
+  struct UpdateOut {
+    device::UpdatePacket packet;
+    /** The sensor's own refusal (state_.refusal_*), not the service's packet. */
+    bool refusal = false;
+  };
+  /** The update packet that would go over LoRa now; kind none when nothing may. */
+  UpdateOut lora_update(device::Instant now) const;
+  /** Queues the update report, or sends on the network link while it is up. */
+  void queue_update(device::Instant now);
+  /** Seals and sends what the update service asks on the network link (it is up). */
+  void send_update_on_link(device::Instant now);
+  /** The try of report_bit::update: the refusal, the status or the query, over LoRa. */
+  device::Status send_update_try(device::Instant now);
+  /** Fills a packet for the hub: a query's battery and flags; the refusal's status. */
+  void fill(UpdateOut& out, device::Instant now);
+  /** The hub answered the update packet sent last (`sent_update_`): it is out. */
+  void update_answered(device::Instant now);
+  /** An update offer bound to one of the sensor's packets of `kind`, on `path`. */
+  void on_offer(const protocol::UpdateOffer& offer, TryKind kind, device::UpdatePath path,
+                device::Instant now);
+  /** The sensor's own refusal of an offer: armed, or the battery below the floor; 0 for none. */
+  std::uint8_t own_refusal(const protocol::UpdateOffer& offer);
+  /** A Key change bound to one of the sensor's packets (§7): the key changes. */
+  void on_key_change(protocol::ByteView body, device::Instant now);
+  /** Sends the heartbeat a key change owes, when it is due and the radio is free. */
+  void run_heartbeat_again(device::Instant now);
 
   // sleep.cpp: how deeply to sleep (DS1, §10, design §6).
   bool can_sleep_deep() const;
@@ -205,6 +244,15 @@ private:
   bool deferred_past_limit_ = false;
   std::array<std::uint32_t, device::kMaxBoundCandidates> candidates_{};
   std::array<std::uint8_t, protocol::kMaxRadioPacketSize> packet_{};
+  /** RAM only: the update packet sent last, on either path, until the hub answers it. */
+  UpdateOut sent_update_;
+  /** RAM only: the latest event's `now` (UpdateService::next_packet reads no clock). */
+  device::Instant now_;
+  /**
+   * RAM only: this event opened a Key change. Nothing more is sent in it: if the key changed,
+   * report_again() (after the event) says first what the sensor was saying, under the new key.
+   */
+  bool key_change_in_event_ = false;
 };
 
 static_assert(device::is_complete_role<SensorRole>, "a role must override every Role method");

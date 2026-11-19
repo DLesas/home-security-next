@@ -3,6 +3,7 @@
 // of other sessions; reconnecting on the back-off schedule; USB or Wi-Fi.
 
 #include "gateway_bench.hpp"
+#include "hsn/protocol/setup.hpp"
 
 namespace hsn::test {
 namespace {
@@ -66,6 +67,68 @@ TEST_CASE("FW8 GW4 every connection has a new random value and the settings vers
   CHECK(gateway.board().storage.write_count(roles::gateway::kSettingsKey) == 1);
   // Started once per start-up (§6).
   CHECK(hub_got<protocol::Started>(site.hub, "gateway").size() == 2);
+}
+
+TEST_CASE("USB Identify restarts an established USB session with a fresh hello") {
+  host::Simulation sim;
+  host::DeviceSpec spec;
+  spec.name = "gateway";
+  spec.role = gateway_role();
+  host::SimDevice& gateway = sim.add_device(spec);
+  host::provision(gateway.board(), gateway_pairing());
+  LinkHub hub(sim, gateway, gateway_pairing());
+  hub.auto_welcome = false;
+  hub.attach(device::LinkKind::usb);
+  sim.run_until(at(milliseconds(500)));
+  REQUIRE(hub.hellos == 1);
+  const auto first = hub.gateway_random;
+  const Bytes identify{protocol::kSetupMarker, protocol::Identify::type};
+  sim.schedule(at(milliseconds(500)), [&] { hub.send_raw(identify); });
+  sim.run_until(at(milliseconds(750)));
+  CHECK(hub.hellos == 1);
+  CHECK(hub.gateway_random == first);
+
+  sim.schedule(at(milliseconds(750)), [&] { hub.welcome(); });
+  sim.run_until(at(seconds(1)));
+  REQUIRE(gateway_of(gateway).state().connection.phase == ConnectionPhase::connected);
+  const Bytes old_welcome = hub.last_welcome;
+  sim.schedule(at(seconds(1)), [&] { hub.send_raw(identify); });
+  sim.run_until(at(milliseconds(1250)));
+  REQUIRE(hub.hellos == 2);
+  CHECK(hub.gateway_random != first);
+  CHECK(gateway_of(gateway).state().connection.phase == ConnectionPhase::awaiting_welcome);
+  sim.schedule(at(milliseconds(1250)), [&] { hub.send_raw(old_welcome); });
+  sim.run_until(at(milliseconds(1500)));
+  CHECK(gateway_of(gateway).state().connection.phase == ConnectionPhase::awaiting_welcome);
+  sim.schedule(at(milliseconds(1500)), [&] { hub.welcome(); });
+  sim.run_until(at(milliseconds(1750)));
+  CHECK(gateway_of(gateway).state().connection.phase == ConnectionPhase::connected);
+}
+
+TEST_CASE("USB Identify leaves an established Wi-Fi session alone") {
+  host::Simulation sim;
+  host::DeviceSpec spec;
+  spec.name = "gateway";
+  spec.role = gateway_role();
+  host::SimDevice& gateway = sim.add_device(spec);
+  host::provision(gateway.board(), gateway_pairing());
+  LinkHub network(sim, gateway, gateway_pairing());
+  network.attach(device::LinkKind::network);
+  sim.run_until(at(seconds(3)));
+  const auto& connection = gateway_of(gateway).state().connection;
+  REQUIRE(connection.phase == ConnectionPhase::connected);
+  REQUIRE(connection.link == device::LinkKind::network);
+  const auto generation = connection.generation;
+
+  LinkHub usb(sim, gateway, gateway_pairing());
+  usb.attach(device::LinkKind::usb);
+  sim.schedule(at(seconds(3)),
+               [&] { usb.send_raw(Bytes{protocol::kSetupMarker, protocol::Identify::type}); });
+  sim.run_until(at(milliseconds(3250)));
+  CHECK(usb.hellos == 0);
+  CHECK(connection.phase == ConnectionPhase::connected);
+  CHECK(connection.link == device::LinkKind::network);
+  CHECK(connection.generation == generation);
 }
 
 TEST_CASE("GW8 the network link is asked for the paired hub, network and password") {

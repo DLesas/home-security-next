@@ -34,6 +34,8 @@ std::uint8_t SensorRole::role_id() const {
 
 void SensorRole::handle(const device::Event& event) {
   const device::Instant now = event.now;
+  now_ = now;
+  key_change_in_event_ = false;
   switch (event.kind) {
     case device::EventKind::boot:
       on_boot(event.boot, now);
@@ -44,9 +46,16 @@ void SensorRole::handle(const device::Event& event) {
     case device::EventKind::radio:
       on_radio(event.radio, now);
       break;
-    case device::EventKind::timer:
     case device::EventKind::link:
-      // A timer only means "something is due"; a sensor has no link until M3.
+      // The network link is the update service's, up only for an update (§10): its up and down
+      // are the service's (Device tells it), and the hub's packets on it are answers to ours.
+      if (event.link.link == device::LinkKind::network &&
+          event.link.kind == device::LinkEventKind::packet) {
+        on_packet(event.link.packet, device::UpdatePath::network, now);
+      }
+      break;
+    case device::EventKind::timer:
+      // A timer only means "something is due".
       break;
   }
   advance(now);
@@ -67,11 +76,15 @@ void SensorRole::advance(device::Instant now) {
   if (restart_) {
     return;
   }
-  run_tries(now);
-  if (restart_) {
-    return;
+  if (!key_change_in_event_) {
+    run_heartbeat_again(now);
+    queue_update(now);
+    run_tries(now);
+    if (restart_) {
+      return;
+    }
+    run_log(now);
   }
-  run_log(now);
   keep_listening(now);
 }
 
@@ -120,13 +133,6 @@ device::Duration SensorRole::longest_awake() const {
                                       ? state_.awake_bound_from - state_.awake_since
                                       : device::Duration{};
   return kSensorLongestAwake + exempt;
-}
-
-void SensorRole::report_again(device::Instant now) {
-  // Step 4 of the key change after a hub restore (m3-updates-design.md section 7), the role
-  // owner's to build. Device calls it only after SecureChannel::change_key succeeds, which it
-  // does not yet.
-  static_cast<void>(now);
 }
 
 }  // namespace hsn::roles::sensor

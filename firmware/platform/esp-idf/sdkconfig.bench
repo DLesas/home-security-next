@@ -1,0 +1,5 @@
+# Added after sdkconfig.defaults for bring-up on the bench: every radio event and link packet on
+# the console (CONFIG_HSN_LOG_EVENTS), other components still at info.
+#   idf.py ... -DSDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.bench" build
+CONFIG_LOG_MAXIMUM_LEVEL_DEBUG=y
+CONFIG_HSN_LOG_EVENTS=y

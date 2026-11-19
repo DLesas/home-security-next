@@ -50,6 +50,13 @@ bool SensorRole::at_send_rate() const {
 }
 
 std::uint8_t SensorRole::listen_rate() const {
+  if (!state_.report_window_end.is_never() && state_.report_kind == TryKind::started &&
+      state_.settings_version != 0 && !state_.use_next) {
+    // Started carries no flag bit 7, only the settings version: the hub answers it at that
+    // version's reply rate (§7, "Which rate the hub uses"), whatever the fall-back says. A new
+    // image on trial depends on hearing it (m3-updates-design.md section 2).
+    return state_.settings.reply_data_rate;
+  }
   return at_send_rate() ? send_rate_in_use() : state_.settings.reply_data_rate;
 }
 
@@ -115,7 +122,7 @@ void SensorRole::on_port_report(const device::PortReport& report, const device::
       break;
     case device::PortResult::received:
       if (radio != nullptr) {
-        on_packet(radio->packet, now);
+        on_packet(radio->packet, device::UpdatePath::radio, now);
       }
       break;
     case device::PortResult::not_sent:
@@ -136,10 +143,15 @@ void SensorRole::on_port_report(const device::PortReport& report, const device::
 }
 
 void SensorRole::on_sent(device::Instant at, device::Instant now) {
-  static_cast<void>(now);
   const TryKind kind = state_.tx_kind;
   state_.tx_kind = TryKind::none;
   state_.last_tx_end = at;
+  if (kind == TryKind::update && !sent_update_.refusal &&
+      sent_update_.packet.kind == device::UpdatePacketKind::status &&
+      sent_update_.packet.status.stage == protocol::UpdateStage::installing) {
+    // "Installing" is out only now, on the air: the restart it announces may come.
+    update_answered(now);
+  }
   switch (kind) {
     case TryKind::heartbeat:
       // Sleep until the reply moment, then listen briefly (§7, sensor heartbeat).
@@ -165,7 +177,7 @@ void SensorRole::on_send_failed(device::Instant now) {
   state_.tx_kind = TryKind::none;
   services_.log.add(now, device::LogLevel::warning, sensor_log::radio_failed, "not sent");
   if (kind == TryKind::door || kind == TryKind::cover || kind == TryKind::started ||
-      kind == TryKind::button || kind == TryKind::going_ahead) {
+      kind == TryKind::button || kind == TryKind::going_ahead || kind == TryKind::update) {
     state_.report_kind = kind;
     next_retry(now, now);
   }

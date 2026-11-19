@@ -19,6 +19,7 @@
 #include "hsn/protocol/cipher.hpp"
 #include "hsn/protocol/transfer.hpp"
 #include "hsn/psa/psa_packet_cipher.hpp"
+#include "hsn/psa/psa_update_crypto.hpp"
 
 namespace hsn::host {
 
@@ -218,6 +219,8 @@ private:
   std::uint8_t running_ = 0;
   /** The otadata copy this boot's image was selected by; -1 when otadata was blank. */
   int running_entry_ = -1;
+  /** IDs of OTA selections that landed. A simulated reset keeps these with the slot contents. */
+  std::array<std::optional<protocol::ImageId>, 2> selected_ids_{};
   struct Cached {
     std::uint64_t generation = 0;
     bool valid = false;
@@ -257,18 +260,15 @@ private:
 };
 
 /**
- * The update crypto, computed for real through PSA Crypto (TF-PSA-Crypto, which the host build
- * links): SHA-256, P-256 verification, the Bluetooth session key (HKDF-SHA256) from the key the
- * board holds, and HMAC-SHA256.
- *
- * TEST-ONLY PATH: this calls PSA directly until hsn_psa's own UpdateCrypto (engineer U3, in
- * platform/psa/) exists; then it should forward to that, so the bench runs the code the board
- * runs. Its results are checked against the vectors either way.
+ * The update crypto, computed for real by hsn_psa's PsaUpdateCrypto, the code the board runs (on
+ * TF-PSA-Crypto, which the host build links): SHA-256, P-256 verification, the Bluetooth session
+ * key (HKDF-SHA256) from the key the board holds, and HMAC-SHA256. This adds the call meter and
+ * the counts, and hands PsaUpdateCrypto the key FakeKeyImport holds before each session key.
  */
 class FakeUpdateCrypto final : public device::UpdateCrypto, public Metered {
 public:
   explicit FakeUpdateCrypto(const FakeKeyImport& keys) : keys_(keys) {}
-  ~FakeUpdateCrypto();
+  ~FakeUpdateCrypto() = default;
   FakeUpdateCrypto(const FakeUpdateCrypto&) = delete;
   FakeUpdateCrypto& operator=(const FakeUpdateCrypto&) = delete;
 
@@ -288,8 +288,7 @@ public:
 
 private:
   const FakeKeyImport& keys_;
-  psa_hash_operation_t hash_ = PSA_HASH_OPERATION_INIT;
-  bool hashing_ = false;
+  psa::PsaUpdateCrypto psa_;
 };
 
 /** A Bluetooth session key: 32 bytes. */

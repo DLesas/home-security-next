@@ -247,6 +247,12 @@ void GatewayRole::on_hub_packet(const device::LinkEvent& event, device::Instant 
     return;
   }
   if (!was_welcomed) {
+    if (opened.value().type == protocol::message_type::key_change) {
+      // In place of the welcome after a hub restore: the connection stays unwelcomed, and once the
+      // key has changed the gateway says hello again (§7).
+      on_key_change(opened.value().body, probe, now);
+      return;
+    }
     if (probe) {
       // Welcomed on USB while on Wi-Fi: USB only from now on (protocol section 10).
       drop_requests(now);
@@ -289,6 +295,17 @@ void GatewayRole::on_message(const protocol::OpenedPacket& opened, device::Insta
         return;
       }
       on_transmit_request(request, opened.header.counter, now);
+      return;
+    }
+    case protocol::message_type::update_offer: {
+      protocol::UpdateOffer offer;
+      const protocol::Error error = protocol::decode_body(opened.body, offer);
+      if (error != protocol::Error::none) {
+        services_.log.add(now, device::LogLevel::warning, gateway_log::unexpected_type,
+                          "offer malformed", static_cast<std::int32_t>(error));
+        return;
+      }
+      on_offer(offer, now);
       return;
     }
     default:

@@ -39,6 +39,8 @@ TryKind kind_of_bit(std::uint8_t bit) {
       return TryKind::cover;
     case report_bit::started:
       return TryKind::started;
+    case report_bit::update:
+      return TryKind::update;
     default:
       return TryKind::button;
   }
@@ -57,6 +59,8 @@ std::uint8_t bit_of_kind(TryKind kind) {
       return report_bit::started;
     case TryKind::button:
       return report_bit::button;
+    case TryKind::update:
+      return report_bit::update;
     default:
       return 0;
   }
@@ -128,8 +132,22 @@ void SensorRole::send_try(device::Instant now) {
   const std::uint8_t pool = state_.unsent != 0 ? state_.unsent : state_.waiting;
   const std::uint8_t bit = first_bit(pool);
   const TryKind kind = kind_of_bit(bit);
+  if (bit == report_bit::update && lora_update(now).packet.kind == device::UpdatePacketKind::none) {
+    // Nothing is left to say: it went on the link meanwhile, or the service dropped it.
+    state_.waiting = static_cast<std::uint8_t>(state_.waiting & ~bit);
+    state_.unsent = static_cast<std::uint8_t>(state_.unsent & ~bit);
+    if (state_.waiting != 0) {
+      state_.timers.arm(SensorTimer::retry, now);
+    } else {
+      state_.attempt = 0;
+      state_.tries.remove_reports();
+    }
+    return;
+  }
   device::Status sent = device::Status::ok;
-  if (bit == report_bit::started) {
+  if (bit == report_bit::update) {
+    sent = send_update_try(now);
+  } else if (bit == report_bit::started) {
     sent = send_message(services_.health.started(protocol::Role::sensor, state_.settings_version),
                         device::TxClass::essential, kind, now);
   } else if (bit == report_bit::door) {
@@ -179,6 +197,20 @@ void SensorRole::give_up(device::Instant now) {
   services_.log.add(now, device::LogLevel::warning, sensor_log::report_given_up, "report given up",
                     state_.waiting);
   const bool going_ahead = (state_.waiting & report_bit::going_ahead) != 0;
+  if ((state_.waiting & report_bit::update) != 0) {
+    // A whole run unanswered: the update packet is dropped, so it does not hold the sensor awake
+    // for ever. The hub learns where the update stands from the next query or Started.
+    const UpdateOut out = lora_update(now);
+    if (out.refusal) {
+      state_.refusal_pending = false;
+    } else if (out.packet.kind != device::UpdatePacketKind::none) {
+      state_.update_query_due = false;
+      if (out.packet.kind == device::UpdatePacketKind::status) {
+        services_.update.packet_sent(now);
+      }
+    }
+    sent_update_ = UpdateOut{};
+  }
   const bool reset_waits =
       state_.reset == ResetPhase::armed_wait && (state_.waiting & report_bit::button) != 0;
   state_.waiting = 0;
@@ -229,9 +261,13 @@ void SensorRole::report_answered(TryKind kind, device::Instant now) {
   if (kind == TryKind::door && state_.opening == Opening::unanswered) {
     state_.opening = Opening::none;
   }
-  if (kind == TryKind::started && services_.health.reported() != device::HalError::none) {
-    services_.log.add(now, device::LogLevel::error, sensor_log::fatal_not_cleared,
-                      "fatal code not cleared");
+  if (kind == TryKind::started) {
+    // The reply bound to Started: a new image is healthy (m3-updates-design.md section 2).
+    services_.update.healthy(now);
+    if (services_.health.reported() != device::HalError::none) {
+      services_.log.add(now, device::LogLevel::error, sensor_log::fatal_not_cleared,
+                        "fatal code not cleared");
+    }
   }
   const std::uint8_t bit = bit_of_kind(kind);
   if ((state_.unsent & bit) == 0) {

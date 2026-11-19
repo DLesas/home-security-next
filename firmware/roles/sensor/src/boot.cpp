@@ -29,6 +29,10 @@ void SensorRole::on_boot(const device::BootInfo& boot, device::Instant now) {
     // Whatever was playing or sending stopped with the reset.
     state_.sound = kSoundUnknown;
     queue_report(report_bit::started, now);
+    // A start-up while the update service holds part of an image is a (re)connection: its query
+    // goes over LoRa, after Started (protocol section 6, update query). A deep-sleep wake is not.
+    state_.update_query_due =
+        services_.update.next_packet(now).kind == device::UpdatePacketKind::query;
   }
 }
 

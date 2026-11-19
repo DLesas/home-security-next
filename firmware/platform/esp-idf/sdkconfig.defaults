@@ -1,0 +1,77 @@
+# ESP-IDF v6.1.1 settings for the firmware on the ESP32-S3 (M1b). Each option's name was read in
+# the installed ESP-IDF's Kconfig files; the reason for each is beside it. Every other option keeps
+# ESP-IDF's default.
+
+CONFIG_IDF_TARGET="esp32s3"
+
+# Flash: 8 MB (ESP32-S3-WROOM-1-N8R8 on the Olimex board; the same 8 MB on our own board), the
+# partition table of m3-updates-design.md section 2 at 0x8000.
+CONFIG_ESPTOOLPY_FLASHSIZE_8MB=y
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+CONFIG_PARTITION_TABLE_OFFSET=0x8000
+
+# Trial boot and rollback (D134): a new image boots PENDING_VERIFY and any reset before it confirms
+# boots the other slot. Fast boot from deep sleep stays off (the image is checked on every wake),
+# since its effect on rollback is untested (hardware notes (b)).
+CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
+
+# The core's rules: no exceptions, no RTTI (ESP-IDF's defaults, stated so a change is seen), and
+# a size-optimised build, as the host's release preset.
+CONFIG_COMPILER_CXX_EXCEPTIONS=n
+CONFIG_COMPILER_CXX_RTTI=n
+CONFIG_COMPILER_OPTIMIZATION_SIZE=y
+
+# The task watchdog (design section 6): 5 s, a panic and reset on timeout, and only the main task
+# subscribed (by Watchdog::start in the platform); the idle tasks are not watched.
+CONFIG_ESP_TASK_WDT_EN=y
+CONFIG_ESP_TASK_WDT_INIT=y
+CONFIG_ESP_TASK_WDT_PANIC=y
+CONFIG_ESP_TASK_WDT_TIMEOUT_S=5
+CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU0=n
+CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU1=n
+
+# The console on UART0, which the Olimex board's CH340X bridge carries (USB-UART1 socket), and
+# nothing on the chip's own USB serial port: that port is the gateway's byte-clean link to the hub
+# (protocol section 10), so the secondary console that ESP-IDF puts there by default is off.
+CONFIG_ESP_CONSOLE_UART_DEFAULT=y
+CONFIG_ESP_CONSOLE_SECONDARY_NONE=y
+
+# The main task runs the core; 8 KB of stack, measured on the bench (the boot log prints the
+# high-water mark).
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
+
+# A 1 ms tick, so that the platform's queue waits are not rounded to 10 ms. Exact deadlines are
+# esp_timer alarms in any case.
+CONFIG_FREERTOS_HZ=1000
+
+# NVS: battery devices read an erase back and retry it (design section 5, hardware notes 7).
+CONFIG_NVS_FLASH_VERIFY_ERASE=y
+
+# Deep-sleep wake pins have external pull-ups on the bench (1 MΩ on the door and cover switches,
+# 10 kΩ on the radio board's button) and a divider on USB power; ESP-IDF's own pulls would fight
+# them (esp_sleep.h, esp_sleep_enable_gpio_wakeup_on_hp_periph_powerdown).
+CONFIG_ESP_SLEEP_GPIO_ENABLE_INTERNAL_RESISTORS=n
+
+# The sleep clock: the internal 136 kHz RC oscillator (ESP-IDF's default), calibrated at every
+# start over 1,024 cycles (never 0: heartbeat slots depend on the sleep timer, hardware notes (a)
+# 31, 32). sdkconfig.crystal selects the 32 kHz crystal on GPIO15 and GPIO16 instead.
+CONFIG_RTC_CLK_SRC_INT_RC=y
+CONFIG_RTC_CLK_CAL_CYCLES=1024
+
+# BLE peripheral only. Security 2 authenticates pairing above GAP, with no BLE bonds.
+CONFIG_BT_ENABLED=y
+CONFIG_BT_NIMBLE_ENABLED=y
+CONFIG_BT_NIMBLE_ROLE_CENTRAL=n
+CONFIG_BT_NIMBLE_ROLE_OBSERVER=n
+CONFIG_BT_NIMBLE_ROLE_BROADCASTER=n
+CONFIG_BT_NIMBLE_ROLE_PERIPHERAL=y
+CONFIG_BT_NIMBLE_MAX_CONNECTIONS=1
+CONFIG_BT_CTRL_BLE_MAX_ACT=2
+CONFIG_BT_NIMBLE_SECURITY_ENABLE=n
+CONFIG_BT_NIMBLE_ATT_PREFERRED_MTU=517
+CONFIG_BT_NIMBLE_HOST_TASK_STACK_SIZE=6144
+CONFIG_ESP_PROTOCOMM_SUPPORT_SECURITY_VERSION_2=y
+
+# mDNS only looks up the hub (protocol section 10): no console commands.
+CONFIG_MDNS_ENABLE_CONSOLE_CLI=n

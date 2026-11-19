@@ -58,19 +58,20 @@ void SensorRole::run_heartbeat_timers(device::Instant now) {
       state_.timers.armed(SensorTimer::reply_moment)) {
     return;
   }
-  send_heartbeat(now);
+  static_cast<void>(send_heartbeat(now));
 }
 
-void SensorRole::send_heartbeat(device::Instant now) {
+device::Status SensorRole::send_heartbeat(device::Instant now) {
   const std::uint8_t every = state_.settings.link_check_every == 0
                                  ? kDefaultLinkCheckEvery
                                  : state_.settings.link_check_every;
   state_.heartbeats_since_check = saturating_increment(state_.heartbeats_since_check);
   // Every Nth asks for a reply; every one does while the latest reply-wanted packet went
   // unanswered, so a sensor that lost touch is back within a heartbeat or two (§7).
-  // So does every one while it holds the next settings of a move (§7, D115).
-  const bool link_check =
-      state_.heartbeats_since_check >= every || state_.misses > 0 || holds_next();
+  // So does every one while it holds the next settings of a move (§7, D115), and the one a key
+  // change owes (m3-updates-design.md section 7, step 4).
+  const bool link_check = state_.heartbeats_since_check >= every || state_.misses > 0 ||
+                          holds_next() || !state_.heartbeat_again_at.is_never();
   protocol::Heartbeat heartbeat;
   static_cast<protocol::SensorStatus&>(heartbeat) = status(link_check, now, false, now);
   const device::Status sent =
@@ -79,16 +80,17 @@ void SensorRole::send_heartbeat(device::Instant now) {
     // Under a fifth of the hour's budget left: routine traffic is skipped (§2).
     services_.log.add(now, device::LogLevel::warning, sensor_log::routine_skipped,
                       "heartbeat skipped");
-    return;
+    return sent;
   }
   if (sent != device::Status::ok) {
-    return;
+    return sent;
   }
   if (link_check) {
     state_.heartbeats_since_check = 0;
   }
   state_.heartbeat_wants_reply = link_check;
   state_.log_due = false;
+  return sent;
 }
 
 void SensorRole::heartbeat_window_closed(device::Instant now) {
@@ -103,8 +105,9 @@ void SensorRole::run_log(device::Instant now) {
   if (!state_.log_due) {
     return;
   }
+  // The heartbeat a key change owes goes first: it is what the sensor was saying.
   if (state_.waiting != 0 || state_.reset != ResetPhase::none || port_busy() || window_open() ||
-      state_.timers.armed(SensorTimer::reply_moment)) {
+      state_.timers.armed(SensorTimer::reply_moment) || !state_.heartbeat_again_at.is_never()) {
     return;
   }
   state_.log_due = false;

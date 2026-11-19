@@ -8,7 +8,7 @@ namespace {
 /** True for the kinds that belong to the report exchange. */
 bool is_report(TryKind kind) {
   return kind == TryKind::going_ahead || kind == TryKind::door || kind == TryKind::cover ||
-         kind == TryKind::started || kind == TryKind::button;
+         kind == TryKind::started || kind == TryKind::button || kind == TryKind::update;
 }
 
 }  // namespace

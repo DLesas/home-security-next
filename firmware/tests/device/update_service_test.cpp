@@ -681,6 +681,104 @@ TEST_CASE("a flash fault is refused as flash, and the part to the checkpoint is 
   CHECK(g.ops(FlashOp::Kind::slot_erase).empty());
 }
 
+TEST_CASE("a failed verified-record write keeps only the durable part until a fetch succeeds") {
+  for (const bool reset : {false, true}) {
+    CAPTURE(reset);
+    Fixture f;
+    f.bench.slots.after_write = [&] {
+      if (f.ops(FlashOp::Kind::slot_write).size() == 18) {
+        f.bench.storage.fail_writes = true;
+      }
+    };
+    f.offer(UpdateAction::fetch);
+    REQUIRE(f.run_to(UpdateStage::refused));
+    REQUIRE(f.last_status().has_value());
+    CHECK(f.last_status()->status.reason == UpdateReason::flash);
+    CHECK(f.last_status()->status.bytes_written == kHeader + 65536);
+    CHECK(f.records().back() == Rec{1, kHeader + 65536});
+    if (reset) {
+      f.bench.boot(device::BootKind::other_reset);
+    }
+    f.offer(UpdateAction::install_now);
+    const auto query = f.bench.take_packet();
+    REQUIRE(query.has_value());
+    CHECK(query->kind == UpdatePacketKind::query);
+    CHECK(query->query.held == protocol::UpdateHeld::part);
+    CHECK(query->query.image_id == f.file.id);
+    CHECK(query->query.bytes_held == kHeader + 65536);
+    CHECK(f.bench.slots.select_calls == 0);
+
+    f.bench.slots.after_write = nullptr;
+    f.bench.storage.fail_writes = false;
+    const auto prior_gets = f.hub.gets.size();
+    const auto prior_writes = f.ops(FlashOp::Kind::slot_write).size();
+    f.offer(UpdateAction::fetch);
+    REQUIRE(f.run_to(UpdateStage::verified));
+    CHECK(f.records().back() == Rec{2, kHeader + 70000});
+    if (reset) {
+      REQUIRE(f.hub.gets.size() > prior_gets);
+      CHECK(f.hub.gets[prior_gets].offset == kHeader + 65536);
+      CHECK(f.ops(FlashOp::Kind::slot_write).size() == prior_writes + 2);
+    } else {
+      CHECK(f.hub.gets.size() == prior_gets);
+      CHECK(f.ops(FlashOp::Kind::slot_write).size() == prior_writes);
+    }
+  }
+}
+
+TEST_CASE("a failed checkpoint write refuses and leaves the earlier checkpoint resumable") {
+  Fixture f(140000);
+  f.bench.slots.after_write = [&] {
+    if (f.ops(FlashOp::Kind::slot_write).size() == 32) {
+      f.bench.storage.fail_writes = true;
+    }
+  };
+  f.offer(UpdateAction::fetch);
+  REQUIRE(f.run_to(UpdateStage::refused));
+  REQUIRE(f.last_status().has_value());
+  CHECK(f.last_status()->status.reason == UpdateReason::flash);
+  CHECK(f.last_status()->status.bytes_written == kHeader + 65536);
+  CHECK(f.ops(FlashOp::Kind::slot_write).size() == 32);
+  CHECK(f.records().back() == Rec{1, kHeader + 65536});
+  f.bench.boot(device::BootKind::other_reset);
+  const auto query = f.bench.take_packet();
+  REQUIRE(query.has_value());
+  CHECK(query->kind == UpdatePacketKind::query);
+  CHECK(query->query.held == protocol::UpdateHeld::part);
+  CHECK(query->query.bytes_held == kHeader + 65536);
+  f.bench.slots.after_write = nullptr;
+  f.bench.storage.fail_writes = false;
+  f.offer(UpdateAction::fetch);
+  REQUIRE(f.run_to(UpdateStage::verified));
+}
+
+TEST_CASE("a failed first record write leaves a different, previously verified image intact") {
+  Fixture f(1000);
+  f.offer(UpdateAction::fetch);
+  REQUIRE(f.run_to(UpdateStage::verified));
+  const auto prior_erases = f.ops(FlashOp::Kind::slot_erase).size();
+  const ImageFile other = make_file(make_image({1, 2, 0}, 1000));
+  Source hub(f.bench, LinkKind::network, other.file());
+  f.bench.storage.fail_writes = true;
+  f.bench.update().offer(make_offer(UpdateAction::fetch, other), UpdatePath::network, f.bench.now);
+  hub.serve_all();
+  const auto refusal = f.bench.take_packet();
+  REQUIRE(refusal.has_value());
+  CHECK(refusal->kind == UpdatePacketKind::status);
+  CHECK(refusal->status.stage == UpdateStage::refused);
+  CHECK(refusal->status.reason == UpdateReason::flash);
+  CHECK(refusal->status.image_id == other.id);
+  CHECK(f.ops(FlashOp::Kind::slot_erase).size() == prior_erases);
+  protocol::Reply reply;
+  reply.flags.update_available = true;
+  f.bench.update().update_flag(reply, f.bench.now);
+  const auto query = f.bench.take_packet();
+  REQUIRE(query.has_value());
+  CHECK(query->kind == UpdatePacketKind::query);
+  CHECK(query->query.image_id == f.file.id);
+  CHECK(query->query.held == protocol::UpdateHeld::verified);
+}
+
 TEST_CASE("install now: read back again, select, say installing, restart once it is sent") {
   Fixture f;
   f.offer(UpdateAction::fetch);
@@ -841,6 +939,51 @@ TEST_CASE("action 0 discards what is held and says cancelled; action 5 stops and
   g.offer(UpdateAction::nothing);
   CHECK_FALSE(g.bench.take_packet().has_value());
   CHECK(g.writes() == 0);
+}
+
+TEST_CASE("a failed discard hides the verified image and reports cancellation only after retry") {
+  Fixture f(1000);
+  f.offer(UpdateAction::fetch);
+  REQUIRE(f.run_to(UpdateStage::verified));
+  f.bench.storage.fail_update_erase = true;
+  f.offer(UpdateAction::nothing);
+  const auto refused = f.bench.take_packet();
+  REQUIRE(refused.has_value());
+  CHECK(refused->kind == UpdatePacketKind::status);
+  CHECK(refused->status.stage == UpdateStage::refused);
+  CHECK(refused->status.reason == UpdateReason::flash);
+  CHECK(refused->status.image_id == f.file.id);
+  CHECK(f.bench.storage.has(device::StoreKey::update));
+  f.offer(UpdateAction::install_now);
+  const auto query = f.bench.take_packet();
+  REQUIRE(query.has_value());
+  CHECK(query->kind == UpdatePacketKind::query);
+  CHECK(query->query.held == protocol::UpdateHeld::nothing);
+  CHECK(f.bench.slots.select_calls == 0);
+
+  f.bench.storage.fail_update_erase = false;
+  f.offer(UpdateAction::nothing);
+  const auto cancelled = f.bench.take_packet();
+  REQUIRE(cancelled.has_value());
+  CHECK(cancelled->kind == UpdatePacketKind::status);
+  CHECK(cancelled->status.stage == UpdateStage::cancelled);
+  CHECK(cancelled->status.image_id == f.file.id);
+  CHECK_FALSE(f.bench.storage.has(device::StoreKey::update));
+}
+
+TEST_CASE("an unreadable update record is ignored and its erase is retried at boot") {
+  Bench bench;
+  bench.boot();
+  const std::uint8_t invalid_version[]{0xff};
+  REQUIRE(bench.storage.write(device::StoreKey::update, invalid_version) == HalError::none);
+  bench.storage.fail_update_erase = true;
+  bench.boot(device::BootKind::other_reset);
+  CHECK(bench.storage.has(device::StoreKey::update));
+  CHECK_FALSE(bench.take_packet().has_value());
+  bench.storage.fail_update_erase = false;
+  bench.boot(device::BootKind::other_reset);
+  CHECK_FALSE(bench.storage.has(device::StoreKey::update));
+  CHECK_FALSE(bench.take_packet().has_value());
 }
 
 TEST_CASE("an unknown action is logged and changes nothing") {

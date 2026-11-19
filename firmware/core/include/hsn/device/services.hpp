@@ -81,7 +81,7 @@ public:
         log(core.log),
         airtime(core.airtime),
         radio_port(hal_in.radio, airtime, random, log),
-        channel(hal_in.cipher, hal_in.storage, core.counter, &hal_in.key_import),
+        channel(hal_in.cipher, hal_in.storage, core.counter, &hal_in.key_import, &log),
         setup(hal_in.storage, hal_in.build),
         health(hal_in.storage, hal_in.build),
         update(hal_in, setup, health, random, log) {}

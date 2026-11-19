@@ -109,6 +109,7 @@ public:
   /** Every record written, in order, with its key. */
   std::vector<std::pair<device::StoreKey, Bytes>> history;
   bool fail_writes = false;
+  bool fail_update_erase = false;
 
 private:
   PowerSwitch& power_;
@@ -183,6 +184,7 @@ private:
   int boot_ = 0;
   bool rolled_back_ = false;
   protocol::FirmwareVersion failed_;
+  std::array<std::optional<protocol::ImageId>, 2> selected_ids_{};
 };
 
 // ---- Crypto ----

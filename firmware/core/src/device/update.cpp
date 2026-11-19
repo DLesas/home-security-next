@@ -38,10 +38,6 @@ std::int32_t version_number(const protocol::FirmwareVersion& version) {
                                    version.patch);
 }
 
-bool same_version(const protocol::FirmwareVersion& a, const protocol::FirmwareVersion& b) {
-  return a.major == b.major && a.minor == b.minor && a.patch == b.patch;
-}
-
 /** The image id a stored header carries: its bytes 16 to 23. */
 protocol::ImageId stored_id(const UpdateRecord& record) {
   protocol::ImageId id{};
@@ -84,10 +80,9 @@ void UpdateService::boot(Instant now) {
     return;
   }
   if (record_.get().stage == static_cast<std::uint8_t>(UpdateRecordStage::verified) &&
-      ((running_.rolled_back && same_version(header_.version, running_.failed)) ||
-       same_version(header_.version, running_.version))) {
+      (running_.id == image_id_ || (running_.rolled_back && running_.failed_id == image_id_))) {
     // The verified image is the one that just failed its trial, or the one now running (confirmed
-    // before its record could be erased): nothing to offer the hub.
+    // before its record could be erased). An erase failure hides it until the next boot retries.
     erase_record(now);
     forget_progress();
     return;
@@ -146,28 +141,36 @@ std::uint32_t UpdateService::record_bytes() const {
   return record_.stored() ? from_le(record_.get().bytes_written) : 0;
 }
 
+/** Writes progress, recovering the last durable checkpoint if the atomic write fails. */
 HalError UpdateService::write_record(UpdateRecordStage stage, std::uint32_t bytes, Instant now) {
   UpdateRecord record;
   record.header = header_bytes_;
   record.stage = static_cast<std::uint8_t>(stage);
   record.bytes_written = to_le(bytes);
+  const bool had_record = record_.stored();
   const HalError error = record_.update(record);
-  if (error != HalError::none) {
-    log_.add(now, LogLevel::warning, log_code::storage_failed, "update record",
-             static_cast<std::int32_t>(error));
+  if (error == HalError::none) {
+    discard_pending_.reset();
+    return error;
+  }
+  log_.add(now, LogLevel::warning, log_code::storage_failed, "update record",
+           static_cast<std::int32_t>(error));
+  // Record::update has already dropped its cached copy of the previous record.
+  if (had_record && record_.load() != HalError::none) {
+    forget_progress();
   }
   return error;
 }
 
-void UpdateService::erase_record(Instant now) {
-  if (!record_.stored()) {
-    return;
-  }
+/** Hides the cached image even on failure, so it cannot be offered or installed this boot. */
+bool UpdateService::erase_record(Instant now) {
   const HalError error = record_.erase();
-  if (error != HalError::none) {
-    log_.add(now, LogLevel::warning, log_code::storage_failed, "update record",
-             static_cast<std::int32_t>(error));
+  if (error == HalError::none) {
+    return true;
   }
+  log_.add(now, LogLevel::warning, log_code::storage_failed, "update record",
+           static_cast<std::int32_t>(error));
+  return false;
 }
 
 void UpdateService::select_image(const protocol::ImageId& id) {
@@ -609,15 +612,22 @@ void UpdateService::offer_install(const protocol::UpdateOffer& offer, Instant no
 }
 
 void UpdateService::cancel(Instant now) {
-  const bool held = record_.stored() || phase_ != Phase::idle || session_ != Session::closed;
-  const protocol::ImageId id = record_.stored() ? stored_id(record_.get()) : image_id_;
+  const bool has_record = record_.stored() || discard_pending_.has_value();
+  const bool held = has_record || phase_ != Phase::idle || session_ != Session::closed;
+  const protocol::ImageId id =
+      record_.stored() ? stored_id(record_.get()) : discard_pending_.value_or(image_id_);
   close_session();
   stop_transfer();
   leave_wifi();
   phase_ = Phase::idle;
   forced_ = false;
-  erase_record(now);
   forget_progress();
+  if (has_record && !erase_record(now)) {
+    discard_pending_ = id;
+    send_status(id, protocol::UpdateStage::refused, protocol::UpdateReason::flash, 0, false);
+    return;
+  }
+  discard_pending_.reset();
   if (held) {
     send_status(id, protocol::UpdateStage::cancelled, protocol::UpdateReason::none, 0, false);
   }
@@ -637,13 +647,20 @@ void UpdateService::healthy(Instant now) {
   running_.on_trial = false;
   running_.rolled_back = false;
   running_.failed = protocol::FirmwareVersion{};
+  running_.failed_id.reset();
   trial_deadline_ = Instant::never();
   health_.running_image(running_);
   log_.add(now, LogLevel::info, log_code::update_confirmed, "confirmed",
            version_number(running_.version));
-  const protocol::ImageId id = record_.stored() ? stored_id(record_.get()) : protocol::ImageId{};
-  const std::uint32_t bytes = record_bytes();
-  erase_record(now);
+  const protocol::ImageId id = running_.id.value_or(protocol::ImageId{});
+  const bool installed = running_.id.has_value() && record_verified(id);
+  const std::uint32_t bytes = installed ? record_bytes() : 0;
+  if (installed) {
+    // The image is already confirmed; boot retries a failed cleanup without offering the image.
+    erase_record(now);
+  } else if (record_.stored()) {
+    query_wanted_ = true;
+  }
   forget_progress();
   send_status(id, protocol::UpdateStage::confirmed, protocol::UpdateReason::none, bytes, false);
 }

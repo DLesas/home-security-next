@@ -85,6 +85,11 @@ enum class LoraItem : std::uint8_t {
   change,
   /** The LoRa check (§7); paced. */
   check,
+  /**
+   * An update status that cannot go on Wi-Fi (m3-updates-design.md section 5): never progress,
+   * which goes on links only. Routine, not paced.
+   */
+  update,
   /** A regular report whose Wi-Fi send failed (§7); paced. */
   wifi_failed,
   /** One log entry at warning or above, after a LoRa check while Wi-Fi is down (D110). */
@@ -92,7 +97,7 @@ enum class LoraItem : std::uint8_t {
 };
 
 /** Number of LoraItem values that are something to send. */
-constexpr std::size_t kLoraItemCount = 6;
+constexpr std::size_t kLoraItemCount = 7;
 
 /** What waits to go on LoRa, and what the radio port is sending now. */
 struct LoraOutbox {
@@ -102,6 +107,7 @@ struct LoraOutbox {
   bool change = false;
   bool wifi_failed = false;
   bool log = false;
+  bool update = false;
   /** What the port is sending for the siren; none when it is free. */
   LoraItem in_flight = LoraItem::none;
   /**
@@ -145,6 +151,6 @@ struct SirenState {
 static_assert(std::is_trivially_copyable_v<SirenState>, "the retained block is copied as bytes");
 
 /** Bumped whenever SirenState changes, so an older retained copy is discarded. */
-constexpr std::uint8_t kSirenStateLayout = 6;
+constexpr std::uint8_t kSirenStateLayout = 7;
 
 }  // namespace hsn::roles::siren

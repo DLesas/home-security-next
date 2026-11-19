@@ -6,6 +6,8 @@
 
 namespace hsn::psa {
 
+class PsaKeyImport;
+
 /**
  * The packet cipher on the PSA Crypto API (public headers only, as ESP-IDF v6.1's Mbed TLS 4.1
  * requires): AES-128-CCM with an 8-byte tag. The key is imported once by set_key() and reused
@@ -19,8 +21,9 @@ public:
   PsaPacketCipher& operator=(const PsaPacketCipher&) = delete;
 
   /**
-   * Imports `key` as a volatile key usable only for this algorithm, replacing any earlier key.
-   * Initialises PSA Crypto first, which is harmless when already done.
+   * Imports `key` as a volatile key usable only for this algorithm, replacing the earlier key only
+   * once it is in: when PSA refuses it, the earlier key stays in use. Initialises PSA Crypto
+   * first, which is harmless when already done.
    */
   [[nodiscard]] protocol::Error set_key(const protocol::DeviceKey& key);
 
@@ -40,7 +43,10 @@ public:
                                      protocol::MutableByteView plaintext) const override;
 
 private:
-  void destroy_key();
+  friend class PsaKeyImport;
+
+  /** Takes `key`, already imported for this algorithm, and destroys the earlier one. */
+  void adopt(psa_key_id_t key);
 
   psa_key_id_t key_ = PSA_KEY_ID_NULL;
 };
