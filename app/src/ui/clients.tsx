@@ -9,6 +9,7 @@ import { useMemo, useState } from "react";
 import { View } from "react-native";
 import { useTranslation } from "react-i18next";
 import { formatTime } from "./format";
+import { HERE } from "./words-here";
 import { useAction, useLive } from "./hub-context";
 import {
   Actions,
@@ -65,7 +66,7 @@ export function ClientItem({
   return (
     <ListItem testID={`client-${String(client.id)}`}>
       <Heading level={3}>
-        {self ? t("people.thisBrowser", { name: client.name }) : client.name}
+        {self ? t("people.thisBrowser", { ...HERE, name: client.name }) : client.name}
       </Heading>
       <Facts
         items={[

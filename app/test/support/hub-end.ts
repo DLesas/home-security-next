@@ -18,6 +18,11 @@
  *
  * Each socket's path says its handshake: `/app` a session, `/app/link` a link (`/app/restore`,
  * a phone's, is not served here).
+ *
+ * **Version 2** (a phone's tests, P2): with `speaks` reaching 2, a session agreed at 2 has its
+ * requests checked by version 2's tables (`parseRequestIn`), its snapshot carries version 2's
+ * fields (`v2`), and a phone's `LinkResult` carries the backup key (`backupKey`). At version 1
+ * everything is as before.
  */
 import {
   type AppError,
@@ -25,6 +30,7 @@ import {
   type AppEventName,
   type AppOpBody,
   type AppOpName,
+  type AppOpNameV2,
   type AppOpReply,
   type ClientKindValue,
   clientHello,
@@ -38,6 +44,7 @@ import {
   type LinkRequest,
   NOISE_PATTERNS,
   parseRequest,
+  parseRequestIn,
   REQUEST_LIMITS,
   secretLookup,
   secretPsk,
@@ -153,6 +160,8 @@ export interface SeenRequest {
 interface Conn {
   readonly end: End;
   readonly path: ChannelPath;
+  /** The channel version the session agreed. */
+  proto: number;
   transport: TransportSession | undefined;
   client: HubClient | undefined;
   proven: boolean;
@@ -174,6 +183,14 @@ export class HubEnd {
   helloProtoOverride: number | undefined = undefined;
   /** A fault: message 4 carries this in place of `LinkResult`. */
   linkResultOverride: unknown = undefined;
+  /** The backup key a phone's `LinkResult` carries (m2-design.md section 5), when set. */
+  backupKey: { readonly key: string; readonly epoch: number } | undefined = undefined;
+  /** What a version 2 snapshot adds (m3-design.md sections 2 and 4). */
+  v2: {
+    addresses: readonly string[];
+    appsPort: number;
+    backupKeyEpoch: number | null;
+  } = { addresses: [], appsPort: 8444, backupKeyEpoch: null };
   reachable = true;
   /** While true, changes are made and committed, but their replies are not sent (a lost reply). */
   dropReplies = false;
@@ -199,7 +216,8 @@ export class HubEnd {
     this.identityBytes = appIdentityBytes(nodeSha256, key.value.publicKey);
     this.identity = formatIdentity(this.identityBytes);
     this.snapshot = emptySnapshot(this);
-    this.handle("snapshot", () => ({ ok: true, body: { ...this.snapshot, rev: this.rev } }));
+    // A version 2 session's snapshot is version 1's with fields added (`snapshotFor`).
+    this.handleV2("snapshot", (_body, client) => ({ ok: true, body: this.snapshotFor(client) }));
     this.handle("subscribe", (body) => ({ ok: true, body: { topics: body.topics } }));
     this.handle("pong", () => ({ ok: true, body: {} }));
   }
@@ -221,6 +239,7 @@ export class HubEnd {
     holder.conn = {
       end: pair.hub,
       path,
+      proto: 1,
       transport: undefined,
       client: undefined,
       proven: false,
@@ -242,6 +261,38 @@ export class HubEnd {
   handle<N extends AppOpName>(op: N, handler: OpHandler<N>): void {
     // Bodies reach handlers only after `parseRequest` checked them against `op`'s schema.
     this.ops.set(op, (body, client) => handler(body as AppOpBody<N>, client));
+  }
+
+  /** Answers an operation of version 2 as the test says (`parseRequestIn` checked its body). */
+  handleV2(
+    op: AppOpNameV2,
+    handler: (
+      body: unknown,
+      client: HubClient,
+    ) => { ok: true; body: unknown } | { ok: false; error: unknown },
+  ): void {
+    this.ops.set(op, handler);
+  }
+
+  /** The version each client's newest session agreed, for the snapshot. */
+  private readonly agreed = new Map<number, number>();
+
+  /** The snapshot as `client`'s session sees it: version 2's fields on a version 2 session. */
+  private snapshotFor(client: HubClient): unknown {
+    const base = { ...this.snapshot, rev: this.rev };
+    if ((this.agreed.get(client.id) ?? 1) < 2) return base;
+    return {
+      ...base,
+      hub: {
+        ...base.hub,
+        proto: 2,
+        addresses: this.v2.addresses,
+        appsPort: this.v2.appsPort,
+        relay: null,
+      },
+      push: client.kind === "phone" ? { registered: false, valid: false } : null,
+      backupKeyEpoch: client.kind === "phone" ? this.v2.backupKeyEpoch : null,
+    };
   }
 
   /** A link token; its secret, as a QR code, a link address or the console's token carry it. */
@@ -324,6 +375,11 @@ export class HubEnd {
   dropAll(): void {
     for (const conn of this.conns) conn.end.close(1001);
     this.conns.clear();
+  }
+
+  /** Sends a frame as it is, encrypted, on every session: events of any version, or wrong ones. */
+  emitFrame(frame: unknown): void {
+    for (const conn of this.conns) if (conn.proven) this.sendFrame(conn, frame);
   }
 
   /** Sends raw bytes on every session, for tests of what the client refuses. */
@@ -412,6 +468,8 @@ export class HubEnd {
       return true;
     }
     conn.client = client;
+    conn.proto = hubHello.proto;
+    this.agreed.set(client.id, hubHello.proto);
     conn.transport = transport.value;
     conn.end.send(second.value);
     return true;
@@ -432,8 +490,14 @@ export class HubEnd {
     const token = hello.success
       ? this.tokens.find((t) => t.lookup === hello.data.find && !t.used)
       : undefined;
-    // A lookup that names no live token closes before message 2, and counts as no try.
-    if (token === undefined || !hello.success || hello.data.proto[0] > this.speaks[1]) {
+    // A lookup that names no live token, or no version both speak, closes before message 2 and
+    // counts as no try.
+    if (
+      token === undefined ||
+      !hello.success ||
+      hello.data.proto[0] > this.speaks[1] ||
+      hello.data.proto[1] < this.speaks[0]
+    ) {
       conn.end.close(1000);
       return true;
     }
@@ -508,9 +572,12 @@ export class HubEnd {
     };
     this.clients.set(client.id, client);
     token.used = true;
-    const sealed = transport.encrypt(
-      json(this.linkResultOverride ?? { client: client.id, person: client.person }),
-    );
+    const result = {
+      client: client.id,
+      person: client.person,
+      ...(kind === "phone" && this.backupKey !== undefined ? { backupKey: this.backupKey } : {}),
+    };
+    const sealed = transport.encrypt(json(this.linkResultOverride ?? result));
     if (sealed.ok) conn.end.send(sealed.value);
     conn.end.close(1000);
   }
@@ -518,7 +585,7 @@ export class HubEnd {
   private async request(conn: Conn, frame: unknown): Promise<void> {
     const client = conn.client;
     if (client === undefined) return;
-    const parsed = parseRequest(frame);
+    const parsed = conn.proto >= 2 ? parseRequestIn(2, frame) : parseRequest(frame);
     if (!parsed.ok) {
       if (parsed.id !== undefined)
         this.sendFrame(conn, {

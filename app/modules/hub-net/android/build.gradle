@@ -1,0 +1,17 @@
+// hub-net's Android side (app/modules/hub-net): the browse on NsdManager. Built as Expo's own
+// modules are (expo-crypto's build.gradle in node_modules).
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'app.hsn'
+version = '0.1.0'
+
+android {
+  namespace "app.hsn.hubnet"
+  defaultConfig {
+    versionCode 1
+    versionName "0.1.0"
+  }
+}

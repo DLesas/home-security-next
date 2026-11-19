@@ -151,6 +151,8 @@ export function appConfig(release: boolean, identity: AppIdentity = deployment):
         "android.permission.BLUETOOTH_CONNECT",
         // Android 17's, asked from the start in the Nearby devices group (section 2).
         "android.permission.ACCESS_LOCAL_NETWORK",
+        // hub-net's: whether the phone is on Wi-Fi before it browses; granted at install.
+        "android.permission.ACCESS_NETWORK_STATE",
         "android.permission.POST_NOTIFICATIONS",
       ],
     },
@@ -158,6 +160,9 @@ export function appConfig(release: boolean, identity: AppIdentity = deployment):
       "expo-router",
       // React Native's own WebSocket takes the hub's certificate at home only (D132; wave 0).
       "./plugins/hub-tls.cjs",
+      // The app's storage stays out of Android's backups and device-to-device transfer, and the
+      // permissions it never uses are dropped (P2's; m3-design.md section 2).
+      ["./plugins/phone-storage.cjs", { release }],
       // The keys' store. Android's automatic backup is off for the whole app (`allowBackup`), so
       // the plugin's backup rules are not needed.
       ["expo-secure-store", { faceIDPermission: why.faceId, configureAndroidBackup: false }],

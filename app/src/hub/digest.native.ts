@@ -1,22 +1,20 @@
 /**
- * What linking derives from a secret, the phone's side of `digest.ts` (m3-design.md section 2).
- * Not built yet: P2 builds it in wave 1, over the protocol package's `secretPsk`, `secretLookup`,
- * `typedPsk` and `appIdentityBytes` with `@noble/hashes`' SHA-256. Until then every derivation
- * refuses: its promise is rejected, with no argument read. None is reached while the phone makes
- * no key (`platform/keys.native.ts`), since linking makes the key first.
+ * What linking derives from a secret (m2-design.md section 5, "Linking"), the phone's side of
+ * `digest.ts`: `digest-over.ts`'s derivations with the phone's own SHA-256, expo-crypto's native
+ * module (the system's: CommonCrypto on iOS, `MessageDigest` on Android ‡), reached as
+ * `moduleSha256` says. The design named `@noble/hashes` here; the app cannot import it without
+ * adding it as a dependency (it reaches the app only inside `@hsn/protocol`), and expo-crypto is
+ * already the phone's random source.
  */
-import { NOT_BUILT_MESSAGE } from "../platform/split";
 import type { Digests } from "./digest-types";
+import { type CryptoModule, digestsOver, moduleSha256 } from "./digest-over";
 import { toHex } from "./hex";
 
 export { toHex };
 
-function notBuilt<T>(): Promise<T> {
-  return Promise.reject(new Error(NOT_BUILT_MESSAGE));
-}
+const expoCrypto = (
+  globalThis as { readonly expo?: { readonly modules?: { readonly ExpoCrypto?: CryptoModule } } }
+).expo?.modules?.ExpoCrypto;
 
-export const sha256: Digests["sha256"] = () => notBuilt();
-export const pskOfSecret: Digests["pskOfSecret"] = () => notBuilt();
-export const lookupOfSecret: Digests["lookupOfSecret"] = () => notBuilt();
-export const pskOfTypedSecret: Digests["pskOfTypedSecret"] = () => notBuilt();
-export const identityOf: Digests["identityOf"] = () => notBuilt();
+export const { sha256, pskOfSecret, lookupOfSecret, pskOfTypedSecret, identityOf }: Digests =
+  digestsOver(moduleSha256(expoCrypto));

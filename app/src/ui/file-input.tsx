@@ -1,40 +1,18 @@
 /**
- * Choosing a file on this computer, in the web build: the browser's own file input, labelled. Its
- * bytes are read here and sent as `fileChunk` requests (`hub/files.ts`); they never enter the store.
+ * Choosing a file to send to the hub, per platform (m3-design.md section 2): `file-input.web.tsx`
+ * is the browser's file input; `file-input.native.tsx` says to do it on the hub computer, since a
+ * file is uploaded from the console only (a backup to restore, a release; m2-design.md section 6,
+ * "C"). Metro loads one of them in place of this file; tsc and Bun's tests read this one, which
+ * binds the web build's (`platform/split.ts`).
  */
-import { useId } from "react";
-import { View } from "react-native";
-import { Label } from "./parts";
+import type { Split } from "../platform/split";
+import type * as phone from "./file-input.native";
+import type { FileChoosing } from "./file-input-types";
+import * as web from "./file-input.web";
 
-export function FileInput({
-  label,
-  accept,
-  onFile,
-  testID,
-}: {
-  readonly label: string;
-  readonly accept?: string;
-  readonly onFile: (file: { readonly name: string; readonly bytes: Uint8Array }) => void;
-  readonly testID?: string;
-}) {
-  const id = useId();
-  return (
-    <View className="gap-2">
-      <Label id={`${id}-label`}>{label}</Label>
-      <input
-        type="file"
-        aria-label={label}
-        accept={accept}
-        data-testid={testID}
-        className="min-h-target font-text text-body text-ink"
-        onChange={(event) => {
-          const file = event.currentTarget.files?.[0];
-          if (file === undefined) return;
-          void file.arrayBuffer().then((buffer) => {
-            onFile({ name: file.name, bytes: new Uint8Array(buffer) });
-          });
-        }}
-      />
-    </View>
-  );
-}
+export type { FileInputProps } from "./file-input-types";
+
+/** Both platforms' files export `FileChoosing`. */
+export type Platforms = Split<FileChoosing, typeof web, typeof phone>;
+
+export const { FileInput }: FileChoosing = web;

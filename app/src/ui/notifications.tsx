@@ -18,6 +18,7 @@ import type { NoticePermission } from "../platform/alerts-types";
 import { learnPrefs, markRead } from "../state/live";
 import { deviceName, type Translate } from "../state/words";
 import { formatTime } from "./format";
+import { HERE } from "./words-here";
 import { useAction, useHub, useLive, useRead } from "./hub-context";
 import {
   Actions,
@@ -96,9 +97,9 @@ function Categories() {
   const [on, setOn] = useState<readonly OptionalCategory[] | undefined>();
   const shown = on ?? stored?.categories ?? OPTIONAL_CATEGORIES;
   return (
-    <Section label={t("notifications.categoriesTitle")}>
-      <Heading level={2}>{t("notifications.categoriesTitle")}</Heading>
-      <Body>{t("notifications.categoriesIntro")}</Body>
+    <Section label={t("notifications.categoriesTitle", HERE)}>
+      <Heading level={2}>{t("notifications.categoriesTitle", HERE)}</Heading>
+      <Body>{t("notifications.categoriesIntro", HERE)}</Body>
       {OPTIONAL_CATEGORIES.map((category) => (
         <Toggle
           key={category}
@@ -139,11 +140,11 @@ function BrowserNotifications() {
   const supported = asked !== "unsupported";
   const [permission, setPermission] = useState<NoticePermission>(supported ? asked : "denied");
   return (
-    <Section label={t("notifications.browserTitle")}>
-      <Heading level={2}>{t("notifications.browserTitle")}</Heading>
-      <Body>{t("notifications.closedTab")}</Body>
+    <Section label={t("notifications.browserTitle", HERE)}>
+      <Heading level={2}>{t("notifications.browserTitle", HERE)}</Heading>
+      <Body>{t("notifications.closedTab", HERE)}</Body>
       {!supported ? (
-        <Body>{t("notifications.browserNone")}</Body>
+        <Body>{t("notifications.browserNone", HERE)}</Body>
       ) : permission === "granted" ? (
         <Body>{t("notifications.browserOn")}</Body>
       ) : permission === "denied" ? (

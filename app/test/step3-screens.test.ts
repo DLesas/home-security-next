@@ -73,7 +73,8 @@ describe("groups, modes and schedules", () => {
     });
     const text = textOf(html);
     expect(text).toContain("Sensors: front-door and back-door.");
-    expect(text).toContain("Sounds: hall-siren.");
+    // Which sirens sound, in one sentence under its name (D144).
+    expect(text).toContain("Downstairs hall-siren sounds for this group.");
     expect(html).toContain('aria-label="Delete Downstairs"');
   });
 

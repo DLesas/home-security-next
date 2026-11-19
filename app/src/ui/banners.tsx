@@ -11,12 +11,15 @@
  * - A web page is no substitute for push: a closed tab hears nothing (section 13).
  */
 import { type ReactNode, useEffect, useMemo, useState } from "react";
-import { Text, View } from "react-native";
+import { View } from "react-native";
+import { Text } from "./text";
 import { useTranslation } from "react-i18next";
 import type { CountdownView, LiveState } from "../state/live";
 import { deviceNames, waitingWords } from "../state/words";
+import { announce } from "../platform/announce";
 import { secondsLeft } from "./format";
 import { HubNotices } from "./hub-notices";
+import { PhoneNotices } from "./phone-notices";
 import { CriticalNotices } from "./notifications";
 import { type Action, useAction, useHub, useLive } from "./hub-context";
 import { Actions, Button, type ButtonKind, Failure, Notice, NoticeText, Spoken } from "./parts";
@@ -50,6 +53,25 @@ export function runningCountdowns(
 /** Whether the alarm sounds or a countdown runs. */
 export function useAlarmRunning(): boolean {
   return useLive((s) => s.alarm !== null || runningCountdowns(s).length > 0);
+}
+
+/** The alarm or countdown last announced, so moving between screens does not say it again. */
+let announced = "";
+
+/**
+ * Says an alarm or a countdown at once when it starts (docs/app-design.md, "On a phone", rule 6):
+ * the live region where the platform reads it, an announcement on iOS (`platform/announce`).
+ * `key` names the run (when the alarm started, or which countdowns), so each is said once.
+ */
+export function announceOnce(
+  key: string,
+  text: string,
+  say: (text: string) => void = announce,
+): boolean {
+  if (key === announced) return false;
+  announced = key;
+  say(text);
+  return true;
 }
 
 /** How often the time left is said to a screen reader ‡. */
@@ -120,10 +142,7 @@ export function AlarmField({
       })),
     [countdowns, sensors, now],
   );
-  if (alarm === null && counting.length === 0) return null;
-  const look: Look = alarm === null ? "night" : "alarm";
-  const left = Math.min(...counting.map((c) => c.left));
-  const spoken = Math.ceil(left / SPOKEN_EVERY_S) * SPOKEN_EVERY_S;
+  const running = alarm !== null || counting.length > 0;
   // The sentence is one word; what set it off follows as detail, so no typed name breaks it.
   const headline = t(alarm !== null ? "banner.alarm" : "banner.countdown");
   const cause =
@@ -137,6 +156,17 @@ export function AlarmField({
             counting.map((c) => c.id),
           ),
         });
+  const runKey =
+    alarm !== null
+      ? `alarm:${String(alarm.startedMs)}`
+      : `countdown:${counting.map((c) => c.id).join()}`;
+  useEffect(() => {
+    if (running) announceOnce(runKey, `${headline}. ${cause}`);
+  }, [running, runKey, headline, cause]);
+  if (!running) return null;
+  const look: Look = alarm === null ? "night" : "alarm";
+  const left = Math.min(...counting.map((c) => c.left));
+  const spoken = Math.ceil(left / SPOKEN_EVERY_S) * SPOKEN_EVERY_S;
   const text = LOOK[look].text;
   return (
     <View role="region" aria-label={headline} {...(large ? {} : { testID: "alarm-banner" })}>
@@ -220,12 +250,13 @@ export function DisarmOutcome({ outcome }: { readonly outcome: Action<"disarm">[
   );
 }
 
-/** The notices every screen shows: critical ones, the hub's, and the connection's. */
+/** The notices every screen shows: critical ones, the hub's, the phone's own, and the connection's. */
 export function ShellNotices() {
   return (
     <>
       <CriticalNotices />
       <HubNotices />
+      <PhoneNotices />
       <ConnectionNotice />
     </>
   );

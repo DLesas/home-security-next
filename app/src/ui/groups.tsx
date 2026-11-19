@@ -1,6 +1,8 @@
 /**
  * Groups (m2-design.md section 7, "Modes, groups and arming"): a set of sensors and a choice of
- * sirens, every siren by default (AL2a); a sensor may be in several. Made, changed and deleted by
+ * sirens, every siren by default (AL2a); a sensor may be in several. Each group says which sirens
+ * sound for it, and when none of its own is left (D144) that every siren does, with "Choose
+ * sirens". The editor says beside a chosen siren that is reset that it is not in use (`siren-choice.ts`). Made, changed and deleted by
  * *manage system*, which the hub checks; a change carries the revision it was made from, and a
  * `conflict` shows the group as it now is. Arming a group adds to what is armed; disarming it
  * disarms its sensors (D74). Deleting one named by schedules is refused, naming them.
@@ -26,8 +28,11 @@ import {
   Heading,
   List,
   ListItem,
+  Notice,
+  NoticeText,
   Section,
 } from "./parts";
+import { sirenInUse, sirensSound } from "./siren-choice";
 
 interface Draft {
   readonly id: number | undefined;
@@ -74,6 +79,7 @@ function GroupEditor({
   const [form, setForm] = useState(draft);
   const [badName, setBadName] = useState(false);
   const [noSiren, setNoSiren] = useState(false);
+
   const create = useAction("group.create");
   const update = useAction("group.update");
   const sensors = useDevicesOf("sensor");
@@ -142,7 +148,11 @@ function GroupEditor({
           onChange={(values) => {
             setForm({ ...form, sirens: values });
           }}
-          options={sirens.map((d) => ({ value: d.id, label: d.name }))}
+          // A chosen siren reset by its owner is said to be out of use beside its name (D144).
+          options={sirens.map((d) => ({
+            value: d.id,
+            label: sirenInUse(d) ? d.name : t("groups.notInUse", { name: d.name }),
+          }))}
         />
       )}
       {noSiren || sirensError !== undefined ? (
@@ -192,6 +202,7 @@ function GroupItem({
   const devices = useLive((s) => s.devices);
   const schedules = useLive((s) => s.schedules);
   const remove = useAction("group.delete");
+  const sound = sirensSound(group.sirens, devices);
   const names = (ids: readonly number[]) =>
     listOf(
       ids.map((id) => devices[id]?.name ?? t("common.deviceNumber", { id })),
@@ -207,17 +218,29 @@ function GroupItem({
   return (
     <ListItem testID={`group-${String(group.id)}`}>
       <Heading level={2}>{group.name}</Heading>
+      {sound.kind === "noneLeft" ? (
+        <Notice kind="warning" testID={`group-${String(group.id)}-none-left`}>
+          <NoticeText kind="warning">{t("groups.noneLeft")}</NoticeText>
+          <Actions>
+            <Button
+              kind="quiet"
+              label={t("groups.chooseSirens")}
+              onPress={onEdit}
+              testID={`group-${String(group.id)}-choose-sirens`}
+            />
+          </Actions>
+        </Notice>
+      ) : (
+        <Body testID={`group-${String(group.id)}-sirens`}>
+          {sound.kind === "every"
+            ? t("groups.soundsEvery")
+            : t("groups.soundsThese", { count: sound.sirens.length, sirens: names(sound.sirens) })}
+        </Body>
+      )}
       <Body>
         {group.sensors.length === 0
           ? t("groups.noSensors")
           : t("groups.sensorsAre", { sensors: names(group.sensors) })}
-      </Body>
-      <Body>
-        {group.sirens === "all"
-          ? t("groups.soundsAll")
-          : t("groups.soundsThese", {
-              sirens: group.sirens.length === 0 ? t("common.none") : names(group.sirens),
-            })}
       </Body>
       <Actions>
         <Button kind="quiet" label={t("editing.edit", { name: group.name })} onPress={onEdit} />

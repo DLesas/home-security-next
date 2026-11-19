@@ -8,12 +8,13 @@
  */
 import { Link } from "expo-router";
 import { type ComponentRef, type ReactNode, type Ref, useId, useState } from "react";
-import { Pressable, Text, TextInput, View } from "react-native";
+import { Pressable, View } from "react-native";
 import { useTranslation } from "react-i18next";
 import type { AppError } from "@hsn/protocol/app";
 import type { LocalFault } from "../hub/faults";
 import { failureWords } from "../state/words";
 import { useLive } from "./hub-context";
+import { Text, TEXT_SCALE_MAX, TextInput } from "./text";
 
 /**
  * Space for a checkbox or a radio (WAI-ARIA's key for them): React Native Web presses on Enter for
@@ -133,6 +134,7 @@ export function TextLink({
     <Link
       href={href}
       testID={testID}
+      maxFontSizeMultiplier={TEXT_SCALE_MAX}
       className={`min-h-target self-start py-3 font-strong text-body text-ink underline ${RING_PALE}`}
     >
       {label}
@@ -739,7 +741,8 @@ export function Toggle({
           <View className="-mt-1 h-3 w-2 rotate-45 border-r-2 border-b-2 border-limewash" />
         ) : null}
       </View>
-      <Text className="font-text text-body text-ink">{label}</Text>
+      {/* `shrink`: a long label wraps inside the page's gutter, not past it. */}
+      <Text className="shrink font-text text-body text-ink">{label}</Text>
     </Pressable>
   );
 }

@@ -24,24 +24,36 @@
  * answer would be no, and shows each refusal as the hub gave it.
  */
 import {
+  APP_EVENTS_V2,
   APP_OPS,
+  APP_OPS_V2,
   APP_RECONNECT_MS,
   type AppError,
+  type AppErrorV2,
   type AppEvent,
+  type AppEventNameV2,
+  type AppEventV2,
   type AppOpBody,
   type AppOpName,
+  type AppOpNameV2,
   type AppOpReply,
   appReply,
+  appReplyV2,
   type HubHello,
+  isVersion1Event,
+  liveRevision,
   parseEvent,
   SESSION_LIMITS,
   type SnapshotObject,
   TOPICS,
   type TransportSession,
+  version1Error,
 } from "@hsn/protocol/app";
 import type { LocalFault } from "./faults";
 import { decodeJson, encodeJson } from "./codec";
-import { openSession, type SessionFailure } from "./handshake";
+import { openSession, type ProtoRange, type SessionFailure } from "./handshake";
+import type { ClientKeys } from "../platform/client-key";
+import type { PlatformSecret } from "../platform/keys";
 import { raiseSeq, type RecordStore, reserveSeq, type StoredClient } from "../platform/client-key";
 import { CLOSE, type Connect, type Timers, type Wire } from "./wire";
 
@@ -50,9 +62,13 @@ export type RequestOutcome<N extends AppOpName> =
   | { readonly ok: false; readonly error: AppError }
   | { readonly ok: false; readonly local: LocalFault };
 
-type AnyOutcome =
+/**
+ * A request's outcome as the channel has it: on a version 2 session the hub's error may be one of
+ * version 2's (`AppErrorV2`). `request` gives its callers version 1's (`version1Error`).
+ */
+export type AnyOutcome =
   | { readonly ok: true; readonly body: unknown; readonly repeat: boolean }
-  | { readonly ok: false; readonly error: AppError }
+  | { readonly ok: false; readonly error: AppErrorV2 }
   | { readonly ok: false; readonly local: LocalFault };
 
 export type ChannelStatus =
@@ -72,11 +88,16 @@ export type ChannelStatus =
     }
   | { readonly kind: "removed" };
 
-/** What the channel tells the store. */
+/**
+ * What the channel tells the store. On a version 2 session (a phone's, m3-design.md section 3) the
+ * snapshot and the events of version 1's names carry version 2's bodies, each version 1's with
+ * fields added (but `hub`'s two new `what`s); an event only version 2 names goes to `newEvent`.
+ */
 export interface ChannelListener {
   status(status: ChannelStatus): void;
   snapshot(snapshot: SnapshotObject, hello: HubHello): void;
   event(event: AppEvent): void;
+  newEvent?(event: AppEventV2): void;
 }
 
 /** A request's maker, as the screens see it: the channel, or another tab's (`tabs.ts`). */
@@ -85,7 +106,7 @@ export interface Requester {
 }
 
 interface Pending {
-  readonly op: AppOpName;
+  readonly op: AppOpNameV2;
   readonly body: unknown;
   readonly seq: number | undefined;
   readonly resolve: (outcome: AnyOutcome) => void;
@@ -102,6 +123,36 @@ export const REFUSALS_OVER_MS = 60_000;
 /** A session that nothing has come from for this long is closed by the client ‡. */
 export const CLIENT_LIVENESS_MS = SESSION_LIMITS.livenessMs;
 
+/** A schema as the channel uses one: checks a value, never throws. */
+interface Checks {
+  safeParse(value: unknown): { readonly success: boolean; readonly data?: unknown };
+}
+
+/**
+ * An event of a version 2 session: the frame as `eventFrame` has it (exactly `t`, `rev`, `ev` and
+ * `body`), its name any of version 2's, its body checked against version 2's schema.
+ */
+function parseEventV2(json: unknown): AppEventV2 | undefined {
+  if (typeof json !== "object" || json === null) return undefined;
+  const frame = json as Readonly<Record<string, unknown>>;
+  if (Object.keys(frame).sort().join(",") !== "body,ev,rev,t") return undefined;
+  if (frame.t !== "evt" || !liveRevision.safeParse(frame.rev).success) return undefined;
+  const ev = frame.ev;
+  if (typeof ev !== "string" || !Object.hasOwn(APP_EVENTS_V2, ev)) return undefined;
+  const schema: Checks = APP_EVENTS_V2[ev as AppEventNameV2];
+  const body = schema.safeParse(frame.body);
+  // The schema of `ev` checked `body`, so the frame is that variant of `AppEventV2`.
+  return body.success
+    ? ({ t: "evt", rev: frame.rev, ev, body: body.data } as AppEventV2)
+    : undefined;
+}
+
+/** The reply schema of `op` in a session's version: version 2's on a version 2 session. */
+function replySchemaOf(proto: number, op: AppOpNameV2): Checks | undefined {
+  const table: Readonly<Record<string, { readonly reply: Checks } | undefined>> =
+    proto >= 2 ? APP_OPS_V2 : APP_OPS;
+  return table[op]?.reply;
+}
 class Session {
   private ended = false;
   constructor(
@@ -165,6 +216,10 @@ export class Channel implements Requester {
       readonly timers: Timers;
       readonly app: string;
       readonly listener: ChannelListener;
+      /** The versions offered; `PROTO_RANGE` (the web build's) when not given. */
+      readonly proto?: ProtoRange;
+      /** The key functions; the platform's when not given (`PLATFORM_KEYS`). */
+      readonly keys?: ClientKeys<PlatformSecret>;
     },
   ) {}
 
@@ -195,21 +250,32 @@ export class Channel implements Requester {
   }
 
   async request<N extends AppOpName>(op: N, body: AppOpBody<N>): Promise<RequestOutcome<N>> {
-    // The reply was checked against `op`'s reply schema before it resolves (`reply` below).
-    return (await this.requestAny(op, body)) as RequestOutcome<N>;
+    const outcome = await this.requestAny(op, body);
+    // The reply was checked against `op`'s reply schema before it resolves (`reply` below); an
+    // error only version 2 names reaches a caller of version 1's types as `protoUnsupported`.
+    const typed: AnyOutcome =
+      !outcome.ok && "error" in outcome
+        ? { ok: false, error: version1Error(outcome.error) }
+        : outcome;
+    return typed as RequestOutcome<N>;
   }
 
-  /** Another tab's request (`tabs.ts`), sent as it came: the hub checks its body. */
-  forward(op: AppOpName, body: unknown): Promise<AnyOutcome> {
+  /**
+   * Another tab's request (`tabs.ts`), or one of version 2's operations (a phone's), sent as it
+   * came: the hub checks its body. A caller sends an operation of version 2 only on a version 2
+   * session (`HubHello.proto`), as section 5 has it.
+   */
+  forward(op: AppOpNameV2, body: unknown): Promise<AnyOutcome> {
     return this.requestAny(op, body);
   }
 
-  private async requestAny(op: AppOpName, body: unknown): Promise<AnyOutcome> {
+  private async requestAny(op: AppOpNameV2, body: unknown): Promise<AnyOutcome> {
     if (this.removed) return { ok: false, local: "removed" };
     if (this.record === undefined) return { ok: false, local: "notLinked" };
     if (!this.isOpen()) return { ok: false, local: "offline" };
     let seq: number | undefined;
-    if (APP_OPS[op].change) {
+    // Version 2's table holds version 1's rows with the same `change` (test/channel-v2.test.ts).
+    if (APP_OPS_V2[op].change) {
       // Written before it is sent (section 8): a crash in between skips a number, never reuses one.
       seq = await reserveSeq(this.deps.store);
       if (seq === undefined) return { ok: false, local: "storage" };
@@ -252,7 +318,14 @@ export class Channel implements Requester {
     const record = this.record;
     if (record === undefined || this.stopped || this.removed) return;
     this.deps.listener.status({ kind: "connecting", attempt: this.attempt });
-    const opened = await openSession(this.deps.connect, record, this.deps.app, this.deps.timers);
+    const opened = await openSession(
+      this.deps.connect,
+      record,
+      this.deps.app,
+      this.deps.timers,
+      this.deps.proto,
+      this.deps.keys,
+    );
     if (this.isStopped()) {
       if (opened.ok) opened.value.wire.close(CLOSE.normal);
       return;
@@ -340,7 +413,23 @@ export class Channel implements Requester {
       this.reply(session, frame);
       return;
     }
-    const event = parseEvent(frame);
+    if (session.hello.proto >= 2) {
+      const later = parseEventV2(frame);
+      if (later === undefined) {
+        session.close(CLOSE.protocol);
+        return;
+      }
+      if (!isVersion1Event(later.ev)) {
+        this.deps.listener.newEvent?.(later);
+        return;
+      }
+    }
+    // On a version 2 session the frame passed version 2's schema above; it is read as version 1's
+    // names, with version 2's bodies (`ChannelListener`).
+    const event =
+      session.hello.proto >= 2
+        ? { ok: true as const, value: frame as AppEvent }
+        : parseEvent(frame);
     if (!event.ok) {
       session.close(CLOSE.protocol);
       return;
@@ -371,7 +460,8 @@ export class Channel implements Requester {
   }
 
   private reply(session: Session, frame: unknown): void {
-    const parsed = appReply.safeParse(frame);
+    const proto = session.hello.proto;
+    const parsed = (proto >= 2 ? appReplyV2 : appReply).safeParse(frame);
     if (!parsed.success) {
       session.close(CLOSE.protocol);
       return;
@@ -380,9 +470,9 @@ export class Channel implements Requester {
     if (pending === undefined) return;
     this.pending.delete(parsed.data.id);
     if (parsed.data.ok) {
-      const body = APP_OPS[pending.op].reply.safeParse(parsed.data.body);
+      const body = replySchemaOf(proto, pending.op)?.safeParse(parsed.data.body);
       pending.resolve(
-        body.success
+        body?.success === true
           ? { ok: true, body: body.data, repeat: parsed.data.repeat === true }
           : { ok: false, local: "badReply" },
       );

@@ -71,7 +71,8 @@
     "status": "Hub status",
     "activity": "Activity",
     "settings": "Settings",
-    "within": "Pages in {{destination}}"
+    "within": "Pages in {{destination}}",
+    "restore": "Restore a hub"
   },
   "common": {
     "busy": "Working…",
@@ -417,10 +418,14 @@
     "whichSirens": "Which sirens",
     "noSensors": "No sensors yet.",
     "sensorsAre": "Sensors: {{sensors}}.",
-    "soundsAll": "Sounds every siren.",
-    "soundsThese": "Sounds: {{sirens}}.",
     "deleteQuestion": "Delete the group {{name}}? Its sensors stay as they are, and modes that hold it lose it.",
-    "atLeastOneSiren": "Choose at least one siren, or Every siren."
+    "atLeastOneSiren": "Choose at least one siren, or Every siren.",
+    "soundsEvery": "Every siren sounds for this group.",
+    "soundsThese_one": "{{sirens}} sounds for this group.",
+    "soundsThese_other": "{{sirens}} sound for this group.",
+    "noneLeft": "None of this group's sirens is left, so every siren sounds for it.",
+    "chooseSirens": "Choose sirens",
+    "notInUse": "{{name}} (reset, not in use)"
   },
   "modes": {
     "intro": "A mode is a set of groups: switching to it arms their sensors and disarms the others. Away and Disarmed are fixed.",
@@ -703,7 +708,12 @@
       "backup": "Backups",
       "hub": "The hub itself",
       "stateUnexpected": "A door or cover not as expected"
-    }
+    },
+    "categoriesTitle_phone": "What this phone is told",
+    "categoriesIntro_phone": "Turn off what you do not want told on this phone. Alarms, countdowns, tampering and the other urgent notices are always told.",
+    "browserTitle_phone": "Notices on this phone",
+    "closedTab_phone": "While the app is open, an urgent notification shows over every screen and the phone vibrates.",
+    "browserNone_phone": "With the app closed, this phone is not told yet."
   },
   "people": {
     "userManagement": "User management",
@@ -744,7 +754,8 @@
     "alsoTitle": "Devices {{name}} linked in the last 30 days, removed with it unless unticked:",
     "alsoRemove": "Also remove {{name}}",
     "clientRemoved": "{{name}} was removed.",
-    "personRemoved": "{{name}} was removed, with their devices."
+    "personRemoved": "{{name}} was removed, with their devices.",
+    "thisBrowser_phone": "{{name}} (this phone)"
   },
   "linkDevice": {
     "intro": "Make a code for another device. It works once, links at once, and expires.",
@@ -912,7 +923,12 @@
       "wrongKey": "This key does not open that backup.",
       "expired": "The restore code has expired: start again on the hub computer.",
       "busy": "The hub is busy: try again in a moment."
-    }
+    },
+    "exportTitle_phone": "Export from this phone",
+    "exportIntro_phone": "A copy handed to this phone's share sheet, to keep where you choose; never written on the hub. Choose which:",
+    "exported_phone": "Exported: the backup was handed to the share sheet.",
+    "exportedHistory_phone": "Exported: the history file was handed to the share sheet. It is not encrypted.",
+    "notHanded": "The file arrived, but this phone could not hand it over. Try again."
   },
   "updates": {
     "statusTitle": "Updates",
@@ -996,7 +1012,206 @@
     "updates": "New software for the hub and the devices.",
     "link": "Make a code to link another phone or browser.",
     "status": "What the hub is running and how it is doing.",
-    "setup": "The first steps: your name, the Wi-Fi and the first devices."
+    "setup": "The first steps: your name, the Wi-Fi and the first devices.",
+    "restore": "Restore a new hub from a backup, with the key this phone holds."
+  },
+  "bluetooth": {
+    "title": "Allow Bluetooth",
+    "allow": "Allow Bluetooth",
+    "refused": "Bluetooth is blocked. Open settings to allow this phone to add and update devices.",
+    "off": "Bluetooth is off. Turn it on and check again.",
+    "unsupported": "This phone cannot use Bluetooth. Use another phone to add or update the device.",
+    "checkAgain": "Check Bluetooth again"
+  },
+  "pairing": {
+    "add": "Add a device",
+    "addAgain": "Add it again",
+    "phoneOnly": "Use the phone app to add a device over Bluetooth.",
+    "linkFirst": "Link this phone to your home first. The device's code is ready for the next step.",
+    "choose": "What are you adding?",
+    "open": "Open pairing on the device",
+    "openHint": "Hold the button under the cover for about 5 seconds until the light shows. The code stays on the display.",
+    "findAction": "Find the device",
+    "looking": "Looking for the device…",
+    "which": "Choose your device",
+    "whichHint": "Choose the device you are adding. If you are unsure, wait for the other pairing lights to go out and try again.",
+    "firmware": "Firmware version {{version}}",
+    "point": "Point the camera at the code on the device's display.",
+    "wrongBoard": "This code is for another device. Scan the code on the device you chose.",
+    "scanAction": "Scan its code",
+    "typeAction": "Type its code",
+    "checkAction": "Check the code",
+    "code": "Device code",
+    "codeLife": "The code works until the device is added.",
+    "checking": "Checking the code…",
+    "nameLabel": "Device name",
+    "groups": "Groups",
+    "adding": "Adding…",
+    "stay": "Keep this app open and the phone near the device.",
+    "problem": "Couldn't add the device",
+    "tryCode": "Type the code again",
+    "windowOpen": "The light is showing",
+    "tryAgain": "Try again",
+    "wifiAction": "Check the device again",
+    "wifiLink": "This home",
+    "showDevice": "View the device",
+    "working": "It is working.",
+    "disarmed": "This door starts disarmed, even though a mode is on.",
+    "groupsFailed": "Some groups couldn't be saved. Check them under Groups.",
+    "noContact": "Added, waiting for the hub",
+    "reset": "Reset. Add it again, or remove it.",
+    "role": { "sensor": "Door sensor", "siren": "Siren", "gateway": "Gateway" },
+    "label": {
+      "sensor": "Door sensor {{chip}}",
+      "siren": "Siren {{chip}}",
+      "gateway": "Gateway {{chip}}"
+    },
+    "defaultName": { "sensor": "Door-sensor", "siren": "Siren", "gateway": "Gateway" },
+    "name": {
+      "sensor": "Name this door sensor",
+      "siren": "Name this siren",
+      "gateway": "Name this gateway"
+    },
+    "submit": {
+      "sensor": "Add this door sensor",
+      "siren": "Add this siren",
+      "gateway": "Add this gateway"
+    },
+    "added": { "sensor": "Door sensor added", "siren": "Siren added", "gateway": "Gateway added" },
+    "waiting": {
+      "sensor": "Waiting for the door sensor to reach the hub…",
+      "siren": "Waiting for the siren to reach the hub…",
+      "gateway": "Waiting for the gateway to reach the hub…"
+    },
+    "noContactHint": {
+      "sensor": "It has not been heard yet. Check that a gateway is near.",
+      "siren": "It could not reach the hub. Check the Wi-Fi details under This home.",
+      "gateway": "It could not reach the hub. Check the Wi-Fi details under This home."
+    },
+    "failure": {
+      "noBoard": "No device is open for pairing nearby. Hold the button under the cover for about 5 seconds until the light shows. Keep the phone close.",
+      "mistyped": "The code doesn't look right. Check the characters on the display and type it again.",
+      "wrongCode_one": "That is not this device's code. You have one try left.",
+      "wrongCode_other": "That is not this device's code. You have {{count}} tries left.",
+      "tooManyTries": "The device stopped listening after five wrong codes. Hold the button under the cover for about 5 seconds until the light shows.",
+      "vanished": "The device stopped answering. Check that it's on, move closer and try again.",
+      "anotherPhone": "The phone couldn't connect. If another phone is adding this device, finish there first, then try again.",
+      "off": "Bluetooth turned off. Turn it on and try again.",
+      "unauthorized": "Bluetooth is blocked. Allow it in this phone's settings and try again.",
+      "pairedElsewhere": "This device belongs to another hub. Disarm it at the other hub first. To start a reset, hold the button under the cover for about 15 seconds. Wait for the reset to finish before trying again.",
+      "alreadyOurs": "This device is already added. Find it under Devices.",
+      "noWifi": "This device needs your Wi-Fi details. Set them under This home first.",
+      "noGateway": "The hub has no radio settings yet. Connect a gateway and set up This home first.",
+      "badIdentity": "The hub couldn't recognise the device. Check that it belongs to your home system and try again.",
+      "provisioning": "The hub is already adding this device. Wait for that to finish, then check Devices.",
+      "boardWifi": "The device didn't accept its setup details. Check the Wi-Fi details under This home and try again.",
+      "boardRefused": "The device didn't accept its setup details. Hold the button under the cover for about 5 seconds until the light shows, then try again.",
+      "unfinished": "Not finished: add it again, or remove it.",
+      "interrupted": "The app closed before the device was added. Check Devices. To start again, hold the button under the cover for about 5 seconds until the light shows.",
+      "invalidName": "Use 1 to 64 characters with no spaces.",
+      "taken": "That name is already in use. Try again and choose a different name.",
+      "format": "The hub couldn't use that name. Try again with 1 to 64 characters and no spaces.",
+      "protocol": "The device didn't answer as expected. Check that it's a device for your home system and try again.",
+      "radioFailed": "The phone couldn't finish adding the device. Keep it near the device and try again."
+    }
+  },
+  "bluetoothUpdate": {
+    "title": "Firmware update",
+    "needsPhone": "This sensor is out of Wi-Fi range. Update it with this phone, near it.",
+    "usePhone": "This sensor needs a phone. Open its page in the phone app to update it.",
+    "action": "Update with this phone",
+    "back": "Back to the sensor",
+    "asking": "Asking the hub…",
+    "downloading": "Getting the update…",
+    "wakeTitle": "Get close to the sensor",
+    "wake": "Open the sensor's cover to start now, or wait up to {{duration}}. Opening the cover sends everyone a tamper alert; that is expected.",
+    "minutes_one": "a minute",
+    "minutes_other": "{{count}} minutes",
+    "seconds_one": "a second",
+    "seconds_other": "{{count}} seconds",
+    "near": "Keep the phone near the sensor.",
+    "findAction": "Find the sensor",
+    "finding": "Looking for the sensor…",
+    "sending": "Sending the update…",
+    "progress": "{{percent}}%",
+    "progressTime_one": "{{percent}}%, about one second left",
+    "progressTime_other": "{{percent}}%, about {{count}} seconds left",
+    "resumeTitle": "Connection lost",
+    "resumeHint": "Stay near the sensor and carry on before it stops listening.",
+    "resume": "Carry on",
+    "sent": "Sent",
+    "installLater": "It installs when the hub says so.",
+    "cancelled": "Update stopped on this phone",
+    "cancelledHint": "You can start again when the hub next offers an update.",
+    "startAgain": "Start again",
+    "downloadAgain": "Carry on downloading",
+    "problem": "Couldn't finish the update",
+    "held": {
+      "needsPhone": "This sensor needs a phone.",
+      "armed": "It is armed. Disarm it first.",
+      "battery": "Its battery is low. Charge it first.",
+      "waitingTurn": "It is waiting for its turn.",
+      "countdownAlarmOrSiteMove": "Wait for the countdown, alarm or radio settings change to finish.",
+      "gatewayBusy": "The gateway is busy. The hub will try again.",
+      "keyChange": "It has not been heard since the hub was restored. Wait until it is."
+    },
+    "failure": {
+      "armed": "It is armed. Disarm it first.",
+      "lowBattery": "Its battery is low. Charge it first.",
+      "countdown": "Not while a countdown or alarm runs.",
+      "alarm": "Not while a countdown or alarm runs.",
+      "siteMove": "Not while the home's radio settings are changing.",
+      "keyChange": "It has not been heard since the hub was restored. Wait until it is.",
+      "notPaired": "This sensor isn't connected to your home. Add it under Devices first.",
+      "onTrial": "It is checking a new version already.",
+      "noImage": "The hub doesn't have an update for this sensor. Check under Updates.",
+      "bluetoothSession": "Another update of it is under way.",
+      "smallMtu": "This phone cannot update this sensor over Bluetooth. Use another phone.",
+      "expired": "The session ended. Start again.",
+      "windowEnded": "The sensor stopped listening. Start again.",
+      "notFound": "The phone couldn't find the sensor. Check that you're near it, then start again.",
+      "off": "Bluetooth turned off. Turn it on, then start again.",
+      "unauthorized": "Bluetooth is blocked. Allow it in settings, then start again.",
+      "interrupted": "The update was interrupted. Keep the app open while trying again.",
+      "corrupt": "The download didn't match the hub's file. Download it again.",
+      "cache": "The phone couldn't save the update. Free some space and start again.",
+      "protocol": "The sensor didn't answer as expected. Check you're near the right sensor, then start again.",
+      "wrongTag": "The sensor would not open the update. Start again.",
+      "failed": "The update couldn't finish. Stay near the sensor and start again."
+    },
+    "state": {
+      "none": "No update is planned.",
+      "planned": "Waiting for its turn.",
+      "offered": "The hub has offered the update.",
+      "fetching": "Getting the update.",
+      "verified": "Waiting for the hub to install it.",
+      "installing": "Installing the update.",
+      "onTrial": "Checking the new version.",
+      "confirmed": "Updated to {{version}}.",
+      "rolledBack": "It went back to the previous version.",
+      "refused": "The sensor refused the update.",
+      "cancelled": "The update was cancelled."
+    },
+    "reason": {
+      "battery": "Its battery is low. Charge it first.",
+      "armed": "It is armed. Disarm it first.",
+      "noWifi": "It couldn't join Wi-Fi. Check your home's Wi-Fi details.",
+      "hubNotFound": "It couldn't find the hub. Check the hub is on.",
+      "linkLost": "It lost the connection. Get close and try again.",
+      "badHeader": "It couldn't read the update. Check for another update.",
+      "wrongHub": "The update belongs to another hub. Check under Updates.",
+      "wrongRole": "The update is for a different kind of device. Check under Updates.",
+      "tooLarge": "The update is too large for this sensor. Check under Updates.",
+      "badSignature": "It couldn't verify who made the update. Check under Updates.",
+      "hashMismatch": "The update was damaged. Try sending it again.",
+      "flash": "The sensor couldn't save the update. Try again.",
+      "imageCheck": "The sensor couldn't use the new version. Check under Updates.",
+      "windowEnded": "The sensor stopped listening. Start again.",
+      "sessionRefused": "The sensor wouldn't open the update. Start again.",
+      "onTrial": "It is checking a new version already.",
+      "radioBusy": "The device is too busy. Try again later.",
+      "noContact": "The hub hasn't heard from the sensor. Check that a gateway is near."
+    }
   },
   "permissions": {
     "camera": "The camera reads the QR codes that link this phone, restore a hub and add devices.",
@@ -1004,5 +1219,124 @@
     "localNetwork": "The app reaches your hub over your home network.",
     "location": "Your location lets the app offer to arm when everyone has left, and to disarm when you come home.",
     "faceId": "Face ID unlocks the app when the app lock is on."
+  },
+  "files": {
+    "onComputer": "Choose this file on the hub computer: files are sent to the hub from there, not from a phone."
+  },
+  "scan": {
+    "title": "Scan the code",
+    "pointLink": "Point the camera at the QR code on the hub computer or the other phone.",
+    "pointRestore": "Point the camera at the QR code on the new hub computer.",
+    "typeInstead": "Type the code instead",
+    "lightOn": "Light on",
+    "lightOff": "Light off",
+    "notOurs": "This is not a code from your home system.",
+    "noCamera": "This phone has no camera to scan with.",
+    "viewLabel": "The camera's view"
+  },
+  "permissionPage": {
+    "allowCamera": "Allow the camera",
+    "cameraRefused": "Without the camera, this phone cannot scan a code. You can allow it in the phone's settings.",
+    "allowLocalNetwork": "Allow the local network",
+    "localNetworkRefused": "Without the local network, this phone cannot reach your hub at home. You can allow it in the phone's settings.",
+    "openSettings": "Open settings"
+  },
+  "phoneLink": {
+    "title": "Link this phone",
+    "intro": "Link this phone to your home with the code the hub computer or a linked phone shows: scan its QR code, or type its code.",
+    "scan": "Scan the code",
+    "type": "Type the code",
+    "scanInstead": "Scan the code instead",
+    "codeLabel": "Code or link address",
+    "codeHint": "Twelve letters and digits, like ABCD-EFGH-JKMN, or the whole link address.",
+    "submit": "Link this phone",
+    "cancel": "Cancel",
+    "confirmTitle": "Link this phone?",
+    "confirm": "Link this phone to the home at {{address}}?",
+    "confirmNoAddress": "Link this phone to the home that made this code?",
+    "linking": "Linking this phone…",
+    "networkTitle": "Reach your hub",
+    "removedTitle": "This phone was removed",
+    "removed": "This phone was removed from {{home}}.",
+    "yourHome": "your home",
+    "linkAgain": "Link again",
+    "noStorageTitle": "This phone cannot be linked",
+    "noStorage": "This phone cannot keep a key safely, so it cannot be linked.",
+    "pairCode": "This code adds a device. Link this phone first, then add the device under Devices.",
+    "name": {
+      "ios": "iPhone",
+      "android": "Android phone"
+    },
+    "reach": {
+      "localNetworkDenied": "The phone is not allowed to reach your home network. Turn on Local Network for this app in Settings.",
+      "noHubFound": "No hub answered on this network. Check that the phone is on the home Wi-Fi, or scan the QR code."
+    },
+    "failure": {
+      "unreachable": "The hub cannot be reached from this phone. Check that the phone is on the home Wi-Fi.",
+      "refused": "The hub does not know this code: it may have been used, have expired, or be mistyped.",
+      "wrongHub": "This is not the hub that made the code, so nothing was sent to it.",
+      "notAccepted": "The hub did not accept the code. It may be mistyped, used or expired.",
+      "needsName": "The hub needs your name to link this phone.",
+      "protocol": "The hub's answer could not be read.",
+      "timeout": "The hub did not answer in time.",
+      "noWebCrypto": "This phone could not make its key, so it cannot be linked.",
+      "extractable": "This phone could not make its key, so it cannot be linked.",
+      "failed": "This phone could not make its key.",
+      "notBuilt": "This phone cannot link yet: linking is still being built for phones.",
+      "storage": "This phone could not keep its key, so it is not linked.",
+      "unreadable": "The link held a code that could not be read. Ask for a new one.",
+      "badCode": "That code is not right: check it and type it again."
+    },
+    "code": {
+      "unreadable": "This code could not be read. Ask for a new one.",
+      "notHome": "This code names an address outside your home network, so this phone does not use it.",
+      "notLink": "This code does not link a phone. Type the code the hub computer or a linked phone shows."
+    }
+  },
+  "phoneRestore": {
+    "title": "Restore a hub",
+    "phoneOnly": "A hub is restored on the hub computer, unlocked by a phone that holds its backup key.",
+    "checking": "Checking the backup…",
+    "noKey": "This phone does not hold the key for that backup. Use a phone that was linked to that home on {{date}}.",
+    "restoring": "Restoring {{home}} from the backup of {{date}}.",
+    "thatHome": "the home",
+    "done": "Restored. {{home}} is starting again, and this phone reaches it by itself.",
+    "scanAgain": "Scan again",
+    "notRestoreCode": "This code links a device. Scan the restore code on the new hub computer.",
+    "fault": {
+      "unreachable": "The new hub cannot be reached from this phone. Check that the phone is on the home Wi-Fi.",
+      "refused": "The new hub does not know this code: it may have been used or have expired. Start again on the hub computer.",
+      "wrongHub": "This is not the hub that made the code, so nothing was sent to it.",
+      "notAccepted": "The new hub did not take this phone's answer. Start again on the hub computer.",
+      "storage": "This phone could not read its backup keys.",
+      "protocol": "The new hub's answer could not be read.",
+      "timeout": "The new hub did not answer in time.",
+      "noKey": "This phone does not hold the key for that backup. Use a phone that was linked to that home when the backup was made."
+    }
+  },
+  "notFound": {
+    "title": "There is no such page",
+    "body": "The app has no page at that address.",
+    "home": "Go to Home"
+  },
+  "failed": {
+    "title": "This page could not be shown",
+    "body": "Something went wrong while showing it. Try again; if it fails again, close the app and open it again.",
+    "retry": "Try again"
+  },
+  "vault": {
+    "locked": "This phone has restarted and has not been unlocked since, so the app cannot read its key yet. Unlock the phone; the app tries again when you come back to it.",
+    "denied": "The phone refused the app its secure storage, so the app cannot use its key. Restart the phone and open the app again.",
+    "corrupt": "The key this phone kept for your home could not be read back. Link this phone again from another phone or the hub computer.",
+    "full": "This phone is out of storage, so the app could not save what it needs. Free some space, then try again.",
+    "failed": "The app could not use this phone's secure storage. Try again; if it keeps failing, restart the phone."
+  },
+  "sirens": {
+    "everyWillSound_one": "{{groups}} will then have none of its own sirens left, so every siren will sound for it.",
+    "everyWillSound_other": "{{groups}} will then have none of their own sirens left, so every siren will sound for them.",
+    "remove": "Remove the siren",
+    "gone_one": "{{siren}} was removed or reset, so {{groups}} has none of its own sirens left, and every siren will sound for it.",
+    "gone_other": "{{siren}} was removed or reset, so {{groups}} have none of their own sirens left, and every siren will sound for them.",
+    "goneNoGroups": "{{siren}} was removed or reset, so a group was left with none of its own sirens, and every siren sounds for it. Groups says which sirens sound for each."
   }
 }

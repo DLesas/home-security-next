@@ -288,7 +288,8 @@ test("a group (the door, and the siren it sounds) and a mode that arms it", asyn
   await editor.getByRole("button", { name: "Save changes" }).click();
   const group = rowWithHeading(GROUP);
   await expect(group.getByText(`Sensors: ${SENSOR}.`)).toBeVisible();
-  await expect(group.getByText(`Sounds: ${SIREN}.`)).toBeVisible();
+  // Which sirens sound for it, in one sentence under its name (D144).
+  await expect(group.getByText(`${SIREN} sounds for this group.`)).toBeVisible();
 
   await openDevicesPage("Modes");
   await axeOn(page, "modes");
@@ -301,6 +302,31 @@ test("a group (the door, and the siren it sounds) and a mode that arms it", asyn
     .click();
   await modeEditor.getByRole("button", { name: "Save changes" }).click();
   await expect(rowWithHeading(MODE).getByText(`Arms: ${GROUP}.`)).toBeVisible();
+});
+
+test("removing the group's only siren asks first, naming the group; cancelling keeps it (D144)", async () => {
+  await goTo("Devices");
+  await page
+    .getByRole("region", { name: "Paired devices" })
+    .getByRole("link", { name: new RegExp(`^${SIREN} Siren`, "u") })
+    .click();
+  await page.getByRole("button", { name: `Delete ${SIREN}` }).click();
+  const dialog = page.getByRole("alertdialog", {
+    name: `Remove ${SIREN}? It must be paired again to come back.`,
+  });
+  await expect(dialog).toBeVisible();
+  await expect(
+    dialog.getByText(
+      `${GROUP} will then have none of its own sirens left, so every siren will sound for it.`,
+    ),
+  ).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "Remove the siren" })).toBeVisible();
+  await axeOn(page, "removing a siren, asked first");
+  await dialog.getByRole("button", { name: "Cancel" }).click();
+  await expect(dialog).toHaveCount(0);
+  // Nothing changed: the siren is still the group's.
+  await openDevicesPage("Groups");
+  await expect(rowWithHeading(GROUP).getByText(`${SIREN} sounds for this group.`)).toBeVisible();
 });
 
 test("home: the door opened and shut once, so the hub knows it shut", async () => {

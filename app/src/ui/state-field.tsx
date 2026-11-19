@@ -10,7 +10,8 @@
  */
 import type { ModeObject } from "@hsn/protocol/app";
 import { type ComponentRef, useEffect, useMemo, useRef, useState } from "react";
-import { Text, View } from "react-native";
+import { View } from "react-native";
+import { Text } from "./text";
 import { useTranslation } from "react-i18next";
 import type { LiveState } from "../state/live";
 import { deviceNames } from "../state/words";

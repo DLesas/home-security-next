@@ -11,8 +11,15 @@
     "src/hub/digest.ts",
     "src/hub/start.ts",
     "src/platform/alerts.ts",
+    "src/platform/announce.ts",
+    "src/platform/intl.ts",
     "src/platform/keys.ts",
+    "src/platform/local-network.ts",
     "src/platform/random.ts",
-    "src/platform/save-file.ts"
+    "src/platform/save-file.ts",
+    "src/ui/file-input.tsx",
+    "src/ui/fonts-ready.ts",
+    "src/ui/qr.tsx",
+    "src/ui/shell.tsx"
   ]
 }

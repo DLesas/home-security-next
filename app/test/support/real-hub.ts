@@ -56,6 +56,7 @@ export function connectFrom(origin: string): Connect {
 export interface RealHub {
   readonly dataDir: string;
   readonly consolePort: number;
+  readonly devicePort: number;
   readonly lanPort: number;
   readonly consoleOrigin: string;
   /** `https://<this computer's address>:<lan port>`, or undefined with no network address. */
@@ -92,12 +93,14 @@ function portOpen(port: number): Promise<boolean> {
   });
 }
 
-export async function startRealHub(): Promise<RealHub> {
+export async function startRealHub(prepare?: (dataDir: string) => void): Promise<RealHub> {
   // Short, so the control socket's path stays under 104 bytes (HD 9).
   const dataDir = mkdtempSync("/tmp/hsn-a7-");
   folders.add(dataDir);
+  prepare?.(dataDir);
   const consolePort = await freePort();
   const lanPort = await freePort();
+  const devicePort = prepare === undefined ? 0 : await freePort();
   const home = homeAddress();
   let child: Subprocess | undefined;
   const sock = join(dataDir, "control.sock");
@@ -121,6 +124,7 @@ export async function startRealHub(): Promise<RealHub> {
   const hub: RealHub = {
     dataDir,
     consolePort,
+    devicePort,
     lanPort,
     consoleOrigin: `http://127.0.0.1:${String(consolePort)}`,
     lanOrigin: home === undefined ? undefined : `https://${home}:${String(lanPort)}`,
@@ -141,7 +145,7 @@ export async function startRealHub(): Promise<RealHub> {
           "--data",
           dataDir,
           "--port",
-          "0",
+          String(devicePort),
           "--no-usb-watch",
           "--app-ports",
           `${String(lanPort)},${String(consolePort)}`,

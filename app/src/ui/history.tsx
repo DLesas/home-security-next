@@ -8,7 +8,8 @@
  * shown as the hub names it. Packet bodies are decoded with the browser-safe
  * `@hsn/protocol/messages` (HD 6: a body is the plaintext after the type byte).
  */
-import { historyKind, type HistoryRow } from "@hsn/protocol/app";
+import { type GroupObject, historyKind, type HistoryRow } from "@hsn/protocol/app";
+import { groupsOfDetail, SIRENS_GONE, sirensGoneWords } from "./siren-choice";
 import { decodeMessage, fromHexSafe, MessageType } from "./packets";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -58,13 +59,23 @@ export function packetWords(
 export function rowWords(
   t: Translate,
   exists: (key: string) => boolean,
-  devices: Devices,
+  devices: Devices & { readonly groups?: Readonly<Record<number, GroupObject>> },
   record: HistoryRow,
+  language = "en",
 ): string {
   const name = (id: number | null) => (id === null ? undefined : deviceName(t, devices, id));
   const r = record.row;
   switch (r.kind) {
     case "decision": {
+      // D144's record: the siren gone, and the groups it names, by name.
+      if (r.row.kind === SIRENS_GONE && r.row.deviceId !== null)
+        return sirensGoneWords(
+          t,
+          { devices: devices.devices, groups: devices.groups ?? {} },
+          language,
+          r.row.deviceId,
+          groupsOfDetail(r.row.detail),
+        );
       const key = `history.decision.${r.row.kind}`;
       const what = exists(key) ? t(key) : t("record.unknownDecision", { kind: r.row.kind });
       const device = name(r.row.deviceId);
@@ -128,6 +139,7 @@ export function HistoryScreen() {
   const { t, i18n } = useTranslation();
   const hub = useHub();
   const devices = useLive((s) => s.devices);
+  const groups = useLive((s) => s.groups);
   const info = useLive((s) => s.hub);
   const stale = useLive((s) => s.stale.history);
   const connected = useLive((s) => s.connection.kind === "open");
@@ -208,7 +220,7 @@ export function HistoryScreen() {
           return (
             <ListItem key={`${record.kind}-${String(i)}`}>
               <Body muted>{time}</Body>
-              <Body>{rowWords(t, exists, { devices }, record)}</Body>
+              <Body>{rowWords(t, exists, { devices, groups }, record, i18n.language)}</Body>
             </ListItem>
           );
         })}

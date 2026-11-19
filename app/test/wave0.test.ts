@@ -8,11 +8,15 @@ import { readdirSync } from "node:fs";
 import { join } from "node:path";
 import { bigOfBits, modPow, ROUTES, routesToWalk, socketRequest } from "../src/dev/wave0-parts";
 
-/** The routes `src/app/` defines, as paths: `index` is `/`, a `[param]` takes the value 1. */
+/**
+ * The routes `src/app/` defines, as paths: `index` is `/`, a `[param]` takes the value 1. Files
+ * that start with `_` (layouts) or `+` (Expo Router's own: `+native-intent`, `+not-found`) are no
+ * route of their own.
+ */
 function routesOnDisk(): readonly string[] {
   const app = join(import.meta.dir, "..", "src", "app");
   return readdirSync(app, { recursive: true, encoding: "utf8" })
-    .filter((file) => file.endsWith(".tsx") && !file.split("/").some((p) => p.startsWith("_")))
+    .filter((file) => file.endsWith(".tsx") && !file.split("/").some((p) => /^[_+]/u.test(p)))
     .map(
       (file) =>
         `/${file

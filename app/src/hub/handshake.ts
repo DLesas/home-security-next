@@ -22,6 +22,7 @@ import {
   linkHubPayload,
   linkPrologue,
   type LinkRequest,
+  type LinkResult,
   linkResult,
   matchesIdentity,
   NOISE_PATTERNS,
@@ -34,12 +35,25 @@ import {
 } from "@hsn/protocol/app";
 import { identityOf, lookupOfSecret, pskOfSecret, pskOfTypedSecret } from "./digest";
 import { decodeJson, encodeJson } from "./codec";
-import type { KeyFault, StoredClient } from "../platform/client-key";
-import { makeClientKey, staticKeyOf } from "../platform/keys";
+import type { ClientKeys, KeyFault, StoredClient } from "../platform/client-key";
+import { makeClientKey, type PlatformSecret, staticKeyOf } from "../platform/keys";
 import { type ChannelPath, CLOSE, type Connect, Inbox, type Timers, type Wire } from "./wire";
 
 /** The channel versions this build speaks (section 8: the build is stamped with it). */
 export const PROTO_RANGE: readonly [number, number] = [APP_PROTO_VERSION, APP_PROTO_VERSION];
+
+/**
+ * A range of channel versions a client offers, lowest first: the web build's is `PROTO_RANGE`; a
+ * phone gives its own (m3-design.md section 3: version 2 only), so a handshake takes it as an
+ * argument, `PROTO_RANGE` when none is given.
+ */
+export type ProtoRange = readonly [number, number];
+
+/**
+ * The platform's key functions (`platform/keys.ts`): what the handshakes use when not given
+ * others. Tests of the phone's client, which Bun runs with the web's binding, give the phone's.
+ */
+export const PLATFORM_KEYS: ClientKeys<PlatformSecret> = { makeClientKey, staticKeyOf };
 
 /** How long a handshake waits for the hub's next message ‡ (the hub's own limit is 5 s). */
 export const HANDSHAKE_WAIT_MS = 10_000;
@@ -94,6 +108,8 @@ export async function openSession(
   stored: StoredClient,
   app: string,
   timers: Timers,
+  proto: ProtoRange = PROTO_RANGE,
+  keys: ClientKeys<PlatformSecret> = PLATFORM_KEYS,
 ): Promise<Outcome<OpenedSession, SessionFailure>> {
   const identity = parseIdentity(stored.hub.identity);
   if (identity === undefined) return fail("protocol");
@@ -101,12 +117,12 @@ export async function openSession(
     pattern: NOISE_PATTERNS.session,
     initiator: true,
     prologue: sessionPrologue(identity),
-    staticKey: staticKeyOf(stored.key),
+    staticKey: keys.staticKeyOf(stored.key),
     remoteStatic: stored.hub.staticKey,
   });
   if (!started.ok) return fail("protocol");
   const handshake = started.value;
-  const hello = clientHello.parse({ proto: PROTO_RANGE, app });
+  const hello = clientHello.parse({ proto, app });
   const first = await handshake.writeMessage(encodeJson(hello));
   if (!first.ok) return fail(first.error === "allZeroDh" ? "keyFailed" : "protocol");
 
@@ -123,8 +139,7 @@ export async function openSession(
   const json = decodeJson(second.value);
   const parsed = hubHello.safeParse(json?.value);
   if (!parsed.success) return fail("protocol", wire);
-  if (parsed.data.proto < PROTO_RANGE[0] || parsed.data.proto > PROTO_RANGE[1])
-    return fail("protocol", wire);
+  if (parsed.data.proto < proto[0] || parsed.data.proto > proto[1]) return fail("protocol", wire);
   if (parsed.data.client.id !== stored.hub.client) return fail("protocol", wire);
   const transport = handshake.split();
   if (!transport.ok) return fail("protocol", wire);
@@ -158,7 +173,29 @@ export async function linkBrowser(
   request: LinkRequest,
   timers: Timers,
 ): Promise<Outcome<StoredClient, LinkFailure>> {
-  const key = await makeClientKey();
+  const linked = await linkClient(connect, secret, request, timers);
+  return linked.ok ? { ok: true, value: linked.value.record } : linked;
+}
+
+/** A link made: the record to keep, and message 4 as the hub sent it (a phone's backup key). */
+export interface LinkedClient {
+  readonly record: StoredClient;
+  readonly result: LinkResult;
+}
+
+/**
+ * Links a client, browser or phone, offering `proto`: the record to keep and the hub's
+ * `LinkResult`, whose backup key a phone keeps with the record (m3-design.md section 4).
+ */
+export async function linkClient(
+  connect: Connect,
+  secret: LinkSecret,
+  request: LinkRequest,
+  timers: Timers,
+  proto: ProtoRange = PROTO_RANGE,
+  keys: ClientKeys<PlatformSecret> = PLATFORM_KEYS,
+): Promise<Outcome<LinkedClient, LinkFailure>> {
+  const key = await keys.makeClientKey();
   if (!key.ok) return fail(key.fault);
   const psk =
     secret.kind === "secret"
@@ -179,12 +216,12 @@ export async function linkBrowser(
     pattern: NOISE_PATTERNS.link,
     initiator: true,
     prologue: linkPrologue("link"),
-    staticKey: staticKeyOf(key.value),
+    staticKey: keys.staticKeyOf(key.value),
     psk,
   });
   if (!started.ok) return fail("protocol");
   const handshake = started.value;
-  const first = await handshake.writeMessage(encodeJson({ proto: PROTO_RANGE, find }));
+  const first = await handshake.writeMessage(encodeJson({ proto, find }));
   if (!first.ok) return fail("protocol");
 
   const inbox = new Inbox(timers);
@@ -198,11 +235,7 @@ export async function linkBrowser(
   const read = await handshake.readMessage(second.data);
   if (!read.ok) return fail("protocol", wire);
   const payload = linkHubPayload.safeParse(decodeJson(read.value)?.value);
-  if (
-    !payload.success ||
-    payload.data.proto < PROTO_RANGE[0] ||
-    payload.data.proto > PROTO_RANGE[1]
-  )
+  if (!payload.success || payload.data.proto < proto[0] || payload.data.proto > proto[1])
     return fail("protocol", wire);
   const hubStatic = handshake.remoteStatic();
   if (hubStatic === undefined) return fail("protocol", wire);
@@ -230,14 +263,17 @@ export async function linkBrowser(
   return {
     ok: true,
     value: {
-      key: key.value,
-      hub: {
-        identity: await identityOf(hubStatic),
-        staticKey: hubStatic.slice(),
-        client: result.data.client,
-        person: result.data.person,
+      record: {
+        key: key.value,
+        hub: {
+          identity: await identityOf(hubStatic),
+          staticKey: hubStatic.slice(),
+          client: result.data.client,
+          person: result.data.person,
+        },
+        lastSeq: 0,
       },
-      lastSeq: 0,
+      result: result.data,
     },
   };
 }

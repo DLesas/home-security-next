@@ -8,10 +8,14 @@
  * The current values come with `device.show` and are shown beside each field, with the settings
  * version they make.
  */
+import { Platform } from "react-native";
+import { DeviceUpdateSection } from "../pairing/device-update-section";
 import { APP_OPS, deviceNameValue, type DeviceObject } from "@hsn/protocol/app";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { DeviceItemFacts } from "./devices";
+import { groupsLeftWithout } from "./siren-choice";
+import { SirenDialog } from "./siren-dialog";
 import { useAction, useLive, useRead } from "./hub-context";
 import {
   Actions,
@@ -23,6 +27,7 @@ import {
   Field,
   Heading,
   Section,
+  TextLink,
 } from "./parts";
 
 /** A whole number typed in a field, `learn` where the setting has it, or nothing (keep as is). */
@@ -163,6 +168,14 @@ function RenameRemove({ device }: { readonly device: DeviceObject }) {
   const rename = useAction("device.rename");
   const remove = useAction("device.remove");
   const schedules = useLive((s) => s.schedules);
+  const groups = useLive((s) => s.groups);
+  const devices = useLive((s) => s.devices);
+  // The groups that removing this siren leaves with none of their own (D144): asked first.
+  const leftWithout = useMemo(
+    () => groupsLeftWithout(Object.values(groups), devices, device.id),
+    [groups, devices, device.id],
+  );
+  const [asking, setAsking] = useState(false);
   const [name, setName] = useState(device.name);
   const [bad, setBad] = useState(false);
   const refs =
@@ -193,15 +206,42 @@ function RenameRemove({ device }: { readonly device: DeviceObject }) {
             if (ok) void rename.run({ device: device.id, name: clean });
           }}
         />
-        <ConfirmButton
-          label={t("editing.delete", { name: device.name })}
-          question={t("deviceDetail.removeQuestion", { name: device.name })}
-          yes={t("people.yesRemove")}
-          no={t("editing.no")}
-          busy={remove.busy}
-          onConfirm={() => void remove.run({ device: device.id })}
-        />
+        {leftWithout.length === 0 ? (
+          <ConfirmButton
+            label={t("editing.delete", { name: device.name })}
+            question={t("deviceDetail.removeQuestion", { name: device.name })}
+            yes={t("people.yesRemove")}
+            no={t("editing.no")}
+            busy={remove.busy}
+            onConfirm={() => void remove.run({ device: device.id })}
+          />
+        ) : (
+          <Button
+            kind="quiet"
+            label={t("editing.delete", { name: device.name })}
+            busy={remove.busy}
+            onPress={() => {
+              setAsking(true);
+            }}
+            testID="device-remove"
+          />
+        )}
       </Actions>
+      {asking && leftWithout.length > 0 ? (
+        <SirenDialog
+          title={t("deviceDetail.removeQuestion", { name: device.name })}
+          groups={leftWithout}
+          confirm={t("sirens.remove")}
+          busy={remove.busy}
+          onConfirm={() => {
+            setAsking(false);
+            void remove.run({ device: device.id });
+          }}
+          onCancel={() => {
+            setAsking(false);
+          }}
+        />
+      ) : null}
       {rename.outcome === undefined ? null : rename.outcome.ok ? (
         <Done text={t("editing.saved")} />
       ) : (
@@ -244,9 +284,19 @@ export function DeviceDetail({ id }: { readonly id: number }) {
         <Heading level={2}>{device.name}</Heading>
         <DeviceItemFacts device={device} />
       </Section>
+      {Platform.OS !== "web" &&
+      (device.state === "resetByOwner" || device.state === "provisioning") ? (
+        <Section label={t("pairing.addAgain")}>
+          <Body>
+            {t(device.state === "provisioning" ? "pairing.failure.unfinished" : "pairing.reset")}
+          </Body>
+          <TextLink href={`/device/add?previous=${device.id}`} label={t("pairing.addAgain")} />
+        </Section>
+      ) : null}
       <RenameRemove device={device} />
       {device.role === "sensor" ? (
         <>
+          <DeviceUpdateSection device={device} />
           <SettingsForm
             op="sensor.settings"
             current={current}

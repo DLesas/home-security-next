@@ -1,0 +1,2 @@
+<!-- hub-net's permissions are the app's, listed in app.config.ts: ACCESS_LOCAL_NETWORK, ACCESS_NETWORK_STATE. -->
+<manifest />

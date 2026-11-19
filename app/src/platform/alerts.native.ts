@@ -1,15 +1,17 @@
 /**
- * Alerting on a phone while the app is open, the phone's side of `alerts.ts`. Not built yet: P5
- * builds it in wave 1 on expo-notifications (a notification with sound). Until then there is no
- * notification and no tone (`unsupported`); the banner and the screen reader's announcement
- * remain.
+ * Alerting on a phone while the app is open, the phone's side of `alerts.ts` (`alerts-phone.ts`
+ * says what and why): no system notification without expo-notifications; the urgent notice is
+ * announced on iOS, and the phone vibrates in place of a tone.
  */
-import type { Alerts } from "./alerts-types";
+import { Vibration } from "react-native";
+import { phoneAlerts } from "./alerts-phone";
+import { announce } from "./announce.native";
 
-export const noticePermission: Alerts["noticePermission"] = () => "unsupported";
-export const askNoticePermission: Alerts["askNoticePermission"] = () =>
-  Promise.resolve("unsupported");
-/** Not built: nothing is shown. */
-export const showNotice: Alerts["showNotice"] = () => undefined;
-/** Not built: no sound. */
-export const tone: Alerts["tone"] = () => undefined;
+const alerts = phoneAlerts({
+  announce,
+  vibrate: (pattern) => {
+    Vibration.vibrate([...pattern]);
+  },
+});
+
+export const { noticePermission, askNoticePermission, showNotice, tone } = alerts;

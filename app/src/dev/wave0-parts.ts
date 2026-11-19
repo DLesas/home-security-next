@@ -8,6 +8,8 @@ export const ROUTES = [
   "/",
   "/devices",
   "/device/1",
+  "/device/add",
+  "/device/update",
   "/groups",
   "/modes",
   "/history",
@@ -21,6 +23,7 @@ export const ROUTES = [
   "/link",
   "/status",
   "/setup",
+  "/restore",
 ] as const;
 
 /** `base` to the power `exponent`, modulo `modulus`: square and multiply, as SRP's client does. */

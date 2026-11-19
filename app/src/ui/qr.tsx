@@ -1,47 +1,18 @@
 /**
- * A QR code as SVG (m2-design.md section 8, `qr.web.ts`'s "show a code"; wave 2's ruling: `toqr`),
- * `ink` on `chalk` with the four-module quiet zone the standard asks for. One path, no inline style:
- * nothing the content security policy has to allow. Its text is given beside it, selectable, for a
- * person who cannot scan; scanning waits for the phone app.
+ * A QR code drawn for a person to scan, per platform (m3-design.md section 2): `qr.web.tsx` as SVG,
+ * `qr.native.tsx` as Views (no SVG package on the phone, section 8). Both draw `qr-matrix.ts`'s
+ * modules. Metro loads one of them in place of this file; tsc and Bun's tests read this one, which
+ * binds the web build's (`platform/split.ts`).
  */
-import { toQR } from "toqr";
+import type { Split } from "../platform/split";
+import type * as phone from "./qr.native";
+import type { QrDrawing } from "./qr-types";
+import * as web from "./qr.web";
 
-/** The dark modules of `text`'s code, as an SVG path in module units, and the code's size. */
-export function qrPath(text: string): { readonly size: number; readonly path: string } {
-  const modules = toQR(text);
-  const size = Math.round(Math.sqrt(modules.length));
-  let path = "";
-  for (let row = 0; row < size; row++)
-    for (let col = 0; col < size; col++)
-      if (modules[row * size + col] === 1) path += `M${String(col)} ${String(row)}h1v1h-1z`;
-  return { size, path };
-}
+export type { QrCodeProps } from "./qr-types";
+export { qrPath } from "./qr-matrix";
 
-const QUIET = 4;
+/** Both platforms' files export `QrDrawing`. */
+export type Platforms = Split<QrDrawing, typeof web, typeof phone>;
 
-export function QrCode({
-  text,
-  label,
-  testID,
-}: {
-  readonly text: string;
-  readonly label: string;
-  readonly testID?: string;
-}) {
-  const { size, path } = qrPath(text);
-  const box = size + 2 * QUIET;
-  return (
-    <svg
-      role="img"
-      aria-label={label}
-      data-testid={testID}
-      viewBox={`${String(-QUIET)} ${String(-QUIET)} ${String(box)} ${String(box)}`}
-      width={Math.max(180, box * 4)}
-      height={Math.max(180, box * 4)}
-      shapeRendering="crispEdges"
-    >
-      <rect x={-QUIET} y={-QUIET} width={box} height={box} className="fill-chalk" />
-      <path d={path} className="fill-ink" />
-    </svg>
-  );
-}
+export const { QrCode }: QrDrawing = web;

@@ -1,0 +1,6 @@
+{
+  "//": "hub-net's TypeScript, for the editor and the lint's type information. The app's own type checks reach it through the files that import it (src/hub/start.native.ts, test/hub-net.test.ts). Node's types for the protocol package's files it reaches, as the app's program has them through Expo's.",
+  "extends": "../../tsconfig.json",
+  "compilerOptions": { "types": ["node"] },
+  "include": ["index.ts", "src", "../../nativewind-env.d.ts"]
+}

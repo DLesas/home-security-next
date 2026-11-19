@@ -32,6 +32,7 @@ import {
   Section,
 } from "./parts";
 import { numberOrKeep } from "./device-detail";
+import { HERE } from "./words-here";
 
 const RESULT_KEYS = {
   ok: "backup.result.ok",
@@ -142,18 +143,23 @@ function Export() {
   const [history, setHistory] = useState(false);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<Awaited<ReturnType<typeof downloadFile>> | undefined>();
+  // Whether the file was handed over (a phone's share sheet can fail; a browser's download not).
+  const [handed, setHanded] = useState(true);
   const run = async () => {
     setBusy(true);
     const got = await downloadFile(hub, history, realTimers);
     setBusy(false);
     setResult(got);
+    setHanded(true);
     if (got.ok && "bytes" in got)
-      void saveFile(history ? "hsn-history.jsonl" : "hsn-backup.hsnb", got.bytes);
+      void saveFile(history ? "hsn-history.jsonl" : "hsn-backup.hsnb", got.bytes).then((saved) => {
+        setHanded(saved.ok);
+      });
   };
   return (
-    <Section label={t("backup.exportTitle")}>
-      <Heading level={2}>{t("backup.exportTitle")}</Heading>
-      <Body>{t("backup.exportIntro")}</Body>
+    <Section label={t("backup.exportTitle", HERE)}>
+      <Heading level={2}>{t("backup.exportTitle", HERE)}</Heading>
+      <Body>{t("backup.exportIntro", HERE)}</Body>
       <Choice
         label={t("backup.exportWhich")}
         value={history ? "history" : "backup"}
@@ -176,8 +182,12 @@ function Export() {
           testID="backup-export"
         />
       </Actions>
-      {result === undefined ? null : result.ok ? (
-        <Done text={t(history ? "backup.exportedHistory" : "backup.exported")} />
+      {result === undefined ? null : result.ok && !handed ? (
+        <Notice kind="danger" live="polite">
+          <Body>{t("backup.notHanded")}</Body>
+        </Notice>
+      ) : result.ok ? (
+        <Done text={t(history ? "backup.exportedHistory" : "backup.exported", HERE)} />
       ) : "fault" in result ? (
         <Notice kind="danger" live="polite">
           <Body>{t(`backup.downloadFault.${result.fault}`)}</Body>

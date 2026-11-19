@@ -1,23 +1,26 @@
 /**
- * The app's root (Expo Router): translation, the hub client, and over every screen the countdown
- * and alarm banner and the connection's notice; then linking with a code the page was opened
- * with (`src/entry.ts` took it out of the address first). A browser that is not linked sees the
- * link screen in place of the routes.
+ * The app's root (Expo Router): translation, the app's faces (`ui/fonts-ready`: at once in a
+ * browser, loaded at start on a phone), the hub client, and the frame around every screen
+ * (`ui/shell`, per platform); then linking with a code the page was opened with (`src/entry.ts`
+ * took it out of the address first). Until all are ready a browser shows nothing and a phone only
+ * the page's colour. A development build may start a preview of the screens (`ui/preview.ts`).
  */
 import "../../global.css";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { Slot, usePathname } from "expo-router";
 import { useEffect, useState } from "react";
 import { I18nextProvider } from "react-i18next";
-import { ScrollView, View } from "react-native";
+import { Platform, View } from "react-native";
 import { claimArrivedCode, startClient } from "../hub/start";
 import type { StartedClient } from "../hub/start-types";
 import { i18n, startI18n } from "../i18n";
-import { AlarmBanner, ShellNotices, useAlarmRunning } from "../ui/banners";
-import { HubProvider, useLive, useLocal } from "../ui/hub-context";
-import { LinkGate, needsLinkGate } from "../ui/link-gate";
-import { BottomBar, Pages, Rail } from "../ui/navigation";
-import { Column } from "../ui/parts";
+import { installIntl } from "../platform/intl";
+import { useFontsReady } from "../ui/fonts-ready";
+import { HubProvider } from "../ui/hub-context";
+import { previewAsked } from "../ui/preview-env";
+import { Shell } from "../ui/shell";
+
+// What the phone's engine lacks of `Intl`, in place before anything renders (`platform/intl`).
+installIntl();
 
 let started: StartedClient | undefined;
 const queries = new QueryClient({
@@ -25,6 +28,7 @@ const queries = new QueryClient({
 });
 
 export default function RootLayout() {
+  const fonts = useFontsReady();
   const [ready, setReady] = useState(i18n.isInitialized);
   const [client, setClient] = useState<StartedClient | undefined>(started);
   useEffect(() => {
@@ -36,10 +40,20 @@ export default function RootLayout() {
     }
     if (started !== undefined) return;
     started = startClient();
+    // A development build's preview of the screens, never in a release bundle (`__DEV__` folds).
+    if (__DEV__ && previewAsked()) {
+      const real = started.client;
+      void import("../ui/preview").then((preview) => {
+        started = { client: preview.startPreview(real) };
+        setClient(started);
+      });
+      return;
+    }
     const hub = started.client;
     // In a browser, taken out of the address by `src/entry.ts` before the router loaded (section 5).
-    const arrived = claimArrivedCode();
-    // A link opened in the phone app is shown before it is used (m3-design.md section 3): not here.
+    // A link opened in the phone app is shown before it is used (m3-design.md section 3): the
+    // phone's link pages claim it (`ui/phone-link.tsx`), not this.
+    const arrived = Platform.OS === "web" ? claimArrivedCode() : undefined;
     if (arrived?.from === "unreadable") hub.unreadable();
     else if (arrived !== undefined && arrived.from !== "deepLink") {
       const name = i18n.t(arrived.from === "console" ? "link.consoleName" : "link.webName");
@@ -47,7 +61,9 @@ export default function RootLayout() {
     }
     setClient(started);
   }, [ready]);
-  if (!ready || client === undefined) return null;
+  // A phone keeps its page colour while it starts (m3-design.md section 2, "Fonts").
+  if (!ready || !fonts || client === undefined)
+    return Platform.OS === "web" ? null : <View className="flex-1 bg-limewash" />;
   return (
     <I18nextProvider i18n={i18n}>
       <QueryClientProvider client={queries}>
@@ -59,40 +75,5 @@ export default function RootLayout() {
   );
 }
 
-/**
- * Every screen: the navigation (a bar at the bottom on a phone, a column at the left from 768 px)
- * and the content column; over the content the alarm or countdown, the notices every screen
- * shows, and the pages of the destination the person is in. Home shows the first as its state
- * field and the notices under it.
- */
-function Shell() {
-  const connection = useLive((s) => s.connection);
-  const link = useLocal((s) => s.link);
-  const home = usePathname() === "/";
-  const running = useAlarmRunning();
-  if (needsLinkGate(connection, link)) {
-    return (
-      <ScrollView className="flex-1 bg-limewash">
-        <LinkGate />
-      </ScrollView>
-    );
-  }
-  return (
-    <View className="flex-1 bg-limewash md:flex-row">
-      <Rail />
-      <ScrollView className="flex-1">
-        <Column first={home || running}>
-          {home ? null : (
-            <>
-              <AlarmBanner />
-              <ShellNotices />
-              <Pages />
-            </>
-          )}
-          <Slot />
-        </Column>
-      </ScrollView>
-      <BottomBar />
-    </View>
-  );
-}
+/** A screen that failed to render: ours, which shows no message (`ui/failed-screen.tsx`). */
+export { ErrorBoundary } from "../ui/failed-screen";
