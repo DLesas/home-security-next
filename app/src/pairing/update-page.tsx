@@ -2,7 +2,7 @@
 import type { AppEventBodyV2 } from "@hsn/protocol/app";
 import { UPDATE_REASONS } from "@hsn/protocol/app";
 import { secondsFromFifteenSecondUnits } from "@hsn/protocol/messages";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { AppState } from "react-native";
 import { bleCentral, type BleState } from "../platform/ble";
@@ -21,20 +21,12 @@ import {
   backgroundEnds,
   mayResume,
   releaseUpdate,
+  resultActions,
+  type UpdateResultPage,
 } from "./update-steps";
 
 type UpdatePageName =
-  | "permission"
-  | "asking"
-  | "downloading"
-  | "downloadFailed"
-  | "wake"
-  | "finding"
-  | "sending"
-  | "resume"
-  | "sent"
-  | "failure"
-  | "cancelled";
+  "permission" | "asking" | "downloading" | "wake" | "finding" | "sending" | UpdateResultPage;
 type UpdateNotice = AppEventBodyV2<"deviceUpdate">;
 
 /** Displays the hub's final outcome and the sensor's own refusal in household terms. */
@@ -343,7 +335,31 @@ export function UpdatePage({ hub, device }: { readonly hub: PhoneHub; readonly d
       </Page>
     );
 
-  if (page === "sent" || (page === "failure" && latest?.state === "confirmed")) {
+  const result = page === "failure" && latest?.state === "confirmed" ? "sent" : page;
+  /** Renders the ordered actions shared by the result pages. */
+  const controlsFor = (outcome: UpdateResultPage) => {
+    const controls = {
+      back,
+      cancel,
+      resume: <Button label={t("bluetoothUpdate.resume")} onPress={() => void send(true)} />,
+      downloadAgain: (
+        <Button label={t("bluetoothUpdate.downloadAgain")} onPress={() => void download()} />
+      ),
+      startAgain: (
+        <Button
+          label={t("bluetoothUpdate.startAgain")}
+          onPress={() => {
+            setRadio(undefined);
+            setPage("permission");
+          }}
+        />
+      ),
+    };
+    return resultActions(outcome).map((action) => (
+      <Fragment key={action}>{controls[action]}</Fragment>
+    ));
+  };
+  if (result === "sent") {
     const finished =
       latest?.state === "confirmed" ||
       latest?.state === "rolledBack" ||
@@ -357,28 +373,27 @@ export function UpdatePage({ hub, device }: { readonly hub: PhoneHub; readonly d
           {latest === undefined ? null : (
             <UpdateResult event={latest} version={version ?? firmware ?? ""} />
           )}
-          {back}
+          {controlsFor(result)}
         </Stack>
       </Page>
     );
   }
-  if (page === "cancelled")
+  if (result === "cancelled")
     return (
       <Page title={t("bluetoothUpdate.cancelled")} intro={t("bluetoothUpdate.cancelledHint")}>
-        {back}
+        <Stack>
+          <Actions>{controlsFor(result)}</Actions>
+        </Stack>
       </Page>
     );
-  if (page === "resume")
+  if (result === "resume")
     return (
       <Page title={t("bluetoothUpdate.resumeTitle")} intro={t("bluetoothUpdate.resumeHint")}>
-        <Actions>
-          <Button label={t("bluetoothUpdate.resume")} onPress={() => void send(true)} />
-          {cancel}
-        </Actions>
+        <Actions>{controlsFor(result)}</Actions>
       </Page>
     );
 
-  if (page === "failure" || page === "downloadFailed") {
+  if (result === "failure" || result === "downloadFailed") {
     const key = error.startsWith("reason.")
       ? `bluetoothUpdate.${error}`
       : `bluetoothUpdate.failure.${error}`;
@@ -386,20 +401,7 @@ export function UpdatePage({ hub, device }: { readonly hub: PhoneHub; readonly d
       <Page title={t("bluetoothUpdate.problem")}>
         <Stack>
           {notice(t(key, { defaultValue: t("bluetoothUpdate.failure.failed") }))}
-          <Actions>
-            {page === "downloadFailed" ? (
-              <Button label={t("bluetoothUpdate.downloadAgain")} onPress={() => void download()} />
-            ) : (
-              <Button
-                label={t("bluetoothUpdate.startAgain")}
-                onPress={() => {
-                  setRadio(undefined);
-                  setPage("permission");
-                }}
-              />
-            )}
-            {page === "downloadFailed" ? cancel : back}
-          </Actions>
+          <Actions>{controlsFor(result)}</Actions>
         </Stack>
       </Page>
     );

@@ -1142,7 +1142,7 @@
     "sent": "Sent",
     "installLater": "It installs when the hub says so.",
     "cancelled": "Update stopped on this phone",
-    "cancelledHint": "You can start again when the hub next offers an update.",
+    "cancelledHint": "Nothing was installed. You can start again now.",
     "startAgain": "Start again",
     "downloadAgain": "Carry on downloading",
     "problem": "Couldn't finish the update",

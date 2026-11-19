@@ -13,6 +13,7 @@ import {
   backgroundEnds,
   mayResume,
   releaseUpdate,
+  resultActions,
 } from "../src/pairing/update-steps";
 import type { BleCentral, BluetoothUpdate } from "../src/platform/ble";
 import { ManualClock } from "../../tools/ble-bench/src/clock";
@@ -59,6 +60,18 @@ function held() {
   };
   return { running, seen, grant };
 }
+
+describe("actions on update results", () => {
+  test.each([
+    ["sent", ["back"]],
+    ["resume", ["resume", "cancel"]],
+    ["downloadFailed", ["downloadAgain", "cancel"]],
+    ["failure", ["startAgain", "back"]],
+    ["cancelled", ["startAgain", "back"]],
+  ] as const)("%s presents its actions in order", (page, actions) => {
+    expect(resultActions(page)).toEqual([...actions]);
+  });
+});
 
 describe("releasing the update", () => {
   test("the session key is zeroed, the cached file deleted, the link cancelled and the expiry stopped", () => {

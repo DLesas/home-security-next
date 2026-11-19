@@ -9,6 +9,24 @@ import type { BluetoothUpdate } from "../platform/ble";
 import type { ImageCache } from "./download";
 import type { updateTransfer } from "./update-flow";
 
+/** The pages that report an update result, including interruptions that can be recovered. */
+export type UpdateResultPage = "sent" | "resume" | "downloadFailed" | "failure" | "cancelled";
+
+/** Gives the result page's actions in display order. */
+export function resultActions(page: UpdateResultPage) {
+  switch (page) {
+    case "sent":
+      return ["back"] as const;
+    case "resume":
+      return ["resume", "cancel"] as const;
+    case "downloadFailed":
+      return ["downloadAgain", "cancel"] as const;
+    case "failure":
+    case "cancelled":
+      return ["startAgain", "back"] as const;
+  }
+}
+
 /** One update the page holds: the grant, the file being kept for it, and its cancellation. */
 export interface ActiveUpdate {
   readonly offer: Pick<BluetoothSessionObject, "imageId" | "fileBytes" | "sha256">;
