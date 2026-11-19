@@ -107,21 +107,25 @@ describe("the command line", () => {
 });
 
 describe("the key files", () => {
-  test("readable by the group or others: refused", async () => {
-    const { s, secrets } = await setUp();
-    for (const mode of [0o640, 0o604, 0o620]) {
-      chmodSync(s.apnsKeyPath, mode);
-      const result = readApnsKey(s.apnsKeyPath, s.apnsKey.keyId, s.apnsKey.teamId, rules());
-      expect(result.isErr() ? result.error.message : "read").toBe(
-        "the APNs key may be read by others; make it 0600",
+  // Windows access lists do not expose POSIX group and other permission bits.
+  test.skipIf(process.platform === "win32")(
+    "readable by the group or others: refused",
+    async () => {
+      const { s, secrets } = await setUp();
+      for (const mode of [0o640, 0o604, 0o620]) {
+        chmodSync(s.apnsKeyPath, mode);
+        const result = readApnsKey(s.apnsKeyPath, s.apnsKey.keyId, s.apnsKey.teamId, rules());
+        expect(result.isErr() ? result.error.message : "read").toBe(
+          "the APNs key may be read by others; make it 0600",
+        );
+        expectNoSecret(message(result), secrets);
+      }
+      chmodSync(s.apnsKeyPath, 0o400);
+      expect(readApnsKey(s.apnsKeyPath, s.apnsKey.keyId, s.apnsKey.teamId, rules()).isOk()).toBe(
+        true,
       );
-      expectNoSecret(message(result), secrets);
-    }
-    chmodSync(s.apnsKeyPath, 0o400);
-    expect(readApnsKey(s.apnsKeyPath, s.apnsKey.keyId, s.apnsKey.teamId, rules()).isOk()).toBe(
-      true,
-    );
-  });
+    },
+  );
 
   test("another account's: refused", async () => {
     const { s } = await setUp();
@@ -232,7 +236,8 @@ describe("the key files", () => {
     ]);
   });
 
-  test("the TLS key is read as a secret too", async () => {
+  // This case proves refusal specifically through the TLS key's POSIX mode.
+  test.skipIf(process.platform === "win32")("the TLS key is read as a secret too", async () => {
     const { s, base } = await setUp();
     const keyPath = join(s.folder, "tls.key");
     writeFileSync(keyPath, "not a key", { mode: 0o644 });
