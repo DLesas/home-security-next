@@ -87,10 +87,15 @@ export function deviceObject(
   };
 }
 
-/** The devices the actor may see, by number, the hub's own row left out. */
+/** The devices the actor may see, excluding the hub and devices removed for good. */
 export function visibleDevices(view: HubState, actor: Actor): readonly DeviceRow[] {
   return registeredDevices(view)
-    .filter((row) => roleName(row.role) !== undefined && deviceVisible(view, actor, row))
+    .filter(
+      (row) =>
+        row.state !== DeviceState.Removed &&
+        roleName(row.role) !== undefined &&
+        deviceVisible(view, actor, row),
+    )
     .toSorted((a, b) => a.id - b.id);
 }
 

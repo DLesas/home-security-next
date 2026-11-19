@@ -17,6 +17,8 @@ import { createHubClient, type HubClient } from "../src/hub/client";
 import { linkBrowser } from "../src/hub/handshake";
 import { memoryRecordStore, type RecordStore, type StoredClient } from "../src/platform/client-key";
 import { type Connect, realTimers, type Wire } from "../src/hub/wire";
+import { G1, R1, S1, S2, siteSnapshot } from "../../hub/test/unit/firmware/support";
+import { seedPairingSite } from "./support/pairing-site";
 import { connectFrom, type RealHub, startRealHub, stopAllHubs } from "./support/real-hub";
 
 const CONSOLE_NAME = { name: "The hub computer", kind: "web" } as const;
@@ -90,6 +92,46 @@ beforeAll(async () => {
 afterAll(async () => {
   await stopAllHubs();
 });
+
+test("CLI device removal reaches a connected app and stays gone from the next snapshot", async () => {
+  const ids = new Set([S1, R1, G1]);
+  const rows = siteSnapshot().devices.filter((row) => ids.has(row.id) || row.id === S2);
+  expect(rows.map((row) => row.id)).toEqual([S1, S2, R1, G1]);
+  const house = await startRealHub((dataDir) => {
+    expect(
+      seedPairingSite(
+        dataDir,
+        rows.map((row) => ({ table: "devices", op: "upsert", row })),
+      ),
+    ).toBe(true);
+  });
+  const connect = connectFrom(house.consoleOrigin);
+  const records = memoryRecordStore();
+  const app = clientOn(connect, records);
+  const url = await house.consoleCode();
+  const secret = parseConsoleFragment(url.slice(url.indexOf("#") + 1)) ?? expect.unreachable();
+  app.start();
+  await app.link({ kind: "secret", secret, identity: undefined }, "console", CONSOLE_NAME);
+  expect(await until(() => app.live.getState().rev !== null)).toBe(true);
+  expect((await app.request("subscribe", { topics: ["devices"] })).ok).toBe(true);
+  expect(Object.keys(app.live.getState().devices)).toEqual(rows.map((row) => String(row.id)));
+  for (const row of rows.filter((row) => ids.has(row.id))) {
+    const removed = await house.control({ kind: "deviceRemove", name: row.name });
+    expect(removed).toMatchObject({ reply: { ok: true } });
+    expect(await until(() => app.live.getState().devices[row.id] === undefined)).toBe(true);
+  }
+  app.stop();
+  const fresh = clientOn(connect, records);
+  fresh.start();
+  const tookSnapshot = await until(() => fresh.live.getState().rev !== null);
+  const snapshotDevices = Object.keys(fresh.live.getState().devices);
+  const list = await fresh.request("device.list", {});
+  fresh.stop();
+  await house.stop();
+  expect(tookSnapshot).toBe(true);
+  expect(snapshotDevices).toEqual([String(S2)]);
+  expect(list.ok && list.body.devices.map((device) => device.id)).toEqual([S2]);
+}, 30_000);
 
 describe("linking and the session, on the real hub", () => {
   test("hsn open's code links a console client; its session opens and the snapshot is applied", async () => {

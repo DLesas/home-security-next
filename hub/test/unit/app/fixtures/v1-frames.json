@@ -841,6 +841,22 @@
       "frames": [
         {
           "to": "anna",
+          "json": "{\"t\":\"evt\",\"rev\":13,\"ev\":\"forget\",\"body\":{\"device\":12}}"
+        },
+        {
+          "to": "phone",
+          "json": "{\"t\":\"evt\",\"rev\":13,\"ev\":\"forget\",\"body\":{\"device\":12}}"
+        },
+        {
+          "to": "ben",
+          "json": "{\"t\":\"evt\",\"rev\":13,\"ev\":\"forget\",\"body\":{\"device\":12}}"
+        },
+        {
+          "to": "console",
+          "json": "{\"t\":\"evt\",\"rev\":13,\"ev\":\"forget\",\"body\":{\"device\":12}}"
+        },
+        {
+          "to": "anna",
           "json": "{\"t\":\"evt\",\"rev\":13,\"ev\":\"device\",\"body\":{\"what\":\"removed\",\"device\":{\"id\":12,\"name\":\"#12-garage\",\"role\":\"sensor\",\"state\":\"removed\",\"firmware\":\"1.2.3\",\"batteryPercent\":null,\"signal\":null,\"temperatureC\":null,\"lastSeenMs\":null,\"heardBy\":null,\"health\":{\"silent\":false,\"batteryLow\":false,\"tamperOpen\":false,\"poorLink\":false}}}}"
         },
         {
@@ -987,7 +1003,7 @@
       "frames": [
         {
           "to": "anna",
-          "json": "{\"t\":\"res\",\"id\":20,\"ok\":true,\"body\":{\"rev\":14,\"hub\":{\"hub\":\"2.0.0\",\"proto\":1,\"identity\":\"ijpnjzfdnmyouinzbyq4oewgje\",\"fingerprint\":\"AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB\",\"timeZone\":\"\",\"clockTrusted\":true,\"boot\":1},\"site\":{\"channel\":1,\"rate\":5,\"countdownS\":30,\"autoStopS\":300,\"wifiName\":\"home-2\",\"retentionRoutineDays\":30,\"retentionEventDays\":365},\"mode\":{\"mode\":1,\"modified\":true},\"devices\":[{\"id\":11,\"name\":\"front-door\",\"role\":\"sensor\",\"state\":\"contacted\",\"firmware\":\"1.2.3\",\"batteryPercent\":null,\"signal\":null,\"temperatureC\":null,\"lastSeenMs\":null,\"heardBy\":null,\"health\":{\"silent\":false,\"batteryLow\":false,\"tamperOpen\":false,\"poorLink\":false}},{\"id\":12,\"name\":\"#12-garage\",\"role\":\"sensor\",\"state\":\"removed\",\"firmware\":\"1.2.3\",\"batteryPercent\":null,\"signal\":null,\"temperatureC\":null,\"lastSeenMs\":null,\"heardBy\":null,\"health\":{\"silent\":false,\"batteryLow\":false,\"tamperOpen\":false,\"poorLink\":false}},{\"id\":21,\"name\":\"hall\",\"role\":\"siren\",\"state\":\"contacted\",\"firmware\":\"1.2.3\",\"batteryPercent\":null,\"signal\":null,\"temperatureC\":null,\"lastSeenMs\":null,\"heardBy\":null,\"health\":{\"silent\":false,\"batteryLow\":false,\"tamperOpen\":false,\"poorLink\":false}}],\"sensors\":[{\"id\":11,\"arm\":\"disarmed\",\"door\":\"unknown\",\"countdownSecondsLeft\":null}],\"sirens\":[{\"id\":21,\"should\":{\"kind\":\"off\",\"secondsLeft\":null},\"commanded\":null,\"reported\":null,\"wifi\":\"unknown\",\"lora\":\"unknown\"}],\"gateways\":[],\"alarm\":null,\"siteMove\":null,\"notifications\":[],\"modes\":[{\"id\":1,\"name\":\"Away\",\"fixed\":\"away\",\"groups\":[],\"revision\":0},{\"id\":2,\"name\":\"Disarmed\",\"fixed\":\"disarmed\",\"groups\":[],\"revision\":0}],\"groups\":[{\"id\":1,\"name\":\"Downstairs\",\"sensors\":[11],\"sirens\":\"all\",\"revision\":1}],\"schedules\":[],\"notificationPrefs\":{\"categories\":[\"sensorSilentWhileDisarmed\",\"sirenPathLost\",\"gatewayOffline\",\"batteryLow\",\"armDisarm\",\"updates\"],\"revision\":0}}}"
+          "json": "{\"t\":\"res\",\"id\":20,\"ok\":true,\"body\":{\"rev\":14,\"hub\":{\"hub\":\"2.0.0\",\"proto\":1,\"identity\":\"ijpnjzfdnmyouinzbyq4oewgje\",\"fingerprint\":\"AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB\",\"timeZone\":\"\",\"clockTrusted\":true,\"boot\":1},\"site\":{\"channel\":1,\"rate\":5,\"countdownS\":30,\"autoStopS\":300,\"wifiName\":\"home-2\",\"retentionRoutineDays\":30,\"retentionEventDays\":365},\"mode\":{\"mode\":1,\"modified\":true},\"devices\":[{\"id\":11,\"name\":\"front-door\",\"role\":\"sensor\",\"state\":\"contacted\",\"firmware\":\"1.2.3\",\"batteryPercent\":null,\"signal\":null,\"temperatureC\":null,\"lastSeenMs\":null,\"heardBy\":null,\"health\":{\"silent\":false,\"batteryLow\":false,\"tamperOpen\":false,\"poorLink\":false}},{\"id\":21,\"name\":\"hall\",\"role\":\"siren\",\"state\":\"contacted\",\"firmware\":\"1.2.3\",\"batteryPercent\":null,\"signal\":null,\"temperatureC\":null,\"lastSeenMs\":null,\"heardBy\":null,\"health\":{\"silent\":false,\"batteryLow\":false,\"tamperOpen\":false,\"poorLink\":false}}],\"sensors\":[{\"id\":11,\"arm\":\"disarmed\",\"door\":\"unknown\",\"countdownSecondsLeft\":null}],\"sirens\":[{\"id\":21,\"should\":{\"kind\":\"off\",\"secondsLeft\":null},\"commanded\":null,\"reported\":null,\"wifi\":\"unknown\",\"lora\":\"unknown\"}],\"gateways\":[],\"alarm\":null,\"siteMove\":null,\"notifications\":[],\"modes\":[{\"id\":1,\"name\":\"Away\",\"fixed\":\"away\",\"groups\":[],\"revision\":0},{\"id\":2,\"name\":\"Disarmed\",\"fixed\":\"disarmed\",\"groups\":[],\"revision\":0}],\"groups\":[{\"id\":1,\"name\":\"Downstairs\",\"sensors\":[11],\"sirens\":\"all\",\"revision\":1}],\"schedules\":[],\"notificationPrefs\":{\"categories\":[\"sensorSilentWhileDisarmed\",\"sirenPathLost\",\"gatewayOffline\",\"batteryLow\",\"armDisarm\",\"updates\"],\"revision\":0}}}"
         }
       ]
     }
@@ -1834,6 +1850,22 @@
       "frames": [
         {
           "to": "anna",
+          "json": "{\"t\":\"evt\",\"rev\":13,\"ev\":\"forget\",\"body\":{\"device\":12}}"
+        },
+        {
+          "to": "phone",
+          "json": "{\"t\":\"evt\",\"rev\":13,\"ev\":\"forget\",\"body\":{\"device\":12}}"
+        },
+        {
+          "to": "ben",
+          "json": "{\"t\":\"evt\",\"rev\":13,\"ev\":\"forget\",\"body\":{\"device\":12}}"
+        },
+        {
+          "to": "console",
+          "json": "{\"t\":\"evt\",\"rev\":13,\"ev\":\"forget\",\"body\":{\"device\":12}}"
+        },
+        {
+          "to": "anna",
           "json": "{\"t\":\"evt\",\"rev\":13,\"ev\":\"device\",\"body\":{\"what\":\"removed\",\"device\":{\"id\":12,\"name\":\"#12-garage\",\"role\":\"sensor\",\"state\":\"removed\",\"firmware\":\"1.2.3\",\"batteryPercent\":null,\"signal\":null,\"temperatureC\":null,\"lastSeenMs\":null,\"heardBy\":null,\"health\":{\"silent\":false,\"batteryLow\":false,\"tamperOpen\":false,\"poorLink\":false}}}}"
         },
         {
@@ -1980,7 +2012,7 @@
       "frames": [
         {
           "to": "anna",
-          "json": "{\"t\":\"res\",\"id\":20,\"ok\":true,\"body\":{\"rev\":14,\"hub\":{\"hub\":\"2.0.0\",\"proto\":1,\"identity\":\"ijpnjzfdnmyouinzbyq4oewgje\",\"fingerprint\":\"AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB\",\"timeZone\":\"\",\"clockTrusted\":true,\"boot\":1},\"site\":{\"channel\":1,\"rate\":5,\"countdownS\":30,\"autoStopS\":300,\"wifiName\":\"home-2\",\"retentionRoutineDays\":30,\"retentionEventDays\":365},\"mode\":{\"mode\":1,\"modified\":true},\"devices\":[{\"id\":11,\"name\":\"front-door\",\"role\":\"sensor\",\"state\":\"contacted\",\"firmware\":\"1.2.3\",\"batteryPercent\":null,\"signal\":null,\"temperatureC\":null,\"lastSeenMs\":null,\"heardBy\":null,\"health\":{\"silent\":false,\"batteryLow\":false,\"tamperOpen\":false,\"poorLink\":false}},{\"id\":12,\"name\":\"#12-garage\",\"role\":\"sensor\",\"state\":\"removed\",\"firmware\":\"1.2.3\",\"batteryPercent\":null,\"signal\":null,\"temperatureC\":null,\"lastSeenMs\":null,\"heardBy\":null,\"health\":{\"silent\":false,\"batteryLow\":false,\"tamperOpen\":false,\"poorLink\":false}},{\"id\":21,\"name\":\"hall\",\"role\":\"siren\",\"state\":\"contacted\",\"firmware\":\"1.2.3\",\"batteryPercent\":null,\"signal\":null,\"temperatureC\":null,\"lastSeenMs\":null,\"heardBy\":null,\"health\":{\"silent\":false,\"batteryLow\":false,\"tamperOpen\":false,\"poorLink\":false}}],\"sensors\":[{\"id\":11,\"arm\":\"disarmed\",\"door\":\"unknown\",\"countdownSecondsLeft\":null}],\"sirens\":[{\"id\":21,\"should\":{\"kind\":\"off\",\"secondsLeft\":null},\"commanded\":null,\"reported\":null,\"wifi\":\"unknown\",\"lora\":\"unknown\"}],\"gateways\":[],\"alarm\":null,\"siteMove\":null,\"notifications\":[],\"modes\":[{\"id\":1,\"name\":\"Away\",\"fixed\":\"away\",\"groups\":[],\"revision\":0},{\"id\":2,\"name\":\"Disarmed\",\"fixed\":\"disarmed\",\"groups\":[],\"revision\":0}],\"groups\":[{\"id\":1,\"name\":\"Downstairs\",\"sensors\":[11],\"sirens\":\"all\",\"revision\":1}],\"schedules\":[],\"notificationPrefs\":{\"categories\":[\"sensorSilentWhileDisarmed\",\"sirenPathLost\",\"gatewayOffline\",\"batteryLow\",\"armDisarm\",\"updates\"],\"revision\":0}}}"
+          "json": "{\"t\":\"res\",\"id\":20,\"ok\":true,\"body\":{\"rev\":14,\"hub\":{\"hub\":\"2.0.0\",\"proto\":1,\"identity\":\"ijpnjzfdnmyouinzbyq4oewgje\",\"fingerprint\":\"AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB\",\"timeZone\":\"\",\"clockTrusted\":true,\"boot\":1},\"site\":{\"channel\":1,\"rate\":5,\"countdownS\":30,\"autoStopS\":300,\"wifiName\":\"home-2\",\"retentionRoutineDays\":30,\"retentionEventDays\":365},\"mode\":{\"mode\":1,\"modified\":true},\"devices\":[{\"id\":11,\"name\":\"front-door\",\"role\":\"sensor\",\"state\":\"contacted\",\"firmware\":\"1.2.3\",\"batteryPercent\":null,\"signal\":null,\"temperatureC\":null,\"lastSeenMs\":null,\"heardBy\":null,\"health\":{\"silent\":false,\"batteryLow\":false,\"tamperOpen\":false,\"poorLink\":false}},{\"id\":21,\"name\":\"hall\",\"role\":\"siren\",\"state\":\"contacted\",\"firmware\":\"1.2.3\",\"batteryPercent\":null,\"signal\":null,\"temperatureC\":null,\"lastSeenMs\":null,\"heardBy\":null,\"health\":{\"silent\":false,\"batteryLow\":false,\"tamperOpen\":false,\"poorLink\":false}}],\"sensors\":[{\"id\":11,\"arm\":\"disarmed\",\"door\":\"unknown\",\"countdownSecondsLeft\":null}],\"sirens\":[{\"id\":21,\"should\":{\"kind\":\"off\",\"secondsLeft\":null},\"commanded\":null,\"reported\":null,\"wifi\":\"unknown\",\"lora\":\"unknown\"}],\"gateways\":[],\"alarm\":null,\"siteMove\":null,\"notifications\":[],\"modes\":[{\"id\":1,\"name\":\"Away\",\"fixed\":\"away\",\"groups\":[],\"revision\":0},{\"id\":2,\"name\":\"Disarmed\",\"fixed\":\"disarmed\",\"groups\":[],\"revision\":0}],\"groups\":[{\"id\":1,\"name\":\"Downstairs\",\"sensors\":[11],\"sirens\":\"all\",\"revision\":1}],\"schedules\":[],\"notificationPrefs\":{\"categories\":[\"sensorSilentWhileDisarmed\",\"sirenPathLost\",\"gatewayOffline\",\"batteryLow\",\"armDisarm\",\"updates\"],\"revision\":0}}}"
         }
       ]
     }
