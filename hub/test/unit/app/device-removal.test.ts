@@ -1,5 +1,6 @@
 /** Device removal through the app and control channel, using the real hub modules. */
 import { expect, test } from "bun:test";
+import { APP_OPS_V2 } from "@hsn/protocol/app";
 import { ok } from "neverthrow";
 import { type DurableSnapshot, EMPTY_M3M4_SNAPSHOT } from "../../../src/core/model/events.ts";
 import { DeviceState, DeviceUpdateState } from "../../../src/core/model/rows.ts";
@@ -11,12 +12,15 @@ import {
   ANNA_PHONE,
   BEN,
   BEN_LAPTOP,
+  DEVICES,
   FRONT,
+  GARAGE,
+  HALL_SIREN,
   permission,
   role,
 } from "../people/support/hub.ts";
 import { rxRecord, seqOf } from "../storage/fixtures.ts";
-import { Disk, errorOf, eventsOn, PhoneHub, replyTo } from "./support/phone-hub.ts";
+import { Disk, errorOf, eventsOn, okBody, PhoneHub, replyTo } from "./support/phone-hub.ts";
 
 class DiskWithFirmware extends Disk {
   /** Starts the hub with an image the owner can roll out. */
@@ -114,3 +118,29 @@ test.each([1, 2] as const)("version %d announces removal without a forget event"
       ),
   ).toEqual([["device", "removed", FRONT]]);
 });
+
+test.each(["snapshot", "device.list"] as const)(
+  "%s keeps reset and left-behind devices but omits removed ones",
+  (op) => {
+    const disk = new Disk();
+    for (const row of DEVICES) {
+      const state =
+        row.id === FRONT
+          ? DeviceState.ResetByOwner
+          : row.id === GARAGE
+            ? DeviceState.LeftBehind
+            : DeviceState.Removed;
+      disk.rows.devices.set(row.id, { ...row, state });
+    }
+    const hub = new PhoneHub(disk).boot();
+    const conn = hub.connect(ANNA_PHONE, 2);
+    expect(hub.device(HALL_SIREN)?.state).toBe(DeviceState.Removed);
+    const reply = replyTo(hub.request(conn, ANNA_PHONE, { op, body: {} }).effects, conn);
+    const parsed = APP_OPS_V2[op].reply.safeParse(okBody(reply));
+    const devices = parsed.success ? parsed.data.devices : expect.unreachable();
+    expect(devices.map((row) => [row.id, row.state])).toEqual([
+      [FRONT, "resetByOwner"],
+      [GARAGE, "leftBehind"],
+    ]);
+  },
+);
