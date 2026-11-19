@@ -13,14 +13,16 @@ import {
   ResumeStep,
   Role,
   sealPacket,
+  toHex,
   UpdateAction,
   UpdateHolding,
   UpdateReason,
   UpdateStage,
 } from "../../packages/protocol/src/index";
-import { z } from "../../packages/protocol/node_modules/zod";
-import { APP_OPS_V2 } from "../../packages/protocol/src/app/index";
+import { fromHex } from "../../packages/protocol/src/bytes";
+import { APP_OPS, APP_OPS_V2 } from "../../packages/protocol/src/app/index";
 import { type CliIo, runCli } from "../../hub/cli/main";
+import { replyLine } from "../../hub/src/control-protocol";
 import { deviceId } from "../../hub/src/core/model/ids";
 import { DeviceState } from "../../hub/src/core/model/rows";
 import type { StoreOp } from "../../hub/src/core/model/store";
@@ -88,7 +90,14 @@ export function pairingRadio(hub: RealHub, say: (line: string) => void) {
   const sirens: { socket: WebSocket; role: ScriptedSiren }[] = [];
   let sensor: { pairing: PairingData; board: ScriptedBoard; counter: number } | undefined;
   let lastQuery = 0;
-  let image = new Uint8Array(8);
+  let nextPatch = 0;
+  let planned:
+    | {
+        readonly rollout: number;
+        readonly imageId: string;
+        readonly firmware: ScriptedBoard["firmware"];
+      }
+    | undefined;
   let sent = 0;
 
   /** Sends a gateway packet after it is fully sealed. */
@@ -179,28 +188,23 @@ export function pairingRadio(hub: RealHub, say: (line: string) => void) {
     return counter;
   }
 
-  /** Reads the body of a fixture control reply and excludes transport metadata. */
-  function bodyOf(result: unknown): unknown {
-    if (typeof result !== "object" || result === null || !("reply" in result)) return undefined;
-    const reply = result.reply;
-    if (typeof reply !== "object" || reply === null || !("result" in reply)) return undefined;
-    const answer = reply.result;
-    return typeof answer === "object" && answer !== null && "body" in answer
-      ? answer.body
-      : undefined;
+  /** Runs a fixture-only app operation over the real hub's local socket. */
+  async function request(op: string, body: object): Promise<unknown> {
+    const parsed = replyLine.safeParse(await hub.control({ kind: "op", op, body }));
+    const reply = parsed.success ? parsed.data.reply : undefined;
+    return reply?.ok && reply.result.kind === "op" ? reply.result.body : undefined;
   }
-
-  /** Runs a fixture-only control operation over the real hub's local socket. */
-  const request = async (op: string, body: object): Promise<unknown> =>
-    bodyOf(await hub.control({ kind: "op", op, body }));
 
   return {
     /** Reports first contact after the scripted board restarts with its new setup. */
     paired(pairing: PairingData, board: ScriptedBoard) {
       if (board.role === Role.Sensor) {
-        sensor = { pairing, board, counter: ResumeStep.Sensor };
+        const paired = { pairing, board, counter: ResumeStep.Sensor };
+        sensor = paired;
+        lastQuery = 0;
         // Give the simulator a chance to capture the page before the first report arrives.
         setTimeout(() => {
+          if (sensor !== paired) return;
           report({
             type: MessageType.Started,
             role: Role.Sensor,
@@ -232,22 +236,34 @@ export function pairingRadio(hub: RealHub, say: (line: string) => void) {
 
     /** Stages a signed own-build image, then models a sensor that cannot join the home's Wi-Fi. */
     async plan() {
-      if (sensor === undefined) {
+      const paired = sensor;
+      if (paired === undefined || paired.board.pairing !== paired.pairing) {
         say("Pair the sensor before starting a rollout");
         return;
       }
-      const device = z
-        .object({ devices: z.array(z.object({ id: z.number(), role: z.string() })) })
-        .safeParse(await request("snapshot", {}));
-      const id = device.success
-        ? device.data.devices.find((row) => row.role === "sensor")?.id
+      const control = replyLine.safeParse(await hub.control({ kind: "devices" }));
+      const reply = control.success ? control.data.reply : undefined;
+      const named =
+        reply?.ok && reply.result.kind === "devices"
+          ? reply.result.devices.find(
+              (row) => row.address === paired.pairing.address && row.state === "contacted",
+            )
+          : undefined;
+      const listed = APP_OPS.snapshot.reply.safeParse(await request("snapshot", {}));
+      const id = listed.success
+        ? listed.data.devices.find(
+            (row) => row.name === named?.name && row.role === "sensor" && row.state === "contacted",
+          )?.id
         : undefined;
-      if (id === undefined) {
-        say("The hub has no fixture sensor");
+      if (id === undefined || sensor !== paired) {
+        say("Wait for the hub to hear the paired sensor");
         return;
       }
+      const firmware = { major: 1, minor: 4 + Math.floor(nextPatch / 256), patch: nextPatch % 256 };
+      nextPatch += 1;
+      const version = `${firmware.major}.${firmware.minor}.${firmware.patch}`;
       const path = join(hub.dataDir, "simulator-image.bin");
-      writeFileSync(path, espImage({ size: 70_000, version: "1.4.0", seed: 42 }));
+      writeFileSync(path, espImage({ size: 70_000, version, seed: 42 }));
       const io: CliIo = {
         out: () => undefined,
         err: () => undefined,
@@ -257,14 +273,29 @@ export function pairingRadio(hub: RealHub, say: (line: string) => void) {
         onInterrupt: () => undefined,
         ask: () => Promise.resolve("y"),
       };
-      const uploaded = await runCli(["firmware", "add", path, "--own", "--version", "1.4.0"], io);
+      const uploaded = await runCli(["firmware", "add", path, "--own", "--version", version], io);
       const list = APP_OPS_V2["firmware.list"].reply.safeParse(await request("firmware.list", {}));
       const entry = list.success
-        ? list.data.images.find((stored) => stored.version === "1.4.0")
+        ? list.data.images.find((stored) => stored.version === version)
         : undefined;
       if (uploaded !== 0 || entry === undefined) {
         say("The fixture image was not stored");
         return;
+      }
+      if (planned !== undefined) {
+        const status = APP_OPS_V2["rollout.status"].reply.safeParse(
+          await request("rollout.status", {}),
+        );
+        const previous = status.success ? status.data.rollout : null;
+        if (previous?.id === planned.rollout && previous.endedMs === null) {
+          const cancelled = APP_OPS_V2["rollout.cancel"].reply.safeParse(
+            await request("rollout.cancel", { rollout: planned.rollout }),
+          );
+          if (!cancelled.success) {
+            say("Could not cancel the previous fixture rollout");
+            return;
+          }
+        }
       }
       const plan = APP_OPS_V2["rollout.start"].reply.safeParse(
         await request("rollout.start", { image: entry.id, devices: [id] }),
@@ -273,15 +304,15 @@ export function pairingRadio(hub: RealHub, say: (line: string) => void) {
         say("The hub refused the fixture rollout");
         return;
       }
-      image = Uint8Array.from(entry.imageId.match(/../gu) ?? [], (pair) => parseInt(pair, 16));
+      planned = { rollout: plan.data.id, imageId: entry.imageId, firmware };
       report({
         type: MessageType.UpdateStatus,
-        imageId: image,
+        imageId: fromHex(entry.imageId),
         stage: UpdateStage.Refused,
         reason: UpdateReason.NoWifi,
         bytesWritten: 0,
       });
-      say("Fixture rollout started");
+      say(`Fixture rollout started for sensor ${id}: ${version}`);
     },
 
     /** Models the sensor's next reply opportunity after the phone asks the hub. */
@@ -305,19 +336,23 @@ export function pairingRadio(hub: RealHub, say: (line: string) => void) {
         reason: status.reason,
         bytesWritten: status.bytesWritten,
       });
-      if (status.stage !== UpdateStage.Verified) return;
+      const completed = planned;
+      const paired = sensor;
+      if (status.stage !== UpdateStage.Verified || completed?.imageId !== toHex(status.imageId))
+        return;
       setTimeout(() => {
+        if (planned !== completed || sensor !== paired) return;
         report({
           type: MessageType.Started,
           role: Role.Sensor,
-          firmwareVersion: { major: 1, minor: 4, patch: 0 },
+          firmwareVersion: completed.firmware,
           resetCause: 1,
           lastFatalError: 0,
           settingsVersion: 0,
         });
         report({
           type: MessageType.UpdateStatus,
-          imageId: image,
+          imageId: status.imageId,
           stage: UpdateStage.Confirmed,
           reason: UpdateReason.None,
           bytesWritten: status.bytesWritten,

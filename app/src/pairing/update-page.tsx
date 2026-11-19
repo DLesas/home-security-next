@@ -5,16 +5,16 @@ import { secondsFromFifteenSecondUnits } from "@hsn/protocol/messages";
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { AppState } from "react-native";
-import { bleCentral, type BleState } from "../platform/ble";
+import { bleCentral } from "../platform/ble";
 import { useLive, useRead } from "../ui/hub-context";
 import { Actions, Body, Button, Notice, NoticeText, Page, Stack, TextLink } from "../ui/parts";
 import { useFlowAwake } from "./awake";
 import { downloadImage } from "./download";
 import { phoneRequest, refusal, type PhoneHub } from "./hub";
-import { BluetoothPermission } from "./permission";
+import { BluetoothEntry } from "./permission";
 import { isAborted, radioClock } from "./radio";
 import { imageCache } from "./safe/cache";
-import { updateGrant, updateTransfer } from "./update-flow";
+import { updateGrant, updateSecondsLeft, updateTransfer } from "./update-flow";
 import {
   type ActiveUpdate,
   afterFailedSend,
@@ -52,14 +52,13 @@ export function UpdateResult({
 export function UpdatePage({ hub, device }: { readonly hub: PhoneHub; readonly device: number }) {
   const { t } = useTranslation();
   const [page, setPage] = useState<UpdatePageName>("permission");
-  const [radio, setRadio] = useState<BleState>();
   const [error, setError] = useState("failed");
   const [downloaded, setDownloaded] = useState(0);
   const [served, setServed] = useState(0);
   const [left, setLeft] = useState<number>();
   const [latest, setLatest] = useState<UpdateNotice>();
   const [version, setVersion] = useState<string>();
-  const startedSending = useRef(0);
+  const reachedSensor = useRef(false);
   const resumeDeadline = useRef(0);
   const starting = useRef<AbortController | undefined>(undefined);
   const active = useRef<ActiveUpdate | undefined>(undefined);
@@ -107,7 +106,7 @@ export function UpdatePage({ hub, device }: { readonly hub: PhoneHub; readonly d
         // A board can finish even if its Done notification is lost on the way back.
         if (
           watchedImage.current === event.body.image &&
-          startedSending.current > 0 &&
+          reachedSensor.current &&
           event.body.state === "confirmed"
         ) {
           release();
@@ -123,15 +122,11 @@ export function UpdatePage({ hub, device }: { readonly hub: PhoneHub; readonly d
         backgroundEnds(active.current !== undefined || starting.current !== undefined)
       )
         fail("interrupted");
-      if (state === "active" && page === "permission" && radio === "unauthorized")
-        void bleCentral.state().then((stateNow) => {
-          if (stateNow === "on") void begin();
-        });
     });
     return () => {
       listener.remove();
     };
-  });
+  }, [fail]);
   useEffect(() => {
     if (page !== "resume") return;
     return radioClock.after(resumeDeadline.current - radioClock.now(), () => {
@@ -222,7 +217,7 @@ export function UpdatePage({ hub, device }: { readonly hub: PhoneHub; readonly d
     active.current = { ...running, image };
     watchedImage.current = image;
     setVersion(grant.version);
-    startedSending.current = 0;
+    reachedSensor.current = false;
     await download();
   }
 
@@ -235,21 +230,21 @@ export function UpdatePage({ hub, device }: { readonly hub: PhoneHub; readonly d
       return;
     }
     setPage("finding");
+    setLeft(undefined);
+    let first: { offset: number; at: number } | undefined;
     const result = await running.transfer.run(
       running.cache,
       running.abort.signal,
       !resume && running.grant.needsWake ? heartbeatSeconds * 1000 : 0,
       () => {
-        startedSending.current ||= radioClock.now();
+        reachedSensor.current = true;
         setPage("sending");
       },
-      (offset) => {
-        setServed(offset);
-        const elapsed = radioClock.now() - startedSending.current;
-        const remaining = running.grant.fileBytes - offset;
-        if (remaining === 0) setLeft(undefined);
-        else if (offset > 0 && elapsed > 1000)
-          setLeft(Math.ceil((remaining * elapsed) / offset / 1000));
+      (highestOffset, connectionOffset) => {
+        setServed(highestOffset);
+        const current = { offset: connectionOffset, at: radioClock.now() };
+        first ??= current;
+        setLeft(updateSecondsLeft(running.grant.fileBytes, first, current));
       },
     );
     if (isAborted(running.abort.signal)) return;
@@ -265,13 +260,8 @@ export function UpdatePage({ hub, device }: { readonly hub: PhoneHub; readonly d
     }
     const deadline = running.transfer.resumeUntil();
     if (
-      afterFailedSend(
-        result.fault,
-        radioClock.now(),
-        deadline,
-        resume,
-        startedSending.current > 0,
-      ) === "resume"
+      afterFailedSend(result.fault, radioClock.now(), deadline, resume, reachedSensor.current) ===
+      "resume"
     ) {
       resumeDeadline.current = deadline;
       setError(result.fault);
@@ -300,17 +290,7 @@ export function UpdatePage({ hub, device }: { readonly hub: PhoneHub; readonly d
     </Notice>
   );
 
-  if (page === "permission")
-    return (
-      <BluetoothPermission
-        state={radio}
-        onAnswer={(answer) => {
-          setRadio(answer);
-          if (answer === "on") void begin();
-        }}
-        exit={back}
-      />
-    );
+  if (page === "permission") return <BluetoothEntry onReady={() => void begin()} exit={back} />;
   if (page === "wake")
     return (
       <Page
@@ -349,7 +329,6 @@ export function UpdatePage({ hub, device }: { readonly hub: PhoneHub; readonly d
         <Button
           label={t("bluetoothUpdate.startAgain")}
           onPress={() => {
-            setRadio(undefined);
             setPage("permission");
           }}
         />

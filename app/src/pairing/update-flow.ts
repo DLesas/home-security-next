@@ -28,6 +28,19 @@ export function updateGrant(
   };
 }
 
+/** Estimates the seconds remaining from the transfer's progress so far. */
+export function updateSecondsLeft(
+  total: number,
+  first: { offset: number; at: number },
+  current: { offset: number; at: number },
+): number | undefined {
+  const remaining = total - current.offset;
+  const elapsed = current.at - first.at;
+  const sent = current.offset - first.offset;
+  if (remaining <= 0 || sent <= 0 || elapsed <= 1000) return undefined;
+  return Math.ceil((remaining * elapsed) / sent / 1000);
+}
+
 /**
  * Tracks the board's deadline across dropped connections. The sensor applies its 30 s rule only
  * once a phone has opened the session (update_session.cpp, `poll_session`); before that it
@@ -50,13 +63,13 @@ export function updateTransfer(central: BleCentral, clock: RadioClock, update: B
           ? (windowEnd ?? clock.now() + scanWindow)
           : lastProgress + NO_PROGRESS_MS,
       ),
-    /** Finds the address in the grant, opens the GATT link and serves the file. */
+    /** Serves one GATT link, reporting both the overall and the connection’s high-water marks. */
     async run(
       file: ImageReader,
       signal: AbortSignal,
       waitMs: number,
       connected: () => void,
-      progress: (offset: number) => void,
+      progress: (highestOffset: number, connectionOffset: number) => void,
     ) {
       windowEnd ??= clock.now() + scanWindow + waitMs;
       const end = Math.min(
@@ -100,9 +113,8 @@ export function updateTransfer(central: BleCentral, clock: RadioClock, update: B
         (offset) => {
           // The board may have resumed from an earlier checkpoint and be making real progress.
           lastProgress = clock.now();
-          if (offset <= highest) return;
-          highest = offset;
-          progress(offset);
+          highest = Math.max(highest, offset);
+          progress(highest, offset);
         },
         clock,
         signal,

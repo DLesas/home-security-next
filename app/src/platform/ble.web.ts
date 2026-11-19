@@ -9,3 +9,6 @@ export const bleCentral: BleCentral = {
 
 /** Returns the unsupported state without prompting in the web app. */
 export const askBluetooth = () => bleCentral.state();
+
+/** Checks Bluetooth availability without prompting in the web app. */
+export const checkBluetooth = askBluetooth;

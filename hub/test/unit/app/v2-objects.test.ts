@@ -252,6 +252,37 @@ describe("update-only changes to version 2 device objects", () => {
     return { hub, changes };
   }
 
+  test("an update summary appearing and disappearing each refresh the device object", () => {
+    const disk = new Disk().withSettings(1, 1);
+    const hub = new PhoneHub(disk);
+    hub.input({
+      kind: "boot",
+      snapshot: {
+        ...disk.snapshot(),
+        m3m4: { ...EMPTY_M3M4_SNAPSHOT, firmwareImages: [imageRow()] },
+      },
+      boot: { id: bootId(1), previousExit: "clean", cause: undefined },
+    });
+    hub.input({ kind: "hubFacts", ...FACTS });
+    const conn = subscribed(hub, ANNA_PHONE, 2);
+    const rollout = hub.request(conn, ANNA_PHONE, {
+      op: "rollout.start",
+      body: { image: 1, devices: [FRONT] },
+    });
+    expect(replyTo(rollout.effects, conn).ok).toBe(true);
+
+    /** Extracts the sensor’s summary from each device event on the subscribed session. */
+    const updates = (effects: ReturnType<PhoneHub["advance"]>) =>
+      eventsOn(effects, conn).flatMap((event) =>
+        event.ev === "device" && event.body.device.id === FRONT ? [event.body.device.update] : [],
+      );
+    withUpdate(hub, FRONT, DeviceUpdateState.None, UpdateHeld.No, UpdateMethod.JoinWifi);
+    expect([updates(rollout.effects), updates(hub.advance(1))]).toEqual([
+      [{ state: "planned", held: null, method: "joinWifi" }],
+      [null],
+    ]);
+  });
+
   test("holding and releasing an update each refresh the device object", () => {
     const { hub, changes } = plannedUpdate();
     withUpdate(hub, FRONT, DeviceUpdateState.Planned, UpdateHeld.Battery, UpdateMethod.OwnLink);

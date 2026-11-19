@@ -6,7 +6,7 @@
  */
 import { describe, expect, test } from "bun:test";
 import type { ImageCache } from "../src/pairing/download";
-import { updateTransfer } from "../src/pairing/update-flow";
+import { updateSecondsLeft, updateTransfer } from "../src/pairing/update-flow";
 import {
   type ActiveUpdate,
   afterFailedSend,
@@ -129,4 +129,11 @@ describe("Carry on", () => {
         next: "fail",
       });
   });
+});
+
+test("a resumed transfer estimates time from this connection's first progress", () => {
+  const first = { offset: 540, at: 10_000 };
+  expect(updateSecondsLeft(1000, first, first)).toBeUndefined();
+  expect(updateSecondsLeft(1000, first, { offset: 620, at: 12_000 })).toBe(10);
+  expect(updateSecondsLeft(1000, first, { offset: 1000, at: 20_000 })).toBeUndefined();
 });

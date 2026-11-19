@@ -3,6 +3,7 @@
  * each rule is tested without rendering: the failure each fault shows, what going to the
  * background does on each page, and where "Try again" leads after each failure.
  */
+import type { DeviceObject } from "@hsn/protocol/app";
 import type { PairFault } from "../platform/ble";
 
 /** The pair page's steps (m3-design.md section 5, "The flow on the phone"). */
@@ -79,4 +80,12 @@ export function retryAfter(reason: string, chip: string | undefined): PairRetry 
   if (reason === "off" || reason === "unauthorized")
     return { page: "permission", reopen: undefined };
   return { page: "open", reopen: chip };
+}
+
+/** Chooses whether the completed pairing still needs its first contact. */
+export function showsNoContact(
+  timedOut: boolean,
+  state: DeviceObject["state"] | undefined,
+): boolean {
+  return timedOut && state !== "contacted";
 }

@@ -4,6 +4,7 @@ import { BLUETOOTH_UPDATE } from "@hsn/protocol/update";
 import { PermissionsAndroid, Platform } from "react-native";
 import { BleError, BleErrorCode, BleManager, type Device, State } from "react-native-ble-plx";
 import type { BleCentral, BleFault, BleState, GattLink } from "./ble-types";
+import { iosBluetoothAuthorization } from "../../modules/hub-net/src/native";
 import type { Outcome } from "./split";
 import { fromBase64url, toBase64url } from "../hub/files";
 
@@ -190,19 +191,17 @@ function gatt(device: Device, ble: BleManager): GattLink {
   };
 }
 
+/** Checks the phone’s Android Bluetooth permissions without requesting them. */
+async function androidBluetoothAllowed(): Promise<boolean> {
+  const permissions = await Promise.all(
+    permissionsHere().map((permission) => PermissionsAndroid.check(permission).catch(() => false)),
+  );
+  return permissions.every(Boolean);
+}
+
 /** Reads the initialized native manager's current radio state. */
 async function nativeState(): Promise<BleState> {
-  if (
-    Platform.OS === "android" &&
-    !(
-      await Promise.all(
-        permissionsHere().map((permission) =>
-          PermissionsAndroid.check(permission).catch(() => false),
-        ),
-      )
-    ).every(Boolean)
-  )
-    return "unauthorized";
+  if (Platform.OS === "android" && !(await androidBluetoothAllowed())) return "unauthorized";
   if (manager === undefined) return "unauthorized";
   const current = await manager.state().catch(() => State.Unsupported);
   switch (current) {
@@ -226,6 +225,11 @@ async function askNativeBluetooth(): Promise<BleState> {
     if (!permissions.every((permission) => answered?.[permission] === "granted"))
       return "unauthorized";
   }
+  return openNativeBluetooth();
+}
+
+/** Opens the native manager and waits for its initial radio state. */
+function openNativeBluetooth(): Promise<BleState> {
   manager ??= new BleManager();
   return new Promise((resolve) => {
     /** Initial CoreBluetooth state may be unknown until its delegate runs. */
@@ -249,6 +253,19 @@ async function askNativeBluetooth(): Promise<BleState> {
       },
     );
   });
+}
+
+/** Checks authorization before starting a manager that could ask for it. */
+async function checkNativeBluetooth(): Promise<BleState | undefined> {
+  if (Platform.OS === "android") {
+    if (!(await androidBluetoothAllowed())) return undefined;
+  } else {
+    const authorization = await iosBluetoothAuthorization();
+    if (authorization === "denied") return "unauthorized";
+    if (authorization !== "allowed")
+      return authorization === undefined && manager !== undefined ? nativeState() : undefined;
+  }
+  return manager === undefined ? openNativeBluetooth() : nativeState();
 }
 
 /** Scans and connects using ble-plx. BlueTooth state is read without prompting here. */
@@ -314,6 +331,7 @@ export function blePlxCentral(timer: BleTimer = systemTimer): BleCentral {
 
 let central: BleCentral = blePlxCentral();
 let ask = askNativeBluetooth;
+let check = checkNativeBluetooth;
 if (__DEV__ && process.env.EXPO_PUBLIC_HSN_BLE_BENCH !== undefined) {
   // Metro needs this dev-only require in a foldable branch.
   // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -322,6 +340,7 @@ if (__DEV__ && process.env.EXPO_PUBLIC_HSN_BLE_BENCH !== undefined) {
   };
   central = bridgeBleCentral(process.env.EXPO_PUBLIC_HSN_BLE_BENCH as string);
   ask = () => central.state();
+  check = ask;
 }
 
-export { central as bleCentral, ask as askBluetooth };
+export { central as bleCentral, ask as askBluetooth, check as checkBluetooth };

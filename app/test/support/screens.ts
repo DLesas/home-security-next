@@ -8,13 +8,9 @@ import type { LiveState } from "../../src/state/live";
 import type { LinkView, LocalState } from "../../src/hub/client";
 import { manualTimers } from "./timers";
 
-export async function renderWith(
-  element: ReactElement,
-  live: Partial<LiveState>,
-  link?: LinkView,
-): Promise<string> {
+/** Provides the same test context for static and interactive screen rendering. */
+export async function screenWorld(live: Partial<LiveState>, link?: LinkView) {
   const { createElement } = await import("react");
-  const { renderToStaticMarkup } = await import("react-dom/server");
   const { I18nextProvider } = await import("react-i18next");
   const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
   const { i18n, startI18n } = await import("../../src/i18n");
@@ -37,17 +33,31 @@ export async function renderWith(
     live: createLiveStore({ ...EMPTY_LIVE, connection: { kind: "open" }, ...live }),
     local: createStore<LocalState>()(() => ({ link: link ?? { kind: "idle" } })),
   };
-  return renderToStaticMarkup(
-    createElement(
-      I18nextProvider,
-      { i18n },
+  const queries = new QueryClient();
+  return {
+    client,
+    /** Wraps the page in the test's hub, query client and English translations. */
+    wrap: (element: ReactElement) =>
       createElement(
-        QueryClientProvider,
-        { client: new QueryClient() },
-        createElement(HubProvider, { client, children: element }),
+        I18nextProvider,
+        { i18n },
+        createElement(
+          QueryClientProvider,
+          { client: queries },
+          createElement(HubProvider, { client, children: element }),
+        ),
       ),
-    ),
-  );
+  };
+}
+
+/** Renders a screen with a fixed live store and the test's usual contexts. */
+export async function renderWith(
+  element: ReactElement,
+  live: Partial<LiveState>,
+  link?: LinkView,
+): Promise<string> {
+  const { renderToStaticMarkup } = await import("react-dom/server");
+  return renderToStaticMarkup((await screenWorld(live, link)).wrap(element));
 }
 
 /** The text a person reads in some HTML: tags out, entities back. */
