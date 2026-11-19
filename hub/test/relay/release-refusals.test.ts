@@ -134,7 +134,7 @@ async function fetchFrom(
     .all()
     .map((row) => row.detail ?? "")
     .join("\n");
-  db.close();
+  db.close(true);
   return {
     refused: detail,
     staged: staged.ok ? staged.body.staged : "?",

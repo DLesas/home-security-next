@@ -275,7 +275,7 @@ function seedHub(): void {
   store.writer.stage(ops.map((op) => ({ kind: "write", durability: "now", op })));
   store.writer.flush("now")._unsafeUnwrap();
   store.writer.stop()._unsafeUnwrap();
-  store.db.close();
+  store.db.close(true);
 }
 
 // The bridge connects to POSIX pseudo-terminals through Python’s pty module.

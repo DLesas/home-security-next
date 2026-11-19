@@ -175,7 +175,7 @@ describe.skipIf(!ENABLED)("M4's done when, on this Mac (bun run m4)", () => {
     {
       const db = new Database(join(relay.dataFolder, "relay.db"), { readonly: true });
       const hubs = db.query<Record<string, unknown>, []>("SELECT * FROM hubs").all();
-      db.close();
+      db.close(true);
       const identities = hubs.map((row) => row.identity);
       c.check(
         identities.includes(identityA) && identities.includes(identityB) && hubs.length === 2,
@@ -404,7 +404,7 @@ describe.skipIf(!ENABLED)("M4's done when, on this Mac (bun run m4)", () => {
           "SELECT grace_end_ms FROM hubs WHERE identity = ?",
         )
         .get(identityB);
-      db.close();
+      db.close(true);
       const graceLeftMs = (row?.grace_end_ms ?? 0) - Date.now();
       c.check(
         graceLeftMs > RELAY_LIMITS.maxRestartWithinMs - 15 * SECOND &&

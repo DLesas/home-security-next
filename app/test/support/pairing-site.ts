@@ -23,6 +23,6 @@ export function seedPairingSite(dataDir: string, extra: readonly StoreOp[] = [])
   ]);
   const flushed = writer.flush("now").isOk();
   const stopped = writer.stop().isOk();
-  db.close();
+  db.close(true);
   return flushed && stopped;
 }

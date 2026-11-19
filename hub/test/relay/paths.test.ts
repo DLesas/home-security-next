@@ -51,7 +51,7 @@ function lastSeq(dataDir: string, client: number): number {
   const row = db
     .query<{ last_seq: number }, [number]>("SELECT last_seq FROM clients WHERE id = ?")
     .get(client);
-  db.close();
+  db.close(true);
   return row?.last_seq ?? -1;
 }
 

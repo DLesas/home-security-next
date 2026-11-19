@@ -119,7 +119,7 @@ function notificationRows(
     )
     .all()
     .map((row) => ({ seq: row.seq, critical: row.critical === 1, kind: row.kind }));
-  db.close();
+  db.close(true);
   return rows;
 }
 
