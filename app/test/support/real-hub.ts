@@ -7,10 +7,11 @@
  * `consoleCode()` is what `hsn open` does: a one-time console token over the control socket.
  */
 import { spawnTestHub, stopTestHub } from "../../../hub/test/world/processes.ts";
+import { freePort, Output, startWithPortRetry } from "../../../hub/test/world/test-ports.ts";
 import { shortTempFolder } from "../../../hub/test/world/temp-folder.ts";
 import { type Subprocess } from "bun";
 import { existsSync, rmSync } from "node:fs";
-import { connect as connectSocket, createServer } from "node:net";
+import { connect as connectSocket } from "node:net";
 import { networkInterfaces } from "node:os";
 import { join } from "node:path";
 import { webSocketConnect, type Connect } from "../../src/hub/wire";
@@ -24,19 +25,6 @@ const folders = new Set<string>();
 process.on("exit", () => {
   for (const hub of live) hub.kill(9);
 });
-
-function freePort(): Promise<number> {
-  return new Promise((resolve) => {
-    const server = createServer();
-    server.listen(0, "127.0.0.1", () => {
-      const address = server.address();
-      const port = typeof address === "object" && address !== null ? address.port : 0;
-      server.close(() => {
-        resolve(port);
-      });
-    });
-  });
-}
 
 /** This computer's first IPv4 address on a network, for the home network's listener, if any. */
 export function homeAddress(): string | undefined {
@@ -73,15 +61,6 @@ export interface RealHub {
   start(): Promise<void>;
 }
 
-async function waitFor(check: () => boolean | Promise<boolean>, ms: number): Promise<boolean> {
-  const until = Date.now() + ms;
-  while (Date.now() < until) {
-    if (await check()) return true;
-    await Bun.sleep(50);
-  }
-  return false;
-}
-
 function portOpen(port: number): Promise<boolean> {
   return new Promise((resolve) => {
     const socket = connectSocket(port, "127.0.0.1");
@@ -95,14 +74,14 @@ function portOpen(port: number): Promise<boolean> {
   });
 }
 
+/** Starts an app test hub and gives each subsequent start the same ports. */
 export async function startRealHub(prepare?: (dataDir: string) => void): Promise<RealHub> {
   // Short, so the control socket's path stays under 104 bytes (HD 9).
   const dataDir = shortTempFolder("hsn-a7-");
   folders.add(dataDir);
   prepare?.(dataDir);
-  const consolePort = await freePort();
-  const lanPort = await freePort();
-  const devicePort = prepare === undefined ? 0 : await freePort();
+  let ports:
+    { readonly console: number; readonly lan: number; readonly device: number } | undefined;
   const home = homeAddress();
   let child: Subprocess | undefined;
   const sock = join(dataDir, "control.sock");
@@ -125,11 +104,21 @@ export async function startRealHub(prepare?: (dataDir: string) => void): Promise
 
   const hub: RealHub = {
     dataDir,
-    consolePort,
-    devicePort,
-    lanPort,
-    consoleOrigin: `http://127.0.0.1:${String(consolePort)}`,
-    lanOrigin: home === undefined ? undefined : `https://${home}:${String(lanPort)}`,
+    get consolePort() {
+      return ports?.console ?? 0;
+    },
+    get devicePort() {
+      return ports?.device ?? 0;
+    },
+    get lanPort() {
+      return ports?.lan ?? 0;
+    },
+    get consoleOrigin() {
+      return `http://127.0.0.1:${String(hub.consolePort)}`;
+    },
+    get lanOrigin() {
+      return home === undefined ? undefined : `https://${home}:${String(hub.lanPort)}`;
+    },
     control,
     consoleCode: async () => {
       const answer = (await control({ kind: "consoleToken" })) as {
@@ -137,29 +126,51 @@ export async function startRealHub(prepare?: (dataDir: string) => void): Promise
       };
       const url = answer.reply?.result?.url ?? "";
       // The token's address names the usual console port; this hub's is a free one.
-      return url.replace(/^http:\/\/127\.0\.0\.1:\d+/u, `http://127.0.0.1:${String(consolePort)}`);
+      return url.replace(
+        /^http:\/\/127\.0\.0\.1:\d+/u,
+        `http://127.0.0.1:${String(hub.consolePort)}`,
+      );
     },
     start: async () => {
-      const started = spawnTestHub(
-        [
-          MAIN,
-          "--data",
-          dataDir,
-          "--port",
-          String(devicePort),
-          "--no-usb-watch",
-          "--app-ports",
-          `${String(lanPort)},${String(consolePort)}`,
-        ],
-        process.env.HSN_A7_HUB_LOG === "1" ? "inherit" : "ignore",
+      const { proc, chosen } = await startWithPortRetry(
+        async () => {
+          const chosen = ports ?? {
+            console: await freePort(),
+            lan: await freePort(),
+            device: prepare === undefined ? 0 : await freePort(),
+          };
+          const proc = spawnTestHub(
+            [
+              MAIN,
+              "--data",
+              dataDir,
+              "--port",
+              String(chosen.device),
+              "--no-usb-watch",
+              "--app-ports",
+              `${String(chosen.lan)},${String(chosen.console)}`,
+            ],
+            "pipe",
+          );
+          live.add(proc);
+          void proc.exited.then(() => live.delete(proc));
+          return {
+            proc,
+            chosen,
+            out: new Output(proc.stderr, process.env.HSN_A7_HUB_LOG === "1"),
+            ports: [chosen.console, chosen.lan, chosen.device],
+            ready: () => existsSync(sock) && portOpen(chosen.console),
+          };
+        },
+        {
+          label: "the real hub did not open its control socket and console listener",
+          pickAgain: ports === undefined,
+          timeoutMs: 15_000,
+          pollMs: 50,
+        },
       );
-      live.add(started);
-      void started.exited.then(() => live.delete(started));
-      child = started;
-      const up =
-        (await waitFor(() => existsSync(sock), 15_000)) &&
-        (await waitFor(() => portOpen(consolePort), 15_000));
-      if (!up) throw new Error("the real hub did not open its control socket and console listener");
+      child = proc;
+      ports = chosen;
     },
     stop: async () => {
       const running = child;

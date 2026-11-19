@@ -26,7 +26,6 @@ import { AwayPhone } from "./phone.ts";
 import {
   ALL_OUTPUT,
   check,
-  freePort,
   HubProcess,
   PushRole,
   RelayProgram,
@@ -78,11 +77,10 @@ async function operated(): Promise<Operated> {
   check(keyPath.ok, "the TLS key written");
   const certPath = join(root, "push-tls.crt");
   writeFileSync(certPath, pair.cert);
-  const port = await freePort();
   const forwarding = join(root, "releases.sock");
   const push = new PushRole(root, s, {
     releasesSocket: forwarding,
-    tls: { certPath, keyPath: keyPath.ok ? keyPath.value : "", port },
+    tls: { certPath, keyPath: keyPath.ok ? keyPath.value : "" },
   });
   await push.start();
   stops.push(() => push.stop());
@@ -103,7 +101,7 @@ async function operated(): Promise<Operated> {
     relay,
     forwarding,
     release,
-    pushUrl: `wss://127.0.0.1:${String(port)}/v1/relay`,
+    pushUrl: `wss://127.0.0.1:${String(push.tlsPort)}/v1/relay`,
     caPath: certPath,
   };
 }

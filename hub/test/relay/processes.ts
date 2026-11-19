@@ -19,9 +19,12 @@ import { exchange } from "../../cli/client.ts";
 import { HUB_VERSION } from "../../src/shell/hub-facts.ts";
 import { installPaths } from "../../launcher/src/layout.ts";
 import { spawnTestHub, spawnTracked, stopTestHub, testCli } from "../world/processes.ts";
+import { freePort, Output, startWithPortRetry } from "../world/test-ports.ts";
 import { isWindows, shapeFolder } from "../unit/shell-control/windows-folders.ts";
 import type { StandIns } from "../../../relay/test/push/helpers.ts";
 import { tempFolder } from "../../../relay/test/helpers.ts";
+
+export { freePort } from "../world/test-ports.ts";
 
 export const REPO = join(import.meta.dir, "..", "..", "..");
 export const HUB_DIR = join(REPO, "hub");
@@ -55,45 +58,6 @@ export function check(ok: boolean, what: string): void {
   if (!ok) expect(what).toBe("met");
 }
 
-/** A free TCP port on loopback, at this moment. */
-export async function freePort(): Promise<number> {
-  const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response() });
-  const port = server.port ?? 0;
-  await server.stop(true);
-  return port;
-}
-
-/** A process's standard error as it comes, kept whole. */
-export class Output {
-  #text = "";
-  readonly done: Promise<void>;
-
-  constructor(stream: ReadableStream<Uint8Array>) {
-    const decoder = new TextDecoder();
-    this.done = (async () => {
-      for await (const chunk of stream) this.#text += decoder.decode(chunk, { stream: true });
-    })();
-  }
-
-  get text(): string {
-    return this.#text;
-  }
-
-  /** The JSON lines (the relay's and the push role's logs). */
-  lines(): Record<string, unknown>[] {
-    // Whole lines only: the last may still be coming.
-    return this.#text
-      .split("\n")
-      .slice(0, -1)
-      .filter((line) => line.startsWith("{"))
-      .map((line) => JSON.parse(line) as Record<string, unknown>);
-  }
-
-  count(needle: string): number {
-    return this.#text.split(needle).length - 1;
-  }
-}
-
 /** Every output any process here wrote, for the leak search at the end of a run. */
 export const ALL_OUTPUT: Output[] = [];
 
@@ -114,7 +78,7 @@ export interface PushRoleOptions {
   /** The releases role's forwarding socket, for relay links' release frames (operated service). */
   readonly releasesSocket?: string;
   /** A TLS listener for self-hosted relays: `--listen 127.0.0.1:<port>` with this key pair. */
-  readonly tls?: { readonly certPath: string; readonly keyPath: string; readonly port: number };
+  readonly tls?: { readonly certPath: string; readonly keyPath: string; readonly port?: number };
   readonly refusedRelays?: string;
 }
 
@@ -123,6 +87,7 @@ export class PushRole {
   readonly socket: string;
   #proc: Subprocess<"ignore", "ignore", "pipe"> | undefined;
   out: Output | undefined;
+  tlsPort = 0;
 
   constructor(
     readonly folder: string,
@@ -130,6 +95,7 @@ export class PushRole {
     readonly options: PushRoleOptions = {},
   ) {
     this.socket = join(folder, "push.sock");
+    this.tlsPort = options.tls?.port ?? 0;
   }
 
   /** `ws+unix://…:/v1/relay`, as the operated relay's configuration names it. */
@@ -137,52 +103,57 @@ export class PushRole {
     return `ws+unix://${this.socket}:/v1/relay`;
   }
 
+  /** Starts the push service, retaining its TLS port once it has answered. */
   async start(): Promise<void> {
     const s = this.standIns;
     const ca = join(this.folder, "standin-ca.pem");
     writeFileSync(ca, s.tls.cert);
     const o = this.options;
     // No `--apns-topic`: the topic is the deployment's bundle identifier (the one configuration).
-    const { proc, out } = spawnWithOutput([
-      process.execPath,
-      PUSH_MAIN,
-      "--socket",
-      this.socket,
-      "--apns-key",
-      s.apnsKeyPath,
-      "--apns-key-id",
-      s.apnsKey.keyId,
-      "--apns-team",
-      s.apnsKey.teamId,
-      "--fcm-account",
-      s.fcmAccountPath,
-      "--apns-production",
-      s.apns.origin,
-      "--apns-development",
-      s.apns.origin,
-      "--fcm-origin",
-      s.fcm.origin,
-      "--test-ca",
-      ca,
-      ...(o.releasesSocket === undefined ? [] : ["--releases-socket", o.releasesSocket]),
-      ...(o.refusedRelays === undefined ? [] : ["--refused-relays", o.refusedRelays]),
-      ...(o.tls === undefined
-        ? []
-        : [
-            "--listen",
-            `127.0.0.1:${String(o.tls.port)}`,
-            "--tls-cert",
-            o.tls.certPath,
-            "--tls-key",
-            o.tls.keyPath,
-          ]),
-    ]);
+    const { proc, out, port } = await startWithPortRetry(
+      async () => {
+        const port = o.tls === undefined ? 0 : this.tlsPort || (await freePort());
+        const { proc, out } = spawnWithOutput([
+          process.execPath,
+          PUSH_MAIN,
+          "--socket",
+          this.socket,
+          "--apns-key",
+          s.apnsKeyPath,
+          "--apns-key-id",
+          s.apnsKey.keyId,
+          "--apns-team",
+          s.apnsKey.teamId,
+          "--fcm-account",
+          s.fcmAccountPath,
+          "--apns-production",
+          s.apns.origin,
+          "--apns-development",
+          s.apns.origin,
+          "--fcm-origin",
+          s.fcm.origin,
+          "--test-ca",
+          ca,
+          ...(o.releasesSocket === undefined ? [] : ["--releases-socket", o.releasesSocket]),
+          ...(o.refusedRelays === undefined ? [] : ["--refused-relays", o.refusedRelays]),
+          ...(o.tls === undefined
+            ? []
+            : [
+                "--listen",
+                `127.0.0.1:${String(port)}`,
+                "--tls-cert",
+                o.tls.certPath,
+                "--tls-key",
+                o.tls.keyPath,
+              ]),
+        ]);
+        return { proc, out, port, ports: [port], ready: () => out.text.includes('"started"') };
+      },
+      { label: "the push role started", pickAgain: this.tlsPort === 0, timeoutMs: 15_000 },
+    );
     this.#proc = proc;
     this.out = out;
-    check(
-      await waitFor(() => out.text.includes('"started"'), 15_000),
-      `the push role started:\n${out.text}`,
-    );
+    this.tlsPort = port;
   }
 
   async stop(): Promise<number> {
@@ -241,12 +212,12 @@ export class RelayProgram {
   }
 
   /** The configuration, in `relay/test/local.json`'s form with this run's folders. */
-  config(): Record<string, unknown> {
+  config(port = this.port): Record<string, unknown> {
     const o = this.options;
     return {
       listen: {
         hostname: "127.0.0.1",
-        port: this.port,
+        port,
         ...(o.trustedProxies === undefined ? {} : { trustedProxies: o.trustedProxies }),
       },
       dataFolder: this.dataFolder,
@@ -267,21 +238,31 @@ export class RelayProgram {
     };
   }
 
+  /** Starts the relay and retains the port chosen by its first successful start. */
   async start(): Promise<void> {
-    if (this.port === 0) this.port = await freePort();
-    writeFileSync(this.configPath, JSON.stringify(this.config(), null, 2));
-    const { proc, out } = spawnWithOutput([
-      process.execPath,
-      RELAY_MAIN,
-      "--config",
-      this.configPath,
-    ]);
-    this.#proc = proc;
-    this.outs.push(out);
-    check(
-      await waitFor(() => out.text.includes('"event":"started"'), 15_000),
-      `the relay started:\n${out.text}`,
+    const { proc, port } = await startWithPortRetry(
+      async () => {
+        const port = this.port || (await freePort());
+        writeFileSync(this.configPath, JSON.stringify(this.config(port), null, 2));
+        const { proc, out } = spawnWithOutput([
+          process.execPath,
+          RELAY_MAIN,
+          "--config",
+          this.configPath,
+        ]);
+        this.outs.push(out);
+        return {
+          proc,
+          out,
+          port,
+          ports: [port],
+          ready: () => out.text.includes('"event":"started"'),
+        };
+      },
+      { label: "the relay started", pickAgain: this.port === 0, timeoutMs: 15_000 },
     );
+    this.#proc = proc;
+    this.port = port;
   }
 
   /** A clean stop (SIGTERM): every hub link closes 1001. */
@@ -361,45 +342,53 @@ export class HubProcess {
     return this.#proc?.exited;
   }
 
+  /** Starts the hub, retaining the device port once its control socket answers. */
   async start(): Promise<void> {
     if (!this.#seeded) {
       this.#seeded = true;
       this.options.seed?.(this.dataDir);
     }
-    if (this.devicePort === 0) this.devicePort = await freePort();
-    const args = [
-      "--data",
-      this.dataDir,
-      "--port",
-      String(this.devicePort),
-      "--no-usb-watch",
-      "--app-ports",
-      "0,0",
-    ];
-    const { proc, out } = spawnWithOutput(
-      this.options.command?.(args) ?? ["bun", HUB_TEST_ENTRY, ...args],
+    const { proc, port } = await startWithPortRetry(
+      async () => {
+        const port = this.devicePort || (await freePort());
+        const args = [
+          "--data",
+          this.dataDir,
+          "--port",
+          String(port),
+          "--no-usb-watch",
+          "--app-ports",
+          "0,0",
+        ];
+        const { proc, out } = spawnWithOutput(
+          this.options.command?.(args) ?? ["bun", HUB_TEST_ENTRY, ...args],
+          {
+            cwd: HUB_DIR,
+            env: {
+              ...process.env,
+              ...(this.prefix === undefined ? {} : { HSN_PROGRAM: this.prefix }),
+              ...this.options.env,
+            },
+          },
+        );
+        this.outs.push(out);
+        return {
+          proc,
+          out,
+          port,
+          ports: [port],
+          ready: async () => (await this.control({ kind: "status" }, 1000)) !== undefined,
+        };
+      },
       {
-        cwd: HUB_DIR,
-        env: {
-          ...process.env,
-          ...(this.prefix === undefined ? {} : { HSN_PROGRAM: this.prefix }),
-          ...this.options.env,
-        },
+        label: "the hub started",
+        pickAgain: this.devicePort === 0,
+        timeoutMs: 30_000,
+        pollMs: 200,
       },
     );
     this.#proc = proc;
-    this.outs.push(out);
-    // The control socket answers once the hub has booted.
-    const up = await waitFor(
-      async () => {
-        if (this.#proc !== proc) return false;
-        const status = await this.control({ kind: "status" }, 1000);
-        return status !== undefined;
-      },
-      30_000,
-      200,
-    );
-    check(up, `the hub started:\n${out.text}`);
+    this.devicePort = port;
   }
 
   /** A clean stop, as a service stop is. */
