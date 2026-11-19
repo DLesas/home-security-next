@@ -673,6 +673,21 @@ describe("starting Bluetooth on a mounted phone page", () => {
     expect(onReady).not.toHaveBeenCalled();
   });
 
+  test("checking Bluetooth again after a timeout enters when the radio is on", async () => {
+    const clock = new ManualClock();
+    spyOn(radioClock, "after").mockImplementation(clock.after.bind(clock));
+    const pending = Promise.withResolvers<Awaited<ReturnType<BluetoothCheck>>>();
+    const { view, onReady } = await enter(() => pending.promise);
+    const ask = spyOn(ble, "askBluetooth").mockResolvedValue("on");
+    await screenAct(() => clock.advance(3000));
+    expect(textOf(view.html())).toContain("Could not check Bluetooth.");
+    expect(onReady).not.toHaveBeenCalled();
+
+    expect(await view.press("Check Bluetooth again")).toBe(true);
+    expect(ask).toHaveBeenCalledTimes(1);
+    expect(onReady).toHaveBeenCalledTimes(1);
+  });
+
   test("the update page asks the hub for a grant as soon as Bluetooth is ready", async () => {
     const pending = Promise.withResolvers<AnyOutcome>();
     const forward = mock<PhoneHub["forward"]>(() => pending.promise);

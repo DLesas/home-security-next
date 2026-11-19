@@ -117,7 +117,7 @@ export function BluetoothPermission({
         : "bluetooth.title";
   return (
     <Page title={t(title)}>
-      {state === "checking" || state === "checkFailed" ? null : state === "unauthorized" ? (
+      {state === "checking" ? null : state === "unauthorized" ? (
         <PermissionRefused
           sentence={t("bluetooth.refused")}
           onOpenSettings={() => phone?.openSettings()}
@@ -130,8 +130,10 @@ export function BluetoothPermission({
         />
       ) : (
         <Stack>
-          <Body>{t(state === "off" ? "bluetooth.off" : "bluetooth.unsupported")}</Body>
-          {state === "off" ? (
+          {state === "checkFailed" ? null : (
+            <Body>{t(state === "off" ? "bluetooth.off" : "bluetooth.unsupported")}</Body>
+          )}
+          {state === "off" || state === "checkFailed" ? (
             <Actions>
               <Button label={t("bluetooth.checkAgain")} onPress={ask} />
             </Actions>
