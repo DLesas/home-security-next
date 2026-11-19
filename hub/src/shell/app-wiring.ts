@@ -10,8 +10,8 @@
  * 2. The boot event, then `startupInputs` (the hub's facts and the time zone) before any listener
  *    opens, and again when an address changes, with the certificate renewed for the new names.
  * 3. The listeners, the channel given the loop's `enqueue` and a view of the core's state.
- * 4. The healthy mark (`healthy.json`) once a commit has held `update_healthy` and the listeners
- *    are open (section 9, step 4).
+ * 4. The healthy mark (`healthy.json`) once a commit has held `update_healthy` and the app and
+ *    control listeners are open (section 9, step 4).
  */
 import { hostname } from "node:os";
 import { dirname, join } from "node:path";
@@ -254,7 +254,7 @@ export class AppSide {
 
   /**
    * The listeners open, then, in the same synchronous run, the hub's facts and time zone with the
-   * ports they really hold, then the healthy mark if one waits (section 2). Bun binds and listens
+   * ports they really hold (section 2). Bun binds and listens
    * in one call, so a connection can arrive before the facts are queued; but nothing it does runs
    * until this run ends (one thread): it waits in the system's accept queue, and every input it
    * causes is queued after the facts, so no client is served by a core without them.
@@ -293,9 +293,10 @@ export class AppSide {
       enqueue(input);
   }
 
-  /** The control socket, once open: a download asked for on it goes back on it. */
+  /** Attaches the open control socket for downloads and completes any waiting health mark. */
   useControl(control: DownloadLines): void {
     this.#control = control;
+    this.#markIfHealthy();
   }
 
   get lanPort(): number | undefined {
@@ -434,16 +435,23 @@ export class AppSide {
     return this.channel.download(conn, line);
   }
 
-  /** Each commit's records: an `update_healthy` waits for the listeners, then is marked once. */
+  /** Each commit's records: a healthy trial is marked once all its listeners are open. */
   committed(records: readonly AuditRecord[]): void {
-    const version = healthyIn(records);
+    const version = healthyIn(records, this.#options.env);
     if (version === undefined) return;
     this.#healthy = version;
     this.#markIfHealthy();
   }
 
+  /** Waits for the control socket to finish checking the program tree before the launcher writes to it. */
   #markIfHealthy(): void {
-    if (this.#marked || this.#healthy === undefined || this.#listeners === undefined) return;
+    if (
+      this.#marked ||
+      this.#healthy === undefined ||
+      this.#listeners === undefined ||
+      this.#control === undefined
+    )
+      return;
     this.#marked = true;
     const marked = markHealthy(prefixFrom(this.#options.env), this.#healthy);
     if (marked.isErr())
