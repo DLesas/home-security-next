@@ -20,9 +20,24 @@ import { Bonjour } from "bonjour-service";
 import { err, ok, type Result } from "neverthrow";
 import type { HubError } from "../../core/model/errors.ts";
 import type { Advertiser } from "../../ports/advertiser.ts";
+import type { Scheduler } from "../clock/time-trust.ts";
 import { mdnsCall } from "../safe/mdns.ts";
 
 const ORIGIN = "shell/advertise/mdns";
+const STOP_FAILED = "the advertisement could not be stopped";
+/** First guess for the goodbye deadline, to be tuned on a real network. */
+const GOODBYE_TIMEOUT_MS = 500;
+
+/** Keeps shutdown alive just long enough to return its exit code if callbacks stall. */
+const scheduleGoodbyeDeadline: Scheduler = (ms, run) => {
+  const timer = setTimeout(run, ms);
+  return {
+    /** Clears the deadline once the library has finished. */
+    cancel: () => {
+      clearTimeout(timer);
+    },
+  };
+};
 
 /** `_hsn-hub._tcp` (§10). */
 export const SERVICE_TYPE = "hsn-hub";
@@ -87,6 +102,7 @@ export class MdnsAdvertiser implements Advertiser {
   readonly #servedPort: number;
   readonly #library: () => Result<MdnsLibrary, HubError>;
   readonly #apps: () => AppsRecord | undefined;
+  readonly #schedule: Scheduler;
   #open: MdnsLibrary | undefined;
 
   /**
@@ -98,10 +114,12 @@ export class MdnsAdvertiser implements Advertiser {
     servedPort: number,
     library: () => MdnsLibrary,
     apps: () => AppsRecord | undefined = () => undefined,
+    schedule: Scheduler = scheduleGoodbyeDeadline,
   ) {
     this.#servedPort = servedPort;
     this.#library = () => mdnsCall(ORIGIN, "mDNS could not start", library);
     this.#apps = apps;
+    this.#schedule = schedule;
   }
 
   advertise(identity: Uint8Array, port: number): Result<void, HubError> {
@@ -128,9 +146,55 @@ export class MdnsAdvertiser implements Advertiser {
     const library = this.#open;
     if (library === undefined) return ok(undefined);
     this.#open = undefined;
-    return mdnsCall(ORIGIN, "the advertisement could not be stopped", () => {
+    return mdnsCall(ORIGIN, STOP_FAILED, () => {
       library.unpublishAll();
       library.destroy();
+    });
+  }
+
+  /** Gives the goodbye send and socket close one shared deadline during hub shutdown. */
+  stopAsync(): Promise<Result<void, HubError>> {
+    const library = this.#open;
+    if (library === undefined) return Promise.resolve(ok(undefined));
+    this.#open = undefined;
+    return new Promise((resolve) => {
+      let destroying = false;
+      let finished = false;
+
+      /** Resolves shutdown and releases its timer. */
+      const finish = (result: Result<void, HubError>): void => {
+        if (finished) return;
+        finished = true;
+        deadline.cancel();
+        resolve(result);
+      };
+
+      /** Closes the captured socket at most once, even if a goodbye callback arrives late. */
+      const destroy = (result: Result<void, HubError>): void => {
+        if (destroying) return;
+        destroying = true;
+        const closed = mdnsCall(ORIGIN, STOP_FAILED, () => {
+          library.destroy(() => {
+            finish(result);
+          });
+        });
+        if (closed.isErr()) finish(closed);
+      };
+
+      const deadline = this.#schedule(GOODBYE_TIMEOUT_MS, () => {
+        const timedOut = err(mdnsError("mDNS shutdown timed out"));
+        destroy(timedOut);
+        finish(timedOut);
+      });
+      const unpublished = mdnsCall(ORIGIN, STOP_FAILED, () => {
+        library.unpublishAll(() => {
+          destroy(ok(undefined));
+        });
+      });
+      if (unpublished.isErr()) {
+        destroy(unpublished);
+        finish(unpublished);
+      }
     });
   }
 }

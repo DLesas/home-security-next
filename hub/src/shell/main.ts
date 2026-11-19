@@ -663,7 +663,7 @@ export async function runHub(
       say(`the control socket did not close: ${error.message}`);
     },
   );
-  advertiser.stop().match(
+  (await advertiser.stopAsync()).match(
     () => undefined,
     () => undefined,
   );
