@@ -30,13 +30,14 @@ import type {
   Topic,
 } from "@hsn/protocol/app";
 import { sensorSummary } from "../alarm/view.ts";
+import { deviceUpdateChanged } from "../firmware/view.ts";
 import { currentMode } from "../layout/view.ts";
 import type { AuditRecord } from "../model/audit.ts";
 import type { Effect } from "../model/effects.ts";
 import type { Context } from "../model/handler.ts";
 import { clientId, type DeviceId, personId } from "../model/ids.ts";
 import type { Actor, Internal } from "../model/messages.ts";
-import type { ClientRow, DeviceRow } from "../model/rows.ts";
+import { type ClientRow, type DeviceRow, DeviceState } from "../model/rows.ts";
 import type { HubState } from "../model/state.ts";
 import { MessageType } from "@hsn/protocol";
 import { batteryPercent } from "../health/view.ts";
@@ -297,18 +298,22 @@ export function forgetLost(sending: Sending, view: HubState): void {
   if (changed) sending.slice = { ...sending.slice, sessions };
 }
 
-/** Devices added, removed, renamed or changed in the registry since `app` last looked. */
+/** Devices whose registry row or version 2 update summary changed since `app` last looked. */
 export function deviceChanges(
   sending: Sending,
   view: HubState,
   deps: CoreDeps,
-  seen: ReadonlyMap<DeviceId, DeviceRow>,
 ): ReadonlyMap<DeviceId, DeviceRow> {
   const rows = registeredDevices(view);
   const now = new Map(rows.map((row) => [row.id, row]));
   for (const row of rows) {
-    const old = seen.get(row.id);
-    if (old === row) continue;
+    const old = sending.slice.devicesSeen.get(row.id);
+    if (
+      old === row &&
+      (row.state === DeviceState.Removed ||
+        !deviceUpdateChanged(view, sending.slice.firmwareSeen, row.id))
+    )
+      continue;
     const object = deviceObject(view, deps, row);
     if (object === undefined) continue;
     const objectV2 = deviceToV2(view, object);
@@ -322,7 +327,8 @@ export function deviceChanges(
             : "state";
     const visible = (actor: Actor): boolean => deviceVisible(view, actor, row);
     sending.versioned(view, "device", {
-      v1: (_session, actor) => (visible(actor) ? { what, device: object } : undefined),
+      v1: (_session, actor) =>
+        old !== row && visible(actor) ? { what, device: object } : undefined,
       v2: (_session, actor) => (visible(actor) ? { what, device: objectV2 } : undefined),
     });
   }

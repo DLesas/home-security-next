@@ -7,6 +7,7 @@ import type { AppOp, AppOpV2, AppProtoVersion, Topic } from "@hsn/protocol/app";
 import type { AppListener, HubEvent } from "../model/events.ts";
 import type { ClientId, ConnId, DeviceId, RequestId, Seq } from "../model/ids.ts";
 import type { DeviceRow } from "../model/rows.ts";
+import type { HubState } from "../model/state.ts";
 import type { Mono, Now } from "../model/time.ts";
 import type { TimerOf } from "../model/timers.ts";
 import type { PresenceMap } from "./presence.ts";
@@ -87,6 +88,8 @@ export interface AppSlice {
   readonly seen: PeopleSeen | undefined;
   /** The registry's slice and its devices as app last saw them, for `device` events. */
   readonly registrySeen: unknown;
+  /** The immutable update entries last checked for changes to device objects. */
+  readonly firmwareSeen: HubState["firmware"]["updates"];
   /**
    * The alarm's countdowns and the site's row as app last saw them (by identity), and the site as
    * last told: each change becomes its event, whatever caused it (`changes.ts`).
@@ -159,6 +162,7 @@ export const EMPTY_APP_SLICE: AppSlice = {
   readings: new Map(),
   seen: undefined,
   registrySeen: undefined,
+  firmwareSeen: new Map(),
   countdownsSeen: undefined,
   siteRowSeen: undefined,
   siteSent: undefined,

@@ -269,7 +269,7 @@ export function DeviceDetail({ id }: { readonly id: number }) {
   const { t } = useTranslation();
   const stored = useLive((s) => s.devices[id]);
   const shown = useRead("device.show", { device: id }, undefined);
-  const device = shown.data?.ok === true ? shown.data.body.device : stored;
+  const device = stored ?? (shown.data?.ok === true ? shown.data.body.device : undefined);
   const current = shown.data?.ok === true ? shown.data.body.settings : undefined;
   if (device === undefined) {
     return shown.data !== undefined && !shown.data.ok ? (
@@ -296,7 +296,7 @@ export function DeviceDetail({ id }: { readonly id: number }) {
       <RenameRemove device={device} />
       {device.role === "sensor" ? (
         <>
-          <DeviceUpdateSection device={device} />
+          {stored === undefined ? null : <DeviceUpdateSection device={stored} />}
           <SettingsForm
             op="sensor.settings"
             current={current}

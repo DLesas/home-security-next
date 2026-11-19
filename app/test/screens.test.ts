@@ -6,8 +6,14 @@
  */
 import { describe, expect, test } from "bun:test";
 import { createElement } from "react";
-import type { DeviceObject } from "@hsn/protocol/app";
+import {
+  type DeviceObject,
+  type DeviceObjectV2,
+  parseEvent,
+  parseEventV2,
+} from "@hsn/protocol/app";
 import { renderWith, textOf } from "./support/screens";
+import { applyEvent, EMPTY_LIVE } from "../src/state/live";
 
 const banners = await import("../src/ui/banners");
 const arming = await import("../src/ui/arming");
@@ -15,6 +21,8 @@ const field = await import("../src/ui/state-field");
 const devicesUi = await import("../src/ui/devices");
 const gate = await import("../src/ui/link-gate");
 const parts = await import("../src/ui/parts");
+const { DeviceDetail } = await import("../src/ui/device-detail");
+const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
 
 function device(
   id: number,
@@ -38,6 +46,63 @@ function device(
 }
 const FRONT = device(4, "front-door", "sensor");
 const SIREN = device(9, "hall-siren", "siren");
+
+test.each([
+  ["sensor", 1],
+  ["siren", 1],
+  ["gateway", 1],
+  ["sensor", 2],
+  ["siren", 2],
+  ["gateway", 2],
+] as const)(
+  "the %s detail renders live firmware over a cached read on protocol v%d",
+  async (role, proto) => {
+    const before = { ...device(4, "board", role), firmware: "1.0.0" };
+    const phoneBefore: DeviceObjectV2 = {
+      ...before,
+      update: { state: "planned", held: "needsPhone", method: "bluetooth" },
+    };
+    const after = { ...before, firmware: "1.4.0" };
+    const phoneAfter: DeviceObjectV2 = {
+      ...after,
+      update: { state: "confirmed", held: null, method: "bluetooth" },
+    };
+    const event = {
+      t: "evt",
+      rev: 1,
+      ev: "device",
+      body: { what: "state", device: proto === 1 ? after : phoneAfter },
+    };
+    const checked = proto === 1 ? parseEvent(event) : parseEventV2(event);
+    expect(checked.ok && checked.value.ev).toBe("device");
+    if (!checked.ok || checked.value.ev !== "device") return expect.unreachable();
+    const cached = proto === 1 ? before : phoneBefore;
+    const queries = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity } } });
+    queries.setQueryData(["device.show", JSON.stringify({ device: 4 }), 0, 0], {
+      ok: true,
+      body: { device: cached },
+      repeat: false,
+    });
+    const page = createElement(
+      QueryClientProvider,
+      { client: queries },
+      createElement(DeviceDetail, { id: 4 }),
+    );
+    const live = { ...EMPTY_LIVE, devices: { 4: cached } };
+    const initial = textOf(await renderWith(page, { devices: live.devices }));
+    expect(initial).toContain("Firmware 1.0.0");
+    const phoneSensor = role === "sensor" && proto === 2;
+    if (phoneSensor) expect(initial).toContain("This sensor needs a phone.");
+    const updated = applyEvent(live, checked.value, 0);
+    const visible = textOf(await renderWith(page, { devices: updated.devices }));
+    expect(visible).toContain("Firmware 1.4.0");
+    expect(visible).not.toContain("Firmware 1.0.0");
+    if (phoneSensor) {
+      expect(visible).toContain("Updated to 1.4.0.");
+      expect(visible).not.toContain("This sensor needs a phone.");
+    }
+  },
+);
 
 describe("the countdown and alarm banner", () => {
   test("the alarm: announced at once, naming its triggers and sirens, with Disarm", async () => {

@@ -6,6 +6,7 @@
  * sessions of people with manage system and no other.
  */
 import { describe, expect, test } from "bun:test";
+import { MessageType, Role, UpdateStage } from "@hsn/protocol";
 import {
   APP_EVENTS,
   APP_OPS,
@@ -24,11 +25,13 @@ import {
   UpdateHeld,
   UpdateMethod,
 } from "../../../src/core/model/rows.ts";
-import { deviceId, type DeviceId, seq } from "../../../src/core/model/ids.ts";
+import { bootId, deviceId, type DeviceId, linkId, seq } from "../../../src/core/model/ids.ts";
+import { EMPTY_M3M4_SNAPSHOT } from "../../../src/core/model/events.ts";
 import type { Internal } from "../../../src/core/model/messages.ts";
 import { MODULES } from "../../../src/core/step.ts";
 import { deviceToV2 } from "../../../src/core/app/versions.ts";
 import { deviceObject } from "../../../src/core/app/objects.ts";
+import { G1, LORA, ON_TRIAL, imageRow, siteSnapshot, wifi } from "../firmware/support.ts";
 import {
   ANNA,
   ANNA_LAPTOP,
@@ -38,6 +41,9 @@ import {
   CONSOLE_CLIENT,
   emitter,
   FACTS,
+  FRONT,
+  HALL_SIREN,
+  permission,
   role,
   testModules,
   WALL_AT_START,
@@ -217,6 +223,105 @@ describe("device objects in version 2, in every state", () => {
 });
 
 describe("one event, each session in its own version", () => {
+  test.each([
+    ["sensor", FRONT, Role.Sensor, LORA],
+    ["siren", HALL_SIREN, Role.Siren, wifi(600)],
+    ["gateway", G1, Role.Gateway, { path: "usb", link: linkId(1) }],
+  ] as const)(
+    "a subscribed app sees %s firmware on Started and its update on confirmation",
+    (_name, device, role, arrival) => {
+      const disk = managedDisk().withSettings(1, 1);
+      disk.people.permissions.set(`${ANNA}:${FRONT}`, permission(ANNA, FRONT, true, true));
+      disk.people.permissions.set(`${BEN}:${FRONT}`, permission(BEN, FRONT, false, true));
+      const gateway = siteSnapshot().devices.find((row) => row.id === G1) ?? expect.unreachable();
+      disk.rows.devices.set(G1, gateway);
+      const image = imageRow(1, 0x010400);
+      const packet = {
+        kind: "accepted",
+        device,
+        role,
+        arrival,
+        newest: true,
+      } as const;
+      const started: Internal = {
+        ...packet,
+        counter: 100,
+        record: seq(2 ** 32 + 100),
+        message: {
+          type: MessageType.Started,
+          role,
+          firmwareVersion: { major: 1, minor: 4, patch: 0 },
+          resetCause: 3,
+          lastFatalError: 0,
+          settingsVersion: 1,
+        },
+        startedImage: ON_TRIAL,
+      };
+      const confirmed: Internal = {
+        ...packet,
+        counter: 101,
+        record: seq(2 ** 32 + 101),
+        message: {
+          type: MessageType.UpdateStatus,
+          stage: UpdateStage.Confirmed,
+          imageId: image.imageId,
+          reason: 0,
+          bytesWritten: image.bytes + 128,
+        },
+      };
+      const reports = [started, confirmed];
+      const base = MODULES.intake;
+      const hub = new PhoneHub(disk, {
+        ...MODULES,
+        intake: {
+          ...base,
+          // Feed decoded packets into the same dispatcher the real intake uses.
+          handle: (slice, message, ctx) =>
+            base.handle(slice, message, ctx).map((handled) => {
+              const report = message.kind === "tick" ? reports.shift() : undefined;
+              return report === undefined ? handled : { ...handled, out: [...handled.out, report] };
+            }),
+        },
+      });
+      hub.input({
+        kind: "boot",
+        snapshot: {
+          ...disk.snapshot(),
+          m3m4: { ...EMPTY_M3M4_SNAPSHOT, firmwareImages: [image] },
+        },
+        boot: { id: bootId(1), previousExit: "clean", cause: undefined },
+      });
+      hub.input({ kind: "hubFacts", ...FACTS });
+      const v1 = subscribed(hub, ANNA_LAPTOP, 1);
+      const v2 = subscribed(hub, ANNA_PHONE, 2);
+      const viewer = subscribed(hub, BEN_LAPTOP, 2);
+      const rollout = hub.request(v2, ANNA_PHONE, {
+        op: "rollout.start",
+        body: { image: image.id, devices: [device] },
+      });
+      expect(replyTo(rollout.effects, v2).ok).toBe(true);
+
+      /** Takes only the device objects on this session, in their delivery order. */
+      const objects = (effects: ReturnType<PhoneHub["advance"]>, conn: typeof v1) =>
+        eventsOn(effects, conn).flatMap((event) =>
+          event.ev === "device" && event.body.device.id === device ? [event.body.device] : [],
+        );
+      const report = hub.advance(1);
+      const finish = hub.advance(1);
+      expect(objects(report, v1).map((object) => object.firmware)).toEqual(["1.4.0"]);
+      expect(objects(finish, v1)).toEqual([]);
+      expect(objects(finish, v2).map(({ firmware, update }) => [firmware, update?.state])).toEqual([
+        ["1.4.0", "confirmed"],
+      ]);
+      expect(objects(finish, viewer)).toEqual(objects(finish, v2));
+      expect(eventsOn(finish, viewer).some((event) => event.ev === "deviceUpdate")).toBe(false);
+      expect(objects(report, v2).at(-1)).toMatchObject({
+        firmware: "1.4.0",
+        update: { state: "onTrial", held: null },
+      });
+    },
+  );
+
   test("device: a rename seen by a version 1 and a version 2 session, same rev, own schemas", () => {
     const hub = new PhoneHub().boot();
     const v1 = subscribed(hub, ANNA_LAPTOP, 1);

@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Platform } from "react-native";
 import { Body, Heading, Section, TextLink } from "../ui/parts";
-import { useLive } from "../ui/hub-context";
 import { currentPhoneHub } from "./phone-hub";
 import { UpdateResult } from "./update-page";
 
@@ -19,7 +18,6 @@ function updateOf(device: DeviceObject) {
 export function DeviceUpdateSection({ device }: { readonly device: DeviceObject }) {
   const { t } = useTranslation();
   const [event, setEvent] = useState<AppEventBodyV2<"deviceUpdate">>();
-  const live = useLive((s) => s.devices[device.id]);
   const hub = currentPhoneHub();
   useEffect(() => {
     setEvent(undefined);
@@ -27,7 +25,7 @@ export function DeviceUpdateSection({ device }: { readonly device: DeviceObject 
       if (change.ev === "deviceUpdate" && change.body.device === device.id) setEvent(change.body);
     });
   }, [hub, device.id]);
-  const update = event ?? updateOf(device) ?? updateOf(live ?? device);
+  const update = updateOf(device);
   if (update === undefined || update.state === "none") return null;
   return (
     <Section label={t("bluetoothUpdate.title")}>
@@ -45,7 +43,10 @@ export function DeviceUpdateSection({ device }: { readonly device: DeviceObject 
           )}
         </>
       ) : update.held === null ? (
-        <UpdateResult event={update} version={live?.firmware ?? device.firmware} />
+        <UpdateResult
+          event={event?.state === update.state ? event : update}
+          version={device.firmware}
+        />
       ) : (
         <Body>{t(`bluetoothUpdate.held.${update.held}`)}</Body>
       )}

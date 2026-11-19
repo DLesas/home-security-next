@@ -797,10 +797,16 @@ export const handleApp: Handler<"app"> = (slice, message, ctx) => {
   peopleChanges(sending, ctx.view);
   countdownChanges(sending, ctx.view);
   siteChanges(sending, ctx.view);
-  if (sending.slice.registrySeen !== ctx.view.registry.devices) {
-    const devicesSeen = deviceChanges(sending, ctx.view, ctx.deps, sending.slice.devicesSeen);
-    sending.slice = { ...sending.slice, devicesSeen, registrySeen: ctx.view.registry.devices };
-    forgetLost(sending, ctx.view);
+  const registryChanged = sending.slice.registrySeen !== ctx.view.registry.devices;
+  if (registryChanged || sending.slice.firmwareSeen !== ctx.view.firmware.updates) {
+    const devicesSeen = deviceChanges(sending, ctx.view, ctx.deps);
+    sending.slice = {
+      ...sending.slice,
+      devicesSeen,
+      registrySeen: ctx.view.registry.devices,
+      firmwareSeen: ctx.view.firmware.updates,
+    };
+    if (registryChanged) forgetLost(sending, ctx.view);
   }
   eventsOf(sending, ctx, message);
   if (message.kind === "auditRecord") offeredEvents(sending, ctx.view, message.record);

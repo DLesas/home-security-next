@@ -46,6 +46,23 @@ export function deviceUpdateOf(view: HubState, device: DeviceId): DeviceUpdateOb
   return updateObject(view.firmware.updates.get(device));
 }
 
+/** Whether an update changed the device object, ignoring progress bytes and retry bookkeeping. */
+export function deviceUpdateChanged(
+  view: HubState,
+  seen: FirmwareSlice["updates"],
+  device: DeviceId,
+): boolean {
+  const previous = seen.get(device);
+  if (previous === view.firmware.updates.get(device)) return false;
+  const before = updateObject(previous);
+  const after = deviceUpdateOf(view, device);
+  return (
+    before?.state !== after?.state ||
+    before?.held !== after?.held ||
+    before?.method !== after?.method
+  );
+}
+
 /** Whether any device is installing or on trial. */
 export function devicesInstalling(view: HubState): boolean {
   return [...view.firmware.updates.values()].some((entry) =>
