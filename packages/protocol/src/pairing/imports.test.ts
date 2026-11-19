@@ -10,13 +10,16 @@
  */
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
-import { dirname, join, relative } from "node:path";
+import { dirname, join, relative, sep } from "node:path";
 
 const SRC = join(import.meta.dir, "..");
 const STATEMENT = /^\s*(import|export)\s(type\s)?[^;]*?from\s+"([^"]+)"/gmsu;
 const PACKAGES = /^(?:zod|@noble\/(?:hashes|ciphers|curves)\/[\w.-]+)$/u;
 
+/** Walks the imports and reports paths in the phone's source tree. */
 function reach(entry: string): { files: string[]; problems: string[] } {
+  /** Uses the same file names in results and diagnostics on every host. */
+  const nameOf = (file: string): string => relative(SRC, file).split(sep).join("/");
   const seen = new Set<string>();
   const problems: string[] = [];
   const walk = (file: string): void => {
@@ -24,7 +27,7 @@ function reach(entry: string): { files: string[]; problems: string[] } {
     seen.add(file);
     const text = readFileSync(file, "utf8");
     const code = text.replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gmu, "");
-    const where = relative(SRC, file);
+    const where = nameOf(file);
     if (/\bBuffer\b/u.test(code)) problems.push(`${where} uses Buffer`);
     if (/\bprocess\./u.test(code)) problems.push(`${where} uses process`);
     for (const m of text.matchAll(STATEMENT)) {
@@ -35,7 +38,7 @@ function reach(entry: string): { files: string[]; problems: string[] } {
     }
   };
   walk(join(SRC, entry));
-  return { files: [...seen].map((f) => relative(SRC, f)), problems };
+  return { files: [...seen].map(nameOf), problems };
 }
 
 for (const entry of ["pairing/index.ts", "app/index.ts", "relay/index.ts"])
