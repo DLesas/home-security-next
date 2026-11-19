@@ -157,3 +157,34 @@ export const FINAL_STATES: ReadonlySet<DeviceUpdateState> = new Set([
   DeviceUpdateState.Refused,
   DeviceUpdateState.Cancelled,
 ]);
+
+/**
+ * What `firmware.bluetooth`'s answer is as a change (m3-updates section 5, step 1; m2-design
+ * section 5): the marker `app` records in `commands` and `people` keeps for the request's `seq`. The
+ * phone's reply, with the session key, is the shell's to send (`bluetoothSession`), so this holds no
+ * key and no nonce: only which device the session is for and when its life ends (`ble_expires_ms`),
+ * which tells a retry of that `seq` whether the session it was given still lives.
+ */
+export interface SessionGranted {
+  readonly session: "granted";
+  readonly device: number;
+  readonly expiresAtMs: number;
+}
+
+/** The marker for a session granted to `device`, ending at the wall time `expiresAtMs`. */
+export function sessionGranted(device: DeviceId, expiresAtMs: number): SessionGranted {
+  return { session: "granted", device, expiresAtMs };
+}
+
+/** The marker an answer's body is, read back from a kept reply's JSON; undefined for any other. */
+export function sessionGrantedOf(body: unknown): SessionGranted | undefined {
+  if (typeof body !== "object" || body === null) return undefined;
+  const fields = body as Readonly<Record<string, unknown>>;
+  const { session, device, expiresAtMs } = fields;
+  return session === "granted" &&
+    typeof device === "number" &&
+    typeof expiresAtMs === "number" &&
+    Object.keys(fields).length === 3
+    ? { session, device, expiresAtMs }
+    : undefined;
+}

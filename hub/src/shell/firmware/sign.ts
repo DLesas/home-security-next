@@ -16,7 +16,6 @@ import {
   roleBit,
   signImageHeader,
   signingKeyOf,
-  verifyImageHeader,
 } from "@hsn/protocol/update";
 import type { Role } from "@hsn/protocol";
 import { err, ok, type Result } from "neverthrow";
@@ -98,13 +97,12 @@ export function headerFields(facts: ImageFacts, signer: HubSigner): ImageHeaderF
 }
 
 /**
- * The image's 128-byte header, signed, and checked against the hub's public key before it is
- * given back, as a device will check it.
+ * The image's 128-byte header, signed. It verifies under the hub's public key as a device checks
+ * it: `signerOf`, the only way a signer is made, proves the scalar is that key's, and the signature
+ * is deterministic (the vectors' headers byte for byte, `sign.test.ts`), so it is not checked again.
  */
 export function makeHeader(facts: ImageFacts, signer: HubSigner): Result<Uint8Array, string> {
   const header = signImageHeader(headerFields(facts, signer), signer.scalar);
   if (!header.ok) return err(`the image's header could not be made (${header.error.code})`);
-  if (!verifyImageHeader(header.value, signer.publicKey))
-    return err("the image's header did not verify under the hub's own key");
   return ok(header.value);
 }

@@ -26,15 +26,16 @@ import {
   onProgress,
   onSilent,
   reminderDue,
+  sessionEnded,
   trialWatchDue,
 } from "./devices.ts";
-import { change, progressDue, putEntry } from "./entries.ts";
+import { progressDue, putEntry } from "./entries.ts";
 import { firmwareOp } from "./ops.ts";
 import { Steps } from "./out.ts";
 import { advance, advanceDevice, soakEnded } from "./rollout.ts";
 import type { FirmwareSlice } from "./state.ts";
 import { onFileReady, onReleaseOffered, onStoreDamaged } from "./store.ts";
-import { DeviceUpdateState, UpdateHeld, UpdateMethod } from "../model/rows.ts";
+import { UpdateHeld } from "../model/rows.ts";
 
 /** Decisions of other modules that firmware acts on. */
 const SILENCE = new Set(["sensor_silent", "siren_silent", "gateway_offline"]);
@@ -51,24 +52,11 @@ function onTimer(steps: Steps, ctx: Context, message: Extract<Internal, { kind: 
     case "trialWatch":
       trialWatchDue(steps, ctx, key.device);
       return;
-    case "sessionExpiry": {
-      // The session's life ended: its nonce goes; a Bluetooth offer not yet verified starts again.
-      const entry = steps.slice.updates.get(key.device);
-      if (entry === undefined) return;
-      const planned =
-        entry.row.method === UpdateMethod.Bluetooth &&
-        (entry.row.state === DeviceUpdateState.Offered ||
-          entry.row.state === DeviceUpdateState.Fetching);
-      change(steps, ctx, key.device, {
-        bleNonce: null,
-        bleExpiresMs: null,
-        ...(planned ? { state: DeviceUpdateState.Planned } : {}),
-      });
-      const after = steps.slice.updates.get(key.device);
-      if (after !== undefined) putEntry(steps, { ...after, told: undefined });
+    case "sessionExpiry":
+      // The session's life ended: the same rule as a restart after it (`sessionEnded`).
+      sessionEnded(steps, ctx, key.device);
       advance(steps, ctx);
       return;
-    }
     case "armedReminder":
       reminderDue(steps, ctx, key.device);
       return;

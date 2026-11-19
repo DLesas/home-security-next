@@ -15,12 +15,14 @@ import {
   type RolloutDeviceObject,
   type RolloutObject,
 } from "@hsn/protocol/app";
+import type { Effect } from "../model/effects.ts";
 import type { Context } from "../model/handler.ts";
 import { type DeviceId, deviceId, rolloutId, type Seq } from "../model/ids.ts";
 import type { Actor, AnswerTo } from "../model/messages.ts";
 import {
   DeviceUpdateState,
   type DeviceUpdateRow,
+  type FirmwareImageRow,
   RolloutStage,
   UpdateHeld,
   UpdateMethod,
@@ -42,6 +44,7 @@ import {
   methodName,
   pausedReasonName,
   reasonName,
+  sessionGranted,
   stageName,
   stateName,
   versionText,
@@ -462,11 +465,67 @@ function rolloutStatus(steps: Steps, answerTo: AnswerTo): void {
   });
 }
 
+/** Where the shell sends a session's reply: the app connection or the control line that asked. */
+type SessionTo = Extract<Effect, { readonly kind: "bluetoothSession" }>["to"];
+
 /**
- * `firmware.bluetooth {device}` (section 5): the conditions of section 4, then a nonce from the
- * input's entropy, committed (`ble_nonce`, its expiry) before the shell derives the session key and
- * replies. Refusals in order: not paired, no image planned, on trial, a session in force, then the
- * holds (armed, battery, countdown, alarm, site move, key change), each as `refusals-v2.ts` has it.
+ * The session's reply for the shell (`bluetoothSession`, which adds the key it derives from the
+ * device's key and `nonce`) and the answer the asking module records: the marker of `codes.ts`,
+ * never the key or the nonce. `app` records it in `commands` and `people` keeps it for the `seq`;
+ * `control` records it in `commands`; neither sends it, as the shell's reply is the one sent.
+ */
+function sendSession(
+  steps: Steps,
+  answerTo: AnswerTo,
+  to: SessionTo,
+  session: {
+    readonly device: DeviceId;
+    readonly address: number;
+    readonly role: number;
+    readonly image: FirmwareImageRow;
+    readonly nonce: Uint8Array;
+    readonly expiresAtMs: number;
+    readonly expiresInMs: number;
+    readonly windowTens: number;
+  },
+): void {
+  const { device, address, image } = session;
+  steps.push({
+    kind: "bluetoothSession",
+    to,
+    device,
+    address,
+    nonce: session.nonce,
+    reply: {
+      device,
+      address,
+      imageId: hex(image.imageId),
+      version: versionText(image.version),
+      fileBytes: image.bytes + IMAGE_HEADER_BYTES,
+      sha256: hex(image.sha256),
+      windowS: session.windowTens * WINDOW_UNIT_S,
+      expiresInMs: session.expiresInMs,
+      // A sensor learns of it at its next reply; a siren or gateway is told at once.
+      needsWake: session.role === Role.Sensor,
+    },
+  });
+  steps.answer(answerTo, sessionGranted(device, session.expiresAtMs));
+}
+
+/**
+ * `firmware.bluetooth {device}` (section 5, step 1): a change like any other, answered in the step
+ * that grants it. Refusals in order: not paired, no image planned (none open naming the device, its
+ * image dropped as damaged, or the device past fetching), on trial; then, for a new session, the
+ * holds (armed, battery, countdown, alarm, site move); then a key change. A new session takes a
+ * nonce from the input's entropy, committed (`ble_nonce`, its expiry) before the shell derives the
+ * session key and replies.
+ *
+ * Asked again while the device's session lives (a new `seq`, another client, the console, or a
+ * retry of the `seq` that was given it, which `app` sends here only while that session lives), it
+ * is answered with the same session: the same nonce, so the same key, and the time left of its
+ * life. Nothing else is done: no nonce drawn, no timer, no write, no decision, no offer. The holds
+ * do not refuse it, since a live session goes ahead of them (`decide.ts`); the refusals before them
+ * and a key change do, since with them the session serves nothing or its key is not the one given.
  */
 function bluetooth(
   steps: Steps,
@@ -500,36 +559,53 @@ function bluetooth(
     steps.refuse(answerTo, refusals.onTrial);
     return;
   }
-  if (sessionOf(entry, ctx.now) !== undefined) {
-    steps.refuse(answerTo, refusals.busy);
-    return;
-  }
-  const facts = factsOf(ctx);
-  if (role === Role.Sensor && armedForUser(ctx.view, device)) {
-    steps.refuse(answerTo, refusals.armed);
-    return;
-  }
-  if (lowBattery(steps.slice, facts, device, role)) {
-    steps.refuse(answerTo, refusals.battery);
-    return;
-  }
-  const climate = climateOf(ctx.view);
-  if (climate !== "quiet") {
-    steps.refuse(answerTo, refusals[climate]);
-    return;
+  const live = sessionOf(entry, ctx.now);
+  if (live === undefined) {
+    const facts = factsOf(ctx);
+    if (role === Role.Sensor && armedForUser(ctx.view, device)) {
+      steps.refuse(answerTo, refusals.armed);
+      return;
+    }
+    if (lowBattery(steps.slice, facts, device, role)) {
+      steps.refuse(answerTo, refusals.battery);
+      return;
+    }
+    const climate = climateOf(ctx.view);
+    if (climate !== "quiet") {
+      steps.refuse(answerTo, refusals[climate]);
+      return;
+    }
   }
   if (steps.slice.rekey.has(device)) {
     steps.refuse(answerTo, refusals.keyChange);
     return;
   }
-  const to =
+  const to: SessionTo | undefined =
     answerTo.kind === "app"
-      ? ({ kind: "app", conn: answerTo.conn, id: answerTo.id } as const)
+      ? { kind: "app", conn: answerTo.conn, id: answerTo.id }
       : answerTo.kind === "control"
-        ? ({ kind: "control", request: answerTo.request } as const)
+        ? { kind: "control", request: answerTo.request }
         : undefined;
   if (to === undefined) {
     steps.refuse(answerTo, { code: "unavailable", detail: {} });
+    return;
+  }
+  const fw = ctx.deps.rules.firmware;
+  const session = {
+    device,
+    address: row.address,
+    role,
+    image,
+    windowTens: fw.bluetoothWindowTens,
+  };
+  const liveUntil = entry.row.bleExpiresMs;
+  if (live !== undefined && liveUntil !== null) {
+    sendSession(steps, answerTo, to, {
+      ...session,
+      nonce: live,
+      expiresAtMs: liveUntil,
+      expiresInMs: liveUntil - ctx.now.wall,
+    });
     return;
   }
   const nonce = ctx.entropy.take(8);
@@ -537,15 +613,15 @@ function bluetooth(
     steps.fail(nonce.error);
     return;
   }
-  const fw = ctx.deps.rules.firmware;
   steps.timer(
     { module: "firmware", kind: "sessionExpiry", device },
     monoAfterMs(ctx.now.mono, fw.bluetoothSessionMs),
   );
+  const expiresAtMs = ctx.now.wall + fw.bluetoothSessionMs;
   const changed: DeviceUpdateRow = {
     ...entry.row,
     bleNonce: nonce.value,
-    bleExpiresMs: ctx.now.wall + fw.bluetoothSessionMs,
+    bleExpiresMs: expiresAtMs,
   };
   putEntry(steps, published(steps, { ...entry, row: changed, told: undefined }));
   steps.push(writeUpdate(changed));
@@ -556,31 +632,21 @@ function bluetooth(
       cause: record,
     }),
   );
-  steps.push({
-    kind: "bluetoothSession",
-    to,
-    device,
-    address: row.address,
+  sendSession(steps, answerTo, to, {
+    ...session,
     nonce: nonce.value,
-    reply: {
-      device,
-      address: row.address,
-      imageId: hex(image.imageId),
-      version: versionText(image.version),
-      fileBytes: image.bytes + IMAGE_HEADER_BYTES,
-      sha256: hex(image.sha256),
-      windowS: fw.bluetoothWindowTens * WINDOW_UNIT_S,
-      expiresInMs: fw.bluetoothSessionMs,
-      // A sensor learns of it at its next reply; a siren or gateway is told at once (below).
-      needsWake: role === Role.Sensor,
-    },
+    expiresAtMs,
+    expiresInMs: fw.bluetoothSessionMs,
   });
   if (role !== Role.Sensor) {
     deliver(steps, ctx, device, { kind: "fetch", via: "bluetooth" }, undefined, true);
   }
 }
 
-/** One of firmware's operations, answered with `opAnswer` (or, for a session, by the shell). */
+/**
+ * One of firmware's operations, answered with `opAnswer`; a granted session's reply, with its key,
+ * is also the shell's to send (`bluetoothSession`).
+ */
 export function firmwareOp(
   steps: Steps,
   ctx: Context,

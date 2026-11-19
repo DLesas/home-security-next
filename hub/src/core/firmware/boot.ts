@@ -23,10 +23,9 @@ import { monoAfterMs } from "../model/time.ts";
 import { decodeIds, INSTALLING_STATES } from "./codes.ts";
 import { workingRole } from "./decide.ts";
 import { trialWatchMs } from "./deliver.ts";
-import { reminderDue } from "./devices.ts";
+import { reminderDue, sessionEnded } from "./devices.ts";
 import { eventBody, putEntry } from "./entries.ts";
 import type { Steps } from "./out.ts";
-import { writeUpdate } from "./records.ts";
 import { advance, soakEnded } from "./rollout.ts";
 import { type DeviceEntry, EMPTY_FIRMWARE_SLICE, type Rollout } from "./state.ts";
 
@@ -110,10 +109,8 @@ export function onBoot(steps: Steps, ctx: Context, snapshot: DurableSnapshot): v
           monoAfterMs(ctx.now.mono, clamp(left, fw.bluetoothSessionMs)),
         );
       } else {
-        // Its life ended while the hub was off: the session is over.
-        const ended = { ...row, bleNonce: null, bleExpiresMs: null };
-        putEntry(steps, { ...entry, row: ended, event: eventBody(steps.slice, ended) });
-        steps.push(writeUpdate(ended));
+        // Its life ended while the hub was off: over exactly as when its timer runs live.
+        sessionEnded(steps, ctx, device);
       }
     }
     if (inOpen && row.held === UpdateHeld.Armed) {

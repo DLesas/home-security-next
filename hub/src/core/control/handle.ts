@@ -13,7 +13,9 @@
  * commits every item that change wrote now before it sends the answer (section 4).
  *
  * `hsn log` is recorded here and answered by the shell, which flushes, reads and streams
- * (section 3). The record is routine: a command's effect is what is written now (section 5).
+ * (section 3). The record is routine: a command's effect is what is written now (section 5). So is
+ * a granted `firmware.bluetooth` (m3-updates section 5): firmware's answer is a marker without the
+ * key, recorded here, and the one reply, with the key, is the shell's (`bluetoothSession`).
  */
 import { ok, type Result } from "neverthrow";
 import type { ControlCommand, ControlReply } from "../model/control.ts";
@@ -23,6 +25,7 @@ import type { Context, Handled, Handler } from "../model/handler.ts";
 import { type ConnId, isAppRequest, type RequestId } from "../model/ids.ts";
 import type { Internal, OpOutcome } from "../model/messages.ts";
 import { recordStamp } from "../clock/view.ts";
+import { sessionGrantedIn } from "../firmware/view.ts";
 import { hubEventRecord } from "../registry/view.ts";
 import { alarmBefore, armAllReply, disarmAllReply } from "./m1-replies.ts";
 import { type ControlSources, VIEW_SOURCES } from "./sources.ts";
@@ -197,6 +200,15 @@ export function makeControlHandler(sources: ControlSources): Handler<"control"> 
         if (message.answerTo.kind !== "control") return ok({ slice, out: [] });
         const { request } = message.answerTo;
         const pending = slice.pending.get(request);
+        // A granted Bluetooth session (m3-updates section 5, step 1): the one reply, with its key,
+        // is the shell's (`bluetoothSession`); this answer is firmware's marker of it, without the
+        // key or the nonce, recorded here and the command no longer waiting.
+        if (pending !== undefined && sessionGrantedIn(message.outcome) !== undefined) {
+          return ok({
+            slice: withPending(slice, request, undefined),
+            out: [commandRecord(pending, OUTCOME_OK, null)],
+          });
+        }
         const reply =
           pending?.kind === "arm"
             ? armAllReply(ctx.view, message.outcome)

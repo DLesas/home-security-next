@@ -599,6 +599,33 @@ export function trialWatchDue(steps: Steps, ctx: Context, device: DeviceId): voi
   advance(steps, ctx);
 }
 
+/**
+ * A Bluetooth session's life is over: by its timer while the hub runs, or found over at a restart
+ * when it ended while the hub was off (`boot.ts`). The one rule for both: its nonce goes, and an
+ * update offered or fetching over Bluetooth, not yet verified, goes back to planned, so it waits
+ * for its holds, the pause and its turn again; one fetching over Wi-Fi or its own link goes on.
+ *
+ * What the device was last told needs no forgetting here. A sensor's query forgets it before it
+ * is answered (`onQuery`); at a restart it is memory, already gone. Every other reading goes
+ * through `alreadyTold`, and what a device is told while a session lives is "open Bluetooth" with
+ * the session's nonce: with the nonce gone, that matches no plan the device can be told next, so
+ * the new plan goes out at its next contact. Any other word it had (a wait, while on trial) is the
+ * one it would be told again.
+ */
+export function sessionEnded(steps: Steps, ctx: Context, device: DeviceId): void {
+  const entry = steps.slice.updates.get(device);
+  if (entry === undefined) return;
+  const planned =
+    entry.row.method === UpdateMethod.Bluetooth &&
+    (entry.row.state === DeviceUpdateState.Offered ||
+      entry.row.state === DeviceUpdateState.Fetching);
+  change(steps, ctx, device, {
+    bleNonce: null,
+    bleExpiresMs: null,
+    ...(planned ? { state: DeviceUpdateState.Planned } : {}),
+  });
+}
+
 /** A gateway held as always busy is offered again. */
 export function busyRetryDue(steps: Steps, ctx: Context, device: DeviceId): void {
   const entry = steps.slice.updates.get(device);

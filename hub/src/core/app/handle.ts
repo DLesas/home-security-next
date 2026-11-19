@@ -64,6 +64,7 @@ import {
 } from "../people/view.ts";
 import { asVersion2 } from "../notify/view.ts";
 import { deviceById, hubEventRecord } from "../registry/view.ts";
+import { sessionGrantedIn, sessionRetried } from "../firmware/view.ts";
 import { countdownChanges, siteChanges } from "./changes.ts";
 import { refusal, refusalV2 } from "./checks.ts";
 import { closeDayIfOver, sessionClosed, sessionOpened } from "./sessions-day.ts";
@@ -296,7 +297,7 @@ function onRequest(
     sending.out.push({ kind: "closeClient", client: request.client, reason: "removed" });
     return ok(undefined);
   }
-  const answerTo: AppAnswerTo = {
+  let answerTo: AppAnswerTo = {
     kind: "app",
     conn: request.conn,
     client: request.client,
@@ -320,25 +321,43 @@ function onRequest(
     const last = lastSeq(view, request.client);
     if (seq <= last) {
       const kept = storedReply(view, request.client, seq);
-      if (kept?.kind === "sent")
-        send(sending, request.conn, repeatOf(replyForVersion(kept.reply, proto), id));
-      else if (kept?.kind === "pending") {
-        const waiting = new Map(sending.slice.waiting);
-        const k = retryKey(request.client, seq);
-        waiting.set(k, [...(waiting.get(k) ?? []), answerTo]);
-        sending.slice = { ...sending.slice, waiting };
-      } else
-        refuseNow(
-          sending,
-          request,
-          { ok: false, error: { code: "seqTooLow", detail: { last } } },
-          proto,
-        );
-      return ok(undefined);
+      // A retry of a granted Bluetooth session (m3-updates section 5, step 1): its kept reply is
+      // firmware's marker, without the key. While that session lives, firmware answers the retry
+      // with it again, as it would a new ask, nothing kept or recorded (no `seq` goes with it);
+      // once it has ended, `unavailable`, so a retry never hangs and never starts a session.
+      const session =
+        kept?.kind === "sent" && op.op === "firmware.bluetooth"
+          ? sessionRetried(view, ctx.now, kept.reply, op.body.device)
+          : undefined;
+      if (session === "live") answerTo = { ...answerTo, seq: undefined };
+      else {
+        if (session === "ended")
+          refuseNow(
+            sending,
+            request,
+            { ok: false, error: { code: "unavailable", detail: {} } },
+            proto,
+          );
+        else if (kept?.kind === "sent")
+          send(sending, request.conn, repeatOf(replyForVersion(kept.reply, proto), id));
+        else if (kept?.kind === "pending") {
+          const waiting = new Map(sending.slice.waiting);
+          const k = retryKey(request.client, seq);
+          waiting.set(k, [...(waiting.get(k) ?? []), answerTo]);
+          sending.slice = { ...sending.slice, waiting };
+        } else
+          refuseNow(
+            sending,
+            request,
+            { ok: false, error: { code: "seqTooLow", detail: { last } } },
+            proto,
+          );
+        return ok(undefined);
+      }
     }
   }
 
-  const stamped = stamp(ctx, actor, op, seq !== undefined);
+  const stamped = stamp(ctx, actor, op, answerTo.seq !== undefined);
   if (stamped.isErr()) return err(stamped.error);
   const { record, command } = stamped.value;
   sending.slice = withPending(sending.slice, key, {
@@ -498,7 +517,9 @@ function onAnswer(
   const pending = sending.slice.pending.get(key);
   const proto = answerTo.proto;
   const reply = replyOf(answerTo.id, readForVersion(view, pending?.op, outcome, proto), proto);
-  send(sending, answerTo.conn, reply);
+  // A granted Bluetooth session's reply, with its key, is the shell's to send (`bluetoothSession`);
+  // this answer is firmware's marker of it, recorded and kept only.
+  if (sessionGrantedIn(outcome) === undefined) send(sending, answerTo.conn, reply);
   if (pending !== undefined) {
     sending.slice = withPending(sending.slice, key, undefined);
     if (pending.command !== undefined)

@@ -1,7 +1,7 @@
 /**
  * `firmware.bluetooth` (docs/m3-updates-design.md section 5, "Over Bluetooth from the phone", D138):
  * every refusal as `refusals-v2.ts` maps it; the nonce from the input's entropy, committed before
- * the shell replies; one session per device; the expiry at its edge; the offer a sensor gets at its
+ * the shell replies; one session per device, asked again given again; the expiry at its edge; the offer a sensor gets at its
  * next reply and a siren at once; the session's end by the device's word.
  */
 import { describe, expect, test } from "bun:test";
@@ -17,6 +17,7 @@ import {
   UpdateHeld,
   UpdateMethod,
 } from "../../../src/core/model/rows.ts";
+import { sessionGranted } from "../../../src/core/firmware/codes.ts";
 import { offerWaiting } from "../../../src/core/firmware/view.ts";
 import {
   bootedView,
@@ -28,6 +29,7 @@ import {
   NEW_VERSION,
   ON_TRIAL,
   offerTo,
+  okBody,
   R1,
   refusal,
   rowOf,
@@ -84,12 +86,16 @@ describe("refusals", () => {
     expect(refusal(ask(runner, S1).answer)).toEqual(FIRMWARE_BLUETOOTH_REFUSALS.onTrial);
   });
 
-  test("busy: another session for it in force; a new one once it has expired", () => {
+  test("a live session is no refusal: asked again, the same session; a new one once it has expired", () => {
     const { runner } = inRollout();
-    expect(effectsOf(ask(runner, S2), "bluetoothSession")).toHaveLength(1);
-    expect(refusal(ask(runner, S2).answer)).toEqual(FIRMWARE_BLUETOOTH_REFUSALS.busy);
+    const first = effectsOf(ask(runner, S2), "bluetoothSession")[0];
+    const again = ask(runner, S2);
+    expect(okBody(again.answer)).toMatchObject({ session: "granted", device: S2 });
+    expect(effectsOf(again, "bluetoothSession")[0]?.nonce).toEqual(first?.nonce);
     runner.run(DEFAULT_RULES.firmware.bluetoothSessionMs * 1000);
-    expect(effectsOf(ask(runner, S2), "bluetoothSession")).toHaveLength(1);
+    const after = effectsOf(ask(runner, S2), "bluetoothSession")[0];
+    expect(after?.nonce).toHaveLength(8);
+    expect(after?.nonce).not.toEqual(first?.nonce);
   });
 
   test("the holds: armed, battery, countdown, alarm, site move, key change", () => {
@@ -131,7 +137,10 @@ describe("a session", () => {
     const { runner, image } = inRollout();
     const ran = ask(runner, S2);
     const nonce = entropyFor(runner.stepCount).slice(0, 8);
-    expect(ran.answer).toBeUndefined();
+    // Answered as a change with the marker, which holds neither the key nor the nonce.
+    expect(okBody(ran.answer)).toEqual(
+      sessionGranted(S2, runner.now.wall + DEFAULT_RULES.firmware.bluetoothSessionMs),
+    );
     const session = effectsOf(ran, "bluetoothSession")[0];
     expect(session).toMatchObject({
       to: { kind: "control", request: requestId(1 + 1) },
@@ -235,16 +244,20 @@ describe("a session's expiry at its exact moment: live one millisecond before, o
     expect(offerTo(at.query(S2), S2)?.offer.action).toBe(UpdateAction.KeepAndWait);
   });
 
-  test("another session: refused busy a millisecond before the expiry; given at it", () => {
+  test("asked again: the same session with 1 ms left a millisecond before the expiry; a new one at it", () => {
     const before = inRollout().runner;
-    ask(before, S2);
+    const first = effectsOf(ask(before, S2), "bluetoothSession")[0];
     before.advance((life - 1) * 1000);
-    expect(refusal(ask(before, S2).answer)).toEqual(FIRMWARE_BLUETOOTH_REFUSALS.busy);
+    const again = effectsOf(ask(before, S2), "bluetoothSession")[0];
+    expect(again?.nonce).toEqual(first?.nonce);
+    expect(again?.reply.expiresInMs).toBe(1);
 
     const at = inRollout().runner;
-    ask(at, S2);
+    const opened = effectsOf(ask(at, S2), "bluetoothSession")[0];
     at.advance(life * 1000);
-    expect(effectsOf(ask(at, S2), "bluetoothSession")).toHaveLength(1);
+    const fresh = effectsOf(ask(at, S2), "bluetoothSession")[0];
+    expect(fresh?.reply.expiresInMs).toBe(life);
+    expect(fresh?.nonce).not.toEqual(opened?.nonce);
   });
 
   test("after a restart: a session expiring a millisecond later is kept; one expiring now is over", () => {

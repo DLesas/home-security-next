@@ -9,14 +9,16 @@
  * - `deviceUpdateOf`: the device object's `update` in `device.list`, `device.show` and the snapshot.
  * - `devicesInstalling`: a hub version switch also waits while any device is installing or on
  *   trial (`upkeep`).
+ * - `sessionGrantedIn`, `sessionRetried`: what `app` does with a retry of a `firmware.bluetooth`
+ *   whose kept reply is a granted session's marker (m3-updates section 5, step 1).
  */
 import { Role, UpdateAction } from "@hsn/protocol";
 import type { DeviceUpdateObject } from "@hsn/protocol/app";
-import type { DeviceId } from "../model/ids.ts";
+import { type DeviceId, deviceId } from "../model/ids.ts";
 import type { HubRules } from "../model/rules.ts";
 import type { HubState } from "../model/state.ts";
 import type { Now } from "../model/time.ts";
-import { INSTALLING_STATES } from "./codes.ts";
+import { INSTALLING_STATES, type SessionGranted, sessionGrantedOf } from "./codes.ts";
 import { decide, sessionOf, workingRole } from "./decide.ts";
 import { actionOf, alreadyTold } from "./deliver.ts";
 import { updateObject } from "./ops.ts";
@@ -49,4 +51,33 @@ export function devicesInstalling(view: HubState): boolean {
   return [...view.firmware.updates.values()].some((entry) =>
     INSTALLING_STATES.has(entry.row.state),
   );
+}
+
+/** The granted session's marker an answer or a kept reply carries, or undefined for any other. */
+export function sessionGrantedIn(reply: unknown): SessionGranted | undefined {
+  if (typeof reply !== "object" || reply === null || !("body" in reply)) return undefined;
+  return sessionGrantedOf(reply.body);
+}
+
+/**
+ * A retry of a `firmware.bluetooth` whose kept reply is `kept`, for `device`: "live" while the
+ * session that reply granted lives (firmware answers it with that session again), "ended" once it
+ * has (answered `unavailable`: a retry never starts a session), undefined when the kept reply is no
+ * granted session's (a refusal, sent again as kept). The session is the one granted if its expiry
+ * is the one the marker kept: a later session for the device is another one.
+ */
+export function sessionRetried(
+  view: HubState,
+  now: Now,
+  kept: unknown,
+  device: number,
+): "live" | "ended" | undefined {
+  const granted = sessionGrantedIn(kept);
+  if (granted === undefined) return undefined;
+  const entry = view.firmware.updates.get(deviceId(device));
+  const live =
+    granted.device === device &&
+    entry?.row.bleExpiresMs === granted.expiresAtMs &&
+    sessionOf(entry, now) !== undefined;
+  return live ? "live" : "ended";
 }
