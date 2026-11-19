@@ -1,0 +1,62 @@
+# `bun run m4` (B7; docs/m4-design.md section 11, "The 'done when', locally", and section 12,
+# "Integration": "`bun run m4` in continuous integration"): M4's proposed "done when" as numbered
+# checks, with a local relay program, the push role and its stand-ins for Apple and Google, the
+# real hub and phones on the phone's own code, then the relay's slow integration tests
+# (`hub/test/relay/`, `HSN_M4=1`). The relay runs on the system clock, so its 3 minutes are real:
+# about ten minutes in all. Every check's line (pass, KNOWN with its FOUND reference, FAIL) goes to
+# the job summary; the job fails if any check or test failed. Nothing it prints holds a key, a
+# token, a push key or a sealed push (check 11 searches every process's output for them).
+name: M4 (bun run m4)
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  m4:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.2
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: bun run m4
+        shell: bash
+        run: |
+          set +e
+          log="$RUNNER_TEMP/m4.txt"
+          start=$SECONDS
+          bun run m4 > "$log" 2>&1 < /dev/null
+          code=$?
+          cat "$log"
+          {
+            echo "# bun run m4"
+            echo
+            echo "Commit \`${GITHUB_SHA}\` on \`${GITHUB_REF_NAME}\`, $(. /etc/os-release && echo "$PRETTY_NAME") $(uname -m), Bun $(bun --version)"
+            echo
+            if [ "$code" -eq 0 ]; then echo "- ✅ exit 0 ($((SECONDS - start)) s)"; else echo "- ❌ exit $code ($((SECONDS - start)) s)"; fi
+            echo
+            echo "## The done when's checks"
+            echo
+            echo '```'
+            grep -E '^  (pass|KNOWN|FAIL) ' "$log"
+            echo '```'
+            echo
+            echo "## The tests"
+            echo
+            echo '```'
+            grep -E '^\s*\((pass|fail|skip|todo)\)|^\s*[0-9]+ (pass|fail|skip|todo)$|^Ran |^error:' "$log" | tail -n 80
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$code"

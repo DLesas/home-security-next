@@ -1,0 +1,17 @@
+{
+  "name": "@hsn/ble-bench",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Scripted Bluetooth boards (a sensor, a siren, a gateway) behind the phone's BleCentral, the bridge that serves them to the iOS simulator and the Android emulator, and the Chrome desk page for a real board (docs/m3-design.md sections 5, 7 and 9).",
+  "exports": {
+    ".": "./src/index.ts",
+    "./client": "./src/bridge/client.ts"
+  },
+  "bin": {
+    "ble-bench": "./src/bridge/main.ts"
+  },
+  "scripts": {
+    "test": "bun test"
+  }
+}

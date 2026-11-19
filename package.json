@@ -10,7 +10,7 @@
     "app"
   ],
   "scripts": {
-    "typecheck": "tsc -p tsconfig.json && tsc -p app/tsconfig.json && tsc -p app/test/tsconfig.json && tsc -p app/scripts/tsconfig.json && tsc -p app/e2e/tsconfig.json && tsc -p app/tsconfig.native.json",
+    "typecheck": "tsc -p tsconfig.json && tsc -p app/tsconfig.json && tsc -p app/test/tsconfig.json && tsc -p app/scripts/tsconfig.json && tsc -p app/e2e/tsconfig.json && tsc -p app/tsconfig.native.json && tsc -p tools/ble-bench/pages/tsconfig.json && tsc -p app/e2e-native/tsconfig.json",
     "lint": "bun --bun eslint --max-warnings 0 .",
     "format:check": "prettier --check .",
     "format": "prettier --write .",
@@ -20,14 +20,15 @@
     "check:own": "bun tools/check-own/src/check-own.ts",
     "check:serial-linux": "sh hub/test/linux/serial.sh",
     "m1a": "HSN_M1A=1 bun test --timeout 600000 hub/test/bench/m1a.test.ts",
+    "m4": "HSN_M4=1 bun test --timeout 900000 hub/test/relay/",
     "check:firmware": "cd firmware && cmake --workflow --preset host-debug",
     "check:firmware:lockstep": "cd firmware && cmake --preset host-debug && cmake --build --preset host-debug && ctest --preset host-debug -L lockstep",
     "check:firmware:gcc": "docker run --rm -v \"$PWD\":/src:ro gcc:15 bash -c 'apt-get update -qq && apt-get install -y -qq cmake ninja-build && mkdir -p /work/packages/protocol && cp -r /src/firmware /work/ && cp -r /src/packages/protocol/vectors /work/packages/protocol/ && rm -rf /work/firmware/build && cd /work/firmware && cmake --workflow --preset host-release && cmake --workflow --preset host-debug'",
     "check:role:sensor": "cd firmware && cmake --workflow --preset role-sensor",
     "check:role:siren": "cd firmware && cmake --workflow --preset role-siren",
     "check:role:gateway": "cd firmware && cmake --workflow --preset role-gateway",
-    "format:firmware:check": "find firmware/core firmware/platform firmware/roles firmware/tests -name '*.[ch]pp' | xargs clang-format --dry-run --Werror",
-    "format:firmware": "find firmware/core firmware/platform firmware/roles firmware/tests -name '*.[ch]pp' | xargs clang-format -i",
+    "format:firmware:check": "find firmware/core firmware/platform firmware/roles firmware/tests -name '*.[ch]pp' -not -path '*/build/*' -not -path '*/managed_components/*' | xargs clang-format --dry-run --Werror",
+    "format:firmware": "find firmware/core firmware/platform firmware/roles firmware/tests -name '*.[ch]pp' -not -path '*/build/*' -not -path '*/managed_components/*' | xargs clang-format -i",
     "check:all": "bun run check && bun run check:firmware",
     "app:export": "cd app && CI=1 EXPO_NO_TELEMETRY=1 bun run export:web",
     "app:e2e": "bun run app:export && cd app && node node_modules/@playwright/test/cli.js test --config e2e/playwright.config.ts"

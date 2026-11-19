@@ -30,9 +30,7 @@ import { dirname, join } from "node:path";
 const REPO = join(import.meta.dir, "..", "..", "..");
 
 /**
- * The projects `bun run typecheck` checks (the root's `package.json`), in its order: the root's,
- * and the app's sources, tests, build script, browser tests and phone build, each with a tsconfig
- * of its own.
+ * The projects `bun run typecheck` checks, in the order listed in the root's `package.json`.
  */
 export const TYPE_PROJECTS = [
   "tsconfig.json",
@@ -41,6 +39,8 @@ export const TYPE_PROJECTS = [
   "app/scripts/tsconfig.json",
   "app/e2e/tsconfig.json",
   "app/tsconfig.native.json",
+  "tools/ble-bench/pages/tsconfig.json",
+  "app/e2e-native/tsconfig.json",
 ] as const;
 
 export interface Owner {
