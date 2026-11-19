@@ -87,16 +87,18 @@ function pushRegister(
 
 function pushTest(steps: Steps, ctx: Context, request: V2OpRequest, client: ClientId): void {
   const hub = hubIdentity(ctx.view, ctx.deps);
+  const target = steps.slice.targets.get(client);
   const sendable =
     steps.slice.link.kind === "up" &&
     hub !== undefined &&
+    target !== undefined &&
     recipientOf(ctx.view, steps.slice, client) !== undefined;
   if (!sendable) {
     steps.answer(request.answerTo, { sent: false });
     return;
   }
   const id = takeId(steps);
-  steps.update((slice) => ({ ...slice, tests: new Map(slice.tests).set(id, client) }));
+  steps.update((slice) => ({ ...slice, tests: new Map(slice.tests).set(id, target) }));
   steps.push({
     kind: "pushSend",
     id,

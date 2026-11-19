@@ -742,7 +742,7 @@ export class Runner {
 
 // ----- Arrivals -----
 
-export const LORA: Arrival = {
+export const LORA: Extract<Arrival, { path: "lora" }> = {
   path: "lora",
   gateway: deviceId(30),
   link: linkId(900),

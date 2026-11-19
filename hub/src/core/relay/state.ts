@@ -23,12 +23,20 @@ import type { TimerOf } from "../model/timers.ts";
 /** A notification's fields as a push carries them (`PushContent.n`). */
 export type Notice = PushContent["n"];
 
-/** The decision kinds whose facts a push's text names (`content.ts`). */
-export type CauseKind = "countdown_started" | "late_report_notification" | "mode_switched";
+/** The decision kinds whose facts a push names (`content.ts`). */
+export const CAUSE_KINDS = [
+  "countdown_started",
+  "late_report_notification",
+  "late_report_sirens",
+  "alarm",
+  "mode_switched",
+] as const;
+export type CauseKind = (typeof CAUSE_KINDS)[number];
 
 /**
- * A decision's facts a push names: the countdown's seconds, when a late-reported door opened, the
- * mode switched to. Seen as the decision passes on its way to audit, before `notify` raises the
+ * A decision's facts a push names: the countdown's seconds, when a late-reported door opened, when
+ * a countdown ended for a late report's sirens or an alarm raised late at a start (D102), the mode
+ * switched to. Seen as the decision passes on its way to audit, before `notify` raises the
  * notification that names it (relay runs before notify, and both in the same step); kept in the
  * outbox row's `facts` as this object's JSON, so a push after a restart says the same.
  */
@@ -36,6 +44,12 @@ export interface CauseFacts {
   readonly seq: Seq;
   readonly kind: CauseKind;
   readonly value: number | null;
+  /**
+   * When the event happened, wall milliseconds, from the decision's `detail` (`eventAtOf`):
+   * `late_report_sirens` always, an `alarm` raised at a start for a countdown that had ended; null
+   * for every other kind and for an alarm raised on time.
+   */
+  readonly at: number | null;
 }
 
 /** One push waiting for the relay or for its result (D102). */
@@ -47,6 +61,8 @@ export interface Pending {
   readonly cause: CauseFacts | undefined;
   /** Sent on the present link and waiting for its result. */
   readonly inFlight: boolean;
+  /** The registration used for the last send, if this run sent it. */
+  readonly sentTo?: PushTargetRow | undefined;
 }
 
 /** The relay link, as the shell reports it. */
@@ -94,8 +110,8 @@ export interface RelaySlice {
   readonly targets: ReadonlyMap<ClientId, PushTargetRow>;
   /** `push_outbox`, by row id. */
   readonly outbox: ReadonlyMap<OutboxId, Pending>;
-  /** `push.test` pushes waiting for their result: never stored. */
-  readonly tests: ReadonlyMap<OutboxId, ClientId>;
+  /** Registrations used by `push.test` pushes waiting for their result: never stored. */
+  readonly tests: ReadonlyMap<OutboxId, PushTargetRow>;
   /** The next outbox or test id: never reused within a run, above every stored row's. */
   readonly nextId: number;
   /** The last roster sent on this run's links: its revision, and the `armed` its alerts carry. */

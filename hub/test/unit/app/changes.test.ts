@@ -50,7 +50,7 @@ function events(effects: readonly Effect[], conn: ConnId, ev: string): readonly 
     "t" in e.message &&
     e.message.t === "evt" &&
     e.message.ev === ev
-      ? [e.message]
+      ? [e.message as AppEvent]
       : [],
   );
 }

@@ -187,8 +187,8 @@ const EXPECTED: Readonly<Record<string, { columns: string; key: string; rowid?: 
   },
   device_updates: {
     columns:
-      "device_id rollout_id state method held bytes attempts last_reason since_ms ble_nonce " +
-      "ble_expires_ms reminded_ms",
+      "device_id rollout_id same_version state method held bytes attempts last_reason since_ms " +
+      "ble_nonce ble_expires_ms reminded_ms",
     key: "device_id",
   },
   relay_settings: { columns: "url revision", key: "" },

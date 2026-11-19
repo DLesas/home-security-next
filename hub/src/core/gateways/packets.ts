@@ -26,10 +26,12 @@ import {
   type PacketHeader,
   type ProtocolError,
   readPacketHeader,
+  type StartedImage,
 } from "@hsn/protocol";
 import type { Effect } from "../model/effects.ts";
 import type { RejectReason } from "../model/errors.ts";
 import type { Context } from "../model/handler.ts";
+import type { LinkKind } from "../model/events.ts";
 import type { LinkId } from "../model/ids.ts";
 import type { Internal } from "../model/messages.ts";
 import { monoAfterMs } from "../model/time.ts";
@@ -49,6 +51,7 @@ import {
 import { surveyStatus } from "./survey.ts";
 import type { GatewayEntry, GatewaysSlice, Session, StatusReading } from "./state.ts";
 import { handleTransmitResult } from "./transmit.ts";
+import { onOldKeyHello, switchGateway } from "./updates.ts";
 import { safeCheckStrictlyHigher } from "../util/protocol-safe.ts";
 import { asFault } from "./common.ts";
 
@@ -60,6 +63,9 @@ const SESSION_TYPES: ReadonlySet<number> = new Set([
   MessageType.Interference,
   MessageType.Started,
   MessageType.LogEntries,
+  // A gateway's own update query and status (m3-updates-design section 5), for firmware.
+  MessageType.UpdateQuery,
+  MessageType.UpdateStatus,
 ]);
 
 type Reject = (reason: RejectReason) => Outcome;
@@ -107,11 +113,14 @@ export function handleGatewayPacket(
     ...(entry.live?.link === link ? [entry.live] : []),
     ...entry.candidates.filter((c) => c.link === link),
   ];
+  const switched = slice.keys.switched.has(entry.device);
   for (const session of sessions) {
     const opened = ctx.deps.cipher.open(entry.device, bytes, {
       binding: session.binding,
       maxLength: MaxPacketLength.Link,
     });
+    // After the switch, the key that was current is the old one: a stranger's (D141).
+    if (opened.isOk() && switched && opened.value.keyUsed !== "next") return reject("badTag");
     if (opened.isOk()) return onSession(slice, entry, session, opened.value, ctx, reject);
     // Only the tag depends on the binding: any other error is the packet's own.
     if (opened.error.error.code !== "badTag") return reject(opened.error.error.code);
@@ -124,8 +133,54 @@ export function handleGatewayPacket(
   if (unbound.isErr()) return reject(unboundReason(unbound.error.error, sessions.length > 0));
   const { message } = unbound.value;
   if (message.type !== MessageType.Hello) return reject("noSession");
+  const keyUsed = unbound.value.keyUsed ?? "current";
+  if (switched && keyUsed !== "next") return reject("badTag");
+  const change = slice.keys.entries.get(entry.device);
+  if (change !== undefined && (change.bothHeld || keyUsed === "current")) {
+    // Under a key the hub held at the backup (D141): a Key change in place of the welcome.
+    return onOldKeyHello(slice, entry, link, kind, header.value, message, keyUsed, ctx);
+  }
+  if (change !== undefined)
+    return switchAndWelcome(slice, entry, link, kind, header.value, message, bytes, ctx);
   const fresh = heardIfFresh(slice, entry, header.value, ctx);
   return handleHello(fresh.slice, fresh.entry, link, kind, header.value, message, bytes, ctx);
+}
+
+/**
+ * The gateway's first hello under its new key (D141): switched, then welcomed as any hello, with
+ * `key_changed` naming the hello's row.
+ */
+function switchAndWelcome(
+  slice: GatewaysSlice,
+  entry: GatewayEntry,
+  link: LinkId,
+  kind: LinkKind,
+  header: PacketHeader,
+  hello: MessageOf<typeof MessageType.Hello>,
+  bytes: Uint8Array,
+  ctx: Context,
+): Outcome {
+  const switched = switchGateway(slice, entry, ctx);
+  if (switched.isErr()) return err(switched.error);
+  const fresh = heardIfFresh(switched.value.slice, switched.value.entry, header, ctx);
+  return handleHello(fresh.slice, fresh.entry, link, kind, header, hello, bytes, ctx).andThen(
+    (welcomed) => {
+      const hello = welcomed.out.find(
+        (o): o is Extract<Internal, { kind: "accepted" }> =>
+          o.kind === "accepted" && o.device === entry.device,
+      );
+      return decision(ctx, {
+        kind: "key_changed",
+        device: entry.device,
+        cause: hello?.record ?? null,
+        value: null,
+        detail: null,
+        durability: "now",
+      }).andThen((changed) =>
+        done(welcomed.slice, [...switched.value.out, ...welcomed.out, changed]),
+      );
+    },
+  );
 }
 
 /**
@@ -209,7 +264,9 @@ function onSession(
   } else if (wasHeard.back) {
     out.push({ kind: "gatewayUp", gateway: now.device, link: current.link });
   }
-  return then(done(next, out), (s) => onMessage(s, now, current, header, message, ctx));
+  return then(done(next, out), (s) =>
+    onMessage(s, now, current, header, message, opened.startedImage, ctx),
+  );
 }
 
 function onMessage(
@@ -218,6 +275,7 @@ function onMessage(
   session: Session,
   header: PacketHeader,
   message: Message,
+  startedImage: StartedImage | undefined,
   ctx: Context,
 ): Outcome {
   switch (message.type) {
@@ -241,7 +299,10 @@ function onMessage(
             ...(first === undefined ? [] : [accepted(entry, session, header, message, first)]),
           ]),
       );
-    default:
+    default: {
+      // Started, and an update query or status, which are written now (R13).
+      const update =
+        message.type === MessageType.UpdateQuery || message.type === MessageType.UpdateStatus;
       return received(
         ctx,
         entry.device,
@@ -249,9 +310,11 @@ function onMessage(
         header.counter,
         session.linkKind,
         "event",
+        update ? "now" : "routine",
       ).andThen((rx) =>
-        done(slice, [rx.record, accepted(entry, session, header, message, rx.seq)]),
+        done(slice, [rx.record, accepted(entry, session, header, message, rx.seq, startedImage)]),
       );
+    }
   }
 }
 
@@ -261,8 +324,17 @@ function accepted(
   header: PacketHeader,
   message: Message,
   record: Parameters<typeof acceptedMessage>[4],
+  startedImage?: StartedImage,
 ): Internal {
-  return acceptedMessage(message, entry, session.link, session.linkKind, record, header.counter);
+  return acceptedMessage(
+    message,
+    entry,
+    session.link,
+    session.linkKind,
+    record,
+    header.counter,
+    startedImage,
+  );
 }
 
 /**

@@ -166,6 +166,7 @@ export function handleRadioOut(slice: GatewaysSlice, out: RadioOut, ctx: Context
       packet: out.packet,
     },
     session.binding,
+    slice.keys,
   ).andThen((sealed) => {
     const request: TransmitInFlight = {
       ref: out.ref,

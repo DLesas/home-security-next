@@ -5,12 +5,14 @@
  *
  * What a record does not name here raises nothing: a door opening while disarmed is recorded
  * only (D46), the per-sensor `armed` and `disarmed` never raise one (an action's notice comes from
- * its summary, `mode_switched` or `arming_changed`), and `update_switching` is announced to the
- * apps as a `hub` event instead.
+ * its summary, `mode_switched` or `arming_changed`), `update_switching` is announced to the
+ * apps as a `hub` event instead, and `group_sirens_gone` (D144) is a history record only: the
+ * person who caused it was told by the app's dialog, and nobody else is told.
  */
 import type { NotificationCategory, OptionalCategory } from "@hsn/protocol/app";
 import type { DecisionKind } from "../model/decisions.ts";
-import { type DeviceId, deviceId } from "../model/ids.ts";
+import { type DeviceId, deviceId, type PersonId, personId } from "../model/ids.ts";
+import { NO_CONTACT_REASON, ROLLED_BACK_REASON } from "../model/rows.ts";
 
 /** What the table makes of one record. */
 export interface Classified {
@@ -23,6 +25,16 @@ export interface Classified {
    * instead of the viewers of the device the decision names.
    */
   readonly sensors: readonly DeviceId[] | undefined;
+  /**
+   * To every person with *manage system* whatever device it names: the notices of updates, which
+   * only they may act on (D54; m3-updates-design section 4).
+   */
+  readonly toManageSystem?: boolean;
+  /**
+   * To exactly these people, whatever device it names or who may arm: a presence offer, which is
+   * personal (m3-design section 6).
+   */
+  readonly people?: readonly PersonId[];
 }
 
 /** What the table needs to know of the house when it decides. */
@@ -117,6 +129,12 @@ export function classifyDecision(
       return row("stateUnexpected", armed);
     case "cover_state_unexpected":
       return row("stateUnexpected", false);
+    // Presence offers (m3-design section 6, F16; H1's rule in `app/presence.ts`): arming and
+    // disarming's category, which can be turned off (D75), never critical, to exactly the people
+    // the decision's detail names. Pushed with their one action (`armAway`, `disarm`) by `relay`.
+    case "presence_offer_away":
+    case "presence_offer_disarm":
+      return { ...row("armDisarm", false), people: namedPeople(detail) };
     case "schedules_waiting_for_clock":
     case "schedule_missed":
     case "schedule_held_back":
@@ -124,6 +142,21 @@ export function classifyDecision(
     case "update_staged":
     case "update_healthy":
       return row("updates", false);
+    // Releases offered and firmware rollouts (docs/m4-design.md sections 6 and 9;
+    // m3-updates-design section 4): `updates`, which can be turned off (D75), never critical, to
+    // manage system whatever device it names. A hub release offered, a firmware release offered, a
+    // device's update refused (`noContact` and an install that did not take included) or rolled
+    // back, and D91's reminder for a sensor held armed.
+    case "update_offered":
+    case "firmware_release_offered":
+    case "firmware_refused":
+    case "firmware_rolled_back":
+    case "firmware_reminder":
+      return UPDATES;
+    // A rollout paused: told only when the hub paused it and no notice of its own says so already
+    // (`pauseTold`).
+    case "rollout_paused":
+      return pauseTold(detail) ? UPDATES : undefined;
     case "update_rolled_back":
     case "restored":
       return row("hub", false);
@@ -140,7 +173,10 @@ export function classifyDecision(
   }
 }
 
-/** The hub events of the table: the disk's (section 7), and a restore waiting (section 9). */
+/**
+ * The hub events of the table: the disk's (section 7), a restore waiting (section 9), the relay
+ * unreachable (M4) and the firmware store damaged (M3).
+ */
 export function classifyHubEvent(code: string): Classified | undefined {
   switch (code) {
     case "commit_failed":
@@ -151,10 +187,52 @@ export function classifyHubEvent(code: string): Classified | undefined {
     // manage system, not to be turned off. Critical, so told at every start that raises it.
     case "restore_waiting":
       return row("hub", true);
+    // The relay unreachable for 180 s ‡, once per outage (docs/m4-design.md sections 4 and 9): the
+    // hub itself, to manage system and the console, not to be turned off, never critical. Told to
+    // open sessions only: the relay module never pushes it (`NEVER_PUSHED`), since pushes cannot
+    // leave.
+    case "relay_unreachable":
+      return row("hub", false);
+    // An indexed firmware image's file missing or damaged at a start (m3-updates-design section 4):
+    // critical, as `restore_waiting` is, so `hub`, to manage system, not to be turned off, written
+    // now, and told at every start that raises it.
+    case "firmware_store_damaged":
+      return row("hub", true);
     default:
       return undefined;
   }
 }
+
+/** The firmware notices: `updates`, to manage system whatever device they name. */
+const UPDATES: Classified = { ...row("updates", false), toManageSystem: true };
+
+/**
+ * Whether a `rollout_paused` is told (one notice per event): from its own record, never from what
+ * came before it in the step. Its `detail`, as `firmware` lays it out (`pausedDetail`), is the
+ * device u32 LE (0 when none caused it) and the reason u8, and none when a person paused it.
+ *
+ * - A person's pause (no detail): not told; they did it.
+ * - Paused by a device's refusal (a device named, reasons 1 to 17, and 18 `noContact`): not told;
+ *   `firmware_refused` is the notice, raised with it (an install that did not take is refused
+ *   `imageCheck`, and no contact is refused `noContact`, so both are here).
+ * - Paused by a rollback (`ROLLED_BACK_REASON`): not told; `firmware_rolled_back` is the notice.
+ * - Paused because the store's copy is damaged (no device, the reason `hashMismatch`): not told;
+ *   the critical `firmware_store_damaged` is the notice.
+ * - Every other pause the hub makes is told: a pilot failed in its soak (`PILOT_FAILED_REASON`), and
+ *   any reason not known here.
+ */
+export function pauseTold(detail: Uint8Array | null): boolean {
+  if (detail === null) return false;
+  if (detail.byteLength !== PAUSED_DETAIL_BYTES) return true;
+  const view = new DataView(detail.buffer, detail.byteOffset, detail.byteLength);
+  const reason = view.getUint8(4);
+  if (reason === ROLLED_BACK_REASON) return false;
+  // A device's refusal, or the store's damage (no device): each has its own notice.
+  return !(reason >= 1 && reason <= NO_CONTACT_REASON);
+}
+
+/** `rollout_paused`'s detail: the device u32 LE and the reason u8. */
+const PAUSED_DETAIL_BYTES = 5;
 
 /** A new client linked to a person (section 7, "People and permissions"): cannot be turned off ‡. */
 export const NEW_CLIENT: Classified = row("newClient", false);
@@ -168,6 +246,17 @@ export function soleSensors(detail: Uint8Array | null): readonly DeviceId[] {
     sensors.push(deviceId(view.getUint32(at, true)));
   }
   return sensors;
+}
+
+/** Person ids, u32 LE each: a presence offer's detail, the people it is for. */
+export function namedPeople(detail: Uint8Array | null): readonly PersonId[] {
+  if (detail === null) return [];
+  const view = new DataView(detail.buffer, detail.byteOffset, detail.byteLength);
+  const people: PersonId[] = [];
+  for (let at = 0; at + 4 <= detail.byteLength; at += 4) {
+    people.push(personId(view.getUint32(at, true)));
+  }
+  return people;
 }
 
 /**

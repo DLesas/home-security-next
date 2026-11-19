@@ -16,6 +16,7 @@ import type { Internal } from "../model/messages.ts";
 import { PacketPath, type TxOutcome } from "../model/rows.ts";
 import type { Durability } from "../model/store.ts";
 import { safeEncodeMessage } from "../util/protocol-safe.ts";
+import { recordedBody } from "../intake/view.ts";
 import { asFault } from "./common.ts";
 
 /** Device log levels at or above this are warnings: written now, within the cap (§6, section 5). */
@@ -37,7 +38,11 @@ function take(ctx: Context): Result<Seq, CoreFault> {
   return ctx.records.take();
 }
 
-/** A packet received from the gateway itself: hello, status, interference, Started. */
+/**
+ * A packet received from the gateway itself: hello, status, interference, Started, update query
+ * and status. Routine, but an update query or status, written now (m3-updates-design section 4,
+ * R13).
+ */
 export function received(
   ctx: Context,
   gateway: DeviceId,
@@ -45,13 +50,14 @@ export function received(
   counter: number,
   kind: LinkKind,
   table: "routine" | "event",
+  durability: Durability = "routine",
 ): Result<{ readonly seq: Seq; readonly record: Internal }, CoreFault> {
   return take(ctx).andThen((seq) =>
     bodyOf(ctx, message).map((body) => ({
       seq,
       record: {
         kind: "auditRecord" as const,
-        durability: "routine" as const,
+        durability,
         record: {
           kind: "rx" as const,
           table,
@@ -78,7 +84,10 @@ export function received(
   );
 }
 
-/** A packet the hub sent to the gateway itself on its link: welcome, settings (section 6, `tx_event`). */
+/**
+ * A packet the hub sent to the gateway itself on its link: welcome, settings, an Update offer, a
+ * Key change with its key zeroed (section 6, `tx_event`; D141).
+ */
 export function sent(
   ctx: Context,
   gateway: DeviceId,
@@ -88,7 +97,7 @@ export function sent(
   outcome: TxOutcome,
 ): Result<Internal, CoreFault> {
   return take(ctx).andThen((seq) =>
-    bodyOf(ctx, message).map((body): Internal => ({
+    bodyOf(ctx, message).map((plain): Internal => ({
       kind: "auditRecord",
       durability: "routine",
       record: {
@@ -109,7 +118,7 @@ export function sent(
           power: null,
           outcome,
           gwSentUs: null,
-          body,
+          body: recordedBody(message.type, plain),
         },
       },
     })),

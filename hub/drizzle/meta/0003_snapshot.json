@@ -845,6 +845,14 @@
           "notNull": false,
           "autoincrement": false
         },
+        "same_version": {
+          "name": "same_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "0"
+        },
         "state": {
           "name": "state",
           "type": "integer",

@@ -1,0 +1,1924 @@
+{
+  "alone": [
+    {
+      "step": "anna subscribe",
+      "frames": [
+        {
+          "to": "anna",
+          "json": "{\"t\":\"res\",\"id\":1,\"ok\":true,\"body\":{\"topics\":[\"arming\",\"devices\",\"alarm\",\"notifications\",\"history\",\"config\",\"people\",\"hub\"]}}"
+        }
+      ]
+    },
+    {
+      "step": "anna snapshot",
+      "frames": [
+        {
+          "to": "anna",
+          "json": "{\"t\":\"res\",\"id\":2,\"ok\":true,\"body\":{\"rev\":0,\"hub\":{\"hub\":\"2.0.0\",\"proto\":1,\"identity\":\"ijpnjzfdnmyouinzbyq4oewgje\",\"fingerprint\":\"AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB\",\"timeZone\":\"\",\"clockTrusted\":true,\"boot\":1},\"site\":{\"channel\":1,\"rate\":5,\"countdownS\":30,\"autoStopS\":300,\"wifiName\":\"home\",\"retentionRoutineDays\":30,\"retentionEventDays\":365},\"mode\":{\"mode\":2,\"modified\":false},\"devices\":[{\"id\":11,\"name\":\"front\",\"role\":\"sensor\",\"state\":\"contacted\",\"firmware\":\"1.2.3\",\"batteryPercent\":null,\"signal\":null,\"temperatureC\":null,\"lastSeenMs\":null,\"heardBy\":null,\"health\":{\"silent\":false,\"batteryLow\":false,\"tamperOpen\":false,\"poorLink\":false}},{\"id\":12,\"name\":\"garage\",\"role\":\"sensor\",\"state\":\"contacted\",\"firmware\":\"1.2.3\",\"batteryPercent\":null,\"signal\":null,\"temperatureC\":null,\"lastSeenMs\":null,\"heardBy\":null,\"health\":{\"silent\":false,\"batteryLow\":false,\"tamperOpen\":false,\"poorLink\":false}},{\"id\":21,\"name\":\"hall\",\"role\":\"siren\",\"state\":\"contacted\",\"firmware\":\"1.2.3\",\"batteryPercent\":null,\"signal\":null,\"temperatureC\":null,\"lastSeenMs\":null,\"heardBy\":null,\"health\":{\"silent\":false,\"batteryLow\":false,\"tamperOpen\":false,\"poorLink\":false}}],\"sensors\":[{\"id\":11,\"arm\":\"disarmed\",\"door\":\"unknown\",\"countdownSecondsLeft\":null},{\"id\":12,\"arm\":\"disarmed\",\"door\":\"unknown\",\"countdownSecondsLeft\":null}],\"sirens\":[{\"id\":21,\"should\":{\"kind\":\"off\",\"secondsLeft\":null},\"commanded\":null,\"reported\":null,\"wifi\":\"unknown\",\"lora\":\"unknown\"}],\"gateways\":[],\"alarm\":null,\"siteMove\":null,\"notifications\":[],\"modes\":[{\"id\":1,\"name\":\"Away\",\"fixed\":\"away\",\"groups\":[],\"revision\":0},{\"id\":2,\"name\":\"Disarmed\",\"fixed\":\"disarmed\",\"groups\":[],\"revision\":0}],\"groups\":[],\"schedules\":[],\"notificationPrefs\":{\"categories\":[\"sensorSilentWhileDisarmed\",\"sirenPathLost\",\"gatewayOffline\",\"batteryLow\",\"armDisarm\",\"updates\"],\"revision\":0}}}"
+        }
+      ]
+    },
+    {
+      "step": "anna hub.info",
+      "frames": [
+        {
+          "to": "anna",
+          "json": "{\"t\":\"res\",\"id\":3,\"ok\":true,\"body\":{\"hub\":\"2.0.0\",\"proto\":1,\"identity\":\"ijpnjzfdnmyouinzbyq4oewgje\",\"fingerprint\":\"AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB\",\"timeZone\":\"\",\"clockTrusted\":true,\"boot\":1}}"
+        }
+      ]
+    },
+    {
+      "step": "anna device.list",
+      "frames": [
+        {
+          "to": "anna",
+          "json": "{\"t\":\"res\",\"id\":4,\"ok\":true,\"body\":{\"devices\":[{\"id\":11,\"name\":\"front\",\"role\":\"sensor\",\"state\":\"contacted\",\"firmware\":\"1.2.3\",\"batteryPercent\":null,\"signal\":null,\"temperatureC\":null,\"lastSeenMs\":null,\"heardBy\":null,\"health\":{\"silent\":false,\"batteryLow\":false,\"tamperOpen\":false,\"poorLink\":false}},{\"id\":12,\"name\":\"garage\",\"role\":\"sensor\",\"state\":\"contacted\",\"firmware\":\"1.2.3\",\"batteryPercent\":null,\"signal\":null,\"temperatureC\":null,\"lastSeenMs\":null,\"heardBy\":null,\"health\":{\"silent\":false,\"batteryLow\":false,\"tamperOpen\":false,\"poorLink\":false}},{\"id\":21,\"name\":\"hall\",\"role\":\"siren\",\"state\":\"contacted\",\"firmware\":\"1.2.3\",\"batteryPercent\":null,\"signal\":null,\"temperatureC\":null,\"lastSeenMs\":null,\"heardBy\":null,\"health\":{\"silent\":false,\"batteryLow\":false,\"tamperOpen\":false,\"poorLink\":false}}]}}"
+        }
+      ]
+    },
+    {
+      "step": "phone subscribe",
+      "frames": [
+        {
+          "to": "phone",
+          "json": "{\"t\":\"res\",\"id\":1,\"ok\":true,\"body\":{\"topics\":[\"arming\",\"devices\",\"alarm\",\"notifications\",\"history\",\"config\",\"people\",\"hub\"]}}"
+        }
+      ]
+    },
+    {
+      "step": "phone snapshot",
+      "frames": [
+        {
+          "to": "phone",
+          "json": "{\"t\":\"res\",\"id\":2,\"ok\":true,\"body\":{\"rev\":0,\"hub\":{\"hub\":\"2.0.0\",\"proto\":1,\"identity\":\"ijpnjzfdnmyouinzbyq4oewgje\",\"fingerprint\":\"AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB\",\"timeZone\":\"\",\"clockTrusted\":true,\"boot\":1},\"site\":{\"channel\":1,\"rate\":5,\"countdownS\":30,\"autoStopS\":300,\"wifiName\":\"home\",\"retentionRoutineDays\":30,\"retentionEventDays\":365},\"mode\":{\"mode\":2,\"modified\":false},\"devices\":[{\"id\":11,\"name\":\"front\",\"role\":\"sensor\",\"state\":\"contacted\",\"firmware\":\"1.2.3\",\"batteryPercent\":null,\"signal\":null,\"temperatureC\":null,\"lastSeenMs\":null,\"heardBy\":null,\"health\":{\"silent\":false,\"batteryLow\":false,\"tamperOpen\":false,\"poorLink\":false}},{\"id\":12,\"name\":\"garage\",\"role\":\"sensor\",\"state\":\"contacted\",\"firmware\":\"1.2.3\",\"batteryPercent\":null,\"signal\":null,\"temperatureC\":null,\"lastSeenMs\":null,\"heardBy\":null,\"health\":{\"silent\":false,\"batteryLow\":false,\"tamperOpen\":false,\"poorLink\":false}},{\"id\":21,\"name\":\"hall\",\"role\":\"siren\",\"state\":\"contacted\",\"firmware\":\"1.2.3\",\"batteryPercent\":null,\"signal\":null,\"temperatureC\":null,\"lastSeenMs\":null,\"heardBy\":null,\"health\":{\"silent\":false,\"batteryLow\":false,\"tamperOpen\":false,\"poorLink\":false}}],\"sensors\":[{\"id\":11,\"arm\":\"disarmed\",\"door\":\"unknown\",\"countdownSecondsLeft\":null},{\"id\":12,\"arm\":\"disarmed\",\"door\":\"unknown\",\"countdownSecondsLeft\":null}],\"sirens\":[{\"id\":21,\"should\":{\"kind\":\"off\",\"secondsLeft\":null},\"commanded\":null,\"reported\":null,\"wifi\":\"unknown\",\"lora\":\"unknown\"}],\"gateways\":[],\"alarm\":null,\"siteMove\":null,\"notifications\":[],\"modes\":[{\"id\":1,\"name\":\"Away\",\"fixed\":\"away\",\"groups\":[],\"revision\":0},{\"id\":2,\"name\":\"Disarmed\",\"fixed\":\"disarmed\",\"groups\":[],\"revision\":0}],\"groups\":[],\"schedules\":[],\"notificationPrefs\":{\"categories\":[\"sensorSilentWhileDisarmed\",\"sirenPathLost\",\"gatewayOffline\",\"batteryLow\",\"armDisarm\",\"updates\"],\"revision\":0}}}"
+        }
+      ]
+    },
+    {
+      "step": "phone hub.info",
+      "frames": [
+        {
+          "to": "phone",
+          "json": "{\"t\":\"res\",\"id\":3,\"ok\":true,\"body\":{\"hub\":\"2.0.0\",\"proto\":1,\"identity\":\"ijpnjzfdnmyouinzbyq4oewgje\",\"fingerprint\":\"AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB\",\"timeZone\":\"\",\"clockTrusted\":true,\"boot\":1}}"
+        }
+      ]
+    },
+    {
+      "step": "phone device.list",
+      "frames": [
+        {
+          "to": "phone",
+          "json": "{\"t\":\"res\",\"id\":4,\"ok\":true,\"body\":{\"devices\":[{\"id\":11,\"name\":\"front\",\"role\":\"sensor\",\"state\":\"contacted\",\"firmware\":\"1.2.3\",\"batteryPercent\":null,\"signal\":null,\"temperatureC\":null,\"lastSeenMs\":null,\"heardBy\":null,\"health\":{\"silent\":false,\"batteryLow\":false,\"tamperOpen\":false,\"poorLink\":false}},{\"id\":12,\"name\":\"garage\",\"role\":\"sensor\",\"state\":\"contacted\",\"firmware\":\"1.2.3\",\"batteryPercent\":null,\"signal\":null,\"temperatureC\":null,\"lastSeenMs\":null,\"heardBy\":null,\"health\":{\"silent\":false,\"batteryLow\":false,\"tamperOpen\":false,\"poorLink\":false}},{\"id\":21,\"name\":\"hall\",\"role\":\"siren\",\"state\":\"contacted\",\"firmware\":\"1.2.3\",\"batteryPercent\":null,\"signal\":null,\"temperatureC\":null,\"lastSeenMs\":null,\"heardBy\":null,\"health\":{\"silent\":false,\"batteryLow\":false,\"tamperOpen\":false,\"poorLink\":false}}]}}"
+        }
+      ]
+    },
+    {
+      "step": "ben subscribe",
+      "frames": [
+        {
+          "to": "ben",
+          "json": "{\"t\":\"res\",\"id\":1,\"ok\":true,\"body\":{\"topics\":[\"arming\",\"devices\",\"alarm\",\"notifications\",\"history\",\"config\",\"people\",\"hub\"]}}"
+        }
+      ]
+    },
+    {
+      "step": "ben snapshot",
+      "frames": [
+        {
+          "to": "ben",
+          "json": "{\"t\":\"res\",\"id\":2,\"ok\":true,\"body\":{\"rev\":0,\"hub\":{\"hub\":\"2.0.0\",\"proto\":1,\"identity\":\"ijpnjzfdnmyouinzbyq4oewgje\",\"fingerprint\":\"AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB\",\"timeZone\":\"\",\"clockTrusted\":true,\"boot\":1},\"site\":{\"channel\":1,\"rate\":5,\"countdownS\":30,\"autoStopS\":300,\"wifiName\":\"home\",\"retentionRoutineDays\":30,\"retentionEventDays\":365},\"mode\":{\"mode\":2,\"modified\":false},\"devices\":[{\"id\":11,\"name\":\"front\",\"role\":\"sensor\",\"state\":\"contacted\",\"firmware\":\"1.2.3\",\"batteryPercent\":null,\"signal\":null,\"temperatureC\":null,\"lastSeenMs\":null,\"heardBy\":null,\"health\":{\"silent\":false,\"batteryLow\":false,\"tamperOpen\":false,\"poorLink\":false}},{\"id\":12,\"name\":\"garage\",\"role\":\"sensor\",\"state\":\"contacted\",\"firmware\":\"1.2.3\",\"batteryPercent\":null,\"signal\":null,\"temperatureC\":null,\"lastSeenMs\":null,\"heardBy\":null,\"health\":{\"silent\":false,\"batteryLow\":false,\"tamperOpen\":false,\"poorLink\":false}},{\"id\":21,\"name\":\"hall\",\"role\":\"siren\",\"state\":\"contacted\",\"firmware\":\"1.2.3\",\"batteryPercent\":null,\"signal\":null,\"temperatureC\":null,\"lastSeenMs\":null,\"heardBy\":null,\"health\":{\"silent\":false,\"batteryLow\":false,\"tamperOpen\":false,\"poorLink\":false}}],\"sensors\":[{\"id\":11,\"arm\":\"disarmed\",\"door\":\"unknown\",\"countdownSecondsLeft\":null},{\"id\":12,\"arm\":\"disarmed\",\"door\":\"unknown\",\"countdownSecondsLeft\":null}],\"sirens\":[{\"id\":21,\"should\":{\"kind\":\"off\",\"secondsLeft\":null},\"commanded\":null,\"reported\":null,\"wifi\":\"unknown\",\"lora\":\"unknown\"}],\"gateways\":[],\"alarm\":null,\"siteMove\":null,\"notifications\":[],\"modes\":[{\"id\":1,\"name\":\"Away\",\"fixed\":\"away\",\"groups\":[],\"revision\":0},{\"id\":2,\"name\":\"Disarmed\",\"fixed\":\"disarmed\",\"groups\":[],\"revision\":0}],\"groups\":[],\"schedules\":[],\"notificationPrefs\":{\"categories\":[\"sensorSilentWhileDisarmed\",\"sirenPathLost\",\"gatewayOffline\",\"batteryLow\",\"armDisarm\",\"updates\"],\"revision\":0}}}"
+        }
+      ]
+    },
+    {
+      "step": "ben hub.info",
+      "frames": [
+        {
+          "to": "ben",
+          "json": "{\"t\":\"res\",\"id\":3,\"ok\":true,\"body\":{\"hub\":\"2.0.0\",\"proto\":1,\"identity\":\"ijpnjzfdnmyouinzbyq4oewgje\",\"fingerprint\":\"AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB\",\"timeZone\":\"\",\"clockTrusted\":true,\"boot\":1}}"
+        }
+      ]
+    },
+    {
+      "step": "ben device.list",
+      "frames": [
+        {
+          "to": "ben",
+          "json": "{\"t\":\"res\",\"id\":4,\"ok\":true,\"body\":{\"devices\":[{\"id\":11,\"name\":\"front\",\"role\":\"sensor\",\"state\":\"contacted\",\"firmware\":\"1.2.3\",\"batteryPercent\":null,\"signal\":null,\"temperatureC\":null,\"lastSeenMs\":null,\"heardBy\":null,\"health\":{\"silent\":false,\"batteryLow\":false,\"tamperOpen\":false,\"poorLink\":false}},{\"id\":12,\"name\":\"garage\",\"role\":\"sensor\",\"state\":\"contacted\",\"firmware\":\"1.2.3\",\"batteryPercent\":null,\"signal\":null,\"temperatureC\":null,\"lastSeenMs\":null,\"heardBy\":null,\"health\":{\"silent\":false,\"batteryLow\":false,\"tamperOpen\":false,\"poorLink\":false}},{\"id\":21,\"name\":\"hall\",\"role\":\"siren\",\"state\":\"contacted\",\"firmware\":\"1.2.3\",\"batteryPercent\":null,\"signal\":null,\"temperatureC\":null,\"lastSeenMs\":null,\"heardBy\":null,\"health\":{\"silent\":false,\"batteryLow\":false,\"tamperOpen\":false,\"poorLink\":false}}]}}"
+        }
+      ]
+    },
+    {
+      "step": "console subscribe",
+      "frames": [
+        {
+          "to": "console",
+          "json": "{\"t\":\"res\",\"id\":1,\"ok\":true,\"body\":{\"topics\":[\"arming\",\"devices\",\"alarm\",\"notifications\",\"history\",\"config\",\"people\",\"hub\"]}}"
+        }
+      ]
+    },
+    {
+      "step": "console snapshot",
+      "frames": [
+        {
+          "to": "console",
+          "json": "{\"t\":\"res\",\"id\":2,\"ok\":true,\"body\":{\"rev\":0,\"hub\":{\"hub\":\"2.0.0\",\"proto\":1,\"identity\":\"ijpnjzfdnmyouinzbyq4oewgje\",\"fingerprint\":\"AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB\",\"timeZone\":\"\",\"clockTrusted\":true,\"boot\":1},\"site\":{\"channel\":1,\"rate\":5,\"countdownS\":30,\"autoStopS\":300,\"wifiName\":\"home\",\"retentionRoutineDays\":30,\"retentionEventDays\":365},\"mode\":{\"mode\":2,\"modified\":false},\"devices\":[{\"id\":11,\"name\":\"front\",\"role\":\"sensor\",\"state\":\"contacted\",\"firmware\":\"1.2.3\",\"batteryPercent\":null,\"signal\":null,\"temperatureC\":null,\"lastSeenMs\":null,\"heardBy\":null,\"health\":{\"silent\":false,\"batteryLow\":false,\"tamperOpen\":false,\"poorLink\":false}},{\"id\":12,\"name\":\"garage\",\"role\":\"sensor\",\"state\":\"contacted\",\"firmware\":\"1.2.3\",\"batteryPercent\":null,\"signal\":null,\"temperatureC\":null,\"lastSeenMs\":null,\"heardBy\":null,\"health\":{\"silent\":false,\"batteryLow\":false,\"tamperOpen\":false,\"poorLink\":false}},{\"id\":21,\"name\":\"hall\",\"role\":\"siren\",\"state\":\"contacted\",\"firmware\":\"1.2.3\",\"batteryPercent\":null,\"signal\":null,\"temperatureC\":null,\"lastSeenMs\":null,\"heardBy\":null,\"health\":{\"silent\":false,\"batteryLow\":false,\"tamperOpen\":false,\"poorLink\":false}}],\"sensors\":[{\"id\":11,\"arm\":\"disarmed\",\"door\":\"unknown\",\"countdownSecondsLeft\":null},{\"id\":12,\"arm\":\"disarmed\",\"door\":\"unknown\",\"countdownSecondsLeft\":null}],\"sirens\":[{\"id\":21,\"should\":{\"kind\":\"off\",\"secondsLeft\":null},\"commanded\":null,\"reported\":null,\"wifi\":\"unknown\",\"lora\":\"unknown\"}],\"gateways\":[],\"alarm\":null,\"siteMove\":null,\"notifications\":[],\"modes\":[{\"id\":1,\"name\":\"Away\",\"fixed\":\"away\",\"groups\":[],\"revision\":0},{\"id\":2,\"name\":\"Disarmed\",\"fixed\":\"disarmed\",\"groups\":[],\"revision\":0}],\"groups\":[],\"schedules\":[],\"notificationPrefs\":{\"categories\":[\"sensorSilentWhileDisarmed\",\"sirenPathLost\",\"gatewayOffline\",\"batteryLow\",\"armDisarm\",\"updates\"],\"revision\":0}}}"
+        }
+      ]
+    },
+    {
+      "step": "console hub.info",
+      "frames": [
+        {
+          "to": "console",
+          "json": "{\"t\":\"res\",\"id\":3,\"ok\":true,\"body\":{\"hub\":\"2.0.0\",\"proto\":1,\"identity\":\"ijpnjzfdnmyouinzbyq4oewgje\",\"fingerprint\":\"AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB\",\"timeZone\":\"\",\"clockTrusted\":true,\"boot\":1}}"
+        }
+      ]
+    },
+    {
+      "step": "console device.list",
+      "frames": [
+        {
+          "to": "console",
+          "json": "{\"t\":\"res\",\"id\":4,\"ok\":true,\"body\":{\"devices\":[{\"id\":11,\"name\":\"front\",\"role\":\"sensor\",\"state\":\"contacted\",\"firmware\":\"1.2.3\",\"batteryPercent\":null,\"signal\":null,\"temperatureC\":null,\"lastSeenMs\":null,\"heardBy\":null,\"health\":{\"silent\":false,\"batteryLow\":false,\"tamperOpen\":false,\"poorLink\":false}},{\"id\":12,\"name\":\"garage\",\"role\":\"sensor\",\"state\":\"contacted\",\"firmware\":\"1.2.3\",\"batteryPercent\":null,\"signal\":null,\"temperatureC\":null,\"lastSeenMs\":null,\"heardBy\":null,\"health\":{\"silent\":false,\"batteryLow\":false,\"tamperOpen\":false,\"poorLink\":false}},{\"id\":21,\"name\":\"hall\",\"role\":\"siren\",\"state\":\"contacted\",\"firmware\":\"1.2.3\",\"batteryPercent\":null,\"signal\":null,\"temperatureC\":null,\"lastSeenMs\":null,\"heardBy\":null,\"health\":{\"silent\":false,\"batteryLow\":false,\"tamperOpen\":false,\"poorLink\":false}}]}}"
+        }
+      ]
+    },
+    {
+      "step": "anna device.show",
+      "frames": [
+        {
+          "to": "anna",
+          "json": "{\"t\":\"res\",\"id\":5,\"ok\":false,\"error\":{\"code\":\"notFound\",\"detail\":{\"what\":\"device\",\"id\":11}}}"
+        }
+      ]
+    },
+    {
+      "step": "anna device.show missing",
+      "frames": [
+        {
+          "to": "anna",
+          "json": "{\"t\":\"res\",\"id\":6,\"ok\":false,\"error\":{\"code\":\"notFound\",\"detail\":{\"what\":\"device\",\"id\":77}}}"
+        }
+      ]
+    },
+    {
+      "step": "anna site.show",
+      "frames": [
+        {
+          "to": "anna",
+          "json": "{\"t\":\"res\",\"id\":7,\"ok\":true,\"body\":{\"channel\":1,\"rate\":5,\"countdownS\":30,\"autoStopS\":300,\"wifiName\":\"home\",\"retentionRoutineDays\":30,\"retentionEventDays\":365}}"
+        }
+      ]
+    },
+    {
+      "step": "anna people.list",
+      "frames": [
+        {
+          "to": "anna",
+          "json": "{\"t\":\"res\",\"id\":8,\"ok\":true,\"body\":{\"userManagement\":false,\"people\":[{\"id\":1,\"name\":\"Anna\",\"manageUsers\":true,\"manageSystem\":true,\"devices\":[{\"device\":11,\"manage\":true,\"view\":true},{\"device\":12,\"manage\":true,\"view\":true}],\"revision\":0},{\"id\":2,\"name\":\"Ben\",\"manageUsers\":true,\"manageSystem\":true,\"devices\":[{\"device\":11,\"manage\":true,\"view\":true},{\"device\":12,\"manage\":true,\"view\":true}],\"revision\":0}],\"clients\":[{\"id\":1,\"person\":null,\"kind\":\"console\",\"name\":\"client-1\",\"createdMs\":1794528000000,\"lastSeenMs\":1794614401000,\"linkedBy\":null},{\"id\":7,\"person\":1,\"kind\":\"web\",\"name\":\"client-7\",\"createdMs\":1794528000000,\"lastSeenMs\":1794614401000,\"linkedBy\":null},{\"id\":8,\"person\":1,\"kind\":\"phone\",\"name\":\"client-8\",\"createdMs\":1794528000000,\"lastSeenMs\":1794614401000,\"linkedBy\":null},{\"id\":9,\"person\":2,\"kind\":\"web\",\"name\":\"client-9\",\"createdMs\":1794528000000,\"lastSeenMs\":1794614401000,\"linkedBy\":null}]}}"
+        }
+      ]
+    },
+    {
+      "step": "anna clients.list",
+      "frames": [
+        {
+          "to": "anna",
+          "json": "{\"t\":\"res\",\"id\":9,\"ok\":true,\"body\":{\"clients\":[{\"id\":1,\"person\":null,\"kind\":\"console\",\"name\":\"client-1\",\"createdMs\":1794528000000,\"lastSeenMs\":1794614401000,\"linkedBy\":null},{\"id\":7,\"person\":1,\"kind\":\"web\",\"name\":\"client-7\",\"createdMs\":1794528000000,\"lastSeenMs\":1794614401000,\"linkedBy\":null},{\"id\":8,\"person\":1,\"kind\":\"phone\",\"name\":\"client-8\",\"createdMs\":1794528000000,\"lastSeenMs\":1794614401000,\"linkedBy\":null},{\"id\":9,\"person\":2,\"kind\":\"web\",\"name\":\"client-9\",\"createdMs\":1794528000000,\"lastSeenMs\":1794614401000,\"linkedBy\":null}]}}"
+        }
+      ]
+    },
+    {
+      "step": "anna notifications.list",
+      "frames": [
+        {
+          "to": "anna",
+          "json": "{\"t\":\"res\",\"id\":10,\"ok\":false,\"error\":{\"code\":\"notBuilt\",\"detail\":{\"op\":\"notifications.list\"}}}"
+        }
+      ]
+    },
+    {
+      "step": "anna device.rename",
+      "frames": [
+        {
+          "to": "anna",
+          "json": "{\"t\":\"evt\",\"rev\":1,\"ev\":\"device\",\"body\":{\"what\":\"renamed\",\"device\":{\"id\":11,\"name\":\"front-door\",\"role\":\"sensor\",\"state\":\"contacted\",\"firmware\":\"1.2.3\",\"batteryPercent\":null,\"signal\":null,\"temperatureC\":null,\"lastSeenMs\":null,\"heardBy\":null,\"health\":{\"silent\":false,\"batteryLow\":false,\"tamperOpen\":false,\"poorLink\":false}}}}"
+        },
+        {
+          "to": "phone",
+          "json": "{\"t\":\"evt\",\"rev\":1,\"ev\":\"device\",\"body\":{\"what\":\"renamed\",\"device\":{\"id\":11,\"name\":\"front-door\",\"role\":\"sensor\",\"state\":\"contacted\",\"firmware\":\"1.2.3\",\"batteryPercent\":null,\"signal\":null,\"temperatureC\":null,\"lastSeenMs\":null,\"heardBy\":null,\"health\":{\"silent\":false,\"batteryLow\":false,\"tamperOpen\":false,\"poorLink\":false}}}}"
+        },
+        {
+          "to": "ben",
+          "json": "{\"t\":\"evt\",\"rev\":1,\"ev\":\"device\",\"body\":{\"what\":\"renamed\",\"device\":{\"id\":11,\"name\":\"front-door\",\"role\":\"sensor\",\"state\":\"contacted\",\"firmware\":\"1.2.3\",\"batteryPercent\":null,\"signal\":null,\"temperatureC\":null,\"lastSeenMs\":null,\"heardBy\":null,\"health\":{\"silent\":false,\"batteryLow\":false,\"tamperOpen\":false,\"poorLink\":false}}}}"
+        },
+        {
+          "to": "console",
+          "json": "{\"t\":\"evt\",\"rev\":1,\"ev\":\"device\",\"body\":{\"what\":\"renamed\",\"device\":{\"id\":11,\"name\":\"front-door\",\"role\":\"sensor\",\"state\":\"contacted\",\"firmware\":\"1.2.3\",\"batteryPercent\":null,\"signal\":null,\"temperatureC\":null,\"lastSeenMs\":null,\"heardBy\":null,\"health\":{\"silent\":false,\"batteryLow\":false,\"tamperOpen\":false,\"poorLink\":false}}}}"
+        },
+        {
+          "to": "anna",
+          "json": "{\"t\":\"evt\",\"rev\":1,\"ev\":\"record\",\"body\":{\"kind\":\"hubEvent\",\"row\":{\"kind\":\"hubEvent\",\"row\":{\"seq\":4294967346,\"atMs\":1794614401000,\"clockOk\":true,\"level\":\"info\",\"origin\":\"core/registry\",\"code\":\"device_renamed\",\"message\":\"front renamed front-door\",\"detail\":\"{\\\"device\\\":11,\\\"name\\\":\\\"front-door\\\",\\\"address\\\":4107,\\\"role\\\":\\\"sensor\\\",\\\"chip\\\":\\\"0b0b0b0b0b0b\\\",\\\"firmware\\\":66051,\\\"development\\\":true,\\\"state\\\":\\\"contacted\\\",\\\"previousName\\\":\\\"front\\\"}\"}}}}"
+        },
+        {
+          "to": "phone",
+          "json": "{\"t\":\"evt\",\"rev\":1,\"ev\":\"record\",\"body\":{\"kind\":\"hubEvent\",\"row\":{\"kind\":\"hubEvent\",\"row\":{\"seq\":4294967346,\"atMs\":1794614401000,\"clockOk\":true,\"level\":\"info\",\"origin\":\"core/registry\",\"code\":\"device_renamed\",\"message\":\"front renamed front-door\",\"detail\":\"{\\\"device\\\":11,\\\"name\\\":\\\"front-door\\\",\\\"address\\\":4107,\\\"role\\\":\\\"sensor\\\",\\\"chip\\\":\\\"0b0b0b0b0b0b\\\",\\\"firmware\\\":66051,\\\"development\\\":true,\\\"state\\\":\\\"contacted\\\",\\\"previousName\\\":\\\"front\\\"}\"}}}}"
+        },
+        {
+          "to": "ben",
+          "json": "{\"t\":\"evt\",\"rev\":1,\"ev\":\"record\",\"body\":{\"kind\":\"hubEvent\",\"row\":{\"kind\":\"hubEvent\",\"row\":{\"seq\":4294967346,\"atMs\":1794614401000,\"clockOk\":true,\"level\":\"info\",\"origin\":\"core/registry\",\"code\":\"device_renamed\",\"message\":\"front renamed front-door\",\"detail\":\"{\\\"device\\\":11,\\\"name\\\":\\\"front-door\\\",\\\"address\\\":4107,\\\"role\\\":\\\"sensor\\\",\\\"chip\\\":\\\"0b0b0b0b0b0b\\\",\\\"firmware\\\":66051,\\\"development\\\":true,\\\"state\\\":\\\"contacted\\\",\\\"previousName\\\":\\\"front\\\"}\"}}}}"
+        },
+        {
+          "to": "console",
+          "json": "{\"t\":\"evt\",\"rev\":1,\"ev\":\"record\",\"body\":{\"kind\":\"hubEvent\",\"row\":{\"kind\":\"hubEvent\",\"row\":{\"seq\":4294967346,\"atMs\":1794614401000,\"clockOk\":true,\"level\":\"info\",\"origin\":\"core/registry\",\"code\":\"device_renamed\",\"message\":\"front renamed front-door\",\"detail\":\"{\\\"device\\\":11,\\\"name\\\":\\\"front-door\\\",\\\"address\\\":4107,\\\"role\\\":\\\"sensor\\\",\\\"chip\\\":\\\"0b0b0b0b0b0b\\\",\\\"firmware\\\":66051,\\\"development\\\":true,\\\"state\\\":\\\"contacted\\\",\\\"previousName\\\":\\\"front\\\"}\"}}}}"
+        },
+        {
+          "to": "anna",
+          "json": "{\"t\":\"res\",\"id\":11,\"ok\":true,\"body\":{\"id\":11,\"name\":\"front-door\",\"role\":\"sensor\",\"state\":\"contacted\",\"firmware\":\"1.2.3\",\"batteryPercent\":null,\"signal\":null,\"temperatureC\":null,\"lastSeenMs\":null,\"heardBy\":null,\"health\":{\"silent\":false,\"batteryLow\":false,\"tamperOpen\":false,\"poorLink\":false}}}"
+        },
+        {
+          "to": "anna",
+          "json": "{\"t\":\"evt\",\"rev\":1,\"ev\":\"record\",\"body\":{\"kind\":\"command\",\"row\":{\"kind\":\"command\",\"row\":{\"seq\":4294967344,\"atMs\":1794614401000,\"clockOk\":true,\"actor\":\"Anna (client 7)\",\"kind\":\"device.rename\",\"args\":\"{\\\"device\\\":11,\\\"name\\\":\\\"front-door\\\"}\",\"outcome\":\"ok\",\"detail\":null}}}}"
+        },
+        {
+          "to": "phone",
+          "json": "{\"t\":\"evt\",\"rev\":1,\"ev\":\"record\",\"body\":{\"kind\":\"command\",\"row\":{\"kind\":\"command\",\"row\":{\"seq\":4294967344,\"atMs\":1794614401000,\"clockOk\":true,\"actor\":\"Anna (client 7)\",\"kind\":\"device.rename\",\"args\":\"{\\\"device\\\":11,\\\"name\\\":\\\"front-door\\\"}\",\"outcome\":\"ok\",\"detail\":null}}}}"
+        },
+        {
+          "to": "ben",
+          "json": "{\"t\":\"evt\",\"rev\":1,\"ev\":\"record\",\"body\":{\"kind\":\"command\",\"row\":{\"kind\":\"command\",\"row\":{\"seq\":4294967344,\"atMs\":1794614401000,\"clockOk\":true,\"actor\":\"Anna (client 7)\",\"kind\":\"device.rename\",\"args\":\"{\\\"device\\\":11,\\\"name\\\":\\\"front-door\\\"}\",\"outcome\":\"ok\",\"detail\":null}}}}"
+        },
+        {
+          "to": "console",
+          "json": "{\"t\":\"evt\",\"rev\":1,\"ev\":\"record\",\"body\":{\"kind\":\"command\",\"row\":{\"kind\":\"command\",\"row\":{\"seq\":4294967344,\"atMs\":1794614401000,\"clockOk\":true,\"actor\":\"Anna (client 7)\",\"kind\":\"device.rename\",\"args\":\"{\\\"device\\\":11,\\\"name\\\":\\\"front-door\\\"}\",\"outcome\":\"ok\",\"detail\":null}}}}"
+        }
+      ]
+    },
+    {
+      "step": "anna device.rename taken",
+      "frames": [
+        {
+          "to": "anna",
+          "json": "{\"t\":\"res\",\"id\":12,\"ok\":false,\"error\":{\"code\":\"invalid\",\"detail\":{\"field\":\"name\",\"reason\":\"taken\"}}}"
+        },
+        {
+          "to": "anna",
+          "json": "{\"t\":\"evt\",\"rev\":2,\"ev\":\"record\",\"body\":{\"kind\":\"command\",\"row\":{\"kind\":\"command\",\"row\":{\"seq\":4294967351,\"atMs\":1794614401000,\"clockOk\":true,\"actor\":\"Anna (client 7)\",\"kind\":\"device.rename\",\"args\":\"{\\\"device\\\":12,\\\"name\\\":\\\"front-door\\\"}\",\"outcome\":\"invalid\",\"detail\":null}}}}"
+        },
+        {
+          "to": "phone",
+          "json": "{\"t\":\"evt\",\"rev\":2,\"ev\":\"record\",\"body\":{\"kind\":\"command\",\"row\":{\"kind\":\"command\",\"row\":{\"seq\":4294967351,\"atMs\":1794614401000,\"clockOk\":true,\"actor\":\"Anna (client 7)\",\"kind\":\"device.rename\",\"args\":\"{\\\"device\\\":12,\\\"name\\\":\\\"front-door\\\"}\",\"outcome\":\"invalid\",\"detail\":null}}}}"
+        },
+        {
+          "to": "ben",
+          "json": "{\"t\":\"evt\",\"rev\":2,\"ev\":\"record\",\"body\":{\"kind\":\"command\",\"row\":{\"kind\":\"command\",\"row\":{\"seq\":4294967351,\"atMs\":1794614401000,\"clockOk\":true,\"actor\":\"Anna (client 7)\",\"kind\":\"device.rename\",\"args\":\"{\\\"device\\\":12,\\\"name\\\":\\\"front-door\\\"}\",\"outcome\":\"invalid\",\"detail\":null}}}}"
+        },
+        {
+          "to": "console",
+          "json": "{\"t\":\"evt\",\"rev\":2,\"ev\":\"record\",\"body\":{\"kind\":\"command\",\"row\":{\"kind\":\"command\",\"row\":{\"seq\":4294967351,\"atMs\":1794614401000,\"clockOk\":true,\"actor\":\"Anna (client 7)\",\"kind\":\"device.rename\",\"args\":\"{\\\"device\\\":12,\\\"name\\\":\\\"front-door\\\"}\",\"outcome\":\"invalid\",\"detail\":null}}}}"
+        }
+      ]
+    },
+    {
+      "step": "anna site.wifi on the home network",
+      "frames": [
+        {
+          "to": "anna",
+          "json": "{\"t\":\"res\",\"id\":13,\"ok\":false,\"error\":{\"code\":\"consoleOnly\",\"detail\":{}}}"
+        },
+        {
+          "to": "anna",
+          "json": "{\"t\":\"evt\",\"rev\":3,\"ev\":\"record\",\"body\":{\"kind\":\"command\",\"row\":{\"kind\":\"command\",\"row\":{\"seq\":4294967356,\"atMs\":1794614401000,\"clockOk\":true,\"actor\":\"Anna (client 7)\",\"kind\":\"site.wifi\",\"args\":\"{\\\"name\\\":\\\"home\\\",\\\"password\\\":\\\"***\\\"}\",\"outcome\":\"consoleOnly\",\"detail\":null}}}}"
+        },
+        {
+          "to": "phone",
+          "json": "{\"t\":\"evt\",\"rev\":3,\"ev\":\"record\",\"body\":{\"kind\":\"command\",\"row\":{\"kind\":\"command\",\"row\":{\"seq\":4294967356,\"atMs\":1794614401000,\"clockOk\":true,\"actor\":\"Anna (client 7)\",\"kind\":\"site.wifi\",\"args\":\"{\\\"name\\\":\\\"home\\\",\\\"password\\\":\\\"***\\\"}\",\"outcome\":\"consoleOnly\",\"detail\":null}}}}"
+        },
+        {
+          "to": "ben",
+          "json": "{\"t\":\"evt\",\"rev\":3,\"ev\":\"record\",\"body\":{\"kind\":\"command\",\"row\":{\"kind\":\"command\",\"row\":{\"seq\":4294967356,\"atMs\":1794614401000,\"clockOk\":true,\"actor\":\"Anna (client 7)\",\"kind\":\"site.wifi\",\"args\":\"{\\\"name\\\":\\\"home\\\",\\\"password\\\":\\\"***\\\"}\",\"outcome\":\"consoleOnly\",\"detail\":null}}}}"
+        },
+        {
+          "to": "console",
+          "json": "{\"t\":\"evt\",\"rev\":3,\"ev\":\"record\",\"body\":{\"kind\":\"command\",\"row\":{\"kind\":\"command\",\"row\":{\"seq\":4294967356,\"atMs\":1794614401000,\"clockOk\":true,\"actor\":\"Anna (client 7)\",\"kind\":\"site.wifi\",\"args\":\"{\\\"name\\\":\\\"home\\\",\\\"password\\\":\\\"***\\\"}\",\"outcome\":\"consoleOnly\",\"detail\":null}}}}"
+        }
+      ]
+    },
+    {
+      "step": "console site.wifi",
+      "frames": [
+        {
+          "to": "anna",
+          "json": "{\"t\":\"evt\",\"rev\":4,\"ev\":\"config\",\"body\":{\"site\":{\"channel\":1,\"rate\":5,\"countdownS\":30,\"autoStopS\":300,\"wifiName\":\"home-2\",\"retentionRoutineDays\":30,\"retentionEventDays\":365}}}"
+        },
+        {
+          "to": "phone",
+          "json": "{\"t\":\"evt\",\"rev\":4,\"ev\":\"config\",\"body\":{\"site\":{\"channel\":1,\"rate\":5,\"countdownS\":30,\"autoStopS\":300,\"wifiName\":\"home-2\",\"retentionRoutineDays\":30,\"retentionEventDays\":365}}}"
+        },
+        {
+          "to": "ben",
+          "json": "{\"t\":\"evt\",\"rev\":4,\"ev\":\"config\",\"body\":{\"site\":{\"channel\":1,\"rate\":5,\"countdownS\":30,\"autoStopS\":300,\"wifiName\":\"home-2\",\"retentionRoutineDays\":30,\"retentionEventDays\":365}}}"
+        },
+        {
+          "to": "console",
+          "json": "{\"t\":\"evt\",\"rev\":4,\"ev\":\"config\",\"body\":{\"site\":{\"channel\":1,\"rate\":5,\"countdownS\":30,\"autoStopS\":300,\"wifiName\":\"home-2\",\"retentionRoutineDays\":30,\"retentionEventDays\":365}}}"
+        },
+        {
+          "to": "console",
+          "json": "{\"t\":\"res\",\"id\":5,\"ok\":true,\"body\":{\"channel\":1,\"rate\":5,\"countdownS\":30,\"autoStopS\":300,\"wifiName\":\"home-2\",\"retentionRoutineDays\":30,\"retentionEventDays\":365}}"
+        },
+        {
+          "to": "anna",
+          "json": "{\"t\":\"evt\",\"rev\":4,\"ev\":\"record\",\"body\":{\"kind\":\"command\",\"row\":{\"kind\":\"command\",\"row\":{\"seq\":4294967359,\"atMs\":1794614401000,\"clockOk\":true,\"actor\":\"hub computer (client 1)\",\"kind\":\"site.wifi\",\"args\":\"{\\\"name\\\":\\\"home-2\\\",\\\"password\\\":\\\"***\\\"}\",\"outcome\":\"ok\",\"detail\":null}}}}"
+        },
+        {
+          "to": "phone",
+          "json": "{\"t\":\"evt\",\"rev\":4,\"ev\":\"record\",\"body\":{\"kind\":\"command\",\"row\":{\"kind\":\"command\",\"row\":{\"seq\":4294967359,\"atMs\":1794614401000,\"clockOk\":true,\"actor\":\"hub computer (client 1)\",\"kind\":\"site.wifi\",\"args\":\"{\\\"name\\\":\\\"home-2\\\",\\\"password\\\":\\\"***\\\"}\",\"outcome\":\"ok\",\"detail\":null}}}}"
+        },
+        {
+          "to": "ben",
+          "json": "{\"t\":\"evt\",\"rev\":4,\"ev\":\"record\",\"body\":{\"kind\":\"command\",\"row\":{\"kind\":\"command\",\"row\":{\"seq\":4294967359,\"atMs\":1794614401000,\"clockOk\":true,\"actor\":\"hub computer (client 1)\",\"kind\":\"site.wifi\",\"args\":\"{\\\"name\\\":\\\"home-2\\\",\\\"password\\\":\\\"***\\\"}\",\"outcome\":\"ok\",\"detail\":null}}}}"
+        },
+        {
+          "to": "console",
+          "json": "{\"t\":\"evt\",\"rev\":4,\"ev\":\"record\",\"body\":{\"kind\":\"command\",\"row\":{\"kind\":\"command\",\"row\":{\"seq\":4294967359,\"atMs\":1794614401000,\"clockOk\":true,\"actor\":\"hub computer (client 1)\",\"kind\":\"site.wifi\",\"args\":\"{\\\"name\\\":\\\"home-2\\\",\\\"password\\\":\\\"***\\\"}\",\"outcome\":\"ok\",\"detail\":null}}}}"
+        }
+      ]
+    },
+    {
+      "step": "anna backup.key from a laptop",
+      "frames": [
+        {
+          "to": "anna",
+          "json": "{\"t\":\"res\",\"id\":14,\"ok\":false,\"error\":{\"code\":\"notBuilt\",\"detail\":{\"op\":\"backup.key\"}}}"
+        },
+        {
+          "to": "anna",
+          "json": "{\"t\":\"evt\",\"rev\":5,\"ev\":\"record\",\"body\":{\"kind\":\"command\",\"row\":{\"kind\":\"command\",\"row\":{\"seq\":4294967364,\"atMs\":1794614401000,\"clockOk\":true,\"actor\":\"Anna (client 7)\",\"kind\":\"backup.key\",\"args\":\"{}\",\"outcome\":\"notBuilt\",\"detail\":null}}}}"
+        },
+        {
+          "to": "phone",
+          "json": "{\"t\":\"evt\",\"rev\":5,\"ev\":\"record\",\"body\":{\"kind\":\"command\",\"row\":{\"kind\":\"command\",\"row\":{\"seq\":4294967364,\"atMs\":1794614401000,\"clockOk\":true,\"actor\":\"Anna (client 7)\",\"kind\":\"backup.key\",\"args\":\"{}\",\"outcome\":\"notBuilt\",\"detail\":null}}}}"
+        },
+        {
+          "to": "ben",
+          "json": "{\"t\":\"evt\",\"rev\":5,\"ev\":\"record\",\"body\":{\"kind\":\"command\",\"row\":{\"kind\":\"command\",\"row\":{\"seq\":4294967364,\"atMs\":1794614401000,\"clockOk\":true,\"actor\":\"Anna (client 7)\",\"kind\":\"backup.key\",\"args\":\"{}\",\"outcome\":\"notBuilt\",\"detail\":null}}}}"
+        },
+        {
+          "to": "console",
+          "json": "{\"t\":\"evt\",\"rev\":5,\"ev\":\"record\",\"body\":{\"kind\":\"command\",\"row\":{\"kind\":\"command\",\"row\":{\"seq\":4294967364,\"atMs\":1794614401000,\"clockOk\":true,\"actor\":\"Anna (client 7)\",\"kind\":\"backup.key\",\"args\":\"{}\",\"outcome\":\"notBuilt\",\"detail\":null}}}}"
+        }
+      ]
+    },
+    {
+      "step": "phone backup.key",
+      "frames": [
+        {
+          "to": "phone",
+          "json": "{\"t\":\"res\",\"id\":5,\"ok\":false,\"error\":{\"code\":\"notBuilt\",\"detail\":{\"op\":\"backup.key\"}}}"
+        },
+        {
+          "to": "anna",
+          "json": "{\"t\":\"evt\",\"rev\":6,\"ev\":\"record\",\"body\":{\"kind\":\"command\",\"row\":{\"kind\":\"command\",\"row\":{\"seq\":4294967368,\"atMs\":1794614401000,\"clockOk\":true,\"actor\":\"Anna (client 8)\",\"kind\":\"backup.key\",\"args\":\"{}\",\"outcome\":\"notBuilt\",\"detail\":null}}}}"
+        },
+        {
+          "to": "phone",
+          "json": "{\"t\":\"evt\",\"rev\":6,\"ev\":\"record\",\"body\":{\"kind\":\"command\",\"row\":{\"kind\":\"command\",\"row\":{\"seq\":4294967368,\"atMs\":1794614401000,\"clockOk\":true,\"actor\":\"Anna (client 8)\",\"kind\":\"backup.key\",\"args\":\"{}\",\"outcome\":\"notBuilt\",\"detail\":null}}}}"
+        },
+        {
+          "to": "ben",
+          "json": "{\"t\":\"evt\",\"rev\":6,\"ev\":\"record\",\"body\":{\"kind\":\"command\",\"row\":{\"kind\":\"command\",\"row\":{\"seq\":4294967368,\"atMs\":1794614401000,\"clockOk\":true,\"actor\":\"Anna (client 8)\",\"kind\":\"backup.key\",\"args\":\"{}\",\"outcome\":\"notBuilt\",\"detail\":null}}}}"
+        },
+        {
+          "to": "console",
+          "json": "{\"t\":\"evt\",\"rev\":6,\"ev\":\"record\",\"body\":{\"kind\":\"command\",\"row\":{\"kind\":\"command\",\"row\":{\"seq\":4294967368,\"atMs\":1794614401000,\"clockOk\":true,\"actor\":\"Anna (client 8)\",\"kind\":\"backup.key\",\"args\":\"{}\",\"outcome\":\"notBuilt\",\"detail\":null}}}}"
+        }
+      ]
+    },
+    {
+      "step": "anna arm front",
+      "frames": [
+        {
+          "to": "anna",
+          "json": "{\"t\":\"evt\",\"rev\":7,\"ev\":\"arming\",\"body\":{\"sensors\":[],\"mode\":{\"mode\":2,\"modified\":true}}}"
+        },
+        {
+          "to": "phone",
+          "json": "{\"t\":\"evt\",\"rev\":7,\"ev\":\"arming\",\"body\":{\"sensors\":[],\"mode\":{\"mode\":2,\"modified\":true}}}"
+        },
+        {
+          "to": "ben",
+          "json": "{\"t\":\"evt\",\"rev\":7,\"ev\":\"arming\",\"body\":{\"sensors\":[],\"mode\":{\"mode\":2,\"modified\":true}}}"
+        },
+        {
+          "to": "console",
+          "json": "{\"t\":\"evt\",\"rev\":7,\"ev\":\"arming\",\"body\":{\"sensors\":[],\"mode\":{\"mode\":2,\"modified\":true}}}"
+        },
+        {
+          "to": "anna",
+          "json": "{\"t\":\"evt\",\"rev\":7,\"ev\":\"record\",\"body\":{\"kind\":\"decision\",\"row\":{\"kind\":\"decision\",\"row\":{\"seq\":4294967374,\"atMs\":1794614401000,\"clockOk\":true,\"kind\":\"arming_changed\",\"deviceId\":11,\"causeSeq\":4294967372,\"value\":1,\"detail\":\"0b000000\"}}}}"
+        },
+        {
+          "to": "phone",
+          "json": "{\"t\":\"evt\",\"rev\":7,\"ev\":\"record\",\"body\":{\"kind\":\"decision\",\"row\":{\"kind\":\"decision\",\"row\":{\"seq\":4294967374,\"atMs\":1794614401000,\"clockOk\":true,\"kind\":\"arming_changed\",\"deviceId\":11,\"causeSeq\":4294967372,\"value\":1,\"detail\":\"0b000000\"}}}}"
+        },
+        {
+          "to": "ben",
+          "json": "{\"t\":\"evt\",\"rev\":7,\"ev\":\"record\",\"body\":{\"kind\":\"decision\",\"row\":{\"kind\":\"decision\",\"row\":{\"seq\":4294967374,\"atMs\":1794614401000,\"clockOk\":true,\"kind\":\"arming_changed\",\"deviceId\":11,\"causeSeq\":4294967372,\"value\":1,\"detail\":\"0b000000\"}}}}"
+        },
+        {
+          "to": "console",
+          "json": "{\"t\":\"evt\",\"rev\":7,\"ev\":\"record\",\"body\":{\"kind\":\"decision\",\"row\":{\"kind\":\"decision\",\"row\":{\"seq\":4294967374,\"atMs\":1794614401000,\"clockOk\":true,\"kind\":\"arming_changed\",\"deviceId\":11,\"causeSeq\":4294967372,\"value\":1,\"detail\":\"0b000000\"}}}}"
+        },
+        {
+          "to": "anna",
+          "json": "{\"t\":\"evt\",\"rev\":7,\"ev\":\"record\",\"body\":{\"kind\":\"decision\",\"row\":{\"kind\":\"decision\",\"row\":{\"seq\":4294967377,\"atMs\":1794614401000,\"clockOk\":true,\"kind\":\"armed\",\"deviceId\":11,\"causeSeq\":4294967372,\"value\":null,\"detail\":\"416e6e612028636c69656e74203729\"}}}}"
+        },
+        {
+          "to": "phone",
+          "json": "{\"t\":\"evt\",\"rev\":7,\"ev\":\"record\",\"body\":{\"kind\":\"decision\",\"row\":{\"kind\":\"decision\",\"row\":{\"seq\":4294967377,\"atMs\":1794614401000,\"clockOk\":true,\"kind\":\"armed\",\"deviceId\":11,\"causeSeq\":4294967372,\"value\":null,\"detail\":\"416e6e612028636c69656e74203729\"}}}}"
+        },
+        {
+          "to": "ben",
+          "json": "{\"t\":\"evt\",\"rev\":7,\"ev\":\"record\",\"body\":{\"kind\":\"decision\",\"row\":{\"kind\":\"decision\",\"row\":{\"seq\":4294967377,\"atMs\":1794614401000,\"clockOk\":true,\"kind\":\"armed\",\"deviceId\":11,\"causeSeq\":4294967372,\"value\":null,\"detail\":\"416e6e612028636c69656e74203729\"}}}}"
+        },
+        {
+          "to": "console",
+          "json": "{\"t\":\"evt\",\"rev\":7,\"ev\":\"record\",\"body\":{\"kind\":\"decision\",\"row\":{\"kind\":\"decision\",\"row\":{\"seq\":4294967377,\"atMs\":1794614401000,\"clockOk\":true,\"kind\":\"armed\",\"deviceId\":11,\"causeSeq\":4294967372,\"value\":null,\"detail\":\"416e6e612028636c69656e74203729\"}}}}"
+        },
+        {
+          "to": "anna",
+          "json": "{\"t\":\"evt\",\"rev\":7,\"ev\":\"arming\",\"body\":{\"sensors\":[{\"sensor\":11,\"arm\":\"armed\"}],\"mode\":{\"mode\":2,\"modified\":true}}}"
+        },
+        {
+          "to": "phone",
+          "json": "{\"t\":\"evt\",\"rev\":7,\"ev\":\"arming\",\"body\":{\"sensors\":[{\"sensor\":11,\"arm\":\"armed\"}],\"mode\":{\"mode\":2,\"modified\":true}}}"
+        },
+        {
+          "to": "ben",
+          "json": "{\"t\":\"evt\",\"rev\":7,\"ev\":\"arming\",\"body\":{\"sensors\":[{\"sensor\":11,\"arm\":\"armed\"}],\"mode\":{\"mode\":2,\"modified\":true}}}"
+        },
+        {
+          "to": "console",
+          "json": "{\"t\":\"evt\",\"rev\":7,\"ev\":\"arming\",\"body\":{\"sensors\":[{\"sensor\":11,\"arm\":\"armed\"}],\"mode\":{\"mode\":2,\"modified\":true}}}"
+        },
+        {
+          "to": "anna",
+          "json": "{\"t\":\"res\",\"id\":15,\"ok\":true,\"body\":{\"armed\":[11],\"disarmed\":[],\"waiting\":[],\"lowBattery\":[]}}"
+        },
+        {
+          "to": "anna",
+          "json": "{\"t\":\"evt\",\"rev\":7,\"ev\":\"record\",\"body\":{\"kind\":\"command\",\"row\":{\"kind\":\"command\",\"row\":{\"seq\":4294967372,\"atMs\":1794614401000,\"clockOk\":true,\"actor\":\"Anna (client 7)\",\"kind\":\"arm\",\"args\":\"{\\\"target\\\":{\\\"sensor\\\":11}}\",\"outcome\":\"ok\",\"detail\":null}}}}"
+        },
+        {
+          "to": "phone",
+          "json": "{\"t\":\"evt\",\"rev\":7,\"ev\":\"record\",\"body\":{\"kind\":\"command\",\"row\":{\"kind\":\"command\",\"row\":{\"seq\":4294967372,\"atMs\":1794614401000,\"clockOk\":true,\"actor\":\"Anna (client 7)\",\"kind\":\"arm\",\"args\":\"{\\\"target\\\":{\\\"sensor\\\":11}}\",\"outcome\":\"ok\",\"detail\":null}}}}"
+        },
+        {
+          "to": "ben",
+          "json": "{\"t\":\"evt\",\"rev\":7,\"ev\":\"record\",\"body\":{\"kind\":\"command\",\"row\":{\"kind\":\"command\",\"row\":{\"seq\":4294967372,\"atMs\":1794614401000,\"clockOk\":true,\"actor\":\"Anna (client 7)\",\"kind\":\"arm\",\"args\":\"{\\\"target\\\":{\\\"sensor\\\":11}}\",\"outcome\":\"ok\",\"detail\":null}}}}"
+        },
+        {
+          "to": "console",
+          "json": "{\"t\":\"evt\",\"rev\":7,\"ev\":\"record\",\"body\":{\"kind\":\"command\",\"row\":{\"kind\":\"command\",\"row\":{\"seq\":4294967372,\"atMs\":1794614401000,\"clockOk\":true,\"actor\":\"Anna (client 7)\",\"kind\":\"arm\",\"args\":\"{\\\"target\\\":{\\\"sensor\\\":11}}\",\"outcome\":\"ok\",\"detail\":null}}}}"
+        }
+      ]
+    },
+    {
+      "step": "ben mode.switch away",
+      "frames": [
+        {
+          "to": "anna",
+          "json": "{\"t\":\"evt\",\"rev\":8,\"ev\":\"arming\",\"body\":{\"sensors\":[],\"mode\":{\"mode\":1,\"modified\":false}}}"
+        },
+        {
+          "to": "phone",
+          "json": "{\"t\":\"evt\",\"rev\":8,\"ev\":\"arming\",\"body\":{\"sensors\":[],\"mode\":{\"mode\":1,\"modified\":false}}}"
+        },
+        {
+          "to": "ben",
+          "json": "{\"t\":\"evt\",\"rev\":8,\"ev\":\"arming\",\"body\":{\"sensors\":[],\"mode\":{\"mode\":1,\"modified\":false}}}"
+        },
+        {
+          "to": "console",
+          "json": "{\"t\":\"evt\",\"rev\":8,\"ev\":\"arming\",\"body\":{\"sensors\":[],\"mode\":{\"mode\":1,\"modified\":false}}}"
+        },
+        {
+          "to": "anna",
+          "json": "{\"t\":\"evt\",\"rev\":8,\"ev\":\"record\",\"body\":{\"kind\":\"decision\",\"row\":{\"kind\":\"decision\",\"row\":{\"seq\":4294967384,\"atMs\":1794614401000,\"clockOk\":true,\"kind\":\"mode_switched\",\"deviceId\":null,\"causeSeq\":4294967382,\"value\":1,\"detail\":\"42656e2028636c69656e74203929\"}}}}"
+        },
+        {
+          "to": "phone",
+          "json": "{\"t\":\"evt\",\"rev\":8,\"ev\":\"record\",\"body\":{\"kind\":\"decision\",\"row\":{\"kind\":\"decision\",\"row\":{\"seq\":4294967384,\"atMs\":1794614401000,\"clockOk\":true,\"kind\":\"mode_switched\",\"deviceId\":null,\"causeSeq\":4294967382,\"value\":1,\"detail\":\"42656e2028636c69656e74203929\"}}}}"
+        },
+        {
+          "to": "ben",
+          "json": "{\"t\":\"evt\",\"rev\":8,\"ev\":\"record\",\"body\":{\"kind\":\"decision\",\"row\":{\"kind\":\"decision\",\"row\":{\"seq\":4294967384,\"atMs\":1794614401000,\"clockOk\":true,\"kind\":\"mode_switched\",\"deviceId\":null,\"causeSeq\":4294967382,\"value\":1,\"detail\":\"42656e2028636c69656e74203929\"}}}}"
+        },
+        {
+          "to": "console",
+          "json": "{\"t\":\"evt\",\"rev\":8,\"ev\":\"record\",\"body\":{\"kind\":\"decision\",\"row\":{\"kind\":\"decision\",\"row\":{\"seq\":4294967384,\"atMs\":1794614401000,\"clockOk\":true,\"kind\":\"mode_switched\",\"deviceId\":null,\"causeSeq\":4294967382,\"value\":1,\"detail\":\"42656e2028636c69656e74203929\"}}}}"
+        },
+        {
+          "to": "anna",
+          "json": "{\"t\":\"evt\",\"rev\":8,\"ev\":\"record\",\"body\":{\"kind\":\"decision\",\"row\":{\"kind\":\"decision\",\"row\":{\"seq\":4294967387,\"atMs\":1794614401000,\"clockOk\":true,\"kind\":\"armed\",\"deviceId\":12,\"causeSeq\":4294967382,\"value\":null,\"detail\":\"42656e2028636c69656e74203929\"}}}}"
+        },
+        {
+          "to": "phone",
+          "json": "{\"t\":\"evt\",\"rev\":8,\"ev\":\"record\",\"body\":{\"kind\":\"decision\",\"row\":{\"kind\":\"decision\",\"row\":{\"seq\":4294967387,\"atMs\":1794614401000,\"clockOk\":true,\"kind\":\"armed\",\"deviceId\":12,\"causeSeq\":4294967382,\"value\":null,\"detail\":\"42656e2028636c69656e74203929\"}}}}"
+        },
+        {
+          "to": "ben",
+          "json": "{\"t\":\"evt\",\"rev\":8,\"ev\":\"record\",\"body\":{\"kind\":\"decision\",\"row\":{\"kind\":\"decision\",\"row\":{\"seq\":4294967387,\"atMs\":1794614401000,\"clockOk\":true,\"kind\":\"armed\",\"deviceId\":12,\"causeSeq\":4294967382,\"value\":null,\"detail\":\"42656e2028636c69656e74203929\"}}}}"
+        },
+        {
+          "to": "console",
+          "json": "{\"t\":\"evt\",\"rev\":8,\"ev\":\"record\",\"body\":{\"kind\":\"decision\",\"row\":{\"kind\":\"decision\",\"row\":{\"seq\":4294967387,\"atMs\":1794614401000,\"clockOk\":true,\"kind\":\"armed\",\"deviceId\":12,\"causeSeq\":4294967382,\"value\":null,\"detail\":\"42656e2028636c69656e74203929\"}}}}"
+        },
+        {
+          "to": "anna",
+          "json": "{\"t\":\"evt\",\"rev\":8,\"ev\":\"arming\",\"body\":{\"sensors\":[{\"sensor\":12,\"arm\":\"armed\"}],\"mode\":{\"mode\":1,\"modified\":false}}}"
+        },
+        {
+          "to": "phone",
+          "json": "{\"t\":\"evt\",\"rev\":8,\"ev\":\"arming\",\"body\":{\"sensors\":[{\"sensor\":12,\"arm\":\"armed\"}],\"mode\":{\"mode\":1,\"modified\":false}}}"
+        },
+        {
+          "to": "ben",
+          "json": "{\"t\":\"evt\",\"rev\":8,\"ev\":\"arming\",\"body\":{\"sensors\":[{\"sensor\":12,\"arm\":\"armed\"}],\"mode\":{\"mode\":1,\"modified\":false}}}"
+        },
+        {
+          "to": "console",
+          "json": "{\"t\":\"evt\",\"rev\":8,\"ev\":\"arming\",\"body\":{\"sensors\":[{\"sensor\":12,\"arm\":\"armed\"}],\"mode\":{\"mode\":1,\"modified\":false}}}"
+        },
+        {
+          "to": "ben",
+          "json": "{\"t\":\"res\",\"id\":5,\"ok\":true,\"body\":{\"armed\":[12],\"disarmed\":[],\"waiting\":[],\"lowBattery\":[],\"heldBack\":[]}}"
+        },
+        {
+          "to": "anna",
+          "json": "{\"t\":\"evt\",\"rev\":8,\"ev\":\"record\",\"body\":{\"kind\":\"command\",\"row\":{\"kind\":\"command\",\"row\":{\"seq\":4294967382,\"atMs\":1794614401000,\"clockOk\":true,\"actor\":\"Ben (client 9)\",\"kind\":\"mode.switch\",\"args\":\"{\\\"mode\\\":1}\",\"outcome\":\"ok\",\"detail\":null}}}}"
+        },
+        {
+          "to": "phone",
+          "json": "{\"t\":\"evt\",\"rev\":8,\"ev\":\"record\",\"body\":{\"kind\":\"command\",\"row\":{\"kind\":\"command\",\"row\":{\"seq\":4294967382,\"atMs\":1794614401000,\"clockOk\":true,\"actor\":\"Ben (client 9)\",\"kind\":\"mode.switch\",\"args\":\"{\\\"mode\\\":1}\",\"outcome\":\"ok\",\"detail\":null}}}}"
+        },
+        {
+          "to": "ben",
+          "json": "{\"t\":\"evt\",\"rev\":8,\"ev\":\"record\",\"body\":{\"kind\":\"command\",\"row\":{\"kind\":\"command\",\"row\":{\"seq\":4294967382,\"atMs\":1794614401000,\"clockOk\":true,\"actor\":\"Ben (client 9)\",\"kind\":\"mode.switch\",\"args\":\"{\\\"mode\\\":1}\",\"outcome\":\"ok\",\"detail\":null}}}}"
+        },
+        {
+          "to": "console",
+          "json": "{\"t\":\"evt\",\"rev\":8,\"ev\":\"record\",\"body\":{\"kind\":\"command\",\"row\":{\"kind\":\"command\",\"row\":{\"seq\":4294967382,\"atMs\":1794614401000,\"clockOk\":true,\"actor\":\"Ben (client 9)\",\"kind\":\"mode.switch\",\"args\":\"{\\\"mode\\\":1}\",\"outcome\":\"ok\",\"detail\":null}}}}"
+        }
+      ]
+    },
+    {
+      "step": "ben disarm mine",
+      "frames": [
+        {
+          "to": "anna",
+          "json": "{\"t\":\"evt\",\"rev\":9,\"ev\":\"arming\",\"body\":{\"sensors\":[],\"mode\":{\"mode\":1,\"modified\":true}}}"
+        },
+        {
+          "to": "phone",
+          "json": "{\"t\":\"evt\",\"rev\":9,\"ev\":\"arming\",\"body\":{\"sensors\":[],\"mode\":{\"mode\":1,\"modified\":true}}}"
+        },
+        {
+          "to": "ben",
+          "json": "{\"t\":\"evt\",\"rev\":9,\"ev\":\"arming\",\"body\":{\"sensors\":[],\"mode\":{\"mode\":1,\"modified\":true}}}"
+        },
+        {
+          "to": "console",
+          "json": "{\"t\":\"evt\",\"rev\":9,\"ev\":\"arming\",\"body\":{\"sensors\":[],\"mode\":{\"mode\":1,\"modified\":true}}}"
+        },
+        {
+          "to": "anna",
+          "json": "{\"t\":\"evt\",\"rev\":9,\"ev\":\"record\",\"body\":{\"kind\":\"decision\",\"row\":{\"kind\":\"decision\",\"row\":{\"seq\":4294967394,\"atMs\":1794614401000,\"clockOk\":true,\"kind\":\"arming_changed\",\"deviceId\":null,\"causeSeq\":4294967392,\"value\":0,\"detail\":\"0b0000000c000000\"}}}}"
+        },
+        {
+          "to": "phone",
+          "json": "{\"t\":\"evt\",\"rev\":9,\"ev\":\"record\",\"body\":{\"kind\":\"decision\",\"row\":{\"kind\":\"decision\",\"row\":{\"seq\":4294967394,\"atMs\":1794614401000,\"clockOk\":true,\"kind\":\"arming_changed\",\"deviceId\":null,\"causeSeq\":4294967392,\"value\":0,\"detail\":\"0b0000000c000000\"}}}}"
+        },
+        {
+          "to": "ben",
+          "json": "{\"t\":\"evt\",\"rev\":9,\"ev\":\"record\",\"body\":{\"kind\":\"decision\",\"row\":{\"kind\":\"decision\",\"row\":{\"seq\":4294967394,\"atMs\":1794614401000,\"clockOk\":true,\"kind\":\"arming_changed\",\"deviceId\":null,\"causeSeq\":4294967392,\"value\":0,\"detail\":\"0b0000000c000000\"}}}}"
+        },
+        {
+          "to": "console",
+          "json": "{\"t\":\"evt\",\"rev\":9,\"ev\":\"record\",\"body\":{\"kind\":\"decision\",\"row\":{\"kind\":\"decision\",\"row\":{\"seq\":4294967394,\"atMs\":1794614401000,\"clockOk\":true,\"kind\":\"arming_changed\",\"deviceId\":null,\"causeSeq\":4294967392,\"value\":0,\"detail\":\"0b0000000c000000\"}}}}"
+        },
+        {
+          "to": "anna",
+          "json": "{\"t\":\"evt\",\"rev\":9,\"ev\":\"record\",\"body\":{\"kind\":\"decision\",\"row\":{\"kind\":\"decision\",\"row\":{\"seq\":4294967397,\"atMs\":1794614401000,\"clockOk\":true,\"kind\":\"disarmed\",\"deviceId\":11,\"causeSeq\":4294967392,\"value\":null,\"detail\":\"42656e2028636c69656e74203929\"}}}}"
+        },
+        {
+          "to": "phone",
+          "json": "{\"t\":\"evt\",\"rev\":9,\"ev\":\"record\",\"body\":{\"kind\":\"decision\",\"row\":{\"kind\":\"decision\",\"row\":{\"seq\":4294967397,\"atMs\":1794614401000,\"clockOk\":true,\"kind\":\"disarmed\",\"deviceId\":11,\"causeSeq\":4294967392,\"value\":null,\"detail\":\"42656e2028636c69656e74203929\"}}}}"
+        },
+        {
+          "to": "ben",
+          "json": "{\"t\":\"evt\",\"rev\":9,\"ev\":\"record\",\"body\":{\"kind\":\"decision\",\"row\":{\"kind\":\"decision\",\"row\":{\"seq\":4294967397,\"atMs\":1794614401000,\"clockOk\":true,\"kind\":\"disarmed\",\"deviceId\":11,\"causeSeq\":4294967392,\"value\":null,\"detail\":\"42656e2028636c69656e74203929\"}}}}"
+        },
+        {
+          "to": "console",
+          "json": "{\"t\":\"evt\",\"rev\":9,\"ev\":\"record\",\"body\":{\"kind\":\"decision\",\"row\":{\"kind\":\"decision\",\"row\":{\"seq\":4294967397,\"atMs\":1794614401000,\"clockOk\":true,\"kind\":\"disarmed\",\"deviceId\":11,\"causeSeq\":4294967392,\"value\":null,\"detail\":\"42656e2028636c69656e74203929\"}}}}"
+        },
+        {
+          "to": "anna",
+          "json": "{\"t\":\"evt\",\"rev\":9,\"ev\":\"arming\",\"body\":{\"sensors\":[{\"sensor\":11,\"arm\":\"disarmed\"}],\"mode\":{\"mode\":1,\"modified\":true}}}"
+        },
+        {
+          "to": "phone",
+          "json": "{\"t\":\"evt\",\"rev\":9,\"ev\":\"arming\",\"body\":{\"sensors\":[{\"sensor\":11,\"arm\":\"disarmed\"}],\"mode\":{\"mode\":1,\"modified\":true}}}"
+        },
+        {
+          "to": "ben",
+          "json": "{\"t\":\"evt\",\"rev\":9,\"ev\":\"arming\",\"body\":{\"sensors\":[{\"sensor\":11,\"arm\":\"disarmed\"}],\"mode\":{\"mode\":1,\"modified\":true}}}"
+        },
+        {
+          "to": "console",
+          "json": "{\"t\":\"evt\",\"rev\":9,\"ev\":\"arming\",\"body\":{\"sensors\":[{\"sensor\":11,\"arm\":\"disarmed\"}],\"mode\":{\"mode\":1,\"modified\":true}}}"
+        },
+        {
+          "to": "anna",
+          "json": "{\"t\":\"evt\",\"rev\":9,\"ev\":\"record\",\"body\":{\"kind\":\"decision\",\"row\":{\"kind\":\"decision\",\"row\":{\"seq\":4294967398,\"atMs\":1794614401000,\"clockOk\":true,\"kind\":\"disarmed\",\"deviceId\":12,\"causeSeq\":4294967392,\"value\":null,\"detail\":\"42656e2028636c69656e74203929\"}}}}"
+        },
+        {
+          "to": "phone",
+          "json": "{\"t\":\"evt\",\"rev\":9,\"ev\":\"record\",\"body\":{\"kind\":\"decision\",\"row\":{\"kind\":\"decision\",\"row\":{\"seq\":4294967398,\"atMs\":1794614401000,\"clockOk\":true,\"kind\":\"disarmed\",\"deviceId\":12,\"causeSeq\":4294967392,\"value\":null,\"detail\":\"42656e2028636c69656e74203929\"}}}}"
+        },
+        {
+          "to": "ben",
+          "json": "{\"t\":\"evt\",\"rev\":9,\"ev\":\"record\",\"body\":{\"kind\":\"decision\",\"row\":{\"kind\":\"decision\",\"row\":{\"seq\":4294967398,\"atMs\":1794614401000,\"clockOk\":true,\"kind\":\"disarmed\",\"deviceId\":12,\"causeSeq\":4294967392,\"value\":null,\"detail\":\"42656e2028636c69656e74203929\"}}}}"
+        },
+        {
+          "to": "console",
+          "json": "{\"t\":\"evt\",\"rev\":9,\"ev\":\"record\",\"body\":{\"kind\":\"decision\",\"row\":{\"kind\":\"decision\",\"row\":{\"seq\":4294967398,\"atMs\":1794614401000,\"clockOk\":true,\"kind\":\"disarmed\",\"deviceId\":12,\"causeSeq\":4294967392,\"value\":null,\"detail\":\"42656e2028636c69656e74203929\"}}}}"
+        },
+        {
+          "to": "anna",
+          "json": "{\"t\":\"evt\",\"rev\":9,\"ev\":\"arming\",\"body\":{\"sensors\":[{\"sensor\":12,\"arm\":\"disarmed\"}],\"mode\":{\"mode\":1,\"modified\":true}}}"
+        },
+        {
+          "to": "phone",
+          "json": "{\"t\":\"evt\",\"rev\":9,\"ev\":\"arming\",\"body\":{\"sensors\":[{\"sensor\":12,\"arm\":\"disarmed\"}],\"mode\":{\"mode\":1,\"modified\":true}}}"
+        },
+        {
+          "to": "ben",
+          "json": "{\"t\":\"evt\",\"rev\":9,\"ev\":\"arming\",\"body\":{\"sensors\":[{\"sensor\":12,\"arm\":\"disarmed\"}],\"mode\":{\"mode\":1,\"modified\":true}}}"
+        },
+        {
+          "to": "console",
+          "json": "{\"t\":\"evt\",\"rev\":9,\"ev\":\"arming\",\"body\":{\"sensors\":[{\"sensor\":12,\"arm\":\"disarmed\"}],\"mode\":{\"mode\":1,\"modified\":true}}}"
+        },
+        {
+          "to": "ben",
+          "json": "{\"t\":\"res\",\"id\":6,\"ok\":true,\"body\":{\"disarmed\":[11,12],\"heldBack\":[],\"alarmEnded\":false}}"
+        },
+        {
+          "to": "anna",
+          "json": "{\"t\":\"evt\",\"rev\":9,\"ev\":\"record\",\"body\":{\"kind\":\"command\",\"row\":{\"kind\":\"command\",\"row\":{\"seq\":4294967392,\"atMs\":1794614401000,\"clockOk\":true,\"actor\":\"Ben (client 9)\",\"kind\":\"disarm\",\"args\":\"{\\\"target\\\":\\\"mine\\\"}\",\"outcome\":\"ok\",\"detail\":null}}}}"
+        },
+        {
+          "to": "phone",
+          "json": "{\"t\":\"evt\",\"rev\":9,\"ev\":\"record\",\"body\":{\"kind\":\"command\",\"row\":{\"kind\":\"command\",\"row\":{\"seq\":4294967392,\"atMs\":1794614401000,\"clockOk\":true,\"actor\":\"Ben (client 9)\",\"kind\":\"disarm\",\"args\":\"{\\\"target\\\":\\\"mine\\\"}\",\"outcome\":\"ok\",\"detail\":null}}}}"
+        },
+        {
+          "to": "ben",
+          "json": "{\"t\":\"evt\",\"rev\":9,\"ev\":\"record\",\"body\":{\"kind\":\"command\",\"row\":{\"kind\":\"command\",\"row\":{\"seq\":4294967392,\"atMs\":1794614401000,\"clockOk\":true,\"actor\":\"Ben (client 9)\",\"kind\":\"disarm\",\"args\":\"{\\\"target\\\":\\\"mine\\\"}\",\"outcome\":\"ok\",\"detail\":null}}}}"
+        },
+        {
+          "to": "console",
+          "json": "{\"t\":\"evt\",\"rev\":9,\"ev\":\"record\",\"body\":{\"kind\":\"command\",\"row\":{\"kind\":\"command\",\"row\":{\"seq\":4294967392,\"atMs\":1794614401000,\"clockOk\":true,\"actor\":\"Ben (client 9)\",\"kind\":\"disarm\",\"args\":\"{\\\"target\\\":\\\"mine\\\"}\",\"outcome\":\"ok\",\"detail\":null}}}}"
+        }
+      ]
+    },
+    {
+      "step": "anna group.create",
+      "frames": [
+        {
+          "to": "anna",
+          "json": "{\"t\":\"evt\",\"rev\":10,\"ev\":\"config\",\"body\":{\"group\":{\"id\":1,\"name\":\"Downstairs\",\"sensors\":[11,12],\"sirens\":\"all\",\"revision\":0}}}"
+        },
+        {
+          "to": "phone",
+          "json": "{\"t\":\"evt\",\"rev\":10,\"ev\":\"config\",\"body\":{\"group\":{\"id\":1,\"name\":\"Downstairs\",\"sensors\":[11,12],\"sirens\":\"all\",\"revision\":0}}}"
+        },
+        {
+          "to": "ben",
+          "json": "{\"t\":\"evt\",\"rev\":10,\"ev\":\"config\",\"body\":{\"group\":{\"id\":1,\"name\":\"Downstairs\",\"sensors\":[11,12],\"sirens\":\"all\",\"revision\":0}}}"
+        },
+        {
+          "to": "console",
+          "json": "{\"t\":\"evt\",\"rev\":10,\"ev\":\"config\",\"body\":{\"group\":{\"id\":1,\"name\":\"Downstairs\",\"sensors\":[11,12],\"sirens\":\"all\",\"revision\":0}}}"
+        },
+        {
+          "to": "anna",
+          "json": "{\"t\":\"res\",\"id\":16,\"ok\":true,\"body\":{\"id\":1,\"name\":\"Downstairs\",\"sensors\":[11,12],\"sirens\":\"all\",\"revision\":0}}"
+        },
+        {
+          "to": "anna",
+          "json": "{\"t\":\"evt\",\"rev\":10,\"ev\":\"record\",\"body\":{\"kind\":\"command\",\"row\":{\"kind\":\"command\",\"row\":{\"seq\":4294967405,\"atMs\":1794614401000,\"clockOk\":true,\"actor\":\"Anna (client 7)\",\"kind\":\"group.create\",\"args\":\"{\\\"name\\\":\\\"Downstairs\\\",\\\"sensors\\\":[11,12],\\\"sirens\\\":\\\"all\\\"}\",\"outcome\":\"ok\",\"detail\":null}}}}"
+        },
+        {
+          "to": "phone",
+          "json": "{\"t\":\"evt\",\"rev\":10,\"ev\":\"record\",\"body\":{\"kind\":\"command\",\"row\":{\"kind\":\"command\",\"row\":{\"seq\":4294967405,\"atMs\":1794614401000,\"clockOk\":true,\"actor\":\"Anna (client 7)\",\"kind\":\"group.create\",\"args\":\"{\\\"name\\\":\\\"Downstairs\\\",\\\"sensors\\\":[11,12],\\\"sirens\\\":\\\"all\\\"}\",\"outcome\":\"ok\",\"detail\":null}}}}"
+        },
+        {
+          "to": "ben",
+          "json": "{\"t\":\"evt\",\"rev\":10,\"ev\":\"record\",\"body\":{\"kind\":\"command\",\"row\":{\"kind\":\"command\",\"row\":{\"seq\":4294967405,\"atMs\":1794614401000,\"clockOk\":true,\"actor\":\"Anna (client 7)\",\"kind\":\"group.create\",\"args\":\"{\\\"name\\\":\\\"Downstairs\\\",\\\"sensors\\\":[11,12],\\\"sirens\\\":\\\"all\\\"}\",\"outcome\":\"ok\",\"detail\":null}}}}"
+        },
+        {
+          "to": "console",
+          "json": "{\"t\":\"evt\",\"rev\":10,\"ev\":\"record\",\"body\":{\"kind\":\"command\",\"row\":{\"kind\":\"command\",\"row\":{\"seq\":4294967405,\"atMs\":1794614401000,\"clockOk\":true,\"actor\":\"Anna (client 7)\",\"kind\":\"group.create\",\"args\":\"{\\\"name\\\":\\\"Downstairs\\\",\\\"sensors\\\":[11,12],\\\"sirens\\\":\\\"all\\\"}\",\"outcome\":\"ok\",\"detail\":null}}}}"
+        }
+      ]
+    },
+    {
+      "step": "anna link.create",
+      "frames": [
+        {
+          "to": "anna",
+          "json": "{\"t\":\"res\",\"id\":17,\"ok\":true,\"body\":{\"token\":1,\"qr\":\"hsn://link/1?h=ijpnjzfdnmyouinzbyq4oewgje&s=WlpaWlpaWlpaWlpaWlpaWg&a=192.168.1.10,fd00::10&p=8444&c=q6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6s\",\"expiresInMs\":600000}}"
+        },
+        {
+          "to": "anna",
+          "json": "{\"t\":\"evt\",\"rev\":11,\"ev\":\"record\",\"body\":{\"kind\":\"command\",\"row\":{\"kind\":\"command\",\"row\":{\"seq\":4294967409,\"atMs\":1794614401000,\"clockOk\":true,\"actor\":\"Anna (client 7)\",\"kind\":\"link.create\",\"args\":\"{\\\"kind\\\":\\\"ownDevice\\\",\\\"form\\\":\\\"qr\\\"}\",\"outcome\":\"ok\",\"detail\":null}}}}"
+        },
+        {
+          "to": "phone",
+          "json": "{\"t\":\"evt\",\"rev\":11,\"ev\":\"record\",\"body\":{\"kind\":\"command\",\"row\":{\"kind\":\"command\",\"row\":{\"seq\":4294967409,\"atMs\":1794614401000,\"clockOk\":true,\"actor\":\"Anna (client 7)\",\"kind\":\"link.create\",\"args\":\"{\\\"kind\\\":\\\"ownDevice\\\",\\\"form\\\":\\\"qr\\\"}\",\"outcome\":\"ok\",\"detail\":null}}}}"
+        },
+        {
+          "to": "ben",
+          "json": "{\"t\":\"evt\",\"rev\":11,\"ev\":\"record\",\"body\":{\"kind\":\"command\",\"row\":{\"kind\":\"command\",\"row\":{\"seq\":4294967409,\"atMs\":1794614401000,\"clockOk\":true,\"actor\":\"Anna (client 7)\",\"kind\":\"link.create\",\"args\":\"{\\\"kind\\\":\\\"ownDevice\\\",\\\"form\\\":\\\"qr\\\"}\",\"outcome\":\"ok\",\"detail\":null}}}}"
+        },
+        {
+          "to": "console",
+          "json": "{\"t\":\"evt\",\"rev\":11,\"ev\":\"record\",\"body\":{\"kind\":\"command\",\"row\":{\"kind\":\"command\",\"row\":{\"seq\":4294967409,\"atMs\":1794614401000,\"clockOk\":true,\"actor\":\"Anna (client 7)\",\"kind\":\"link.create\",\"args\":\"{\\\"kind\\\":\\\"ownDevice\\\",\\\"form\\\":\\\"qr\\\"}\",\"outcome\":\"ok\",\"detail\":null}}}}"
+        }
+      ]
+    },
+    {
+      "step": "anna client.rename",
+      "frames": [
+        {
+          "to": "anna",
+          "json": "{\"t\":\"evt\",\"rev\":12,\"ev\":\"people\",\"body\":{\"client\":{\"id\":7,\"person\":1,\"kind\":\"web\",\"name\":\"Anna's laptop\",\"createdMs\":1794528000000,\"lastSeenMs\":1794614401000,\"linkedBy\":null}}}"
+        },
+        {
+          "to": "phone",
+          "json": "{\"t\":\"evt\",\"rev\":12,\"ev\":\"people\",\"body\":{\"client\":{\"id\":7,\"person\":1,\"kind\":\"web\",\"name\":\"Anna's laptop\",\"createdMs\":1794528000000,\"lastSeenMs\":1794614401000,\"linkedBy\":null}}}"
+        },
+        {
+          "to": "ben",
+          "json": "{\"t\":\"evt\",\"rev\":12,\"ev\":\"people\",\"body\":{\"client\":{\"id\":7,\"person\":1,\"kind\":\"web\",\"name\":\"Anna's laptop\",\"createdMs\":1794528000000,\"lastSeenMs\":1794614401000,\"linkedBy\":null}}}"
+        },
+        {
+          "to": "console",
+          "json": "{\"t\":\"evt\",\"rev\":12,\"ev\":\"people\",\"body\":{\"client\":{\"id\":7,\"person\":1,\"kind\":\"web\",\"name\":\"Anna's laptop\",\"createdMs\":1794528000000,\"lastSeenMs\":1794614401000,\"linkedBy\":null}}}"
+        },
+        {
+          "to": "anna",
+          "json": "{\"t\":\"evt\",\"rev\":12,\"ev\":\"record\",\"body\":{\"kind\":\"decision\",\"row\":{\"kind\":\"decision\",\"row\":{\"seq\":4294967415,\"atMs\":1794614401000,\"clockOk\":true,\"kind\":\"client_renamed\",\"deviceId\":null,\"causeSeq\":4294967413,\"value\":7,\"detail\":\"7b2266726f6d223a22636c69656e742d37222c22746f223a22416e6e612773206c6170746f70222c226279223a22416e6e612028636c69656e74203729227d\"}}}}"
+        },
+        {
+          "to": "phone",
+          "json": "{\"t\":\"evt\",\"rev\":12,\"ev\":\"record\",\"body\":{\"kind\":\"decision\",\"row\":{\"kind\":\"decision\",\"row\":{\"seq\":4294967415,\"atMs\":1794614401000,\"clockOk\":true,\"kind\":\"client_renamed\",\"deviceId\":null,\"causeSeq\":4294967413,\"value\":7,\"detail\":\"7b2266726f6d223a22636c69656e742d37222c22746f223a22416e6e612773206c6170746f70222c226279223a22416e6e612028636c69656e74203729227d\"}}}}"
+        },
+        {
+          "to": "ben",
+          "json": "{\"t\":\"evt\",\"rev\":12,\"ev\":\"record\",\"body\":{\"kind\":\"decision\",\"row\":{\"kind\":\"decision\",\"row\":{\"seq\":4294967415,\"atMs\":1794614401000,\"clockOk\":true,\"kind\":\"client_renamed\",\"deviceId\":null,\"causeSeq\":4294967413,\"value\":7,\"detail\":\"7b2266726f6d223a22636c69656e742d37222c22746f223a22416e6e612773206c6170746f70222c226279223a22416e6e612028636c69656e74203729227d\"}}}}"
+        },
+        {
+          "to": "console",
+          "json": "{\"t\":\"evt\",\"rev\":12,\"ev\":\"record\",\"body\":{\"kind\":\"decision\",\"row\":{\"kind\":\"decision\",\"row\":{\"seq\":4294967415,\"atMs\":1794614401000,\"clockOk\":true,\"kind\":\"client_renamed\",\"deviceId\":null,\"causeSeq\":4294967413,\"value\":7,\"detail\":\"7b2266726f6d223a22636c69656e742d37222c22746f223a22416e6e612773206c6170746f70222c226279223a22416e6e612028636c69656e74203729227d\"}}}}"
+        },
+        {
+          "to": "anna",
+          "json": "{\"t\":\"res\",\"id\":18,\"ok\":true,\"body\":{}}"
+        },
+        {
+          "to": "anna",
+          "json": "{\"t\":\"evt\",\"rev\":12,\"ev\":\"record\",\"body\":{\"kind\":\"command\",\"row\":{\"kind\":\"command\",\"row\":{\"seq\":4294967413,\"atMs\":1794614401000,\"clockOk\":true,\"actor\":\"Anna (client 7)\",\"kind\":\"client.rename\",\"args\":\"{\\\"client\\\":7,\\\"name\\\":\\\"Anna's laptop\\\"}\",\"outcome\":\"ok\",\"detail\":null}}}}"
+        },
+        {
+          "to": "phone",
+          "json": "{\"t\":\"evt\",\"rev\":12,\"ev\":\"record\",\"body\":{\"kind\":\"command\",\"row\":{\"kind\":\"command\",\"row\":{\"seq\":4294967413,\"atMs\":1794614401000,\"clockOk\":true,\"actor\":\"Anna (client 7)\",\"kind\":\"client.rename\",\"args\":\"{\\\"client\\\":7,\\\"name\\\":\\\"Anna's laptop\\\"}\",\"outcome\":\"ok\",\"detail\":null}}}}"
+        },
+        {
+          "to": "ben",
+          "json": "{\"t\":\"evt\",\"rev\":12,\"ev\":\"record\",\"body\":{\"kind\":\"command\",\"row\":{\"kind\":\"command\",\"row\":{\"seq\":4294967413,\"atMs\":1794614401000,\"clockOk\":true,\"actor\":\"Anna (client 7)\",\"kind\":\"client.rename\",\"args\":\"{\\\"client\\\":7,\\\"name\\\":\\\"Anna's laptop\\\"}\",\"outcome\":\"ok\",\"detail\":null}}}}"
+        },
+        {
+          "to": "console",
+          "json": "{\"t\":\"evt\",\"rev\":12,\"ev\":\"record\",\"body\":{\"kind\":\"command\",\"row\":{\"kind\":\"command\",\"row\":{\"seq\":4294967413,\"atMs\":1794614401000,\"clockOk\":true,\"actor\":\"Anna (client 7)\",\"kind\":\"client.rename\",\"args\":\"{\\\"client\\\":7,\\\"name\\\":\\\"Anna's laptop\\\"}\",\"outcome\":\"ok\",\"detail\":null}}}}"
+        }
+      ]
+    },
+    {
+      "step": "console usb.list",
+      "frames": [
+        {
+          "to": "console",
+          "json": "{\"t\":\"res\",\"id\":6,\"ok\":true,\"body\":{\"ports\":[]}}"
+        }
+      ]
+    },
+    {
+      "step": "anna usb.list on the home network",
+      "frames": [
+        {
+          "to": "anna",
+          "json": "{\"t\":\"res\",\"id\":19,\"ok\":false,\"error\":{\"code\":\"consoleOnly\",\"detail\":{}}}"
+        }
+      ]
+    },
+    {
+      "step": "console device.remove",
+      "frames": [
+        {
+          "to": "console",
+          "json": "{\"t\":\"res\",\"id\":7,\"ok\":false,\"error\":{\"code\":\"busy\",\"detail\":{\"because\":\"countdown\"}}}"
+        },
+        {
+          "to": "anna",
+          "json": "{\"t\":\"evt\",\"rev\":13,\"ev\":\"record\",\"body\":{\"kind\":\"command\",\"row\":{\"kind\":\"command\",\"row\":{\"seq\":4294967423,\"atMs\":1794614401000,\"clockOk\":true,\"actor\":\"hub computer (client 1)\",\"kind\":\"device.remove\",\"args\":\"{\\\"device\\\":12}\",\"outcome\":\"busy\",\"detail\":null}}}}"
+        },
+        {
+          "to": "phone",
+          "json": "{\"t\":\"evt\",\"rev\":13,\"ev\":\"record\",\"body\":{\"kind\":\"command\",\"row\":{\"kind\":\"command\",\"row\":{\"seq\":4294967423,\"atMs\":1794614401000,\"clockOk\":true,\"actor\":\"hub computer (client 1)\",\"kind\":\"device.remove\",\"args\":\"{\\\"device\\\":12}\",\"outcome\":\"busy\",\"detail\":null}}}}"
+        },
+        {
+          "to": "ben",
+          "json": "{\"t\":\"evt\",\"rev\":13,\"ev\":\"record\",\"body\":{\"kind\":\"command\",\"row\":{\"kind\":\"command\",\"row\":{\"seq\":4294967423,\"atMs\":1794614401000,\"clockOk\":true,\"actor\":\"hub computer (client 1)\",\"kind\":\"device.remove\",\"args\":\"{\\\"device\\\":12}\",\"outcome\":\"busy\",\"detail\":null}}}}"
+        },
+        {
+          "to": "console",
+          "json": "{\"t\":\"evt\",\"rev\":13,\"ev\":\"record\",\"body\":{\"kind\":\"command\",\"row\":{\"kind\":\"command\",\"row\":{\"seq\":4294967423,\"atMs\":1794614401000,\"clockOk\":true,\"actor\":\"hub computer (client 1)\",\"kind\":\"device.remove\",\"args\":\"{\\\"device\\\":12}\",\"outcome\":\"busy\",\"detail\":null}}}}"
+        }
+      ]
+    },
+    {
+      "step": "the stand-ins raise a notification, the key's replacement and an update",
+      "frames": [
+        {
+          "to": "anna",
+          "json": "{\"t\":\"evt\",\"rev\":14,\"ev\":\"notification\",\"body\":{\"seq\":4294968196,\"atMs\":1794614405000,\"clockOk\":true,\"kind\":\"armed_door_opened\",\"category\":\"countdown\",\"critical\":false,\"device\":11,\"cause\":null,\"read\":false,\"delayed\":false}}"
+        },
+        {
+          "to": "phone",
+          "json": "{\"t\":\"evt\",\"rev\":14,\"ev\":\"notification\",\"body\":{\"seq\":4294968196,\"atMs\":1794614405000,\"clockOk\":true,\"kind\":\"armed_door_opened\",\"category\":\"countdown\",\"critical\":false,\"device\":11,\"cause\":null,\"read\":false,\"delayed\":false}}"
+        },
+        {
+          "to": "ben",
+          "json": "{\"t\":\"evt\",\"rev\":14,\"ev\":\"notification\",\"body\":{\"seq\":4294968196,\"atMs\":1794614405000,\"clockOk\":true,\"kind\":\"armed_door_opened\",\"category\":\"countdown\",\"critical\":false,\"device\":11,\"cause\":null,\"read\":false,\"delayed\":false}}"
+        },
+        {
+          "to": "console",
+          "json": "{\"t\":\"evt\",\"rev\":14,\"ev\":\"notification\",\"body\":{\"seq\":4294968196,\"atMs\":1794614405000,\"clockOk\":true,\"kind\":\"armed_door_opened\",\"category\":\"countdown\",\"critical\":false,\"device\":11,\"cause\":null,\"read\":false,\"delayed\":false}}"
+        },
+        {
+          "to": "phone",
+          "json": "{\"t\":\"evt\",\"rev\":14,\"ev\":\"backupKeyChanged\",\"body\":{\"epoch\":3}}"
+        },
+        {
+          "to": "anna",
+          "json": "{\"t\":\"evt\",\"rev\":14,\"ev\":\"hub\",\"body\":{\"what\":\"backup\",\"detail\":{\"kind\":\"backup_key_replaced\",\"value\":3}}}"
+        },
+        {
+          "to": "phone",
+          "json": "{\"t\":\"evt\",\"rev\":14,\"ev\":\"hub\",\"body\":{\"what\":\"backup\",\"detail\":{\"kind\":\"backup_key_replaced\",\"value\":3}}}"
+        },
+        {
+          "to": "ben",
+          "json": "{\"t\":\"evt\",\"rev\":14,\"ev\":\"hub\",\"body\":{\"what\":\"backup\",\"detail\":{\"kind\":\"backup_key_replaced\",\"value\":3}}}"
+        },
+        {
+          "to": "console",
+          "json": "{\"t\":\"evt\",\"rev\":14,\"ev\":\"hub\",\"body\":{\"what\":\"backup\",\"detail\":{\"kind\":\"backup_key_replaced\",\"value\":3}}}"
+        },
+        {
+          "to": "anna",
+          "json": "{\"t\":\"evt\",\"rev\":14,\"ev\":\"record\",\"body\":{\"kind\":\"decision\",\"row\":{\"kind\":\"decision\",\"row\":{\"seq\":4294968249,\"atMs\":1794614406000,\"clockOk\":true,\"kind\":\"backup_key_replaced\",\"deviceId\":null,\"causeSeq\":null,\"value\":3,\"detail\":null}}}}"
+        },
+        {
+          "to": "phone",
+          "json": "{\"t\":\"evt\",\"rev\":14,\"ev\":\"record\",\"body\":{\"kind\":\"decision\",\"row\":{\"kind\":\"decision\",\"row\":{\"seq\":4294968249,\"atMs\":1794614406000,\"clockOk\":true,\"kind\":\"backup_key_replaced\",\"deviceId\":null,\"causeSeq\":null,\"value\":3,\"detail\":null}}}}"
+        },
+        {
+          "to": "ben",
+          "json": "{\"t\":\"evt\",\"rev\":14,\"ev\":\"record\",\"body\":{\"kind\":\"decision\",\"row\":{\"kind\":\"decision\",\"row\":{\"seq\":4294968249,\"atMs\":1794614406000,\"clockOk\":true,\"kind\":\"backup_key_replaced\",\"deviceId\":null,\"causeSeq\":null,\"value\":3,\"detail\":null}}}}"
+        },
+        {
+          "to": "console",
+          "json": "{\"t\":\"evt\",\"rev\":14,\"ev\":\"record\",\"body\":{\"kind\":\"decision\",\"row\":{\"kind\":\"decision\",\"row\":{\"seq\":4294968249,\"atMs\":1794614406000,\"clockOk\":true,\"kind\":\"backup_key_replaced\",\"deviceId\":null,\"causeSeq\":null,\"value\":3,\"detail\":null}}}}"
+        },
+        {
+          "to": "anna",
+          "json": "{\"t\":\"evt\",\"rev\":14,\"ev\":\"hub\",\"body\":{\"what\":\"updateStaged\",\"detail\":{\"value\":null}}}"
+        },
+        {
+          "to": "phone",
+          "json": "{\"t\":\"evt\",\"rev\":14,\"ev\":\"hub\",\"body\":{\"what\":\"updateStaged\",\"detail\":{\"value\":null}}}"
+        },
+        {
+          "to": "ben",
+          "json": "{\"t\":\"evt\",\"rev\":14,\"ev\":\"hub\",\"body\":{\"what\":\"updateStaged\",\"detail\":{\"value\":null}}}"
+        },
+        {
+          "to": "console",
+          "json": "{\"t\":\"evt\",\"rev\":14,\"ev\":\"hub\",\"body\":{\"what\":\"updateStaged\",\"detail\":{\"value\":null}}}"
+        },
+        {
+          "to": "anna",
+          "json": "{\"t\":\"evt\",\"rev\":14,\"ev\":\"record\",\"body\":{\"kind\":\"decision\",\"row\":{\"kind\":\"decision\",\"row\":{\"seq\":4294968246,\"atMs\":1794614406000,\"clockOk\":true,\"kind\":\"update_staged\",\"deviceId\":null,\"causeSeq\":null,\"value\":null,\"detail\":null}}}}"
+        },
+        {
+          "to": "phone",
+          "json": "{\"t\":\"evt\",\"rev\":14,\"ev\":\"record\",\"body\":{\"kind\":\"decision\",\"row\":{\"kind\":\"decision\",\"row\":{\"seq\":4294968246,\"atMs\":1794614406000,\"clockOk\":true,\"kind\":\"update_staged\",\"deviceId\":null,\"causeSeq\":null,\"value\":null,\"detail\":null}}}}"
+        },
+        {
+          "to": "ben",
+          "json": "{\"t\":\"evt\",\"rev\":14,\"ev\":\"record\",\"body\":{\"kind\":\"decision\",\"row\":{\"kind\":\"decision\",\"row\":{\"seq\":4294968246,\"atMs\":1794614406000,\"clockOk\":true,\"kind\":\"update_staged\",\"deviceId\":null,\"causeSeq\":null,\"value\":null,\"detail\":null}}}}"
+        },
+        {
+          "to": "console",
+          "json": "{\"t\":\"evt\",\"rev\":14,\"ev\":\"record\",\"body\":{\"kind\":\"decision\",\"row\":{\"kind\":\"decision\",\"row\":{\"seq\":4294968246,\"atMs\":1794614406000,\"clockOk\":true,\"kind\":\"update_staged\",\"deviceId\":null,\"causeSeq\":null,\"value\":null,\"detail\":null}}}}"
+        }
+      ]
+    },
+    {
+      "step": "anna snapshot again",
+      "frames": [
+        {
+          "to": "anna",
+          "json": "{\"t\":\"res\",\"id\":20,\"ok\":true,\"body\":{\"rev\":14,\"hub\":{\"hub\":\"2.0.0\",\"proto\":1,\"identity\":\"ijpnjzfdnmyouinzbyq4oewgje\",\"fingerprint\":\"AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB\",\"timeZone\":\"\",\"clockTrusted\":true,\"boot\":1},\"site\":{\"channel\":1,\"rate\":5,\"countdownS\":30,\"autoStopS\":300,\"wifiName\":\"home-2\",\"retentionRoutineDays\":30,\"retentionEventDays\":365},\"mode\":{\"mode\":1,\"modified\":true},\"devices\":[{\"id\":11,\"name\":\"front-door\",\"role\":\"sensor\",\"state\":\"contacted\",\"firmware\":\"1.2.3\",\"batteryPercent\":null,\"signal\":null,\"temperatureC\":null,\"lastSeenMs\":null,\"heardBy\":null,\"health\":{\"silent\":false,\"batteryLow\":false,\"tamperOpen\":false,\"poorLink\":false}},{\"id\":12,\"name\":\"garage\",\"role\":\"sensor\",\"state\":\"contacted\",\"firmware\":\"1.2.3\",\"batteryPercent\":null,\"signal\":null,\"temperatureC\":null,\"lastSeenMs\":null,\"heardBy\":null,\"health\":{\"silent\":false,\"batteryLow\":false,\"tamperOpen\":false,\"poorLink\":false}},{\"id\":21,\"name\":\"hall\",\"role\":\"siren\",\"state\":\"contacted\",\"firmware\":\"1.2.3\",\"batteryPercent\":null,\"signal\":null,\"temperatureC\":null,\"lastSeenMs\":null,\"heardBy\":null,\"health\":{\"silent\":false,\"batteryLow\":false,\"tamperOpen\":false,\"poorLink\":false}}],\"sensors\":[{\"id\":11,\"arm\":\"disarmed\",\"door\":\"unknown\",\"countdownSecondsLeft\":null},{\"id\":12,\"arm\":\"disarmed\",\"door\":\"unknown\",\"countdownSecondsLeft\":null}],\"sirens\":[{\"id\":21,\"should\":{\"kind\":\"off\",\"secondsLeft\":null},\"commanded\":null,\"reported\":null,\"wifi\":\"unknown\",\"lora\":\"unknown\"}],\"gateways\":[],\"alarm\":null,\"siteMove\":null,\"notifications\":[],\"modes\":[{\"id\":1,\"name\":\"Away\",\"fixed\":\"away\",\"groups\":[],\"revision\":0},{\"id\":2,\"name\":\"Disarmed\",\"fixed\":\"disarmed\",\"groups\":[],\"revision\":0}],\"groups\":[{\"id\":1,\"name\":\"Downstairs\",\"sensors\":[11,12],\"sirens\":\"all\",\"revision\":0}],\"schedules\":[],\"notificationPrefs\":{\"categories\":[\"sensorSilentWhileDisarmed\",\"sirenPathLost\",\"gatewayOffline\",\"batteryLow\",\"armDisarm\",\"updates\"],\"revision\":0}}}"
+        }
+      ]
+    }
+  ],
+  "beside": [
+    {
+      "step": "anna subscribe",
+      "frames": [
+        {
+          "to": "anna",
+          "json": "{\"t\":\"res\",\"id\":1,\"ok\":true,\"body\":{\"topics\":[\"arming\",\"devices\",\"alarm\",\"notifications\",\"history\",\"config\",\"people\",\"hub\"]}}"
+        }
+      ]
+    },
+    {
+      "step": "anna snapshot",
+      "frames": [
+        {
+          "to": "anna",
+          "json": "{\"t\":\"res\",\"id\":2,\"ok\":true,\"body\":{\"rev\":0,\"hub\":{\"hub\":\"2.0.0\",\"proto\":1,\"identity\":\"ijpnjzfdnmyouinzbyq4oewgje\",\"fingerprint\":\"AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB\",\"timeZone\":\"\",\"clockTrusted\":true,\"boot\":1},\"site\":{\"channel\":1,\"rate\":5,\"countdownS\":30,\"autoStopS\":300,\"wifiName\":\"home\",\"retentionRoutineDays\":30,\"retentionEventDays\":365},\"mode\":{\"mode\":2,\"modified\":false},\"devices\":[{\"id\":11,\"name\":\"front\",\"role\":\"sensor\",\"state\":\"contacted\",\"firmware\":\"1.2.3\",\"batteryPercent\":null,\"signal\":null,\"temperatureC\":null,\"lastSeenMs\":null,\"heardBy\":null,\"health\":{\"silent\":false,\"batteryLow\":false,\"tamperOpen\":false,\"poorLink\":false}},{\"id\":12,\"name\":\"garage\",\"role\":\"sensor\",\"state\":\"contacted\",\"firmware\":\"1.2.3\",\"batteryPercent\":null,\"signal\":null,\"temperatureC\":null,\"lastSeenMs\":null,\"heardBy\":null,\"health\":{\"silent\":false,\"batteryLow\":false,\"tamperOpen\":false,\"poorLink\":false}},{\"id\":21,\"name\":\"hall\",\"role\":\"siren\",\"state\":\"contacted\",\"firmware\":\"1.2.3\",\"batteryPercent\":null,\"signal\":null,\"temperatureC\":null,\"lastSeenMs\":null,\"heardBy\":null,\"health\":{\"silent\":false,\"batteryLow\":false,\"tamperOpen\":false,\"poorLink\":false}}],\"sensors\":[{\"id\":11,\"arm\":\"disarmed\",\"door\":\"unknown\",\"countdownSecondsLeft\":null},{\"id\":12,\"arm\":\"disarmed\",\"door\":\"unknown\",\"countdownSecondsLeft\":null}],\"sirens\":[{\"id\":21,\"should\":{\"kind\":\"off\",\"secondsLeft\":null},\"commanded\":null,\"reported\":null,\"wifi\":\"unknown\",\"lora\":\"unknown\"}],\"gateways\":[],\"alarm\":null,\"siteMove\":null,\"notifications\":[],\"modes\":[{\"id\":1,\"name\":\"Away\",\"fixed\":\"away\",\"groups\":[],\"revision\":0},{\"id\":2,\"name\":\"Disarmed\",\"fixed\":\"disarmed\",\"groups\":[],\"revision\":0}],\"groups\":[],\"schedules\":[],\"notificationPrefs\":{\"categories\":[\"sensorSilentWhileDisarmed\",\"sirenPathLost\",\"gatewayOffline\",\"batteryLow\",\"armDisarm\",\"updates\"],\"revision\":0}}}"
+        }
+      ]
+    },
+    {
+      "step": "anna hub.info",
+      "frames": [
+        {
+          "to": "anna",
+          "json": "{\"t\":\"res\",\"id\":3,\"ok\":true,\"body\":{\"hub\":\"2.0.0\",\"proto\":1,\"identity\":\"ijpnjzfdnmyouinzbyq4oewgje\",\"fingerprint\":\"AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB\",\"timeZone\":\"\",\"clockTrusted\":true,\"boot\":1}}"
+        }
+      ]
+    },
+    {
+      "step": "anna device.list",
+      "frames": [
+        {
+          "to": "anna",
+          "json": "{\"t\":\"res\",\"id\":4,\"ok\":true,\"body\":{\"devices\":[{\"id\":11,\"name\":\"front\",\"role\":\"sensor\",\"state\":\"contacted\",\"firmware\":\"1.2.3\",\"batteryPercent\":null,\"signal\":null,\"temperatureC\":null,\"lastSeenMs\":null,\"heardBy\":null,\"health\":{\"silent\":false,\"batteryLow\":false,\"tamperOpen\":false,\"poorLink\":false}},{\"id\":12,\"name\":\"garage\",\"role\":\"sensor\",\"state\":\"contacted\",\"firmware\":\"1.2.3\",\"batteryPercent\":null,\"signal\":null,\"temperatureC\":null,\"lastSeenMs\":null,\"heardBy\":null,\"health\":{\"silent\":false,\"batteryLow\":false,\"tamperOpen\":false,\"poorLink\":false}},{\"id\":21,\"name\":\"hall\",\"role\":\"siren\",\"state\":\"contacted\",\"firmware\":\"1.2.3\",\"batteryPercent\":null,\"signal\":null,\"temperatureC\":null,\"lastSeenMs\":null,\"heardBy\":null,\"health\":{\"silent\":false,\"batteryLow\":false,\"tamperOpen\":false,\"poorLink\":false}}]}}"
+        }
+      ]
+    },
+    {
+      "step": "phone subscribe",
+      "frames": [
+        {
+          "to": "phone",
+          "json": "{\"t\":\"res\",\"id\":1,\"ok\":true,\"body\":{\"topics\":[\"arming\",\"devices\",\"alarm\",\"notifications\",\"history\",\"config\",\"people\",\"hub\"]}}"
+        }
+      ]
+    },
+    {
+      "step": "phone snapshot",
+      "frames": [
+        {
+          "to": "phone",
+          "json": "{\"t\":\"res\",\"id\":2,\"ok\":true,\"body\":{\"rev\":0,\"hub\":{\"hub\":\"2.0.0\",\"proto\":1,\"identity\":\"ijpnjzfdnmyouinzbyq4oewgje\",\"fingerprint\":\"AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB\",\"timeZone\":\"\",\"clockTrusted\":true,\"boot\":1},\"site\":{\"channel\":1,\"rate\":5,\"countdownS\":30,\"autoStopS\":300,\"wifiName\":\"home\",\"retentionRoutineDays\":30,\"retentionEventDays\":365},\"mode\":{\"mode\":2,\"modified\":false},\"devices\":[{\"id\":11,\"name\":\"front\",\"role\":\"sensor\",\"state\":\"contacted\",\"firmware\":\"1.2.3\",\"batteryPercent\":null,\"signal\":null,\"temperatureC\":null,\"lastSeenMs\":null,\"heardBy\":null,\"health\":{\"silent\":false,\"batteryLow\":false,\"tamperOpen\":false,\"poorLink\":false}},{\"id\":12,\"name\":\"garage\",\"role\":\"sensor\",\"state\":\"contacted\",\"firmware\":\"1.2.3\",\"batteryPercent\":null,\"signal\":null,\"temperatureC\":null,\"lastSeenMs\":null,\"heardBy\":null,\"health\":{\"silent\":false,\"batteryLow\":false,\"tamperOpen\":false,\"poorLink\":false}},{\"id\":21,\"name\":\"hall\",\"role\":\"siren\",\"state\":\"contacted\",\"firmware\":\"1.2.3\",\"batteryPercent\":null,\"signal\":null,\"temperatureC\":null,\"lastSeenMs\":null,\"heardBy\":null,\"health\":{\"silent\":false,\"batteryLow\":false,\"tamperOpen\":false,\"poorLink\":false}}],\"sensors\":[{\"id\":11,\"arm\":\"disarmed\",\"door\":\"unknown\",\"countdownSecondsLeft\":null},{\"id\":12,\"arm\":\"disarmed\",\"door\":\"unknown\",\"countdownSecondsLeft\":null}],\"sirens\":[{\"id\":21,\"should\":{\"kind\":\"off\",\"secondsLeft\":null},\"commanded\":null,\"reported\":null,\"wifi\":\"unknown\",\"lora\":\"unknown\"}],\"gateways\":[],\"alarm\":null,\"siteMove\":null,\"notifications\":[],\"modes\":[{\"id\":1,\"name\":\"Away\",\"fixed\":\"away\",\"groups\":[],\"revision\":0},{\"id\":2,\"name\":\"Disarmed\",\"fixed\":\"disarmed\",\"groups\":[],\"revision\":0}],\"groups\":[],\"schedules\":[],\"notificationPrefs\":{\"categories\":[\"sensorSilentWhileDisarmed\",\"sirenPathLost\",\"gatewayOffline\",\"batteryLow\",\"armDisarm\",\"updates\"],\"revision\":0}}}"
+        }
+      ]
+    },
+    {
+      "step": "phone hub.info",
+      "frames": [
+        {
+          "to": "phone",
+          "json": "{\"t\":\"res\",\"id\":3,\"ok\":true,\"body\":{\"hub\":\"2.0.0\",\"proto\":1,\"identity\":\"ijpnjzfdnmyouinzbyq4oewgje\",\"fingerprint\":\"AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB\",\"timeZone\":\"\",\"clockTrusted\":true,\"boot\":1}}"
+        }
+      ]
+    },
+    {
+      "step": "phone device.list",
+      "frames": [
+        {
+          "to": "phone",
+          "json": "{\"t\":\"res\",\"id\":4,\"ok\":true,\"body\":{\"devices\":[{\"id\":11,\"name\":\"front\",\"role\":\"sensor\",\"state\":\"contacted\",\"firmware\":\"1.2.3\",\"batteryPercent\":null,\"signal\":null,\"temperatureC\":null,\"lastSeenMs\":null,\"heardBy\":null,\"health\":{\"silent\":false,\"batteryLow\":false,\"tamperOpen\":false,\"poorLink\":false}},{\"id\":12,\"name\":\"garage\",\"role\":\"sensor\",\"state\":\"contacted\",\"firmware\":\"1.2.3\",\"batteryPercent\":null,\"signal\":null,\"temperatureC\":null,\"lastSeenMs\":null,\"heardBy\":null,\"health\":{\"silent\":false,\"batteryLow\":false,\"tamperOpen\":false,\"poorLink\":false}},{\"id\":21,\"name\":\"hall\",\"role\":\"siren\",\"state\":\"contacted\",\"firmware\":\"1.2.3\",\"batteryPercent\":null,\"signal\":null,\"temperatureC\":null,\"lastSeenMs\":null,\"heardBy\":null,\"health\":{\"silent\":false,\"batteryLow\":false,\"tamperOpen\":false,\"poorLink\":false}}]}}"
+        }
+      ]
+    },
+    {
+      "step": "ben subscribe",
+      "frames": [
+        {
+          "to": "ben",
+          "json": "{\"t\":\"res\",\"id\":1,\"ok\":true,\"body\":{\"topics\":[\"arming\",\"devices\",\"alarm\",\"notifications\",\"history\",\"config\",\"people\",\"hub\"]}}"
+        }
+      ]
+    },
+    {
+      "step": "ben snapshot",
+      "frames": [
+        {
+          "to": "ben",
+          "json": "{\"t\":\"res\",\"id\":2,\"ok\":true,\"body\":{\"rev\":0,\"hub\":{\"hub\":\"2.0.0\",\"proto\":1,\"identity\":\"ijpnjzfdnmyouinzbyq4oewgje\",\"fingerprint\":\"AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB\",\"timeZone\":\"\",\"clockTrusted\":true,\"boot\":1},\"site\":{\"channel\":1,\"rate\":5,\"countdownS\":30,\"autoStopS\":300,\"wifiName\":\"home\",\"retentionRoutineDays\":30,\"retentionEventDays\":365},\"mode\":{\"mode\":2,\"modified\":false},\"devices\":[{\"id\":11,\"name\":\"front\",\"role\":\"sensor\",\"state\":\"contacted\",\"firmware\":\"1.2.3\",\"batteryPercent\":null,\"signal\":null,\"temperatureC\":null,\"lastSeenMs\":null,\"heardBy\":null,\"health\":{\"silent\":false,\"batteryLow\":false,\"tamperOpen\":false,\"poorLink\":false}},{\"id\":12,\"name\":\"garage\",\"role\":\"sensor\",\"state\":\"contacted\",\"firmware\":\"1.2.3\",\"batteryPercent\":null,\"signal\":null,\"temperatureC\":null,\"lastSeenMs\":null,\"heardBy\":null,\"health\":{\"silent\":false,\"batteryLow\":false,\"tamperOpen\":false,\"poorLink\":false}},{\"id\":21,\"name\":\"hall\",\"role\":\"siren\",\"state\":\"contacted\",\"firmware\":\"1.2.3\",\"batteryPercent\":null,\"signal\":null,\"temperatureC\":null,\"lastSeenMs\":null,\"heardBy\":null,\"health\":{\"silent\":false,\"batteryLow\":false,\"tamperOpen\":false,\"poorLink\":false}}],\"sensors\":[{\"id\":11,\"arm\":\"disarmed\",\"door\":\"unknown\",\"countdownSecondsLeft\":null},{\"id\":12,\"arm\":\"disarmed\",\"door\":\"unknown\",\"countdownSecondsLeft\":null}],\"sirens\":[{\"id\":21,\"should\":{\"kind\":\"off\",\"secondsLeft\":null},\"commanded\":null,\"reported\":null,\"wifi\":\"unknown\",\"lora\":\"unknown\"}],\"gateways\":[],\"alarm\":null,\"siteMove\":null,\"notifications\":[],\"modes\":[{\"id\":1,\"name\":\"Away\",\"fixed\":\"away\",\"groups\":[],\"revision\":0},{\"id\":2,\"name\":\"Disarmed\",\"fixed\":\"disarmed\",\"groups\":[],\"revision\":0}],\"groups\":[],\"schedules\":[],\"notificationPrefs\":{\"categories\":[\"sensorSilentWhileDisarmed\",\"sirenPathLost\",\"gatewayOffline\",\"batteryLow\",\"armDisarm\",\"updates\"],\"revision\":0}}}"
+        }
+      ]
+    },
+    {
+      "step": "ben hub.info",
+      "frames": [
+        {
+          "to": "ben",
+          "json": "{\"t\":\"res\",\"id\":3,\"ok\":true,\"body\":{\"hub\":\"2.0.0\",\"proto\":1,\"identity\":\"ijpnjzfdnmyouinzbyq4oewgje\",\"fingerprint\":\"AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB\",\"timeZone\":\"\",\"clockTrusted\":true,\"boot\":1}}"
+        }
+      ]
+    },
+    {
+      "step": "ben device.list",
+      "frames": [
+        {
+          "to": "ben",
+          "json": "{\"t\":\"res\",\"id\":4,\"ok\":true,\"body\":{\"devices\":[{\"id\":11,\"name\":\"front\",\"role\":\"sensor\",\"state\":\"contacted\",\"firmware\":\"1.2.3\",\"batteryPercent\":null,\"signal\":null,\"temperatureC\":null,\"lastSeenMs\":null,\"heardBy\":null,\"health\":{\"silent\":false,\"batteryLow\":false,\"tamperOpen\":false,\"poorLink\":false}},{\"id\":12,\"name\":\"garage\",\"role\":\"sensor\",\"state\":\"contacted\",\"firmware\":\"1.2.3\",\"batteryPercent\":null,\"signal\":null,\"temperatureC\":null,\"lastSeenMs\":null,\"heardBy\":null,\"health\":{\"silent\":false,\"batteryLow\":false,\"tamperOpen\":false,\"poorLink\":false}},{\"id\":21,\"name\":\"hall\",\"role\":\"siren\",\"state\":\"contacted\",\"firmware\":\"1.2.3\",\"batteryPercent\":null,\"signal\":null,\"temperatureC\":null,\"lastSeenMs\":null,\"heardBy\":null,\"health\":{\"silent\":false,\"batteryLow\":false,\"tamperOpen\":false,\"poorLink\":false}}]}}"
+        }
+      ]
+    },
+    {
+      "step": "console subscribe",
+      "frames": [
+        {
+          "to": "console",
+          "json": "{\"t\":\"res\",\"id\":1,\"ok\":true,\"body\":{\"topics\":[\"arming\",\"devices\",\"alarm\",\"notifications\",\"history\",\"config\",\"people\",\"hub\"]}}"
+        }
+      ]
+    },
+    {
+      "step": "console snapshot",
+      "frames": [
+        {
+          "to": "console",
+          "json": "{\"t\":\"res\",\"id\":2,\"ok\":true,\"body\":{\"rev\":0,\"hub\":{\"hub\":\"2.0.0\",\"proto\":1,\"identity\":\"ijpnjzfdnmyouinzbyq4oewgje\",\"fingerprint\":\"AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB\",\"timeZone\":\"\",\"clockTrusted\":true,\"boot\":1},\"site\":{\"channel\":1,\"rate\":5,\"countdownS\":30,\"autoStopS\":300,\"wifiName\":\"home\",\"retentionRoutineDays\":30,\"retentionEventDays\":365},\"mode\":{\"mode\":2,\"modified\":false},\"devices\":[{\"id\":11,\"name\":\"front\",\"role\":\"sensor\",\"state\":\"contacted\",\"firmware\":\"1.2.3\",\"batteryPercent\":null,\"signal\":null,\"temperatureC\":null,\"lastSeenMs\":null,\"heardBy\":null,\"health\":{\"silent\":false,\"batteryLow\":false,\"tamperOpen\":false,\"poorLink\":false}},{\"id\":12,\"name\":\"garage\",\"role\":\"sensor\",\"state\":\"contacted\",\"firmware\":\"1.2.3\",\"batteryPercent\":null,\"signal\":null,\"temperatureC\":null,\"lastSeenMs\":null,\"heardBy\":null,\"health\":{\"silent\":false,\"batteryLow\":false,\"tamperOpen\":false,\"poorLink\":false}},{\"id\":21,\"name\":\"hall\",\"role\":\"siren\",\"state\":\"contacted\",\"firmware\":\"1.2.3\",\"batteryPercent\":null,\"signal\":null,\"temperatureC\":null,\"lastSeenMs\":null,\"heardBy\":null,\"health\":{\"silent\":false,\"batteryLow\":false,\"tamperOpen\":false,\"poorLink\":false}}],\"sensors\":[{\"id\":11,\"arm\":\"disarmed\",\"door\":\"unknown\",\"countdownSecondsLeft\":null},{\"id\":12,\"arm\":\"disarmed\",\"door\":\"unknown\",\"countdownSecondsLeft\":null}],\"sirens\":[{\"id\":21,\"should\":{\"kind\":\"off\",\"secondsLeft\":null},\"commanded\":null,\"reported\":null,\"wifi\":\"unknown\",\"lora\":\"unknown\"}],\"gateways\":[],\"alarm\":null,\"siteMove\":null,\"notifications\":[],\"modes\":[{\"id\":1,\"name\":\"Away\",\"fixed\":\"away\",\"groups\":[],\"revision\":0},{\"id\":2,\"name\":\"Disarmed\",\"fixed\":\"disarmed\",\"groups\":[],\"revision\":0}],\"groups\":[],\"schedules\":[],\"notificationPrefs\":{\"categories\":[\"sensorSilentWhileDisarmed\",\"sirenPathLost\",\"gatewayOffline\",\"batteryLow\",\"armDisarm\",\"updates\"],\"revision\":0}}}"
+        }
+      ]
+    },
+    {
+      "step": "console hub.info",
+      "frames": [
+        {
+          "to": "console",
+          "json": "{\"t\":\"res\",\"id\":3,\"ok\":true,\"body\":{\"hub\":\"2.0.0\",\"proto\":1,\"identity\":\"ijpnjzfdnmyouinzbyq4oewgje\",\"fingerprint\":\"AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB\",\"timeZone\":\"\",\"clockTrusted\":true,\"boot\":1}}"
+        }
+      ]
+    },
+    {
+      "step": "console device.list",
+      "frames": [
+        {
+          "to": "console",
+          "json": "{\"t\":\"res\",\"id\":4,\"ok\":true,\"body\":{\"devices\":[{\"id\":11,\"name\":\"front\",\"role\":\"sensor\",\"state\":\"contacted\",\"firmware\":\"1.2.3\",\"batteryPercent\":null,\"signal\":null,\"temperatureC\":null,\"lastSeenMs\":null,\"heardBy\":null,\"health\":{\"silent\":false,\"batteryLow\":false,\"tamperOpen\":false,\"poorLink\":false}},{\"id\":12,\"name\":\"garage\",\"role\":\"sensor\",\"state\":\"contacted\",\"firmware\":\"1.2.3\",\"batteryPercent\":null,\"signal\":null,\"temperatureC\":null,\"lastSeenMs\":null,\"heardBy\":null,\"health\":{\"silent\":false,\"batteryLow\":false,\"tamperOpen\":false,\"poorLink\":false}},{\"id\":21,\"name\":\"hall\",\"role\":\"siren\",\"state\":\"contacted\",\"firmware\":\"1.2.3\",\"batteryPercent\":null,\"signal\":null,\"temperatureC\":null,\"lastSeenMs\":null,\"heardBy\":null,\"health\":{\"silent\":false,\"batteryLow\":false,\"tamperOpen\":false,\"poorLink\":false}}]}}"
+        }
+      ]
+    },
+    {
+      "step": "anna device.show",
+      "frames": [
+        {
+          "to": "anna",
+          "json": "{\"t\":\"res\",\"id\":5,\"ok\":false,\"error\":{\"code\":\"notFound\",\"detail\":{\"what\":\"device\",\"id\":11}}}"
+        }
+      ]
+    },
+    {
+      "step": "anna device.show missing",
+      "frames": [
+        {
+          "to": "anna",
+          "json": "{\"t\":\"res\",\"id\":6,\"ok\":false,\"error\":{\"code\":\"notFound\",\"detail\":{\"what\":\"device\",\"id\":77}}}"
+        }
+      ]
+    },
+    {
+      "step": "anna site.show",
+      "frames": [
+        {
+          "to": "anna",
+          "json": "{\"t\":\"res\",\"id\":7,\"ok\":true,\"body\":{\"channel\":1,\"rate\":5,\"countdownS\":30,\"autoStopS\":300,\"wifiName\":\"home\",\"retentionRoutineDays\":30,\"retentionEventDays\":365}}"
+        }
+      ]
+    },
+    {
+      "step": "anna people.list",
+      "frames": [
+        {
+          "to": "anna",
+          "json": "{\"t\":\"res\",\"id\":8,\"ok\":true,\"body\":{\"userManagement\":false,\"people\":[{\"id\":1,\"name\":\"Anna\",\"manageUsers\":true,\"manageSystem\":true,\"devices\":[{\"device\":11,\"manage\":true,\"view\":true},{\"device\":12,\"manage\":true,\"view\":true}],\"revision\":0},{\"id\":2,\"name\":\"Ben\",\"manageUsers\":true,\"manageSystem\":true,\"devices\":[{\"device\":11,\"manage\":true,\"view\":true},{\"device\":12,\"manage\":true,\"view\":true}],\"revision\":0}],\"clients\":[{\"id\":1,\"person\":null,\"kind\":\"console\",\"name\":\"client-1\",\"createdMs\":1794528000000,\"lastSeenMs\":1794614401000,\"linkedBy\":null},{\"id\":7,\"person\":1,\"kind\":\"web\",\"name\":\"client-7\",\"createdMs\":1794528000000,\"lastSeenMs\":1794614401000,\"linkedBy\":null},{\"id\":8,\"person\":1,\"kind\":\"phone\",\"name\":\"client-8\",\"createdMs\":1794528000000,\"lastSeenMs\":1794614401000,\"linkedBy\":null},{\"id\":9,\"person\":2,\"kind\":\"web\",\"name\":\"client-9\",\"createdMs\":1794528000000,\"lastSeenMs\":1794614401000,\"linkedBy\":null}]}}"
+        }
+      ]
+    },
+    {
+      "step": "anna clients.list",
+      "frames": [
+        {
+          "to": "anna",
+          "json": "{\"t\":\"res\",\"id\":9,\"ok\":true,\"body\":{\"clients\":[{\"id\":1,\"person\":null,\"kind\":\"console\",\"name\":\"client-1\",\"createdMs\":1794528000000,\"lastSeenMs\":1794614401000,\"linkedBy\":null},{\"id\":7,\"person\":1,\"kind\":\"web\",\"name\":\"client-7\",\"createdMs\":1794528000000,\"lastSeenMs\":1794614401000,\"linkedBy\":null},{\"id\":8,\"person\":1,\"kind\":\"phone\",\"name\":\"client-8\",\"createdMs\":1794528000000,\"lastSeenMs\":1794614401000,\"linkedBy\":null},{\"id\":9,\"person\":2,\"kind\":\"web\",\"name\":\"client-9\",\"createdMs\":1794528000000,\"lastSeenMs\":1794614401000,\"linkedBy\":null}]}}"
+        }
+      ]
+    },
+    {
+      "step": "anna notifications.list",
+      "frames": [
+        {
+          "to": "anna",
+          "json": "{\"t\":\"res\",\"id\":10,\"ok\":false,\"error\":{\"code\":\"notBuilt\",\"detail\":{\"op\":\"notifications.list\"}}}"
+        }
+      ]
+    },
+    {
+      "step": "anna device.rename",
+      "frames": [
+        {
+          "to": "anna",
+          "json": "{\"t\":\"evt\",\"rev\":1,\"ev\":\"device\",\"body\":{\"what\":\"renamed\",\"device\":{\"id\":11,\"name\":\"front-door\",\"role\":\"sensor\",\"state\":\"contacted\",\"firmware\":\"1.2.3\",\"batteryPercent\":null,\"signal\":null,\"temperatureC\":null,\"lastSeenMs\":null,\"heardBy\":null,\"health\":{\"silent\":false,\"batteryLow\":false,\"tamperOpen\":false,\"poorLink\":false}}}}"
+        },
+        {
+          "to": "phone",
+          "json": "{\"t\":\"evt\",\"rev\":1,\"ev\":\"device\",\"body\":{\"what\":\"renamed\",\"device\":{\"id\":11,\"name\":\"front-door\",\"role\":\"sensor\",\"state\":\"contacted\",\"firmware\":\"1.2.3\",\"batteryPercent\":null,\"signal\":null,\"temperatureC\":null,\"lastSeenMs\":null,\"heardBy\":null,\"health\":{\"silent\":false,\"batteryLow\":false,\"tamperOpen\":false,\"poorLink\":false}}}}"
+        },
+        {
+          "to": "ben",
+          "json": "{\"t\":\"evt\",\"rev\":1,\"ev\":\"device\",\"body\":{\"what\":\"renamed\",\"device\":{\"id\":11,\"name\":\"front-door\",\"role\":\"sensor\",\"state\":\"contacted\",\"firmware\":\"1.2.3\",\"batteryPercent\":null,\"signal\":null,\"temperatureC\":null,\"lastSeenMs\":null,\"heardBy\":null,\"health\":{\"silent\":false,\"batteryLow\":false,\"tamperOpen\":false,\"poorLink\":false}}}}"
+        },
+        {
+          "to": "console",
+          "json": "{\"t\":\"evt\",\"rev\":1,\"ev\":\"device\",\"body\":{\"what\":\"renamed\",\"device\":{\"id\":11,\"name\":\"front-door\",\"role\":\"sensor\",\"state\":\"contacted\",\"firmware\":\"1.2.3\",\"batteryPercent\":null,\"signal\":null,\"temperatureC\":null,\"lastSeenMs\":null,\"heardBy\":null,\"health\":{\"silent\":false,\"batteryLow\":false,\"tamperOpen\":false,\"poorLink\":false}}}}"
+        },
+        {
+          "to": "anna",
+          "json": "{\"t\":\"evt\",\"rev\":1,\"ev\":\"record\",\"body\":{\"kind\":\"hubEvent\",\"row\":{\"kind\":\"hubEvent\",\"row\":{\"seq\":4294967348,\"atMs\":1794614401000,\"clockOk\":true,\"level\":\"info\",\"origin\":\"core/registry\",\"code\":\"device_renamed\",\"message\":\"front renamed front-door\",\"detail\":\"{\\\"device\\\":11,\\\"name\\\":\\\"front-door\\\",\\\"address\\\":4107,\\\"role\\\":\\\"sensor\\\",\\\"chip\\\":\\\"0b0b0b0b0b0b\\\",\\\"firmware\\\":66051,\\\"development\\\":true,\\\"state\\\":\\\"contacted\\\",\\\"previousName\\\":\\\"front\\\"}\"}}}}"
+        },
+        {
+          "to": "phone",
+          "json": "{\"t\":\"evt\",\"rev\":1,\"ev\":\"record\",\"body\":{\"kind\":\"hubEvent\",\"row\":{\"kind\":\"hubEvent\",\"row\":{\"seq\":4294967348,\"atMs\":1794614401000,\"clockOk\":true,\"level\":\"info\",\"origin\":\"core/registry\",\"code\":\"device_renamed\",\"message\":\"front renamed front-door\",\"detail\":\"{\\\"device\\\":11,\\\"name\\\":\\\"front-door\\\",\\\"address\\\":4107,\\\"role\\\":\\\"sensor\\\",\\\"chip\\\":\\\"0b0b0b0b0b0b\\\",\\\"firmware\\\":66051,\\\"development\\\":true,\\\"state\\\":\\\"contacted\\\",\\\"previousName\\\":\\\"front\\\"}\"}}}}"
+        },
+        {
+          "to": "ben",
+          "json": "{\"t\":\"evt\",\"rev\":1,\"ev\":\"record\",\"body\":{\"kind\":\"hubEvent\",\"row\":{\"kind\":\"hubEvent\",\"row\":{\"seq\":4294967348,\"atMs\":1794614401000,\"clockOk\":true,\"level\":\"info\",\"origin\":\"core/registry\",\"code\":\"device_renamed\",\"message\":\"front renamed front-door\",\"detail\":\"{\\\"device\\\":11,\\\"name\\\":\\\"front-door\\\",\\\"address\\\":4107,\\\"role\\\":\\\"sensor\\\",\\\"chip\\\":\\\"0b0b0b0b0b0b\\\",\\\"firmware\\\":66051,\\\"development\\\":true,\\\"state\\\":\\\"contacted\\\",\\\"previousName\\\":\\\"front\\\"}\"}}}}"
+        },
+        {
+          "to": "console",
+          "json": "{\"t\":\"evt\",\"rev\":1,\"ev\":\"record\",\"body\":{\"kind\":\"hubEvent\",\"row\":{\"kind\":\"hubEvent\",\"row\":{\"seq\":4294967348,\"atMs\":1794614401000,\"clockOk\":true,\"level\":\"info\",\"origin\":\"core/registry\",\"code\":\"device_renamed\",\"message\":\"front renamed front-door\",\"detail\":\"{\\\"device\\\":11,\\\"name\\\":\\\"front-door\\\",\\\"address\\\":4107,\\\"role\\\":\\\"sensor\\\",\\\"chip\\\":\\\"0b0b0b0b0b0b\\\",\\\"firmware\\\":66051,\\\"development\\\":true,\\\"state\\\":\\\"contacted\\\",\\\"previousName\\\":\\\"front\\\"}\"}}}}"
+        },
+        {
+          "to": "anna",
+          "json": "{\"t\":\"res\",\"id\":11,\"ok\":true,\"body\":{\"id\":11,\"name\":\"front-door\",\"role\":\"sensor\",\"state\":\"contacted\",\"firmware\":\"1.2.3\",\"batteryPercent\":null,\"signal\":null,\"temperatureC\":null,\"lastSeenMs\":null,\"heardBy\":null,\"health\":{\"silent\":false,\"batteryLow\":false,\"tamperOpen\":false,\"poorLink\":false}}}"
+        },
+        {
+          "to": "anna",
+          "json": "{\"t\":\"evt\",\"rev\":1,\"ev\":\"record\",\"body\":{\"kind\":\"command\",\"row\":{\"kind\":\"command\",\"row\":{\"seq\":4294967346,\"atMs\":1794614401000,\"clockOk\":true,\"actor\":\"Anna (client 7)\",\"kind\":\"device.rename\",\"args\":\"{\\\"device\\\":11,\\\"name\\\":\\\"front-door\\\"}\",\"outcome\":\"ok\",\"detail\":null}}}}"
+        },
+        {
+          "to": "phone",
+          "json": "{\"t\":\"evt\",\"rev\":1,\"ev\":\"record\",\"body\":{\"kind\":\"command\",\"row\":{\"kind\":\"command\",\"row\":{\"seq\":4294967346,\"atMs\":1794614401000,\"clockOk\":true,\"actor\":\"Anna (client 7)\",\"kind\":\"device.rename\",\"args\":\"{\\\"device\\\":11,\\\"name\\\":\\\"front-door\\\"}\",\"outcome\":\"ok\",\"detail\":null}}}}"
+        },
+        {
+          "to": "ben",
+          "json": "{\"t\":\"evt\",\"rev\":1,\"ev\":\"record\",\"body\":{\"kind\":\"command\",\"row\":{\"kind\":\"command\",\"row\":{\"seq\":4294967346,\"atMs\":1794614401000,\"clockOk\":true,\"actor\":\"Anna (client 7)\",\"kind\":\"device.rename\",\"args\":\"{\\\"device\\\":11,\\\"name\\\":\\\"front-door\\\"}\",\"outcome\":\"ok\",\"detail\":null}}}}"
+        },
+        {
+          "to": "console",
+          "json": "{\"t\":\"evt\",\"rev\":1,\"ev\":\"record\",\"body\":{\"kind\":\"command\",\"row\":{\"kind\":\"command\",\"row\":{\"seq\":4294967346,\"atMs\":1794614401000,\"clockOk\":true,\"actor\":\"Anna (client 7)\",\"kind\":\"device.rename\",\"args\":\"{\\\"device\\\":11,\\\"name\\\":\\\"front-door\\\"}\",\"outcome\":\"ok\",\"detail\":null}}}}"
+        }
+      ]
+    },
+    {
+      "step": "anna device.rename taken",
+      "frames": [
+        {
+          "to": "anna",
+          "json": "{\"t\":\"res\",\"id\":12,\"ok\":false,\"error\":{\"code\":\"invalid\",\"detail\":{\"field\":\"name\",\"reason\":\"taken\"}}}"
+        },
+        {
+          "to": "anna",
+          "json": "{\"t\":\"evt\",\"rev\":2,\"ev\":\"record\",\"body\":{\"kind\":\"command\",\"row\":{\"kind\":\"command\",\"row\":{\"seq\":4294967353,\"atMs\":1794614401000,\"clockOk\":true,\"actor\":\"Anna (client 7)\",\"kind\":\"device.rename\",\"args\":\"{\\\"device\\\":12,\\\"name\\\":\\\"front-door\\\"}\",\"outcome\":\"invalid\",\"detail\":null}}}}"
+        },
+        {
+          "to": "phone",
+          "json": "{\"t\":\"evt\",\"rev\":2,\"ev\":\"record\",\"body\":{\"kind\":\"command\",\"row\":{\"kind\":\"command\",\"row\":{\"seq\":4294967353,\"atMs\":1794614401000,\"clockOk\":true,\"actor\":\"Anna (client 7)\",\"kind\":\"device.rename\",\"args\":\"{\\\"device\\\":12,\\\"name\\\":\\\"front-door\\\"}\",\"outcome\":\"invalid\",\"detail\":null}}}}"
+        },
+        {
+          "to": "ben",
+          "json": "{\"t\":\"evt\",\"rev\":2,\"ev\":\"record\",\"body\":{\"kind\":\"command\",\"row\":{\"kind\":\"command\",\"row\":{\"seq\":4294967353,\"atMs\":1794614401000,\"clockOk\":true,\"actor\":\"Anna (client 7)\",\"kind\":\"device.rename\",\"args\":\"{\\\"device\\\":12,\\\"name\\\":\\\"front-door\\\"}\",\"outcome\":\"invalid\",\"detail\":null}}}}"
+        },
+        {
+          "to": "console",
+          "json": "{\"t\":\"evt\",\"rev\":2,\"ev\":\"record\",\"body\":{\"kind\":\"command\",\"row\":{\"kind\":\"command\",\"row\":{\"seq\":4294967353,\"atMs\":1794614401000,\"clockOk\":true,\"actor\":\"Anna (client 7)\",\"kind\":\"device.rename\",\"args\":\"{\\\"device\\\":12,\\\"name\\\":\\\"front-door\\\"}\",\"outcome\":\"invalid\",\"detail\":null}}}}"
+        }
+      ]
+    },
+    {
+      "step": "anna site.wifi on the home network",
+      "frames": [
+        {
+          "to": "anna",
+          "json": "{\"t\":\"res\",\"id\":13,\"ok\":false,\"error\":{\"code\":\"consoleOnly\",\"detail\":{}}}"
+        },
+        {
+          "to": "anna",
+          "json": "{\"t\":\"evt\",\"rev\":3,\"ev\":\"record\",\"body\":{\"kind\":\"command\",\"row\":{\"kind\":\"command\",\"row\":{\"seq\":4294967358,\"atMs\":1794614401000,\"clockOk\":true,\"actor\":\"Anna (client 7)\",\"kind\":\"site.wifi\",\"args\":\"{\\\"name\\\":\\\"home\\\",\\\"password\\\":\\\"***\\\"}\",\"outcome\":\"consoleOnly\",\"detail\":null}}}}"
+        },
+        {
+          "to": "phone",
+          "json": "{\"t\":\"evt\",\"rev\":3,\"ev\":\"record\",\"body\":{\"kind\":\"command\",\"row\":{\"kind\":\"command\",\"row\":{\"seq\":4294967358,\"atMs\":1794614401000,\"clockOk\":true,\"actor\":\"Anna (client 7)\",\"kind\":\"site.wifi\",\"args\":\"{\\\"name\\\":\\\"home\\\",\\\"password\\\":\\\"***\\\"}\",\"outcome\":\"consoleOnly\",\"detail\":null}}}}"
+        },
+        {
+          "to": "ben",
+          "json": "{\"t\":\"evt\",\"rev\":3,\"ev\":\"record\",\"body\":{\"kind\":\"command\",\"row\":{\"kind\":\"command\",\"row\":{\"seq\":4294967358,\"atMs\":1794614401000,\"clockOk\":true,\"actor\":\"Anna (client 7)\",\"kind\":\"site.wifi\",\"args\":\"{\\\"name\\\":\\\"home\\\",\\\"password\\\":\\\"***\\\"}\",\"outcome\":\"consoleOnly\",\"detail\":null}}}}"
+        },
+        {
+          "to": "console",
+          "json": "{\"t\":\"evt\",\"rev\":3,\"ev\":\"record\",\"body\":{\"kind\":\"command\",\"row\":{\"kind\":\"command\",\"row\":{\"seq\":4294967358,\"atMs\":1794614401000,\"clockOk\":true,\"actor\":\"Anna (client 7)\",\"kind\":\"site.wifi\",\"args\":\"{\\\"name\\\":\\\"home\\\",\\\"password\\\":\\\"***\\\"}\",\"outcome\":\"consoleOnly\",\"detail\":null}}}}"
+        }
+      ]
+    },
+    {
+      "step": "console site.wifi",
+      "frames": [
+        {
+          "to": "anna",
+          "json": "{\"t\":\"evt\",\"rev\":4,\"ev\":\"config\",\"body\":{\"site\":{\"channel\":1,\"rate\":5,\"countdownS\":30,\"autoStopS\":300,\"wifiName\":\"home-2\",\"retentionRoutineDays\":30,\"retentionEventDays\":365}}}"
+        },
+        {
+          "to": "phone",
+          "json": "{\"t\":\"evt\",\"rev\":4,\"ev\":\"config\",\"body\":{\"site\":{\"channel\":1,\"rate\":5,\"countdownS\":30,\"autoStopS\":300,\"wifiName\":\"home-2\",\"retentionRoutineDays\":30,\"retentionEventDays\":365}}}"
+        },
+        {
+          "to": "ben",
+          "json": "{\"t\":\"evt\",\"rev\":4,\"ev\":\"config\",\"body\":{\"site\":{\"channel\":1,\"rate\":5,\"countdownS\":30,\"autoStopS\":300,\"wifiName\":\"home-2\",\"retentionRoutineDays\":30,\"retentionEventDays\":365}}}"
+        },
+        {
+          "to": "console",
+          "json": "{\"t\":\"evt\",\"rev\":4,\"ev\":\"config\",\"body\":{\"site\":{\"channel\":1,\"rate\":5,\"countdownS\":30,\"autoStopS\":300,\"wifiName\":\"home-2\",\"retentionRoutineDays\":30,\"retentionEventDays\":365}}}"
+        },
+        {
+          "to": "console",
+          "json": "{\"t\":\"res\",\"id\":5,\"ok\":true,\"body\":{\"channel\":1,\"rate\":5,\"countdownS\":30,\"autoStopS\":300,\"wifiName\":\"home-2\",\"retentionRoutineDays\":30,\"retentionEventDays\":365}}"
+        },
+        {
+          "to": "anna",
+          "json": "{\"t\":\"evt\",\"rev\":4,\"ev\":\"record\",\"body\":{\"kind\":\"command\",\"row\":{\"kind\":\"command\",\"row\":{\"seq\":4294967361,\"atMs\":1794614401000,\"clockOk\":true,\"actor\":\"hub computer (client 1)\",\"kind\":\"site.wifi\",\"args\":\"{\\\"name\\\":\\\"home-2\\\",\\\"password\\\":\\\"***\\\"}\",\"outcome\":\"ok\",\"detail\":null}}}}"
+        },
+        {
+          "to": "phone",
+          "json": "{\"t\":\"evt\",\"rev\":4,\"ev\":\"record\",\"body\":{\"kind\":\"command\",\"row\":{\"kind\":\"command\",\"row\":{\"seq\":4294967361,\"atMs\":1794614401000,\"clockOk\":true,\"actor\":\"hub computer (client 1)\",\"kind\":\"site.wifi\",\"args\":\"{\\\"name\\\":\\\"home-2\\\",\\\"password\\\":\\\"***\\\"}\",\"outcome\":\"ok\",\"detail\":null}}}}"
+        },
+        {
+          "to": "ben",
+          "json": "{\"t\":\"evt\",\"rev\":4,\"ev\":\"record\",\"body\":{\"kind\":\"command\",\"row\":{\"kind\":\"command\",\"row\":{\"seq\":4294967361,\"atMs\":1794614401000,\"clockOk\":true,\"actor\":\"hub computer (client 1)\",\"kind\":\"site.wifi\",\"args\":\"{\\\"name\\\":\\\"home-2\\\",\\\"password\\\":\\\"***\\\"}\",\"outcome\":\"ok\",\"detail\":null}}}}"
+        },
+        {
+          "to": "console",
+          "json": "{\"t\":\"evt\",\"rev\":4,\"ev\":\"record\",\"body\":{\"kind\":\"command\",\"row\":{\"kind\":\"command\",\"row\":{\"seq\":4294967361,\"atMs\":1794614401000,\"clockOk\":true,\"actor\":\"hub computer (client 1)\",\"kind\":\"site.wifi\",\"args\":\"{\\\"name\\\":\\\"home-2\\\",\\\"password\\\":\\\"***\\\"}\",\"outcome\":\"ok\",\"detail\":null}}}}"
+        }
+      ]
+    },
+    {
+      "step": "anna backup.key from a laptop",
+      "frames": [
+        {
+          "to": "anna",
+          "json": "{\"t\":\"res\",\"id\":14,\"ok\":false,\"error\":{\"code\":\"notBuilt\",\"detail\":{\"op\":\"backup.key\"}}}"
+        },
+        {
+          "to": "anna",
+          "json": "{\"t\":\"evt\",\"rev\":5,\"ev\":\"record\",\"body\":{\"kind\":\"command\",\"row\":{\"kind\":\"command\",\"row\":{\"seq\":4294967366,\"atMs\":1794614401000,\"clockOk\":true,\"actor\":\"Anna (client 7)\",\"kind\":\"backup.key\",\"args\":\"{}\",\"outcome\":\"notBuilt\",\"detail\":null}}}}"
+        },
+        {
+          "to": "phone",
+          "json": "{\"t\":\"evt\",\"rev\":5,\"ev\":\"record\",\"body\":{\"kind\":\"command\",\"row\":{\"kind\":\"command\",\"row\":{\"seq\":4294967366,\"atMs\":1794614401000,\"clockOk\":true,\"actor\":\"Anna (client 7)\",\"kind\":\"backup.key\",\"args\":\"{}\",\"outcome\":\"notBuilt\",\"detail\":null}}}}"
+        },
+        {
+          "to": "ben",
+          "json": "{\"t\":\"evt\",\"rev\":5,\"ev\":\"record\",\"body\":{\"kind\":\"command\",\"row\":{\"kind\":\"command\",\"row\":{\"seq\":4294967366,\"atMs\":1794614401000,\"clockOk\":true,\"actor\":\"Anna (client 7)\",\"kind\":\"backup.key\",\"args\":\"{}\",\"outcome\":\"notBuilt\",\"detail\":null}}}}"
+        },
+        {
+          "to": "console",
+          "json": "{\"t\":\"evt\",\"rev\":5,\"ev\":\"record\",\"body\":{\"kind\":\"command\",\"row\":{\"kind\":\"command\",\"row\":{\"seq\":4294967366,\"atMs\":1794614401000,\"clockOk\":true,\"actor\":\"Anna (client 7)\",\"kind\":\"backup.key\",\"args\":\"{}\",\"outcome\":\"notBuilt\",\"detail\":null}}}}"
+        }
+      ]
+    },
+    {
+      "step": "phone backup.key",
+      "frames": [
+        {
+          "to": "phone",
+          "json": "{\"t\":\"res\",\"id\":5,\"ok\":false,\"error\":{\"code\":\"notBuilt\",\"detail\":{\"op\":\"backup.key\"}}}"
+        },
+        {
+          "to": "anna",
+          "json": "{\"t\":\"evt\",\"rev\":6,\"ev\":\"record\",\"body\":{\"kind\":\"command\",\"row\":{\"kind\":\"command\",\"row\":{\"seq\":4294967370,\"atMs\":1794614401000,\"clockOk\":true,\"actor\":\"Anna (client 8)\",\"kind\":\"backup.key\",\"args\":\"{}\",\"outcome\":\"notBuilt\",\"detail\":null}}}}"
+        },
+        {
+          "to": "phone",
+          "json": "{\"t\":\"evt\",\"rev\":6,\"ev\":\"record\",\"body\":{\"kind\":\"command\",\"row\":{\"kind\":\"command\",\"row\":{\"seq\":4294967370,\"atMs\":1794614401000,\"clockOk\":true,\"actor\":\"Anna (client 8)\",\"kind\":\"backup.key\",\"args\":\"{}\",\"outcome\":\"notBuilt\",\"detail\":null}}}}"
+        },
+        {
+          "to": "ben",
+          "json": "{\"t\":\"evt\",\"rev\":6,\"ev\":\"record\",\"body\":{\"kind\":\"command\",\"row\":{\"kind\":\"command\",\"row\":{\"seq\":4294967370,\"atMs\":1794614401000,\"clockOk\":true,\"actor\":\"Anna (client 8)\",\"kind\":\"backup.key\",\"args\":\"{}\",\"outcome\":\"notBuilt\",\"detail\":null}}}}"
+        },
+        {
+          "to": "console",
+          "json": "{\"t\":\"evt\",\"rev\":6,\"ev\":\"record\",\"body\":{\"kind\":\"command\",\"row\":{\"kind\":\"command\",\"row\":{\"seq\":4294967370,\"atMs\":1794614401000,\"clockOk\":true,\"actor\":\"Anna (client 8)\",\"kind\":\"backup.key\",\"args\":\"{}\",\"outcome\":\"notBuilt\",\"detail\":null}}}}"
+        }
+      ]
+    },
+    {
+      "step": "anna arm front",
+      "frames": [
+        {
+          "to": "anna",
+          "json": "{\"t\":\"evt\",\"rev\":7,\"ev\":\"arming\",\"body\":{\"sensors\":[],\"mode\":{\"mode\":2,\"modified\":true}}}"
+        },
+        {
+          "to": "phone",
+          "json": "{\"t\":\"evt\",\"rev\":7,\"ev\":\"arming\",\"body\":{\"sensors\":[],\"mode\":{\"mode\":2,\"modified\":true}}}"
+        },
+        {
+          "to": "ben",
+          "json": "{\"t\":\"evt\",\"rev\":7,\"ev\":\"arming\",\"body\":{\"sensors\":[],\"mode\":{\"mode\":2,\"modified\":true}}}"
+        },
+        {
+          "to": "console",
+          "json": "{\"t\":\"evt\",\"rev\":7,\"ev\":\"arming\",\"body\":{\"sensors\":[],\"mode\":{\"mode\":2,\"modified\":true}}}"
+        },
+        {
+          "to": "anna",
+          "json": "{\"t\":\"evt\",\"rev\":7,\"ev\":\"record\",\"body\":{\"kind\":\"decision\",\"row\":{\"kind\":\"decision\",\"row\":{\"seq\":4294967376,\"atMs\":1794614401000,\"clockOk\":true,\"kind\":\"arming_changed\",\"deviceId\":11,\"causeSeq\":4294967374,\"value\":1,\"detail\":\"0b000000\"}}}}"
+        },
+        {
+          "to": "phone",
+          "json": "{\"t\":\"evt\",\"rev\":7,\"ev\":\"record\",\"body\":{\"kind\":\"decision\",\"row\":{\"kind\":\"decision\",\"row\":{\"seq\":4294967376,\"atMs\":1794614401000,\"clockOk\":true,\"kind\":\"arming_changed\",\"deviceId\":11,\"causeSeq\":4294967374,\"value\":1,\"detail\":\"0b000000\"}}}}"
+        },
+        {
+          "to": "ben",
+          "json": "{\"t\":\"evt\",\"rev\":7,\"ev\":\"record\",\"body\":{\"kind\":\"decision\",\"row\":{\"kind\":\"decision\",\"row\":{\"seq\":4294967376,\"atMs\":1794614401000,\"clockOk\":true,\"kind\":\"arming_changed\",\"deviceId\":11,\"causeSeq\":4294967374,\"value\":1,\"detail\":\"0b000000\"}}}}"
+        },
+        {
+          "to": "console",
+          "json": "{\"t\":\"evt\",\"rev\":7,\"ev\":\"record\",\"body\":{\"kind\":\"decision\",\"row\":{\"kind\":\"decision\",\"row\":{\"seq\":4294967376,\"atMs\":1794614401000,\"clockOk\":true,\"kind\":\"arming_changed\",\"deviceId\":11,\"causeSeq\":4294967374,\"value\":1,\"detail\":\"0b000000\"}}}}"
+        },
+        {
+          "to": "anna",
+          "json": "{\"t\":\"evt\",\"rev\":7,\"ev\":\"record\",\"body\":{\"kind\":\"decision\",\"row\":{\"kind\":\"decision\",\"row\":{\"seq\":4294967379,\"atMs\":1794614401000,\"clockOk\":true,\"kind\":\"armed\",\"deviceId\":11,\"causeSeq\":4294967374,\"value\":null,\"detail\":\"416e6e612028636c69656e74203729\"}}}}"
+        },
+        {
+          "to": "phone",
+          "json": "{\"t\":\"evt\",\"rev\":7,\"ev\":\"record\",\"body\":{\"kind\":\"decision\",\"row\":{\"kind\":\"decision\",\"row\":{\"seq\":4294967379,\"atMs\":1794614401000,\"clockOk\":true,\"kind\":\"armed\",\"deviceId\":11,\"causeSeq\":4294967374,\"value\":null,\"detail\":\"416e6e612028636c69656e74203729\"}}}}"
+        },
+        {
+          "to": "ben",
+          "json": "{\"t\":\"evt\",\"rev\":7,\"ev\":\"record\",\"body\":{\"kind\":\"decision\",\"row\":{\"kind\":\"decision\",\"row\":{\"seq\":4294967379,\"atMs\":1794614401000,\"clockOk\":true,\"kind\":\"armed\",\"deviceId\":11,\"causeSeq\":4294967374,\"value\":null,\"detail\":\"416e6e612028636c69656e74203729\"}}}}"
+        },
+        {
+          "to": "console",
+          "json": "{\"t\":\"evt\",\"rev\":7,\"ev\":\"record\",\"body\":{\"kind\":\"decision\",\"row\":{\"kind\":\"decision\",\"row\":{\"seq\":4294967379,\"atMs\":1794614401000,\"clockOk\":true,\"kind\":\"armed\",\"deviceId\":11,\"causeSeq\":4294967374,\"value\":null,\"detail\":\"416e6e612028636c69656e74203729\"}}}}"
+        },
+        {
+          "to": "anna",
+          "json": "{\"t\":\"evt\",\"rev\":7,\"ev\":\"arming\",\"body\":{\"sensors\":[{\"sensor\":11,\"arm\":\"armed\"}],\"mode\":{\"mode\":2,\"modified\":true}}}"
+        },
+        {
+          "to": "phone",
+          "json": "{\"t\":\"evt\",\"rev\":7,\"ev\":\"arming\",\"body\":{\"sensors\":[{\"sensor\":11,\"arm\":\"armed\"}],\"mode\":{\"mode\":2,\"modified\":true}}}"
+        },
+        {
+          "to": "ben",
+          "json": "{\"t\":\"evt\",\"rev\":7,\"ev\":\"arming\",\"body\":{\"sensors\":[{\"sensor\":11,\"arm\":\"armed\"}],\"mode\":{\"mode\":2,\"modified\":true}}}"
+        },
+        {
+          "to": "console",
+          "json": "{\"t\":\"evt\",\"rev\":7,\"ev\":\"arming\",\"body\":{\"sensors\":[{\"sensor\":11,\"arm\":\"armed\"}],\"mode\":{\"mode\":2,\"modified\":true}}}"
+        },
+        {
+          "to": "anna",
+          "json": "{\"t\":\"res\",\"id\":15,\"ok\":true,\"body\":{\"armed\":[11],\"disarmed\":[],\"waiting\":[],\"lowBattery\":[]}}"
+        },
+        {
+          "to": "anna",
+          "json": "{\"t\":\"evt\",\"rev\":7,\"ev\":\"record\",\"body\":{\"kind\":\"command\",\"row\":{\"kind\":\"command\",\"row\":{\"seq\":4294967374,\"atMs\":1794614401000,\"clockOk\":true,\"actor\":\"Anna (client 7)\",\"kind\":\"arm\",\"args\":\"{\\\"target\\\":{\\\"sensor\\\":11}}\",\"outcome\":\"ok\",\"detail\":null}}}}"
+        },
+        {
+          "to": "phone",
+          "json": "{\"t\":\"evt\",\"rev\":7,\"ev\":\"record\",\"body\":{\"kind\":\"command\",\"row\":{\"kind\":\"command\",\"row\":{\"seq\":4294967374,\"atMs\":1794614401000,\"clockOk\":true,\"actor\":\"Anna (client 7)\",\"kind\":\"arm\",\"args\":\"{\\\"target\\\":{\\\"sensor\\\":11}}\",\"outcome\":\"ok\",\"detail\":null}}}}"
+        },
+        {
+          "to": "ben",
+          "json": "{\"t\":\"evt\",\"rev\":7,\"ev\":\"record\",\"body\":{\"kind\":\"command\",\"row\":{\"kind\":\"command\",\"row\":{\"seq\":4294967374,\"atMs\":1794614401000,\"clockOk\":true,\"actor\":\"Anna (client 7)\",\"kind\":\"arm\",\"args\":\"{\\\"target\\\":{\\\"sensor\\\":11}}\",\"outcome\":\"ok\",\"detail\":null}}}}"
+        },
+        {
+          "to": "console",
+          "json": "{\"t\":\"evt\",\"rev\":7,\"ev\":\"record\",\"body\":{\"kind\":\"command\",\"row\":{\"kind\":\"command\",\"row\":{\"seq\":4294967374,\"atMs\":1794614401000,\"clockOk\":true,\"actor\":\"Anna (client 7)\",\"kind\":\"arm\",\"args\":\"{\\\"target\\\":{\\\"sensor\\\":11}}\",\"outcome\":\"ok\",\"detail\":null}}}}"
+        }
+      ]
+    },
+    {
+      "step": "ben mode.switch away",
+      "frames": [
+        {
+          "to": "anna",
+          "json": "{\"t\":\"evt\",\"rev\":8,\"ev\":\"arming\",\"body\":{\"sensors\":[],\"mode\":{\"mode\":1,\"modified\":false}}}"
+        },
+        {
+          "to": "phone",
+          "json": "{\"t\":\"evt\",\"rev\":8,\"ev\":\"arming\",\"body\":{\"sensors\":[],\"mode\":{\"mode\":1,\"modified\":false}}}"
+        },
+        {
+          "to": "ben",
+          "json": "{\"t\":\"evt\",\"rev\":8,\"ev\":\"arming\",\"body\":{\"sensors\":[],\"mode\":{\"mode\":1,\"modified\":false}}}"
+        },
+        {
+          "to": "console",
+          "json": "{\"t\":\"evt\",\"rev\":8,\"ev\":\"arming\",\"body\":{\"sensors\":[],\"mode\":{\"mode\":1,\"modified\":false}}}"
+        },
+        {
+          "to": "anna",
+          "json": "{\"t\":\"evt\",\"rev\":8,\"ev\":\"record\",\"body\":{\"kind\":\"decision\",\"row\":{\"kind\":\"decision\",\"row\":{\"seq\":4294967386,\"atMs\":1794614401000,\"clockOk\":true,\"kind\":\"mode_switched\",\"deviceId\":null,\"causeSeq\":4294967384,\"value\":1,\"detail\":\"42656e2028636c69656e74203929\"}}}}"
+        },
+        {
+          "to": "phone",
+          "json": "{\"t\":\"evt\",\"rev\":8,\"ev\":\"record\",\"body\":{\"kind\":\"decision\",\"row\":{\"kind\":\"decision\",\"row\":{\"seq\":4294967386,\"atMs\":1794614401000,\"clockOk\":true,\"kind\":\"mode_switched\",\"deviceId\":null,\"causeSeq\":4294967384,\"value\":1,\"detail\":\"42656e2028636c69656e74203929\"}}}}"
+        },
+        {
+          "to": "ben",
+          "json": "{\"t\":\"evt\",\"rev\":8,\"ev\":\"record\",\"body\":{\"kind\":\"decision\",\"row\":{\"kind\":\"decision\",\"row\":{\"seq\":4294967386,\"atMs\":1794614401000,\"clockOk\":true,\"kind\":\"mode_switched\",\"deviceId\":null,\"causeSeq\":4294967384,\"value\":1,\"detail\":\"42656e2028636c69656e74203929\"}}}}"
+        },
+        {
+          "to": "console",
+          "json": "{\"t\":\"evt\",\"rev\":8,\"ev\":\"record\",\"body\":{\"kind\":\"decision\",\"row\":{\"kind\":\"decision\",\"row\":{\"seq\":4294967386,\"atMs\":1794614401000,\"clockOk\":true,\"kind\":\"mode_switched\",\"deviceId\":null,\"causeSeq\":4294967384,\"value\":1,\"detail\":\"42656e2028636c69656e74203929\"}}}}"
+        },
+        {
+          "to": "anna",
+          "json": "{\"t\":\"evt\",\"rev\":8,\"ev\":\"record\",\"body\":{\"kind\":\"decision\",\"row\":{\"kind\":\"decision\",\"row\":{\"seq\":4294967389,\"atMs\":1794614401000,\"clockOk\":true,\"kind\":\"armed\",\"deviceId\":12,\"causeSeq\":4294967384,\"value\":null,\"detail\":\"42656e2028636c69656e74203929\"}}}}"
+        },
+        {
+          "to": "phone",
+          "json": "{\"t\":\"evt\",\"rev\":8,\"ev\":\"record\",\"body\":{\"kind\":\"decision\",\"row\":{\"kind\":\"decision\",\"row\":{\"seq\":4294967389,\"atMs\":1794614401000,\"clockOk\":true,\"kind\":\"armed\",\"deviceId\":12,\"causeSeq\":4294967384,\"value\":null,\"detail\":\"42656e2028636c69656e74203929\"}}}}"
+        },
+        {
+          "to": "ben",
+          "json": "{\"t\":\"evt\",\"rev\":8,\"ev\":\"record\",\"body\":{\"kind\":\"decision\",\"row\":{\"kind\":\"decision\",\"row\":{\"seq\":4294967389,\"atMs\":1794614401000,\"clockOk\":true,\"kind\":\"armed\",\"deviceId\":12,\"causeSeq\":4294967384,\"value\":null,\"detail\":\"42656e2028636c69656e74203929\"}}}}"
+        },
+        {
+          "to": "console",
+          "json": "{\"t\":\"evt\",\"rev\":8,\"ev\":\"record\",\"body\":{\"kind\":\"decision\",\"row\":{\"kind\":\"decision\",\"row\":{\"seq\":4294967389,\"atMs\":1794614401000,\"clockOk\":true,\"kind\":\"armed\",\"deviceId\":12,\"causeSeq\":4294967384,\"value\":null,\"detail\":\"42656e2028636c69656e74203929\"}}}}"
+        },
+        {
+          "to": "anna",
+          "json": "{\"t\":\"evt\",\"rev\":8,\"ev\":\"arming\",\"body\":{\"sensors\":[{\"sensor\":12,\"arm\":\"armed\"}],\"mode\":{\"mode\":1,\"modified\":false}}}"
+        },
+        {
+          "to": "phone",
+          "json": "{\"t\":\"evt\",\"rev\":8,\"ev\":\"arming\",\"body\":{\"sensors\":[{\"sensor\":12,\"arm\":\"armed\"}],\"mode\":{\"mode\":1,\"modified\":false}}}"
+        },
+        {
+          "to": "ben",
+          "json": "{\"t\":\"evt\",\"rev\":8,\"ev\":\"arming\",\"body\":{\"sensors\":[{\"sensor\":12,\"arm\":\"armed\"}],\"mode\":{\"mode\":1,\"modified\":false}}}"
+        },
+        {
+          "to": "console",
+          "json": "{\"t\":\"evt\",\"rev\":8,\"ev\":\"arming\",\"body\":{\"sensors\":[{\"sensor\":12,\"arm\":\"armed\"}],\"mode\":{\"mode\":1,\"modified\":false}}}"
+        },
+        {
+          "to": "ben",
+          "json": "{\"t\":\"res\",\"id\":5,\"ok\":true,\"body\":{\"armed\":[12],\"disarmed\":[],\"waiting\":[],\"lowBattery\":[],\"heldBack\":[]}}"
+        },
+        {
+          "to": "anna",
+          "json": "{\"t\":\"evt\",\"rev\":8,\"ev\":\"record\",\"body\":{\"kind\":\"command\",\"row\":{\"kind\":\"command\",\"row\":{\"seq\":4294967384,\"atMs\":1794614401000,\"clockOk\":true,\"actor\":\"Ben (client 9)\",\"kind\":\"mode.switch\",\"args\":\"{\\\"mode\\\":1}\",\"outcome\":\"ok\",\"detail\":null}}}}"
+        },
+        {
+          "to": "phone",
+          "json": "{\"t\":\"evt\",\"rev\":8,\"ev\":\"record\",\"body\":{\"kind\":\"command\",\"row\":{\"kind\":\"command\",\"row\":{\"seq\":4294967384,\"atMs\":1794614401000,\"clockOk\":true,\"actor\":\"Ben (client 9)\",\"kind\":\"mode.switch\",\"args\":\"{\\\"mode\\\":1}\",\"outcome\":\"ok\",\"detail\":null}}}}"
+        },
+        {
+          "to": "ben",
+          "json": "{\"t\":\"evt\",\"rev\":8,\"ev\":\"record\",\"body\":{\"kind\":\"command\",\"row\":{\"kind\":\"command\",\"row\":{\"seq\":4294967384,\"atMs\":1794614401000,\"clockOk\":true,\"actor\":\"Ben (client 9)\",\"kind\":\"mode.switch\",\"args\":\"{\\\"mode\\\":1}\",\"outcome\":\"ok\",\"detail\":null}}}}"
+        },
+        {
+          "to": "console",
+          "json": "{\"t\":\"evt\",\"rev\":8,\"ev\":\"record\",\"body\":{\"kind\":\"command\",\"row\":{\"kind\":\"command\",\"row\":{\"seq\":4294967384,\"atMs\":1794614401000,\"clockOk\":true,\"actor\":\"Ben (client 9)\",\"kind\":\"mode.switch\",\"args\":\"{\\\"mode\\\":1}\",\"outcome\":\"ok\",\"detail\":null}}}}"
+        }
+      ]
+    },
+    {
+      "step": "ben disarm mine",
+      "frames": [
+        {
+          "to": "anna",
+          "json": "{\"t\":\"evt\",\"rev\":9,\"ev\":\"arming\",\"body\":{\"sensors\":[],\"mode\":{\"mode\":1,\"modified\":true}}}"
+        },
+        {
+          "to": "phone",
+          "json": "{\"t\":\"evt\",\"rev\":9,\"ev\":\"arming\",\"body\":{\"sensors\":[],\"mode\":{\"mode\":1,\"modified\":true}}}"
+        },
+        {
+          "to": "ben",
+          "json": "{\"t\":\"evt\",\"rev\":9,\"ev\":\"arming\",\"body\":{\"sensors\":[],\"mode\":{\"mode\":1,\"modified\":true}}}"
+        },
+        {
+          "to": "console",
+          "json": "{\"t\":\"evt\",\"rev\":9,\"ev\":\"arming\",\"body\":{\"sensors\":[],\"mode\":{\"mode\":1,\"modified\":true}}}"
+        },
+        {
+          "to": "anna",
+          "json": "{\"t\":\"evt\",\"rev\":9,\"ev\":\"record\",\"body\":{\"kind\":\"decision\",\"row\":{\"kind\":\"decision\",\"row\":{\"seq\":4294967396,\"atMs\":1794614401000,\"clockOk\":true,\"kind\":\"arming_changed\",\"deviceId\":null,\"causeSeq\":4294967394,\"value\":0,\"detail\":\"0b0000000c000000\"}}}}"
+        },
+        {
+          "to": "phone",
+          "json": "{\"t\":\"evt\",\"rev\":9,\"ev\":\"record\",\"body\":{\"kind\":\"decision\",\"row\":{\"kind\":\"decision\",\"row\":{\"seq\":4294967396,\"atMs\":1794614401000,\"clockOk\":true,\"kind\":\"arming_changed\",\"deviceId\":null,\"causeSeq\":4294967394,\"value\":0,\"detail\":\"0b0000000c000000\"}}}}"
+        },
+        {
+          "to": "ben",
+          "json": "{\"t\":\"evt\",\"rev\":9,\"ev\":\"record\",\"body\":{\"kind\":\"decision\",\"row\":{\"kind\":\"decision\",\"row\":{\"seq\":4294967396,\"atMs\":1794614401000,\"clockOk\":true,\"kind\":\"arming_changed\",\"deviceId\":null,\"causeSeq\":4294967394,\"value\":0,\"detail\":\"0b0000000c000000\"}}}}"
+        },
+        {
+          "to": "console",
+          "json": "{\"t\":\"evt\",\"rev\":9,\"ev\":\"record\",\"body\":{\"kind\":\"decision\",\"row\":{\"kind\":\"decision\",\"row\":{\"seq\":4294967396,\"atMs\":1794614401000,\"clockOk\":true,\"kind\":\"arming_changed\",\"deviceId\":null,\"causeSeq\":4294967394,\"value\":0,\"detail\":\"0b0000000c000000\"}}}}"
+        },
+        {
+          "to": "anna",
+          "json": "{\"t\":\"evt\",\"rev\":9,\"ev\":\"record\",\"body\":{\"kind\":\"decision\",\"row\":{\"kind\":\"decision\",\"row\":{\"seq\":4294967399,\"atMs\":1794614401000,\"clockOk\":true,\"kind\":\"disarmed\",\"deviceId\":11,\"causeSeq\":4294967394,\"value\":null,\"detail\":\"42656e2028636c69656e74203929\"}}}}"
+        },
+        {
+          "to": "phone",
+          "json": "{\"t\":\"evt\",\"rev\":9,\"ev\":\"record\",\"body\":{\"kind\":\"decision\",\"row\":{\"kind\":\"decision\",\"row\":{\"seq\":4294967399,\"atMs\":1794614401000,\"clockOk\":true,\"kind\":\"disarmed\",\"deviceId\":11,\"causeSeq\":4294967394,\"value\":null,\"detail\":\"42656e2028636c69656e74203929\"}}}}"
+        },
+        {
+          "to": "ben",
+          "json": "{\"t\":\"evt\",\"rev\":9,\"ev\":\"record\",\"body\":{\"kind\":\"decision\",\"row\":{\"kind\":\"decision\",\"row\":{\"seq\":4294967399,\"atMs\":1794614401000,\"clockOk\":true,\"kind\":\"disarmed\",\"deviceId\":11,\"causeSeq\":4294967394,\"value\":null,\"detail\":\"42656e2028636c69656e74203929\"}}}}"
+        },
+        {
+          "to": "console",
+          "json": "{\"t\":\"evt\",\"rev\":9,\"ev\":\"record\",\"body\":{\"kind\":\"decision\",\"row\":{\"kind\":\"decision\",\"row\":{\"seq\":4294967399,\"atMs\":1794614401000,\"clockOk\":true,\"kind\":\"disarmed\",\"deviceId\":11,\"causeSeq\":4294967394,\"value\":null,\"detail\":\"42656e2028636c69656e74203929\"}}}}"
+        },
+        {
+          "to": "anna",
+          "json": "{\"t\":\"evt\",\"rev\":9,\"ev\":\"arming\",\"body\":{\"sensors\":[{\"sensor\":11,\"arm\":\"disarmed\"}],\"mode\":{\"mode\":1,\"modified\":true}}}"
+        },
+        {
+          "to": "phone",
+          "json": "{\"t\":\"evt\",\"rev\":9,\"ev\":\"arming\",\"body\":{\"sensors\":[{\"sensor\":11,\"arm\":\"disarmed\"}],\"mode\":{\"mode\":1,\"modified\":true}}}"
+        },
+        {
+          "to": "ben",
+          "json": "{\"t\":\"evt\",\"rev\":9,\"ev\":\"arming\",\"body\":{\"sensors\":[{\"sensor\":11,\"arm\":\"disarmed\"}],\"mode\":{\"mode\":1,\"modified\":true}}}"
+        },
+        {
+          "to": "console",
+          "json": "{\"t\":\"evt\",\"rev\":9,\"ev\":\"arming\",\"body\":{\"sensors\":[{\"sensor\":11,\"arm\":\"disarmed\"}],\"mode\":{\"mode\":1,\"modified\":true}}}"
+        },
+        {
+          "to": "anna",
+          "json": "{\"t\":\"evt\",\"rev\":9,\"ev\":\"record\",\"body\":{\"kind\":\"decision\",\"row\":{\"kind\":\"decision\",\"row\":{\"seq\":4294967400,\"atMs\":1794614401000,\"clockOk\":true,\"kind\":\"disarmed\",\"deviceId\":12,\"causeSeq\":4294967394,\"value\":null,\"detail\":\"42656e2028636c69656e74203929\"}}}}"
+        },
+        {
+          "to": "phone",
+          "json": "{\"t\":\"evt\",\"rev\":9,\"ev\":\"record\",\"body\":{\"kind\":\"decision\",\"row\":{\"kind\":\"decision\",\"row\":{\"seq\":4294967400,\"atMs\":1794614401000,\"clockOk\":true,\"kind\":\"disarmed\",\"deviceId\":12,\"causeSeq\":4294967394,\"value\":null,\"detail\":\"42656e2028636c69656e74203929\"}}}}"
+        },
+        {
+          "to": "ben",
+          "json": "{\"t\":\"evt\",\"rev\":9,\"ev\":\"record\",\"body\":{\"kind\":\"decision\",\"row\":{\"kind\":\"decision\",\"row\":{\"seq\":4294967400,\"atMs\":1794614401000,\"clockOk\":true,\"kind\":\"disarmed\",\"deviceId\":12,\"causeSeq\":4294967394,\"value\":null,\"detail\":\"42656e2028636c69656e74203929\"}}}}"
+        },
+        {
+          "to": "console",
+          "json": "{\"t\":\"evt\",\"rev\":9,\"ev\":\"record\",\"body\":{\"kind\":\"decision\",\"row\":{\"kind\":\"decision\",\"row\":{\"seq\":4294967400,\"atMs\":1794614401000,\"clockOk\":true,\"kind\":\"disarmed\",\"deviceId\":12,\"causeSeq\":4294967394,\"value\":null,\"detail\":\"42656e2028636c69656e74203929\"}}}}"
+        },
+        {
+          "to": "anna",
+          "json": "{\"t\":\"evt\",\"rev\":9,\"ev\":\"arming\",\"body\":{\"sensors\":[{\"sensor\":12,\"arm\":\"disarmed\"}],\"mode\":{\"mode\":1,\"modified\":true}}}"
+        },
+        {
+          "to": "phone",
+          "json": "{\"t\":\"evt\",\"rev\":9,\"ev\":\"arming\",\"body\":{\"sensors\":[{\"sensor\":12,\"arm\":\"disarmed\"}],\"mode\":{\"mode\":1,\"modified\":true}}}"
+        },
+        {
+          "to": "ben",
+          "json": "{\"t\":\"evt\",\"rev\":9,\"ev\":\"arming\",\"body\":{\"sensors\":[{\"sensor\":12,\"arm\":\"disarmed\"}],\"mode\":{\"mode\":1,\"modified\":true}}}"
+        },
+        {
+          "to": "console",
+          "json": "{\"t\":\"evt\",\"rev\":9,\"ev\":\"arming\",\"body\":{\"sensors\":[{\"sensor\":12,\"arm\":\"disarmed\"}],\"mode\":{\"mode\":1,\"modified\":true}}}"
+        },
+        {
+          "to": "ben",
+          "json": "{\"t\":\"res\",\"id\":6,\"ok\":true,\"body\":{\"disarmed\":[11,12],\"heldBack\":[],\"alarmEnded\":false}}"
+        },
+        {
+          "to": "anna",
+          "json": "{\"t\":\"evt\",\"rev\":9,\"ev\":\"record\",\"body\":{\"kind\":\"command\",\"row\":{\"kind\":\"command\",\"row\":{\"seq\":4294967394,\"atMs\":1794614401000,\"clockOk\":true,\"actor\":\"Ben (client 9)\",\"kind\":\"disarm\",\"args\":\"{\\\"target\\\":\\\"mine\\\"}\",\"outcome\":\"ok\",\"detail\":null}}}}"
+        },
+        {
+          "to": "phone",
+          "json": "{\"t\":\"evt\",\"rev\":9,\"ev\":\"record\",\"body\":{\"kind\":\"command\",\"row\":{\"kind\":\"command\",\"row\":{\"seq\":4294967394,\"atMs\":1794614401000,\"clockOk\":true,\"actor\":\"Ben (client 9)\",\"kind\":\"disarm\",\"args\":\"{\\\"target\\\":\\\"mine\\\"}\",\"outcome\":\"ok\",\"detail\":null}}}}"
+        },
+        {
+          "to": "ben",
+          "json": "{\"t\":\"evt\",\"rev\":9,\"ev\":\"record\",\"body\":{\"kind\":\"command\",\"row\":{\"kind\":\"command\",\"row\":{\"seq\":4294967394,\"atMs\":1794614401000,\"clockOk\":true,\"actor\":\"Ben (client 9)\",\"kind\":\"disarm\",\"args\":\"{\\\"target\\\":\\\"mine\\\"}\",\"outcome\":\"ok\",\"detail\":null}}}}"
+        },
+        {
+          "to": "console",
+          "json": "{\"t\":\"evt\",\"rev\":9,\"ev\":\"record\",\"body\":{\"kind\":\"command\",\"row\":{\"kind\":\"command\",\"row\":{\"seq\":4294967394,\"atMs\":1794614401000,\"clockOk\":true,\"actor\":\"Ben (client 9)\",\"kind\":\"disarm\",\"args\":\"{\\\"target\\\":\\\"mine\\\"}\",\"outcome\":\"ok\",\"detail\":null}}}}"
+        }
+      ]
+    },
+    {
+      "step": "anna group.create",
+      "frames": [
+        {
+          "to": "anna",
+          "json": "{\"t\":\"evt\",\"rev\":10,\"ev\":\"config\",\"body\":{\"group\":{\"id\":1,\"name\":\"Downstairs\",\"sensors\":[11,12],\"sirens\":\"all\",\"revision\":0}}}"
+        },
+        {
+          "to": "phone",
+          "json": "{\"t\":\"evt\",\"rev\":10,\"ev\":\"config\",\"body\":{\"group\":{\"id\":1,\"name\":\"Downstairs\",\"sensors\":[11,12],\"sirens\":\"all\",\"revision\":0}}}"
+        },
+        {
+          "to": "ben",
+          "json": "{\"t\":\"evt\",\"rev\":10,\"ev\":\"config\",\"body\":{\"group\":{\"id\":1,\"name\":\"Downstairs\",\"sensors\":[11,12],\"sirens\":\"all\",\"revision\":0}}}"
+        },
+        {
+          "to": "console",
+          "json": "{\"t\":\"evt\",\"rev\":10,\"ev\":\"config\",\"body\":{\"group\":{\"id\":1,\"name\":\"Downstairs\",\"sensors\":[11,12],\"sirens\":\"all\",\"revision\":0}}}"
+        },
+        {
+          "to": "anna",
+          "json": "{\"t\":\"res\",\"id\":16,\"ok\":true,\"body\":{\"id\":1,\"name\":\"Downstairs\",\"sensors\":[11,12],\"sirens\":\"all\",\"revision\":0}}"
+        },
+        {
+          "to": "anna",
+          "json": "{\"t\":\"evt\",\"rev\":10,\"ev\":\"record\",\"body\":{\"kind\":\"command\",\"row\":{\"kind\":\"command\",\"row\":{\"seq\":4294967407,\"atMs\":1794614401000,\"clockOk\":true,\"actor\":\"Anna (client 7)\",\"kind\":\"group.create\",\"args\":\"{\\\"name\\\":\\\"Downstairs\\\",\\\"sensors\\\":[11,12],\\\"sirens\\\":\\\"all\\\"}\",\"outcome\":\"ok\",\"detail\":null}}}}"
+        },
+        {
+          "to": "phone",
+          "json": "{\"t\":\"evt\",\"rev\":10,\"ev\":\"record\",\"body\":{\"kind\":\"command\",\"row\":{\"kind\":\"command\",\"row\":{\"seq\":4294967407,\"atMs\":1794614401000,\"clockOk\":true,\"actor\":\"Anna (client 7)\",\"kind\":\"group.create\",\"args\":\"{\\\"name\\\":\\\"Downstairs\\\",\\\"sensors\\\":[11,12],\\\"sirens\\\":\\\"all\\\"}\",\"outcome\":\"ok\",\"detail\":null}}}}"
+        },
+        {
+          "to": "ben",
+          "json": "{\"t\":\"evt\",\"rev\":10,\"ev\":\"record\",\"body\":{\"kind\":\"command\",\"row\":{\"kind\":\"command\",\"row\":{\"seq\":4294967407,\"atMs\":1794614401000,\"clockOk\":true,\"actor\":\"Anna (client 7)\",\"kind\":\"group.create\",\"args\":\"{\\\"name\\\":\\\"Downstairs\\\",\\\"sensors\\\":[11,12],\\\"sirens\\\":\\\"all\\\"}\",\"outcome\":\"ok\",\"detail\":null}}}}"
+        },
+        {
+          "to": "console",
+          "json": "{\"t\":\"evt\",\"rev\":10,\"ev\":\"record\",\"body\":{\"kind\":\"command\",\"row\":{\"kind\":\"command\",\"row\":{\"seq\":4294967407,\"atMs\":1794614401000,\"clockOk\":true,\"actor\":\"Anna (client 7)\",\"kind\":\"group.create\",\"args\":\"{\\\"name\\\":\\\"Downstairs\\\",\\\"sensors\\\":[11,12],\\\"sirens\\\":\\\"all\\\"}\",\"outcome\":\"ok\",\"detail\":null}}}}"
+        }
+      ]
+    },
+    {
+      "step": "anna link.create",
+      "frames": [
+        {
+          "to": "anna",
+          "json": "{\"t\":\"res\",\"id\":17,\"ok\":true,\"body\":{\"token\":1,\"qr\":\"hsn://link/1?h=ijpnjzfdnmyouinzbyq4oewgje&s=WlpaWlpaWlpaWlpaWlpaWg&a=192.168.1.10,fd00::10&p=8444&c=q6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6s\",\"expiresInMs\":600000}}"
+        },
+        {
+          "to": "anna",
+          "json": "{\"t\":\"evt\",\"rev\":11,\"ev\":\"record\",\"body\":{\"kind\":\"command\",\"row\":{\"kind\":\"command\",\"row\":{\"seq\":4294967411,\"atMs\":1794614401000,\"clockOk\":true,\"actor\":\"Anna (client 7)\",\"kind\":\"link.create\",\"args\":\"{\\\"kind\\\":\\\"ownDevice\\\",\\\"form\\\":\\\"qr\\\"}\",\"outcome\":\"ok\",\"detail\":null}}}}"
+        },
+        {
+          "to": "phone",
+          "json": "{\"t\":\"evt\",\"rev\":11,\"ev\":\"record\",\"body\":{\"kind\":\"command\",\"row\":{\"kind\":\"command\",\"row\":{\"seq\":4294967411,\"atMs\":1794614401000,\"clockOk\":true,\"actor\":\"Anna (client 7)\",\"kind\":\"link.create\",\"args\":\"{\\\"kind\\\":\\\"ownDevice\\\",\\\"form\\\":\\\"qr\\\"}\",\"outcome\":\"ok\",\"detail\":null}}}}"
+        },
+        {
+          "to": "ben",
+          "json": "{\"t\":\"evt\",\"rev\":11,\"ev\":\"record\",\"body\":{\"kind\":\"command\",\"row\":{\"kind\":\"command\",\"row\":{\"seq\":4294967411,\"atMs\":1794614401000,\"clockOk\":true,\"actor\":\"Anna (client 7)\",\"kind\":\"link.create\",\"args\":\"{\\\"kind\\\":\\\"ownDevice\\\",\\\"form\\\":\\\"qr\\\"}\",\"outcome\":\"ok\",\"detail\":null}}}}"
+        },
+        {
+          "to": "console",
+          "json": "{\"t\":\"evt\",\"rev\":11,\"ev\":\"record\",\"body\":{\"kind\":\"command\",\"row\":{\"kind\":\"command\",\"row\":{\"seq\":4294967411,\"atMs\":1794614401000,\"clockOk\":true,\"actor\":\"Anna (client 7)\",\"kind\":\"link.create\",\"args\":\"{\\\"kind\\\":\\\"ownDevice\\\",\\\"form\\\":\\\"qr\\\"}\",\"outcome\":\"ok\",\"detail\":null}}}}"
+        }
+      ]
+    },
+    {
+      "step": "anna client.rename",
+      "frames": [
+        {
+          "to": "anna",
+          "json": "{\"t\":\"evt\",\"rev\":12,\"ev\":\"people\",\"body\":{\"client\":{\"id\":7,\"person\":1,\"kind\":\"web\",\"name\":\"Anna's laptop\",\"createdMs\":1794528000000,\"lastSeenMs\":1794614401000,\"linkedBy\":null}}}"
+        },
+        {
+          "to": "phone",
+          "json": "{\"t\":\"evt\",\"rev\":12,\"ev\":\"people\",\"body\":{\"client\":{\"id\":7,\"person\":1,\"kind\":\"web\",\"name\":\"Anna's laptop\",\"createdMs\":1794528000000,\"lastSeenMs\":1794614401000,\"linkedBy\":null}}}"
+        },
+        {
+          "to": "ben",
+          "json": "{\"t\":\"evt\",\"rev\":12,\"ev\":\"people\",\"body\":{\"client\":{\"id\":7,\"person\":1,\"kind\":\"web\",\"name\":\"Anna's laptop\",\"createdMs\":1794528000000,\"lastSeenMs\":1794614401000,\"linkedBy\":null}}}"
+        },
+        {
+          "to": "console",
+          "json": "{\"t\":\"evt\",\"rev\":12,\"ev\":\"people\",\"body\":{\"client\":{\"id\":7,\"person\":1,\"kind\":\"web\",\"name\":\"Anna's laptop\",\"createdMs\":1794528000000,\"lastSeenMs\":1794614401000,\"linkedBy\":null}}}"
+        },
+        {
+          "to": "anna",
+          "json": "{\"t\":\"evt\",\"rev\":12,\"ev\":\"record\",\"body\":{\"kind\":\"decision\",\"row\":{\"kind\":\"decision\",\"row\":{\"seq\":4294967417,\"atMs\":1794614401000,\"clockOk\":true,\"kind\":\"client_renamed\",\"deviceId\":null,\"causeSeq\":4294967415,\"value\":7,\"detail\":\"7b2266726f6d223a22636c69656e742d37222c22746f223a22416e6e612773206c6170746f70222c226279223a22416e6e612028636c69656e74203729227d\"}}}}"
+        },
+        {
+          "to": "phone",
+          "json": "{\"t\":\"evt\",\"rev\":12,\"ev\":\"record\",\"body\":{\"kind\":\"decision\",\"row\":{\"kind\":\"decision\",\"row\":{\"seq\":4294967417,\"atMs\":1794614401000,\"clockOk\":true,\"kind\":\"client_renamed\",\"deviceId\":null,\"causeSeq\":4294967415,\"value\":7,\"detail\":\"7b2266726f6d223a22636c69656e742d37222c22746f223a22416e6e612773206c6170746f70222c226279223a22416e6e612028636c69656e74203729227d\"}}}}"
+        },
+        {
+          "to": "ben",
+          "json": "{\"t\":\"evt\",\"rev\":12,\"ev\":\"record\",\"body\":{\"kind\":\"decision\",\"row\":{\"kind\":\"decision\",\"row\":{\"seq\":4294967417,\"atMs\":1794614401000,\"clockOk\":true,\"kind\":\"client_renamed\",\"deviceId\":null,\"causeSeq\":4294967415,\"value\":7,\"detail\":\"7b2266726f6d223a22636c69656e742d37222c22746f223a22416e6e612773206c6170746f70222c226279223a22416e6e612028636c69656e74203729227d\"}}}}"
+        },
+        {
+          "to": "console",
+          "json": "{\"t\":\"evt\",\"rev\":12,\"ev\":\"record\",\"body\":{\"kind\":\"decision\",\"row\":{\"kind\":\"decision\",\"row\":{\"seq\":4294967417,\"atMs\":1794614401000,\"clockOk\":true,\"kind\":\"client_renamed\",\"deviceId\":null,\"causeSeq\":4294967415,\"value\":7,\"detail\":\"7b2266726f6d223a22636c69656e742d37222c22746f223a22416e6e612773206c6170746f70222c226279223a22416e6e612028636c69656e74203729227d\"}}}}"
+        },
+        {
+          "to": "anna",
+          "json": "{\"t\":\"res\",\"id\":18,\"ok\":true,\"body\":{}}"
+        },
+        {
+          "to": "anna",
+          "json": "{\"t\":\"evt\",\"rev\":12,\"ev\":\"record\",\"body\":{\"kind\":\"command\",\"row\":{\"kind\":\"command\",\"row\":{\"seq\":4294967415,\"atMs\":1794614401000,\"clockOk\":true,\"actor\":\"Anna (client 7)\",\"kind\":\"client.rename\",\"args\":\"{\\\"client\\\":7,\\\"name\\\":\\\"Anna's laptop\\\"}\",\"outcome\":\"ok\",\"detail\":null}}}}"
+        },
+        {
+          "to": "phone",
+          "json": "{\"t\":\"evt\",\"rev\":12,\"ev\":\"record\",\"body\":{\"kind\":\"command\",\"row\":{\"kind\":\"command\",\"row\":{\"seq\":4294967415,\"atMs\":1794614401000,\"clockOk\":true,\"actor\":\"Anna (client 7)\",\"kind\":\"client.rename\",\"args\":\"{\\\"client\\\":7,\\\"name\\\":\\\"Anna's laptop\\\"}\",\"outcome\":\"ok\",\"detail\":null}}}}"
+        },
+        {
+          "to": "ben",
+          "json": "{\"t\":\"evt\",\"rev\":12,\"ev\":\"record\",\"body\":{\"kind\":\"command\",\"row\":{\"kind\":\"command\",\"row\":{\"seq\":4294967415,\"atMs\":1794614401000,\"clockOk\":true,\"actor\":\"Anna (client 7)\",\"kind\":\"client.rename\",\"args\":\"{\\\"client\\\":7,\\\"name\\\":\\\"Anna's laptop\\\"}\",\"outcome\":\"ok\",\"detail\":null}}}}"
+        },
+        {
+          "to": "console",
+          "json": "{\"t\":\"evt\",\"rev\":12,\"ev\":\"record\",\"body\":{\"kind\":\"command\",\"row\":{\"kind\":\"command\",\"row\":{\"seq\":4294967415,\"atMs\":1794614401000,\"clockOk\":true,\"actor\":\"Anna (client 7)\",\"kind\":\"client.rename\",\"args\":\"{\\\"client\\\":7,\\\"name\\\":\\\"Anna's laptop\\\"}\",\"outcome\":\"ok\",\"detail\":null}}}}"
+        }
+      ]
+    },
+    {
+      "step": "console usb.list",
+      "frames": [
+        {
+          "to": "console",
+          "json": "{\"t\":\"res\",\"id\":6,\"ok\":true,\"body\":{\"ports\":[]}}"
+        }
+      ]
+    },
+    {
+      "step": "anna usb.list on the home network",
+      "frames": [
+        {
+          "to": "anna",
+          "json": "{\"t\":\"res\",\"id\":19,\"ok\":false,\"error\":{\"code\":\"consoleOnly\",\"detail\":{}}}"
+        }
+      ]
+    },
+    {
+      "step": "console device.remove",
+      "frames": [
+        {
+          "to": "console",
+          "json": "{\"t\":\"res\",\"id\":7,\"ok\":false,\"error\":{\"code\":\"busy\",\"detail\":{\"because\":\"countdown\"}}}"
+        },
+        {
+          "to": "anna",
+          "json": "{\"t\":\"evt\",\"rev\":13,\"ev\":\"record\",\"body\":{\"kind\":\"command\",\"row\":{\"kind\":\"command\",\"row\":{\"seq\":4294967425,\"atMs\":1794614401000,\"clockOk\":true,\"actor\":\"hub computer (client 1)\",\"kind\":\"device.remove\",\"args\":\"{\\\"device\\\":12}\",\"outcome\":\"busy\",\"detail\":null}}}}"
+        },
+        {
+          "to": "phone",
+          "json": "{\"t\":\"evt\",\"rev\":13,\"ev\":\"record\",\"body\":{\"kind\":\"command\",\"row\":{\"kind\":\"command\",\"row\":{\"seq\":4294967425,\"atMs\":1794614401000,\"clockOk\":true,\"actor\":\"hub computer (client 1)\",\"kind\":\"device.remove\",\"args\":\"{\\\"device\\\":12}\",\"outcome\":\"busy\",\"detail\":null}}}}"
+        },
+        {
+          "to": "ben",
+          "json": "{\"t\":\"evt\",\"rev\":13,\"ev\":\"record\",\"body\":{\"kind\":\"command\",\"row\":{\"kind\":\"command\",\"row\":{\"seq\":4294967425,\"atMs\":1794614401000,\"clockOk\":true,\"actor\":\"hub computer (client 1)\",\"kind\":\"device.remove\",\"args\":\"{\\\"device\\\":12}\",\"outcome\":\"busy\",\"detail\":null}}}}"
+        },
+        {
+          "to": "console",
+          "json": "{\"t\":\"evt\",\"rev\":13,\"ev\":\"record\",\"body\":{\"kind\":\"command\",\"row\":{\"kind\":\"command\",\"row\":{\"seq\":4294967425,\"atMs\":1794614401000,\"clockOk\":true,\"actor\":\"hub computer (client 1)\",\"kind\":\"device.remove\",\"args\":\"{\\\"device\\\":12}\",\"outcome\":\"busy\",\"detail\":null}}}}"
+        }
+      ]
+    },
+    {
+      "step": "the stand-ins raise a notification, the key's replacement and an update",
+      "frames": [
+        {
+          "to": "anna",
+          "json": "{\"t\":\"evt\",\"rev\":14,\"ev\":\"notification\",\"body\":{\"seq\":4294968196,\"atMs\":1794614405000,\"clockOk\":true,\"kind\":\"armed_door_opened\",\"category\":\"countdown\",\"critical\":false,\"device\":11,\"cause\":null,\"read\":false,\"delayed\":false}}"
+        },
+        {
+          "to": "phone",
+          "json": "{\"t\":\"evt\",\"rev\":14,\"ev\":\"notification\",\"body\":{\"seq\":4294968196,\"atMs\":1794614405000,\"clockOk\":true,\"kind\":\"armed_door_opened\",\"category\":\"countdown\",\"critical\":false,\"device\":11,\"cause\":null,\"read\":false,\"delayed\":false}}"
+        },
+        {
+          "to": "ben",
+          "json": "{\"t\":\"evt\",\"rev\":14,\"ev\":\"notification\",\"body\":{\"seq\":4294968196,\"atMs\":1794614405000,\"clockOk\":true,\"kind\":\"armed_door_opened\",\"category\":\"countdown\",\"critical\":false,\"device\":11,\"cause\":null,\"read\":false,\"delayed\":false}}"
+        },
+        {
+          "to": "console",
+          "json": "{\"t\":\"evt\",\"rev\":14,\"ev\":\"notification\",\"body\":{\"seq\":4294968196,\"atMs\":1794614405000,\"clockOk\":true,\"kind\":\"armed_door_opened\",\"category\":\"countdown\",\"critical\":false,\"device\":11,\"cause\":null,\"read\":false,\"delayed\":false}}"
+        },
+        {
+          "to": "phone",
+          "json": "{\"t\":\"evt\",\"rev\":14,\"ev\":\"backupKeyChanged\",\"body\":{\"epoch\":3}}"
+        },
+        {
+          "to": "anna",
+          "json": "{\"t\":\"evt\",\"rev\":14,\"ev\":\"hub\",\"body\":{\"what\":\"backup\",\"detail\":{\"kind\":\"backup_key_replaced\",\"value\":3}}}"
+        },
+        {
+          "to": "phone",
+          "json": "{\"t\":\"evt\",\"rev\":14,\"ev\":\"hub\",\"body\":{\"what\":\"backup\",\"detail\":{\"kind\":\"backup_key_replaced\",\"value\":3}}}"
+        },
+        {
+          "to": "ben",
+          "json": "{\"t\":\"evt\",\"rev\":14,\"ev\":\"hub\",\"body\":{\"what\":\"backup\",\"detail\":{\"kind\":\"backup_key_replaced\",\"value\":3}}}"
+        },
+        {
+          "to": "console",
+          "json": "{\"t\":\"evt\",\"rev\":14,\"ev\":\"hub\",\"body\":{\"what\":\"backup\",\"detail\":{\"kind\":\"backup_key_replaced\",\"value\":3}}}"
+        },
+        {
+          "to": "anna",
+          "json": "{\"t\":\"evt\",\"rev\":14,\"ev\":\"record\",\"body\":{\"kind\":\"decision\",\"row\":{\"kind\":\"decision\",\"row\":{\"seq\":4294968249,\"atMs\":1794614406000,\"clockOk\":true,\"kind\":\"backup_key_replaced\",\"deviceId\":null,\"causeSeq\":null,\"value\":3,\"detail\":null}}}}"
+        },
+        {
+          "to": "phone",
+          "json": "{\"t\":\"evt\",\"rev\":14,\"ev\":\"record\",\"body\":{\"kind\":\"decision\",\"row\":{\"kind\":\"decision\",\"row\":{\"seq\":4294968249,\"atMs\":1794614406000,\"clockOk\":true,\"kind\":\"backup_key_replaced\",\"deviceId\":null,\"causeSeq\":null,\"value\":3,\"detail\":null}}}}"
+        },
+        {
+          "to": "ben",
+          "json": "{\"t\":\"evt\",\"rev\":14,\"ev\":\"record\",\"body\":{\"kind\":\"decision\",\"row\":{\"kind\":\"decision\",\"row\":{\"seq\":4294968249,\"atMs\":1794614406000,\"clockOk\":true,\"kind\":\"backup_key_replaced\",\"deviceId\":null,\"causeSeq\":null,\"value\":3,\"detail\":null}}}}"
+        },
+        {
+          "to": "console",
+          "json": "{\"t\":\"evt\",\"rev\":14,\"ev\":\"record\",\"body\":{\"kind\":\"decision\",\"row\":{\"kind\":\"decision\",\"row\":{\"seq\":4294968249,\"atMs\":1794614406000,\"clockOk\":true,\"kind\":\"backup_key_replaced\",\"deviceId\":null,\"causeSeq\":null,\"value\":3,\"detail\":null}}}}"
+        },
+        {
+          "to": "anna",
+          "json": "{\"t\":\"evt\",\"rev\":14,\"ev\":\"hub\",\"body\":{\"what\":\"updateStaged\",\"detail\":{\"value\":null}}}"
+        },
+        {
+          "to": "phone",
+          "json": "{\"t\":\"evt\",\"rev\":14,\"ev\":\"hub\",\"body\":{\"what\":\"updateStaged\",\"detail\":{\"value\":null}}}"
+        },
+        {
+          "to": "ben",
+          "json": "{\"t\":\"evt\",\"rev\":14,\"ev\":\"hub\",\"body\":{\"what\":\"updateStaged\",\"detail\":{\"value\":null}}}"
+        },
+        {
+          "to": "console",
+          "json": "{\"t\":\"evt\",\"rev\":14,\"ev\":\"hub\",\"body\":{\"what\":\"updateStaged\",\"detail\":{\"value\":null}}}"
+        },
+        {
+          "to": "anna",
+          "json": "{\"t\":\"evt\",\"rev\":14,\"ev\":\"record\",\"body\":{\"kind\":\"decision\",\"row\":{\"kind\":\"decision\",\"row\":{\"seq\":4294968246,\"atMs\":1794614406000,\"clockOk\":true,\"kind\":\"update_staged\",\"deviceId\":null,\"causeSeq\":null,\"value\":null,\"detail\":null}}}}"
+        },
+        {
+          "to": "phone",
+          "json": "{\"t\":\"evt\",\"rev\":14,\"ev\":\"record\",\"body\":{\"kind\":\"decision\",\"row\":{\"kind\":\"decision\",\"row\":{\"seq\":4294968246,\"atMs\":1794614406000,\"clockOk\":true,\"kind\":\"update_staged\",\"deviceId\":null,\"causeSeq\":null,\"value\":null,\"detail\":null}}}}"
+        },
+        {
+          "to": "ben",
+          "json": "{\"t\":\"evt\",\"rev\":14,\"ev\":\"record\",\"body\":{\"kind\":\"decision\",\"row\":{\"kind\":\"decision\",\"row\":{\"seq\":4294968246,\"atMs\":1794614406000,\"clockOk\":true,\"kind\":\"update_staged\",\"deviceId\":null,\"causeSeq\":null,\"value\":null,\"detail\":null}}}}"
+        },
+        {
+          "to": "console",
+          "json": "{\"t\":\"evt\",\"rev\":14,\"ev\":\"record\",\"body\":{\"kind\":\"decision\",\"row\":{\"kind\":\"decision\",\"row\":{\"seq\":4294968246,\"atMs\":1794614406000,\"clockOk\":true,\"kind\":\"update_staged\",\"deviceId\":null,\"causeSeq\":null,\"value\":null,\"detail\":null}}}}"
+        }
+      ]
+    },
+    {
+      "step": "anna snapshot again",
+      "frames": [
+        {
+          "to": "anna",
+          "json": "{\"t\":\"res\",\"id\":20,\"ok\":true,\"body\":{\"rev\":14,\"hub\":{\"hub\":\"2.0.0\",\"proto\":1,\"identity\":\"ijpnjzfdnmyouinzbyq4oewgje\",\"fingerprint\":\"AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB\",\"timeZone\":\"\",\"clockTrusted\":true,\"boot\":1},\"site\":{\"channel\":1,\"rate\":5,\"countdownS\":30,\"autoStopS\":300,\"wifiName\":\"home-2\",\"retentionRoutineDays\":30,\"retentionEventDays\":365},\"mode\":{\"mode\":1,\"modified\":true},\"devices\":[{\"id\":11,\"name\":\"front-door\",\"role\":\"sensor\",\"state\":\"contacted\",\"firmware\":\"1.2.3\",\"batteryPercent\":null,\"signal\":null,\"temperatureC\":null,\"lastSeenMs\":null,\"heardBy\":null,\"health\":{\"silent\":false,\"batteryLow\":false,\"tamperOpen\":false,\"poorLink\":false}},{\"id\":12,\"name\":\"garage\",\"role\":\"sensor\",\"state\":\"contacted\",\"firmware\":\"1.2.3\",\"batteryPercent\":null,\"signal\":null,\"temperatureC\":null,\"lastSeenMs\":null,\"heardBy\":null,\"health\":{\"silent\":false,\"batteryLow\":false,\"tamperOpen\":false,\"poorLink\":false}},{\"id\":21,\"name\":\"hall\",\"role\":\"siren\",\"state\":\"contacted\",\"firmware\":\"1.2.3\",\"batteryPercent\":null,\"signal\":null,\"temperatureC\":null,\"lastSeenMs\":null,\"heardBy\":null,\"health\":{\"silent\":false,\"batteryLow\":false,\"tamperOpen\":false,\"poorLink\":false}}],\"sensors\":[{\"id\":11,\"arm\":\"disarmed\",\"door\":\"unknown\",\"countdownSecondsLeft\":null},{\"id\":12,\"arm\":\"disarmed\",\"door\":\"unknown\",\"countdownSecondsLeft\":null}],\"sirens\":[{\"id\":21,\"should\":{\"kind\":\"off\",\"secondsLeft\":null},\"commanded\":null,\"reported\":null,\"wifi\":\"unknown\",\"lora\":\"unknown\"}],\"gateways\":[],\"alarm\":null,\"siteMove\":null,\"notifications\":[],\"modes\":[{\"id\":1,\"name\":\"Away\",\"fixed\":\"away\",\"groups\":[],\"revision\":0},{\"id\":2,\"name\":\"Disarmed\",\"fixed\":\"disarmed\",\"groups\":[],\"revision\":0}],\"groups\":[{\"id\":1,\"name\":\"Downstairs\",\"sensors\":[11,12],\"sirens\":\"all\",\"revision\":0}],\"schedules\":[],\"notificationPrefs\":{\"categories\":[\"sensorSilentWhileDisarmed\",\"sirenPathLost\",\"gatewayOffline\",\"batteryLow\",\"armDisarm\",\"updates\"],\"revision\":0}}}"
+        }
+      ]
+    }
+  ]
+}

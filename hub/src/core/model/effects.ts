@@ -6,6 +6,7 @@
 import type { AuditRecord } from "./audit.ts";
 import type {
   AppMessage,
+  AppMessageV2,
   AppOpBody,
   BluetoothSessionObject,
   PushContent,
@@ -61,8 +62,16 @@ export type Effect =
   /** Advertise the hub by mDNS with its identity (§10). */
   | { readonly kind: "advertise"; readonly identity: Uint8Array; readonly port: number }
   // M2 (m2-design.md section 2).
-  /** A reply or an event, for the shell to encrypt and send on one session, in order (section 5). */
-  | { readonly kind: "appSend"; readonly conn: ConnId; readonly message: AppMessage }
+  /**
+   * A reply or an event, for the shell to encrypt and send on one session, in order (section 5):
+   * of the session's channel version (docs/m3-m4-plan.md), version 1's `AppMessage` on a version
+   * 1 session, version 2's `AppMessageV2` on a version 2 session; `app` makes each in its form.
+   */
+  | {
+      readonly kind: "appSend";
+      readonly conn: ConnId;
+      readonly message: AppMessage | AppMessageV2;
+    }
   /** Close every session of a removed client. */
   | { readonly kind: "closeClient"; readonly client: ClientId; readonly reason: string }
   /**

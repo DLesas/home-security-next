@@ -13,7 +13,7 @@ import type { CoreFault } from "../model/errors.ts";
 import type { Context } from "../model/handler.ts";
 import type { DeviceId } from "../model/ids.ts";
 import type { DomainMessage } from "../model/messages.ts";
-import { DeviceState } from "../model/rows.ts";
+import { DeviceState, DeviceUpdateState } from "../model/rows.ts";
 import type { SirenSettings } from "../model/settings.ts";
 import type { Mono } from "../model/time.ts";
 import { safeResumeSendCounter } from "../util/protocol-safe.ts";
@@ -65,7 +65,7 @@ function entryFor(
   counter: SirenEntry["counter"],
   settings: SirenSettings,
   history: SirenEntry["history"],
-  reportNowWanted: boolean,
+  reportNowWanted: SirenEntry["reportNowWanted"],
 ): Result<SirenEntry, CoreFault> {
   return paceMs(ctx, settings).map((pace) => ({
     counter,
@@ -85,14 +85,19 @@ function entryFor(
 /**
  * The boot event: every paired siren with its settings and the hub's counter resumed from its
  * saved resume point (section 4). Each is owed "report now" within 120 s ‡ of the start, as its
- * path appears (section 7, "Hub restart"). Commands in flight, paths and reports start afresh
- * (section 5: memory only).
+ * path appears (section 7, "Hub restart"). A recorded trial still needs a command after that
+ * window. Commands in flight, paths and reports start afresh (section 5: memory only).
  */
 export function onBoot(slice: SirensSlice, ctx: Context, event: Boot): Changing {
   const { snapshot } = event;
   const site = siteRadioNow(ctx);
   const configs = new Map(snapshot.sirenConfig.map((row) => [row.deviceId, row]));
   const resumes = new Map(snapshot.sendCounters.map((row) => [row.deviceId, row.resumePoint]));
+  const trials = new Set(
+    snapshot.m3m4?.deviceUpdates
+      .filter((row) => row.state === DeviceUpdateState.OnTrial)
+      .map((row) => row.deviceId),
+  );
   const sirens = snapshot.devices.filter(
     (device) => device.role === Role.Siren && device.state !== DeviceState.Removed,
   );
@@ -108,7 +113,7 @@ export function onBoot(slice: SirensSlice, ctx: Context, event: Boot): Changing 
         ? ok(newSendCounter(ResumeStep.Hub))
         : safeResumeSendCounter(ResumeStep.Hub, resume).mapErr((error) => fault(ctx, error));
     return counter
-      .andThen((c) => entryFor(ctx, c, settings, history, true))
+      .andThen((c) => entryFor(ctx, c, settings, history, trials.has(device.id) ? "trial" : "boot"))
       .map((entry) => [device.id, entry, row === undefined] as const);
   });
   return Result.combine(entries).map((restored) => ({
@@ -140,8 +145,13 @@ export function onDeviceAdded(
   ctx: Context,
   added: Message<"deviceAdded">,
 ): Changing {
-  if (added.role !== Role.Siren || slice.sirens.has(added.device)) return unchanged(slice);
-  const settings = firstSettings(siteRadioNow(ctx), ctx.deps.rules);
+  if (added.role !== Role.Siren) return unchanged(slice);
+  // A siren added again (its owner reset it) starts above its last version (hub-design section 9),
+  // whether its entry was kept from the start or it left this run.
+  const last =
+    slice.sirens.get(added.device)?.settings.version ?? slice.retiredVersions.get(added.device);
+  const first = firstSettings(siteRadioNow(ctx), ctx.deps.rules);
+  const settings = last === undefined ? first : { ...first, version: nextVersion(last) };
   return entryFor(
     ctx,
     newSendCounter(ResumeStep.Hub),

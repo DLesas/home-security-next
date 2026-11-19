@@ -103,12 +103,23 @@ function groupFields(
   if ([...slice.groups.values()].some((g) => g.name === body.name && g.id !== self)) {
     return invalid("name", "taken");
   }
-  const sensors = unknownIn("sensors", body.sensors, new Set(alarmSensors(view)));
+  // A member kept through its owner's reset (`handle.ts`, until it is added again or removed) is
+  // not one the alarm knows, yet stays in the group: the group's own members may be named again.
+  const own = self === undefined ? undefined : slice.groups.get(self);
+  const sensors = unknownIn(
+    "sensors",
+    body.sensors,
+    new Set([...alarmSensors(view), ...(own?.sensors ?? [])]),
+  );
   if (sensors !== undefined) return sensors;
   if (body.sirens !== "all") {
     // A list of no siren would sound nothing, which no group may (section 7): "all" is the way.
     if (body.sirens.length === 0) return invalid("sirens", "range");
-    const sirens = unknownIn("sirens", body.sirens, new Set(sirenIds(view)));
+    const sirens = unknownIn(
+      "sirens",
+      body.sirens,
+      new Set([...sirenIds(view), ...(own?.sirens ?? [])]),
+    );
     if (sirens !== undefined) return sirens;
   }
   return {

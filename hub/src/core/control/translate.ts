@@ -6,7 +6,8 @@
  * record, since the shell flushes, reads and streams (section 3, "Reads never defeat the
  * batching").
  */
-import { m2OwnerOf } from "../model/ops.ts";
+import { type AppOp, isVersion1Op } from "@hsn/protocol/app";
+import { m2OwnerOf, m3m4OwnerOf, OP_OWNERS } from "../model/ops.ts";
 import {
   MAX_WIFI_NAME_BYTES,
   MAX_WIFI_PASSWORD_BYTES,
@@ -371,18 +372,28 @@ export function route(
     // M2 (m2-design.md section 6): to the operation's owner, with the hub computer as actor.
     case "op": {
       const op = command.operation;
+      const asked = {
+        actor: { kind: "computer", name: actor },
+        answerTo: { kind: "control", request, conn },
+        record,
+      } as const;
+      // Channel version 2's operations `hsn` carries (`CONTROL_OPS_V2`), to their owners as a
+      // session's are (`app`): `relay`, `firmware`, and `upkeep`'s `update.offers` and
+      // `update.fetch`. The hub computer has every permission (HD 9). The phone's own operations
+      // and `pair.*` are not the hub computer's: the control protocol refuses them first.
+      if (!isVersion1Op(op.op)) {
+        const owner = OP_OWNERS[op.op];
+        const v2 =
+          m3m4OwnerOf(op.op) ?? (owner === "upkeep" || owner === "setup" ? owner : undefined);
+        return v2 === undefined
+          ? refuse("notBuilt", `${op.op} is not the hub computer's (docs/m3-m4-plan.md)`)
+          : requested({ kind: "v2OpRequest", owner: v2, op, ...asked });
+      }
       const owner = m2OwnerOf(op.op);
       if (owner === undefined) {
         return refuse("notBuilt", `${op.op} has no module yet (m2-design.md section 2)`);
       }
-      return requested({
-        kind: "opRequest",
-        owner,
-        op,
-        actor: { kind: "computer", name: actor },
-        answerTo: { kind: "control", request, conn },
-        record,
-      });
+      return requested({ kind: "opRequest", owner, op: op as AppOp, ...asked });
     }
     case "consoleToken":
       return requested({ kind: "consoleTokenRequest", for: command.for ?? "open", ...asked });
@@ -392,9 +403,10 @@ export function route(
         token: tokenId(command.token),
         ...asked,
       });
-    // The joint step 0's lockstep-only restore (m3-updates-design section 7): built by U10 and K1.
+    // The lockstep-only restore (m3-updates-design section 7): the lockstep hub's shell takes it
+    // before the core (`shell/lockstep/hub.ts`), so it reaches the core only from another socket.
     case "benchRestore":
-      return refuse("notBuilt", "benchRestore is not built yet (docs/m3-m4-plan.md, step 1)");
+      return refuse("badRequest", "benchRestore is the lockstep hub's alone (--bench-lockstep)");
   }
 }
 

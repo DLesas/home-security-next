@@ -52,14 +52,36 @@
  * shared version, a timeout, a malformed message, a peer past the limits) go to the core as
  * `clientRefused`, at most one per address per minute (`refusals.ts`).
  *
+ * **Three listeners** (m4-design section 4): `lan`, `console` and `relay`, a phone's stream through
+ * the hub's relay link (`shell/relay/streams.ts`), a connection like any other under the same
+ * limits, its address the relay's pseudonym of the phone's. The console's key is accepted on
+ * `console` only: on `lan` or `relay` it is refused `consoleNotLocal`.
+ *
+ * **Versions** (m4-design section 9): the hub speaks 1 and 2 (`HUB_PROTO`). A session agrees the
+ * highest both speak, and every request (`first` included) is read as that version reads it: an
+ * operation only a later version names is answered `protoUnsupported` and recorded `notInVersion`;
+ * a version 2 session's requests reach the core as version 2's operations. What a session is sent
+ * passes `versionGate`: a version 1 session is never sent an event or an error only version 2
+ * names. Version 1 is served exactly as before.
+ *
  * Nothing secret is logged, put in an error, or sent before the peer has proved itself: link
  * secrets live in `LinkSecrets` and inside the handshake, the hub's static key in `staticKey`.
  */
 import {
   APP_OPS,
+  APP_OPS_BY_VERSION,
+  APP_OPS_V2,
   APP_PATHS,
+  APP_PROTO_LATEST,
   APP_PROTO_VERSION,
+  type AppProtoVersion,
+  appErrorV2,
+  isEventInVersion,
+  isOpInVersion,
+  parseRequestIn,
+  version1Error,
   type AppMessage,
+  type AppMessageV2,
   type AppOpBody,
   type AppOpReply,
   type AppReply,
@@ -169,8 +191,11 @@ export const CHANNEL_LIMITS: ChannelLimits = {
   refusalAddresses: REFUSAL_LIMITS.maxAddresses,
 };
 
-/** The channel versions this hub speaks: version 1 only. */
-export const HUB_PROTO: readonly [number, number] = [APP_PROTO_VERSION, APP_PROTO_VERSION];
+/**
+ * The channel versions this hub speaks: 1 and 2 (docs/m4-design.md section 9). A session agrees
+ * the highest both speak; a version 1 client is served exactly as before version 2 existed.
+ */
+export const HUB_PROTO: readonly [number, number] = [APP_PROTO_VERSION, APP_PROTO_LATEST];
 
 /** One WebSocket as the channel sees it: binary messages out, and a close. */
 export interface ChannelSocket {
@@ -274,7 +299,7 @@ type Phase =
       readonly transport: TransportSession;
       readonly client: ClientId;
       readonly remoteStatic: Uint8Array;
-      readonly proto: number;
+      readonly proto: AppProtoVersion;
       readonly app: string;
       readonly first: AppRequestOf | undefined;
     }
@@ -283,6 +308,8 @@ type Phase =
       readonly transport: TransportSession;
       readonly client: ClientId;
       readonly admittedAt: number;
+      /** The channel version agreed: what the session may send, and what it is sent. */
+      readonly proto: AppProtoVersion;
     }
   | {
       readonly kind: "linkMessage3";
@@ -349,9 +376,10 @@ function payload<T extends z.ZodType>(schema: T, bytes: Uint8Array): z.infer<T> 
 }
 
 /** The highest version both speak, or undefined (section 5, "Versions"). */
-export function agreedVersion(range: readonly [number, number]): number | undefined {
+export function agreedVersion(range: readonly [number, number]): AppProtoVersion | undefined {
   const high = Math.min(range[1], HUB_PROTO[1]);
-  return high >= Math.max(range[0], HUB_PROTO[0]) ? high : undefined;
+  if (high < Math.max(range[0], HUB_PROTO[0])) return undefined;
+  return high === 2 ? 2 : high === 1 ? 1 : undefined;
 }
 
 const KIND_NAMES = {
@@ -368,6 +396,24 @@ function isEvent(value: unknown): value is { readonly t: "evt"; readonly rev: nu
     (value as { readonly t?: unknown }).t === "evt" &&
     typeof (value as { readonly rev?: unknown }).rev === "number"
   );
+}
+
+/**
+ * What a session of `version` may be sent of `value` (docs/m3-m4-plan.md: "a version 1 session
+ * never sees a version 2 object"): an event its version does not name is not sent (undefined),
+ * and a refusal whose error only version 2 can say goes to a version 1 session as
+ * `protoUnsupported` (`version1Error`), as `replyOf` already makes it; anything else as it is.
+ */
+export function versionGate(version: AppProtoVersion, value: unknown): unknown {
+  if (typeof value !== "object" || value === null) return value;
+  const message = value as { readonly t?: unknown; readonly ev?: unknown; readonly ok?: unknown };
+  if (message.t === "evt" && typeof message.ev === "string")
+    return isEventInVersion(message.ev, version) ? value : undefined;
+  if (version === 1 && message.t === "res" && message.ok === false) {
+    const error = appErrorV2.safeParse((value as { readonly error?: unknown }).error);
+    if (error.success) return { ...value, error: version1Error(error.data) };
+  }
+  return value;
 }
 
 /** What the shell refuses of a request, and how it answers (section 2). */
@@ -387,8 +433,49 @@ function issuePaths(
   );
 }
 
-/** Checks a request the way `parseRequest` does, saying which rule failed and where, without values. */
-function refusalOf(value: unknown): Refused | undefined {
+/**
+ * Checks a request the way `parseRequest` (version 1) or `parseRequestIn` (version 2) does, saying
+ * which rule failed and where, without values. An operation no version names is a wrong shape; one
+ * a later version names than the session agreed is `notInVersion` (m2-design.md section 5,
+ * `protoUnsupported`). Version 1's checks are exactly those it always had.
+ */
+function refusalOf(value: unknown, version: AppProtoVersion): Refused | undefined {
+  if (version === 1) return refusalOfVersion1(value);
+  const frame = requestFrame.safeParse(value);
+  if (!frame.success) return refusalOfAny(value);
+  const { id, seq, op, body } = frame.data;
+  if (!Object.hasOwn(APP_OPS_V2, op))
+    return { reason: "badShape", id, field: "op", issues: ["op: unknown"] };
+  if (!isOpInVersion(op, version))
+    return { reason: "notInVersion", id, field: "op", issues: ["op: not in version"] };
+  const table: Readonly<
+    Record<string, { readonly body: z.ZodType; readonly change: boolean } | undefined>
+  > = APP_OPS_BY_VERSION[version];
+  const rule = table[op];
+  if (rule === undefined) return { reason: "notInVersion", id, field: "op", issues: [] };
+  const checked = rule.body.safeParse(body);
+  if (!checked.success) {
+    const issues = issuePaths(checked.error.issues, "body");
+    const first = checked.error.issues[0]?.path.map(String).join(".") ?? "";
+    return { reason: "badShape", id, field: first, issues };
+  }
+  if (rule.change !== (seq !== undefined))
+    return { reason: "seqRule", id, field: "seq", issues: ["seq: rule"] };
+  return undefined;
+}
+
+/** Version 1's checks, as they were before version 2 (`parseRequest`), with one change: the gate. */
+function refusalOfVersion1(value: unknown): Refused | undefined {
+  const frame = requestFrame.safeParse(value);
+  if (frame.success) {
+    const { id, op } = frame.data;
+    if (!Object.hasOwn(APP_OPS, op) && Object.hasOwn(APP_OPS_V2, op))
+      return { reason: "notInVersion", id, field: "op", issues: ["op: not in version"] };
+  }
+  return refusalOfAny(value);
+}
+
+function refusalOfAny(value: unknown): Refused | undefined {
   const frame = requestFrame.safeParse(value);
   if (!frame.success) {
     const id =
@@ -764,8 +851,10 @@ export class AppChannel {
       );
       return;
     }
+    // The console's key only on the console's own listener: never on the home network's, never
+    // through the relay (D61; m4-design section 4).
     if (known.kind === ClientKind.Console && conn.listener !== "console") {
-      refuse("consoleOnLan");
+      refuse("consoleNotLocal");
       return;
     }
     const hello = payload(clientHello, body);
@@ -780,8 +869,9 @@ export class AppChannel {
     }
     let first: AppRequestOf | undefined;
     if (hello.first !== undefined) {
-      // `first` may be replayed, so it must carry `seq` (section 5): a change, never a chunk.
-      const parsed = parseRequest(hello.first);
+      // `first` may be replayed, so it must carry `seq` (section 5): a change, never a chunk. It is
+      // read as the version agreed reads requests.
+      const parsed = proto === 1 ? parseRequest(hello.first) : parseRequestIn(proto, hello.first);
       if (!parsed.ok || parsed.value.seq === undefined || parsed.value.op.op === "fileChunk") {
         refuse();
         return;
@@ -958,6 +1048,7 @@ export class AppChannel {
       transport: phase.transport,
       client: phase.client,
       admittedAt: this.#now(),
+      proto: phase.proto,
     };
     conn.told = true;
     this.#options.emit({
@@ -980,7 +1071,7 @@ export class AppChannel {
       this.#close(conn, CLOSE.lifetime, "lifetime");
     });
     this.#heard(conn);
-    this.#request(conn, phase.client, plain.value);
+    this.#request(conn, phase.client, phase.proto, plain.value);
   }
 
   #sessionMessage(
@@ -994,7 +1085,7 @@ export class AppChannel {
       return;
     }
     this.#heard(conn);
-    this.#request(conn, phase.client, plain.value);
+    this.#request(conn, phase.client, phase.proto, plain.value);
   }
 
   /** Restore message 5, `RestoreKey`: only after the offer went, and once (section 5). */
@@ -1028,15 +1119,20 @@ export class AppChannel {
   }
 
   /** A session's plaintext: one request, checked before the core sees it (section 2). */
-  #request(conn: Conn, client: ClientId, plain: Uint8Array): void {
+  #request(conn: Conn, client: ClientId, proto: AppProtoVersion, plain: Uint8Array): void {
     const text = utf8(plain);
     const value = text === undefined ? undefined : parseJson(text, "codec", ORIGIN);
     if (value === undefined || value.isErr()) {
       this.#reject(conn, { reason: "notJson", id: undefined, field: "", issues: [] }, plain.length);
       return;
     }
-    const refused = refusalOf(value.value);
-    const parsed = refused === undefined ? parseRequest(value.value) : undefined;
+    const refused = refusalOf(value.value, proto);
+    const parsed =
+      refused !== undefined
+        ? undefined
+        : proto === 1
+          ? parseRequest(value.value)
+          : parseRequestIn(proto, value.value);
     if (refused !== undefined || !parsed?.ok) {
       this.#reject(
         conn,
@@ -1068,14 +1164,18 @@ export class AppChannel {
         issues: refused.issues,
       },
     });
-    if (refused.id !== undefined) {
-      this.#deliver(conn, {
-        t: "res",
-        id: refused.id,
-        ok: false,
-        error: { code: "invalid", detail: { field: refused.field, reason: "format" } },
-      });
-    }
+    if (refused.id === undefined) return;
+    // An operation the agreed version does not name (section 5): `protoUnsupported`, with the
+    // versions this hub speaks.
+    this.#deliver(conn, {
+      t: "res",
+      id: refused.id,
+      ok: false,
+      error:
+        refused.reason === "notInVersion"
+          ? { code: "protoUnsupported", detail: { speaks: [HUB_PROTO[0], HUB_PROTO[1]] } }
+          : { code: "invalid", detail: { field: refused.field, reason: "format" } },
+    });
   }
 
   /** `fileChunk`: the shell's, on the console listener only ‡ (section 6). */
@@ -1102,7 +1202,7 @@ export class AppChannel {
 
   // ----- Sending -----
 
-  #appSend(id: ConnId, message: AppMessage): void {
+  #appSend(id: ConnId, message: AppMessage | AppMessageV2): void {
     const conn = this.#conns.get(id);
     if (conn === undefined) return;
     if (!("kind" in message)) {
@@ -1132,10 +1232,17 @@ export class AppChannel {
    * cannot go (too long for one Noise message, a dropped send) closes the session: its stream
    * must never lose a message.
    */
-  #deliver(conn: Conn, value: unknown): boolean {
+  #deliver(conn: Conn, given: unknown): boolean {
     const phase = conn.phase;
     if (phase.kind !== "session" && phase.kind !== "linked" && phase.kind !== "restoring")
       return false;
+    let value = given;
+    if (phase.kind === "session") {
+      const gated = versionGate(phase.proto, given);
+      // An event the session's version does not name is not its to see: dropped, and not a fault.
+      if (gated === undefined) return true;
+      value = gated;
+    }
     const plain = json(value);
     if (plain.length > NOISE_LIMITS.maxPlaintextBytes) {
       this.#report(`a message of ${plain.length} bytes is too long for one Noise message`);

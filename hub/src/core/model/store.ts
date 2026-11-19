@@ -52,6 +52,7 @@ import type {
   PushKeyRow,
   PushOutboxRow,
   PushTargetRow,
+  Rekey,
   RelaySettingsRow,
   RolloutRow,
   ScheduleRow,
@@ -242,5 +243,20 @@ export type PruneOp =
       readonly limit: number;
     };
 
+/**
+ * The pending key change of one device after a restore (D141, m3-updates-design section 7): sets
+ * `device_keys.next_key` and `rekey` of the row with this device's id, and nothing else, so the
+ * core never names the device's current key, which it is never given (hub-design.md section 2).
+ * Repeatable: the same values written again change nothing, and for a device with no row it
+ * writes nothing.
+ */
+export interface PendingKeyOp {
+  readonly table: "device_keys";
+  readonly op: "pendingKey";
+  readonly key: StateTableKeys["device_keys"];
+  readonly nextKey: Uint8Array;
+  readonly rekey: Rekey;
+}
+
 /** One write to the database, carried by a `write` effect. */
-export type StoreOp = UpsertOp | DeleteOp | PruneOp;
+export type StoreOp = UpsertOp | DeleteOp | PruneOp | PendingKeyOp;

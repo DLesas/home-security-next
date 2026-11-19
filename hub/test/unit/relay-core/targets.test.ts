@@ -409,6 +409,38 @@ describe("a person removed while their pushes wait", () => {
 });
 
 describe("an invalid target (badToken)", () => {
+  test.each(["notification", "test"] as const)(
+    "an old %s push's refusal preserves a refreshed token under the same key",
+    (kind) => {
+      const runner = registered();
+      runner.register(ANNA_PHONE);
+      const sent =
+        kind === "test"
+          ? runner.op({ op: "push.test", body: {} }, personActor(ANNA_PHONE))
+          : runner.raise(ordinary([ANNA_PHONE]));
+      const id = pushes(sent.out)[0]?.id ?? outboxId(0);
+      expect(id).not.toBe(outboxId(0));
+      const refreshed = runner.register(ANNA_PHONE, {
+        generation: 1,
+        keyId: hex(keyIdOf(ANNA_PHONE)),
+        key: base64url(keyOf(ANNA_PHONE)),
+      });
+      expect(refreshed.answer).toMatchObject({ ok: true });
+      runner.raise(ordinary([ANNA_PHONE], S1));
+      const refused = runner.results([{ id, outcome: "badToken" }]);
+      expect(decisions(refused.out)).toEqual([]);
+      expect(rosters(refused.out)).toEqual([]);
+      expect(pushTargetState(runner.view, ANNA_PHONE)).toEqual({ registered: true, valid: true });
+      expect(runner.slice.outbox.size).toBe(kind === "test" ? 1 : 2);
+      if (kind === "notification") {
+        const retry = runner.run(60_000_000);
+        expect(pushes(retry.out).map((push) => push.id)).toEqual([id]);
+        runner.results([{ id, outcome: "badToken" }]);
+        expect(pushTargetState(runner.view, ANNA_PHONE)?.valid).toBe(false);
+      }
+    },
+  );
+
   test("marked invalid now, its pushes deleted, recorded, a roster without it; registering makes it valid", () => {
     const runner = registered();
     runner.register(ANNA_PHONE);

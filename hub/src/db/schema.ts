@@ -639,6 +639,9 @@ export const rollouts = sqliteTable(
 export const deviceUpdates = sqliteTable("device_updates", {
   deviceId: integer("device_id").primaryKey(),
   rolloutId: integer("rollout_id"),
+  sameVersion: flag("same_version")
+    .notNull()
+    .default(sql`0`),
   /** 0 none … 10 cancelled (m3-updates-design section 4). */
   state: integer("state").notNull(),
   /** 0 its own link, 1 joins Wi-Fi, 2 Bluetooth. */

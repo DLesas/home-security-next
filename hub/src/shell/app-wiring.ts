@@ -383,7 +383,7 @@ export class AppSide {
         // A stop: the job's temporary files go, and an export's connection is told (section 6).
         abort: () => {
           pieces.abort("the hub is stopping");
-          if (work.kind === "export")
+          if (work.kind === "export" || work.kind === "sendFirmware")
             this.#ignore(this.#download(work.conn, failed(job, "stopping")));
         },
       },
@@ -391,16 +391,22 @@ export class AppSide {
   }
 
   /**
-   * A job's end, however it ended (section 3): its upload freed, the restore's after it is applied
-   * (its header read comes first, so only a read that failed frees it), the release once staged;
-   * and an export that failed ends with `fileFailed` where its chunks were going (section 6).
+   * A job's end, however it ended (section 3): its upload freed, the release once staged; the
+   * restore's only once it is applied, or the hub stops: its header read comes first, so only a
+   * read that failed frees it, and an `applyRestore` that failed (a wrong key, section 9: "the
+   * token stays usable") keeps it for the phone's next try, until the restore is done, the console
+   * that sent it closes, or the hub restarts (`UploadStore`). A release fetched over the relay
+   * (`fetchRelease`) is the relay client's, which frees its file itself. An export that failed ends
+   * with `fileFailed` where its chunks were going (section 6).
    */
   ended(job: JobId, work: FileWork, outcome: FileOutcome | undefined): void {
     const uploads = this.#start.uploads;
-    if (work.kind === "applyRestore" || work.kind === "stageUpdate") uploads.release(work.upload);
+    if (work.kind === "stageUpdate" || work.kind === "stageFirmware") uploads.release(work.upload);
+    if (work.kind === "applyRestore" && (outcome === undefined || outcome.kind === "restoreReady"))
+      uploads.release(work.upload);
     if (work.kind === "readRestore" && outcome?.kind !== "restoreRead")
       uploads.release(work.upload);
-    if (work.kind === "export" && outcome?.kind === "failed")
+    if ((work.kind === "export" || work.kind === "sendFirmware") && outcome?.kind === "failed")
       this.#ignore(this.#download(work.conn, failed(job, "io")));
   }
 

@@ -10,6 +10,7 @@ import type { DeviceId } from "../model/ids.ts";
 import { MICROS_PER_MILLISECOND, type Mono } from "../model/time.ts";
 import type { TimerOf } from "../model/timers.ts";
 import { after, type Changing, decide, each, then, unchanged } from "./out.ts";
+import { reportNowIfOwed } from "./reports.ts";
 import { sendSettings, transmit } from "./send.ts";
 import type { InFlight, SirenEntry, SirenPaths, SirensSlice } from "./state.ts";
 import { pathDeadlines } from "./timers.ts";
@@ -52,7 +53,13 @@ export function onSirenTimer(
     if (slice.reportNowUntil === undefined || slice.reportNowUntil > now) return unchanged(slice);
     const sirens = new Map(
       [...slice.sirens].map(
-        ([siren, entry]) => [siren, { ...entry, reportNowWanted: false }] as const,
+        ([siren, entry]) =>
+          [
+            siren,
+            entry.reportNowWanted === "boot"
+              ? { ...entry, reportNowWanted: false as const }
+              : entry,
+          ] as const,
       ),
     );
     return unchanged({ ...slice, sirens, reportNowUntil: undefined });
@@ -132,8 +139,12 @@ function giveUp(
     slice: released,
     out: [m],
   }));
-  return keep === undefined && entry.settingsWanted
-    ? then(recorded, (current) => sendSettings(current, ctx, siren, entry.moveSettings))
+  if (keep !== undefined) return recorded;
+  if (entry.settingsWanted) {
+    return then(recorded, (current) => sendSettings(current, ctx, siren, entry.moveSettings));
+  }
+  return entry.reportNowWanted === "trial"
+    ? then(recorded, (current) => reportNowIfOwed(current, ctx, siren))
     : recorded;
 }
 

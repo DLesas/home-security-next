@@ -406,7 +406,10 @@ function isChange(op: AppOpName): boolean {
 // Picking effects apart.
 
 export function sentTo(effects: readonly Effect[], conn: ConnId): readonly AppMessage[] {
-  return effects.flatMap((e) => (e.kind === "appSend" && e.conn === conn ? [e.message] : []));
+  // These tests' sessions are version 1's (`connect`), so what they are sent is version 1's.
+  return effects.flatMap((e) =>
+    e.kind === "appSend" && e.conn === conn ? [e.message as AppMessage] : [],
+  );
 }
 
 export function repliesTo(effects: readonly Effect[], conn: ConnId): readonly AppReply[] {

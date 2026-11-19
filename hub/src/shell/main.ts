@@ -19,7 +19,14 @@
  */
 import { sha256 } from "@noble/hashes/sha2.js";
 import { makeCalendar } from "./calendar/calendar.ts";
-import { ADDRESS_CHECK_MS } from "./hub-facts.ts";
+import { ADDRESS_CHECK_MS, homeAddresses, HUB_VERSION } from "./hub-facts.ts";
+import { defaultRelayUrl, DEPLOYMENT } from "@hsn/deployment";
+import { x25519StaticKey } from "@hsn/protocol/app";
+import { REAL_TIMERS } from "./app/channel.ts";
+import { RelayClient } from "./relay/client.ts";
+import { MemoryPushKeys } from "./relay/push-keys.ts";
+import { hubReleaseWanted, newestFirmware } from "./relay/releases.ts";
+import { platformOf } from "./update/release.ts";
 import { type AppPorts, AppSide, DEFAULT_APP_PORTS, programPaths, startApp } from "./app-wiring.ts";
 import { LAUNCHER } from "./m2-values.ts";
 import { okAsync } from "neverthrow";
@@ -47,8 +54,12 @@ import { runLockstep } from "./lockstep/wire.ts";
 import { retryWaitingRestore } from "./backup/restore.ts";
 import { createTopFolderIfMissing } from "./control/windows.ts";
 import { WINDOWS_CALLS } from "./safe/control-socket-windows.ts";
+import { switchAfterAnnouncing } from "./update/announce.ts";
 import { prefixFrom } from "./update/notes.ts";
 import { PUBLISHER_KEYS } from "./update/publisher-keys.ts";
+import { checkStore, indexedImages } from "./firmware/store.ts";
+import { TransferServer } from "./firmware/serve.ts";
+import { sendSession } from "./firmware/session.ts";
 import { LinkRegistry } from "./links/registry.ts";
 import { SerialLinks } from "./links/serial.ts";
 import { UsbWatch } from "./links/usb-watch.ts";
@@ -302,29 +313,63 @@ export async function runHub(options: MainOptions, trusted: HubTrust): Promise<n
   if (mark !== undefined) trust.setFloor(mark.lastSeenMs);
   trust.start();
 
+  // The firmware store's check (m3-updates-design section 4), before the hub listens: what no
+  // live row names is deleted, and each indexed image whose file is missing or wrong is told to
+  // the core after the boot event.
+  const firmwareStore = indexedImages(store.db).andThen((rows) =>
+    checkStore(options.dataDir, rows).mapErr((error) => error.message),
+  );
+  if (firmwareStore.isErr()) say(`the firmware store could not be checked: ${firmwareStore.error}`);
+
   // The `/device` WebSocket first, so the port mDNS advertises is the one it serves (§10).
   const registry = new LinkRegistry();
+  // Firmware transfers on granted links are answered by the shell (m3-updates-design section 5).
+  const transfers = new TransferServer({
+    dataDir: options.dataDir,
+    send: (link, bytes) => registry.sendTransfer(link, bytes),
+    emit: (event) => {
+      holder.loop?.enqueue(event);
+    },
+    // Each frame's answer holds the hub's one thread as a turn does (m2-design.md section 3).
+    stopwatch: () => performance.now(),
+  });
+  registry.serveTransfers(transfers);
   const devices = serveDevices(registry, options.port);
   const servedPort = devices.port ?? options.port;
   const holder: {
     loop: HubLoop | undefined;
     control: UnixControlServer | undefined;
     app: AppSide | undefined;
+    relay: RelayClient | undefined;
   } = {
     loop: undefined,
     control: undefined,
     app: undefined,
+    relay: undefined,
   };
-  const advertiser = new MdnsAdvertiser(servedPort, () =>
-    bonjourLibrary((error) => {
-      say(error.message);
-    }),
+  // `app` and `aid` for apps (m3-design section 2), once the apps' listener is open.
+  const advertiser = new MdnsAdvertiser(
+    servedPort,
+    () =>
+      bonjourLibrary((error) => {
+        say(error.message);
+      }),
+    () => {
+      const port = holder.app?.lanPort;
+      return port === undefined ? undefined : { port, identity: app.value.material.identity };
+    },
   );
   let timer: ReturnType<typeof setTimeout> | undefined;
   let soon = false;
   const runTurn = (): void => {
     soon = false;
     holder.loop?.turn();
+  };
+  /** Another turn soon: inputs wait, or a job has work (a fetched release's piece, B6). */
+  const askTurn = (): void => {
+    if (soon) return;
+    soon = true;
+    setImmediate(runTurn);
   };
   // What the loop reports beyond the core's own records goes to standard error; a failed
   // commit is in `fatal.log` already (the writer's `onFailed`) and the core records it.
@@ -364,9 +409,7 @@ export async function runHub(options: MainOptions, trusted: HubTrust): Promise<n
         }, delayMs);
       },
       soon: () => {
-        if (soon) return;
-        soon = true;
-        setImmediate(runTurn);
+        askTurn();
       },
       report,
       fatal: (error) => {
@@ -374,23 +417,40 @@ export async function runHub(options: MainOptions, trusted: HubTrust): Promise<n
         finish(FATAL_EXIT_CODE);
       },
       channel: { perform: (effect) => holder.app?.perform(effect) },
+      // The relay client's effects (m4-design section 4, B6).
+      relay: { perform: (effect) => holder.relay?.perform(effect) },
       files: {
         perform: (job, work) =>
+          // A release fetched over the relay link, then staged as an upload is (B6).
+          (work.kind === "fetchRelease" ? holder.relay?.fetch(job, work) : undefined) ??
           holder.app?.job(job, work) ?? {
             kind: "ready",
             outcome: { kind: "failed", reason: "io", message: "the hub is starting" },
           },
         ended: (job, work, outcome) => holder.app?.ended(job, work, outcome),
       },
-      // A switch (`switchUpdate`, `switchRestore`): a clean stop, the file work that waits for
-      // the database to close, then exit 70 for the launcher (section 9).
-      restart: (afterStop) => {
-        stopCleanly();
-        const after = afterStop();
-        if (after.isErr()) say(`the switch's last step failed: ${after.error}`);
-        finish(LAUNCHER.restartMeExitCode);
+      // A switch (`switchUpdate`, `switchRestore`): announced to the relay (at most 2 s ‡,
+      // m4-design section 4), then a clean stop, the file work that waits for the database to
+      // close, and exit 70 for the launcher (section 9); unless a stop came meanwhile.
+      restart: (afterStop, reason) => {
+        void switchAfterAnnouncing(holder.relay, reason, REAL_TIMERS, () => {
+          if (exitCode.code !== undefined) return;
+          stopCleanly();
+          const after = afterStop();
+          if (after.isErr()) say(`the switch's last step failed: ${after.error}`);
+          finish(LAUNCHER.restartMeExitCode);
+        });
       },
       committed: (records) => holder.app?.committed(records),
+      // The firmware module's effects (m3-updates-design sections 4 and 5).
+      transfers,
+      bluetoothSession: (effect) => {
+        const sent = sendSession(effect, keys.value, {
+          app: (conn, message) => holder.app?.perform({ kind: "appSend", conn, message }),
+          control: (request, reply) => holder.control?.respond(request, reply),
+        });
+        if (sent.isErr()) say(`firmware.bluetooth: ${sent.error}`);
+      },
       // Each turn's own time (section 3), on the process's monotonic clock.
       stopwatch: () => performance.now(),
     },
@@ -410,6 +470,48 @@ export async function runHub(options: MainOptions, trusted: HubTrust): Promise<n
   }
   holder.app = side.value;
 
+  // The relay client (m4-design section 4, B6): the phones' push keys, the app channel for relayed
+  // streams, the upload store for fetched releases, on a connection of its own.
+  const pushKeys = MemoryPushKeys.load(store.db);
+  const relayKey = x25519StaticKey(app.value.material.staticPrivate);
+  if (pushKeys.isErr() || !relayKey.ok) {
+    say(
+      `cannot start the relay client: ${pushKeys.isErr() ? pushKeys.error.message : "no app key"}`,
+    );
+    return EXIT_CANNOT_START;
+  }
+  let stopping = false;
+  holder.relay = new RelayClient({
+    staticKey: relayKey.value,
+    hubVersion: HUB_VERSION,
+    channel: side.value.channel,
+    pushKeys: pushKeys.value,
+    emit: (event) => {
+      loop.enqueue(event);
+    },
+    report,
+    timers: REAL_TIMERS,
+    now: () => performance.now(),
+    random: (length) => randomBytes(length, ORIGIN),
+    releases: {
+      platform: platformOf(process.platform, process.arch),
+      running: HUB_VERSION,
+      firmware: () => newestFirmware(loop.state.firmware.images.values()),
+      uploads: app.value.uploads,
+      conn: app.value.connIds.next(),
+      wanted: (job, release) =>
+        !stopping && (release === "firmware" || hubReleaseWanted(loop.state, job)),
+      stage: (job, work) =>
+        holder.app?.job(job, work) ?? {
+          kind: "ready",
+          outcome: { kind: "failed", reason: "io", message: "the hub is stopping" },
+        },
+      wake: () => {
+        askTurn();
+      },
+    },
+  });
+
   // The top-level handler (section 10).
   const uncaught = (thrown: unknown): void => {
     recordUncaught(fatalContext(holder.loop), ORIGIN, thrown);
@@ -421,8 +523,10 @@ export async function runHub(options: MainOptions, trusted: HubTrust): Promise<n
   // A clean stop: everything staged and the clean-stop mark, in one commit. Listened for before
   // anything else starts, so a stop asked for during the start is clean too.
   const stopCleanly = (): void => {
+    stopping = true;
     loop.turn();
     loop.stop();
+    holder.relay?.stop();
     holder.app?.stop();
     const stopped = store.writer.stop();
     if (stopped.isErr()) say(`the clean stop's commit failed: ${stopped.error.message}`);
@@ -450,7 +554,15 @@ export async function runHub(options: MainOptions, trusted: HubTrust): Promise<n
   // (m2-design.md section 2), before the control socket opens, so no client of either is served
   // by a core without them; again whenever the addresses change. Without the listeners the hub
   // still runs, for its devices, and says why.
-  loop.enqueue({ kind: "boot", snapshot, boot: store.boot });
+  // The deployment's default relay, which the core may not import (m4-design section 2).
+  loop.enqueue({
+    kind: "boot",
+    snapshot,
+    boot: { ...store.boot, defaultRelayUrl: defaultRelayUrl(DEPLOYMENT) },
+  });
+  if (firmwareStore.isOk())
+    for (const { image, problem } of firmwareStore.value.damaged)
+      loop.enqueue({ kind: "firmwareStoreDamaged", image, problem });
   if (retried.kind === "refused")
     loop.enqueue({
       kind: "shellWarning",
@@ -463,10 +575,15 @@ export async function runHub(options: MainOptions, trusted: HubTrust): Promise<n
   });
   if (listening.isErr()) say(`the app listeners could not open: ${listening.error.message}`);
   runTurn();
+  let relayAddresses = homeAddresses().join(",");
   const addressCheck = setInterval(() => {
     holder.app?.addressesChanged((event) => {
       loop.enqueue(event);
     });
+    // A change of the computer's addresses reconnects the relay link at once (m4-design section 4).
+    const now = homeAddresses().join(",");
+    if (now !== relayAddresses) holder.relay?.networkChanged();
+    relayAddresses = now;
     runTurn();
   }, ADDRESS_CHECK_MS);
   addressCheck.unref();
@@ -491,7 +608,8 @@ export async function runHub(options: MainOptions, trusted: HubTrust): Promise<n
       store.writer.flush("log").andThen(() => store.reader.query(query)),
     deviceIdOf: (name) => deviceByName(loop.state, name)?.id,
     writerStatus: appOptions.writerStatus,
-    longestTurnMs: () => loop.takeLongestTurnMs(),
+    // A transfer frame's answer is a turn of the hub's one thread too (`hsn status`).
+    longestTurnMs: () => Math.max(loop.takeLongestTurnMs(), transfers.takeLongestMs()),
     connIds: app.value.connIds,
     uploads: app.value.uploads,
     // A11's warnings are the core's to record (`shellWarning`, step 1, wave 2).
@@ -522,6 +640,7 @@ export async function runHub(options: MainOptions, trusted: HubTrust): Promise<n
   if (timer !== undefined) clearTimeout(timer);
   trust.stop();
   watch.stop();
+  transfers.close();
   void devices.stop(true);
   (await (holder.control?.close() ?? okAsync(undefined))).match(
     () => undefined,

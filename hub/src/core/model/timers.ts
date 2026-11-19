@@ -68,8 +68,6 @@ export type TimerKey =
   | { readonly module: "upkeep"; readonly kind: "backupOverdue" }
   /** The restore token's expiry, 10 minutes ‡ after it was made (section 9). */
   | { readonly module: "upkeep"; readonly kind: "restoreExpiry" }
-  /** An approved update waiting for no countdown, alarm, site move, provisioning or restore (D54). */
-  | { readonly module: "upkeep"; readonly kind: "updateWait" }
   // The joint step 0 of M3 and M4 (docs/m3-m4-plan.md).
   /** relay: the link down for 180 s ‡: `relay_unreachable`, once per outage (m4-design section 4). */
   | { readonly module: "relay"; readonly kind: "unreachable" }

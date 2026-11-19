@@ -15,7 +15,28 @@ import type { DeviceId } from "../model/ids.ts";
 import { mono } from "../model/time.ts";
 import type { DeviceStateRow } from "../model/rows.ts";
 import type { HubState } from "../model/state.ts";
+import type { KeyUsed } from "../model/cipher.ts";
 import type { KnownDevice } from "./state.ts";
+
+export {
+  afterCommit,
+  afterSwitch,
+  failingCommitWrites,
+  type KeyChangeEntry,
+  type KeyChangeMade,
+  type KeyChanges,
+  keyChangeAllowed,
+  keyChangedDevice,
+  keyChangesFromSnapshot,
+  makeKeyChange,
+  NO_KEY_CHANGES,
+  recordedBody,
+  sealKeyOf,
+  switchedCounter,
+  switchWrites,
+  withKeyChange,
+  withoutDevice,
+} from "./rekey.ts";
 
 /** What intake knows of a device, or undefined for one it does not open packets from. */
 export function knownDevice(view: HubState, device: DeviceId): KnownDevice | undefined {
@@ -47,4 +68,12 @@ export function deviceStateRow(
     uptimeS: null,
     estimates: estimates === undefined ? known.estimates : estimates,
   };
+}
+
+/**
+ * The key the newest packet under a key held at the backup opened under (`oldKeyPacket`, D141):
+ * for a row both of whose keys were held at the backup, the key the device holds.
+ */
+export function lastOldKey(view: HubState, device: DeviceId): KeyUsed | undefined {
+  return view.intake.rekey.get(device)?.lastKey;
 }

@@ -73,7 +73,7 @@ export function statusOfReading(reading: Uint8Array | null): StatusSeen | undefi
  * it gets a version announcing it like every other sensor; after the switch, the new settings
  * with nothing to follow (section 8, "Pairing during a move").
  */
-export function firstConfig(ctx: Context, device: DeviceId): SensorConfigRow {
+export function firstConfig(ctx: Context, device: DeviceId, version = 1): SensorConfigRow {
   const rate = siteRate(ctx.view, ctx.deps.rules);
   const move = announcingMove(ctx.view);
   const switched = switchedMove(ctx.view);
@@ -94,8 +94,8 @@ export function firstConfig(ctx: Context, device: DeviceId): SensorConfigRow {
     nextRate: move?.rate ?? NEXT_SETTING_STAYS,
     moveConfirmed: 0,
     moveFollowed: switched?.id ?? 0,
-    version: 1,
-    versionHistory: encodeHistory([{ version: 1, replyRate: rate, move: move?.id ?? 0 }]),
+    version,
+    versionHistory: encodeHistory([{ version, replyRate: rate, move: move?.id ?? 0 }]),
   };
 }
 

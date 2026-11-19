@@ -9,6 +9,27 @@
  * stored replies (they belong to sessions that are gone), the backup key (the phone brings it to a
  * restore), the update state (it belongs to the installed program), countdowns, the alarm and the
  * boots (a restore is for a hub with no devices). History only in an export that asks for it.
+ *
+ * Migration 3's tables (the joint step 0, docs/m3-m4-plan.md), each decided from its design:
+ * - `relay_settings`: held (m4-design section 4, "New tables"): the relay a restored hub connects
+ *   to is a setting like the site's.
+ * - `device_keys`' `next_key` and `rekey`: held with the row, as every column is (m3-updates-design
+ *   section 7, "Backups hold `next_key` and `rekey`"); the restore then marks every key for change
+ *   (`restore.ts`).
+ * - `firmware_images`, `rollouts`, `device_updates`: not held. Firmware is in no backup
+ *   (m3-updates-design sections 1 and 4, D140): it can be added again, and a restored hub learns
+ *   what each device runs from its Started; a rollout names an image and a device's update state
+ *   names its rollout, so neither means anything without the images.
+ * - `push_keys`: never, in any file. `push_targets` and `push_outbox`: not held. A push key is a
+ *   secret kept apart as `link_secrets` is (m4-design section 4), and a restored one is wrong for
+ *   the reason a restored link token is: the phone may have replaced it since the backup (every 30
+ *   days ‡, section 5), and a restored target would tell the phone, through the snapshot's `push`,
+ *   that the hub holds a valid one, so the phone would not register again and its alerts would be
+ *   sealed with a key it no longer has. Without them the snapshot says none is held and each phone
+ *   registers at its next session. An outbox row names a notification of the old hub's history,
+ *   which a backup does not hold, and a push that went before the backup would go again. (This
+ *   departs from m4-design section 4's "backups gain `push_targets` and `push_keys`", by the
+ *   reviewer's brief to A8.)
  */
 import { Database } from "bun:sqlite";
 import { err, ok, Result } from "neverthrow";
@@ -49,6 +70,7 @@ export const BACKUP_TABLES = [
   "health_state",
   "notification_prefs",
   "backup_state",
+  "relay_settings",
 ] as const;
 
 /** Never in any file, history or not: secrets that would work again, and replies of dead sessions. */
@@ -57,6 +79,42 @@ export const NEVER_TABLES = [
   "link_secrets",
   "client_replies",
   "backup_key",
+  "push_keys",
+] as const;
+
+/**
+ * Every other table, left out of a backup, with why (above): so that each table of the schema is
+ * in exactly one of the three lists, and a table a later migration adds must be decided (a test
+ * checks it).
+ */
+export const LEFT_OUT_TABLES = [
+  // History (D57): only in an export that asks for it.
+  "rx_routine",
+  "rx_event",
+  "tx_routine",
+  "tx_event",
+  "decisions",
+  "device_log",
+  "hub_events",
+  "commands",
+  "rejects",
+  "loss_daily",
+  "notifications",
+  "notification_reads",
+  // This run's: a restore is for a hub with no devices.
+  "countdowns",
+  "alarm",
+  "alarm_triggers",
+  "alarm_sirens",
+  "boots",
+  // The installed program's.
+  "update_state",
+  // Migration 3: firmware is in no backup; push targets and their outbox go with the keys.
+  "firmware_images",
+  "rollouts",
+  "device_updates",
+  "push_targets",
+  "push_outbox",
 ] as const;
 
 type Value = string | number | bigint | boolean | Uint8Array | null;

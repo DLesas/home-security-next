@@ -18,6 +18,7 @@
  * message, but for noting those decisions.
  */
 import { ok } from "neverthrow";
+import { eventAtOf } from "@hsn/protocol/records";
 import { anySensorArmed } from "../alarm/view.ts";
 import type { Context, Handler } from "../model/handler.ts";
 import type { Internal } from "../model/messages.ts";
@@ -27,19 +28,18 @@ import { relayOp } from "./ops.ts";
 import { expire, onRaised, onResults, onRetryDue } from "./outbox.ts";
 import { Steps } from "./out.ts";
 import { urlInUse } from "./settings.ts";
-import type { CauseKind, RelaySlice } from "./state.ts";
+import { CAUSE_KINDS, type CauseKind, type RelaySlice } from "./state.ts";
 import { sendRoster, unregister } from "./targets.ts";
 
 /** The decisions whose facts a push's text names (`content.ts`). */
-const CAUSE_KINDS: ReadonlySet<string> = new Set<CauseKind>([
-  "countdown_started",
-  "late_report_notification",
-  "mode_switched",
-]);
+const CAUSES: ReadonlySet<string> = new Set<CauseKind>(CAUSE_KINDS);
 
 function isCauseKind(kind: string): kind is CauseKind {
-  return CAUSE_KINDS.has(kind);
+  return CAUSES.has(kind);
 }
+
+/** The decision kinds whose `detail` names when the event happened (`eventAtDetail`, D102). */
+const TIMED: ReadonlySet<CauseKind> = new Set<CauseKind>(["late_report_sirens", "alarm"]);
 
 function onTimer(steps: Steps, ctx: Context, message: Extract<Internal, { kind: "timer" }>): void {
   const key = message.key;
@@ -71,8 +71,11 @@ function noteCause(
 ): RelaySlice {
   const { record } = message;
   if (urlInUse(slice) === null) return slice;
-  if (record.kind !== "decision" || !isCauseKind(record.row.kind)) return slice;
-  const facts = { seq: record.row.seq, kind: record.row.kind, value: record.row.value };
+  if (record.kind !== "decision") return slice;
+  const { kind, seq, value, detail } = record.row;
+  if (!isCauseKind(kind)) return slice;
+  const at = TIMED.has(kind) ? (eventAtOf(detail) ?? null) : null;
+  const facts = { seq, kind, value, at };
   return { ...slice, causes: new Map(slice.causes).set(facts.kind, facts) };
 }
 

@@ -55,6 +55,10 @@ function opKey(op: StoreOp): string {
       return stateKey(op.table, op.key);
     case "prune":
       return `prune|${op.table}|${"levels" in op ? op.levels.join(",") : ""}`;
+    case "pendingKey":
+      // Its own key: it folds only into the device's earlier pending key, never into a whole row's
+      // write, which it must not replace (the last write of each kind keeps its place in order).
+      return `pendingKey|${op.key.deviceId}`;
   }
 }
 

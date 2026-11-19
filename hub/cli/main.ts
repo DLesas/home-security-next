@@ -13,6 +13,13 @@ import { openConsoleAddress, type PageOutcome } from "./console-page.ts";
 import type { Result } from "neverthrow";
 import { type ClientError, exchange, Session } from "./client.ts";
 import { type FileCommand, runFileCommand } from "./files.ts";
+import {
+  type FirmwareAdd,
+  type FirmwareCommand,
+  type FirmwareFailure,
+  runFirmwareAdd,
+  runFirmwareCommand,
+} from "./firmware.ts";
 import type { NamedFiles } from "./named-files.ts";
 import {
   checkHubPeer,
@@ -97,6 +104,13 @@ usage: hsn [--data <folder>] [--socket <path>] [--json] [--timeout <s>] <command
   update install <file>                   upload a release and stage it (D54)
   restore <file>                          restore this new hub from a backup file, with a phone's key (D53)
   backup export <file> [--history]        write a backup, with history if asked, to <file> (HB22)
+  firmware add <file>                     add a publisher's firmware release (.hsnf) to the store
+  firmware add <file> --own --version <v> add your own build (the application image); asks first
+  firmware list                           the stored images, and each device's version and update
+  firmware remove <image>                 remove an image no open rollout uses
+  rollout start <image> [--pilot <device>]…   roll an image out; devices by name or number
+  rollout status | pause | cancel         the open rollout
+  rollout resume [--device <device> [--force]]  resume it; --force updates a gateway held as always busy
 
 The hub's data folder is --data, else $HSN_DATA_DIR, else ~/.hsn; its socket is control.sock there.
 
@@ -170,8 +184,74 @@ function socketOf(globals: Globals, io: CliIo): string | undefined {
   return globals.socket ?? (folder === undefined ? undefined : socketPath(folder));
 }
 
+/** What a firmware or rollout command's failure prints, and its exit code (`firmware.ts`). */
+function firmwareFailure(failure: FirmwareFailure, json: boolean, io: CliIo): ExitCode {
+  switch (failure.kind) {
+    case "client":
+      return clientFailure(failure.error, io);
+    case "refused": {
+      const error = failure.error;
+      if (json) io.err(opError(error));
+      else if (error.code === "badRequest")
+        io.err(
+          `hsn: the hub did not take the request (${printable(error.message)}): it may not know this command yet`,
+        );
+      else
+        io.err(
+          `hsn: refused: ${error.app === undefined ? printable(error.message) : `${error.app.code} ${JSON.stringify(error.app.detail)}`}`,
+        );
+      return ExitCode.Refused;
+    }
+    case "none":
+    case "file":
+      io.err(`hsn: ${printable(failure.message)}`);
+      return ExitCode.Refused;
+    case "badReply":
+      io.err(`hsn: ${printable(failure.message)}`);
+      return ExitCode.BadReply;
+    case "declined":
+      io.err("hsn: not added");
+      return ExitCode.Refused;
+  }
+}
+
+/** `hsn firmware …` and `hsn rollout …` (`firmware.ts`), on their own connection. */
+async function runFirmware(
+  command: FirmwareCommand | FirmwareAdd,
+  globals: Globals,
+  io: CliIo,
+): Promise<number> {
+  const path = socketOf(globals, io);
+  if (path === undefined) {
+    io.err("hsn: no data folder is known: pass --data <folder> or set HSN_DATA_DIR");
+    return ExitCode.Usage;
+  }
+  const peer = refusedPeer(path, io);
+  if (peer !== undefined) return peer;
+  const opened = await Session.open(path);
+  if (opened.isErr()) return clientFailure(opened.error, io);
+  const session = opened.value;
+  const timeoutMs = globals.timeoutS === undefined ? DEFAULT_TIMEOUT_MS : globals.timeoutS * 1000;
+  const done =
+    command.kind === "firmwareAdd"
+      ? await runFirmwareAdd(
+          command,
+          session,
+          actorOf(io.env),
+          { out: io.out, ask: io.ask, ...(io.files === undefined ? {} : { files: io.files }) },
+          timeoutMs,
+          globals.json,
+        )
+      : await runFirmwareCommand(command, session, actorOf(io.env), timeoutMs, globals.json);
+  session.close();
+  if (done.isErr()) return firmwareFailure(done.error, globals.json, io);
+  for (const line of done.value) io.out(line);
+  return ExitCode.Ok;
+}
+
 /** A command that carries a file, on its own connection (`files.ts`). */
 async function runFile(file: FileCommand, globals: Globals, io: CliIo): Promise<number> {
+  if (file.kind === "firmwareAdd") return runFirmware(file, globals, io);
   const path = socketOf(globals, io);
   if (path === undefined) {
     io.err("hsn: no data folder is known: pass --data <folder> or set HSN_DATA_DIR");
@@ -310,6 +390,8 @@ export async function runCli(argv: readonly string[], terminal: CliIo): Promise<
     return ExitCode.Ok;
   }
   if (parsed.value.kind === "file") return runFile(parsed.value.file, parsed.value.globals, io);
+  if (parsed.value.kind === "firmware")
+    return runFirmware(parsed.value.command, parsed.value.globals, io);
   const { globals } = parsed.value;
   let command: ParsedControlCommand;
   if (parsed.value.kind === "opFromStdin") {

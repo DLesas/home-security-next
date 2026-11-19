@@ -9,6 +9,7 @@ import { describe, expect, test } from "bun:test";
 import { UpdateAction, UpdateHolding, UpdateReason, UpdateStage } from "@hsn/protocol";
 import { linkId } from "../../../src/core/model/ids.ts";
 import { DEFAULT_RULES } from "../../../src/core/model/rules.ts";
+import { mono } from "../../../src/core/model/time.ts";
 import {
   ArmState,
   DeviceUpdateState,
@@ -26,6 +27,8 @@ import {
   fileBytes,
   G1,
   HOUR_US,
+  imageRow,
+  LORA,
   MINUTE_US,
   NEW_VERSION,
   OLD_VERSION,
@@ -46,6 +49,48 @@ import {
 } from "./support.ts";
 
 type Image = ReturnType<typeof siteRunner>["image"];
+
+describe("a rollout targeting the running version", () => {
+  test("Started does not confirm the rebuild, and only a matching image status confirms it", () => {
+    const image = imageRow(1, OLD_VERSION);
+    const { runner } = siteRunner(DEFAULT_RULES, { firmwareImages: [image] });
+    runner.op({ op: "rollout.start", body: { image: image.id, devices: [S1] } });
+    expect(decisions(runner.started(S1, OLD_VERSION, CONFIRMED_IMAGE))).toEqual([]);
+    expect(rowOf(runner, S1)?.state).toBe(DeviceUpdateState.Planned);
+    runner.query(S1);
+    runner.query(S1, {}, wifi(501));
+    runner.status(S1, image.imageId, UpdateStage.Verified);
+    expect(rowOf(runner, S1)?.state).toBe(DeviceUpdateState.Installing);
+    runner.started(S1, OLD_VERSION, ON_TRIAL);
+    runner.started(S1, OLD_VERSION, CONFIRMED_IMAGE);
+    runner.status(S1, imageRow(2, OLD_VERSION).imageId, UpdateStage.Confirmed);
+    expect(rowOf(runner, S1)?.state).toBe(DeviceUpdateState.Installing);
+    const accepted = runner.status(S1, image.imageId, UpdateStage.Confirmed);
+    expect(decisions(accepted).map(({ kind }) => kind)).toContain("firmware_confirmed");
+    expect(rowOf(runner, S1)?.state).toBe(DeviceUpdateState.Confirmed);
+  });
+
+  test("rollback flags for the same version count only after a go-ahead", () => {
+    const image = imageRow(1, OLD_VERSION);
+    const { runner } = siteRunner(DEFAULT_RULES, { firmwareImages: [image] });
+    runner.op({ op: "rollout.start", body: { image: image.id, devices: [S1] } });
+    runner.started(S1, OLD_VERSION, rolledBack(OLD_VERSION));
+    expect(rowOf(runner, S1)?.state).toBe(DeviceUpdateState.Planned);
+    runner.query(S1);
+    runner.query(S1, {}, wifi(501));
+    runner.status(S1, image.imageId, UpdateStage.Verified);
+    expect(rowOf(runner, S1)?.state).toBe(DeviceUpdateState.Installing);
+    runner.started(S1, OLD_VERSION, rolledBack(OLD_VERSION));
+    expect(rowOf(runner, S1)?.state).toBe(DeviceUpdateState.RolledBack);
+  });
+
+  test("Started still confirms an ordinary version change", () => {
+    const { runner, image } = fetching();
+    runner.status(S1, image.imageId, UpdateStage.Verified);
+    runner.started(S1, NEW_VERSION, CONFIRMED_IMAGE);
+    expect(rowOf(runner, S1)?.state).toBe(DeviceUpdateState.Confirmed);
+  });
+});
 
 /** The sensor pilot, offered and fetching on link 501. */
 function fetching(): { runner: Runner; image: Image } {
@@ -179,6 +224,126 @@ describe("refused before writing, or at the install: the image or the store is w
 });
 
 describe("after the go-ahead", () => {
+  test("sensor installing gets a bound keep-and-wait, even if it names another image", () => {
+    const { runner, image } = fetching();
+    expect(offerTo(runner.status(S1, image.imageId, UpdateStage.Verified), S1)?.offer.action).toBe(
+      UpdateAction.InstallNow,
+    );
+    for (const id of [image.imageId, new Uint8Array(8)]) {
+      const record = runner.nextRecord();
+      const response = offerTo(runner.status(S1, id, UpdateStage.Installing), S1);
+      expect(response?.offer.action).toBe(UpdateAction.KeepAndWait);
+      expect(response?.answers?.record).toBe(record);
+      expect(rowOf(runner, S1)?.state).toBe(DeviceUpdateState.Installing);
+    }
+  });
+
+  test("an installing status for a different image cannot release a verified update", () => {
+    const { runner, image } = fetching();
+    runner.hubSwitching(true);
+    runner.status(S1, image.imageId, UpdateStage.Verified);
+    expect(rowOf(runner, S1)?.state).toBe(DeviceUpdateState.Verified);
+    runner.hubSwitching(false);
+    const status = runner.status(S1, new Uint8Array(8), UpdateStage.Installing);
+    expect(offerTo(status, S1)?.offer.action).toBe(UpdateAction.KeepAndWait);
+    expect(rowOf(runner, S1)?.state).toBe(DeviceUpdateState.Verified);
+  });
+
+  test("duplicate verified statuses and queries wait before and after Started on trial", () => {
+    const { runner, image } = fetching();
+    runner.status(S1, image.imageId, UpdateStage.Verified);
+    for (const onTrial of [false, true]) {
+      if (onTrial) runner.started(S1, NEW_VERSION, ON_TRIAL);
+      for (const result of [
+        runner.status(S1, image.imageId, UpdateStage.Verified),
+        runner.status(S1, image.imageId, UpdateStage.Fetching),
+        runner.status(S1, image.imageId, UpdateStage.Cancelled),
+        runner.query(S1, { image: image.imageId, held: UpdateHolding.Verified }),
+      ]) {
+        expect(offerTo(result, S1)?.offer.action).toBe(UpdateAction.KeepAndWait);
+      }
+    }
+  });
+
+  test("only a fresh LoRa verified retry after the first reply window can draw another go-ahead", () => {
+    const { runner, image } = fetching();
+    const bytes = fileBytes(image);
+    const listenUs = (runner.rules.replies.eventListenMs[LORA.dataRate] ?? 0) * 1000;
+    const initial = runner.status(S1, image.imageId, UpdateStage.Verified, 0, bytes, LORA);
+    expect(offerTo(initial, S1)?.offer.action).toBe(UpdateAction.InstallNow);
+    runner.run(listenUs);
+    const atEdge = runner.status(S1, image.imageId, UpdateStage.Verified, 0, bytes, {
+      ...LORA,
+      endedAt: mono(listenUs),
+    });
+    expect(offerTo(atEdge, S1)?.offer.action).toBe(UpdateAction.KeepAndWait);
+    runner.run(1);
+    const later = { ...LORA, endedAt: mono(listenUs + 1) };
+    const query = runner.query(S1, { image: image.imageId, held: UpdateHolding.Verified }, later);
+    expect(offerTo(query, S1)?.offer.action).toBe(UpdateAction.KeepAndWait);
+    const linked = runner.status(S1, image.imageId, UpdateStage.Verified, 0, bytes, wifi(501));
+    expect(offerTo(linked, S1)?.offer.action).toBe(UpdateAction.KeepAndWait);
+    const retried = runner.status(S1, image.imageId, UpdateStage.Verified, 0, bytes, later);
+    expect(offerTo(retried, S1)?.offer.action).toBe(UpdateAction.InstallNow);
+    expect(rowOf(runner, S1)?.state).toBe(DeviceUpdateState.Installing);
+
+    runner.status(S1, image.imageId, UpdateStage.Installing);
+    runner.run(listenUs + 1);
+    const stale = runner.status(S1, image.imageId, UpdateStage.Verified, 0, bytes, {
+      ...LORA,
+      endedAt: runner.now.mono,
+    });
+    expect(offerTo(stale, S1)?.offer.action).toBe(UpdateAction.KeepAndWait);
+  });
+
+  test("a missed radio reply rechecks the conditions before another go-ahead", () => {
+    const { runner, image } = fetching();
+    const bytes = fileBytes(image);
+    runner.status(S1, image.imageId, UpdateStage.Verified, 0, bytes, LORA);
+    runner.hubSwitching(true);
+    runner.run(5 * SECOND_US);
+    const verified = runner.status(S1, image.imageId, UpdateStage.Verified, 0, bytes, {
+      ...LORA,
+      endedAt: runner.now.mono,
+    });
+    expect(offerTo(verified, S1)?.offer.action).toBe(UpdateAction.KeepAndWait);
+    expect(rowOf(runner, S1)?.state).toBe(DeviceUpdateState.Verified);
+    expect(runner.slice.timers.some(({ key }) => key.kind === "trialWatch")).toBe(false);
+  });
+
+  test("a trial image cannot resume a fetch for another image", () => {
+    const { runner, image } = fetching();
+    runner.started(S1, OLD_VERSION, ON_TRIAL);
+    const query = runner.query(S1, { image: image.imageId, held: UpdateHolding.Part }, wifi(502));
+    expect(offerTo(query, S1)?.offer.action).toBe(UpdateAction.KeepAndWait);
+    expect(effectsOf(query, "transferGrant")).toEqual([]);
+  });
+
+  test.each([
+    [R1, 600],
+    [G1, 700],
+  ])("an installing mains device %i gets no second go-ahead", (device, link) => {
+    const { runner, image } = siteRunner();
+    const arrival = wifi(link);
+    if (device === G1) runner.gatewaySession(device, linkId(link));
+    runner.op({ op: "rollout.start", body: { image: image.id, devices: [device] } });
+    runner.heartbeat(device, arrival);
+    // The same verified status can arrive again after the go-ahead.
+    const verified = () =>
+      runner.status(device, image.imageId, UpdateStage.Verified, 0, fileBytes(image), arrival);
+    expect(offerTo(verified(), device)?.offer.action).toBe(UpdateAction.InstallNow);
+    expect(offerTo(verified(), device)).toBeUndefined();
+    expect(
+      offerTo(
+        runner.query(device, { image: image.imageId, held: UpdateHolding.Verified }, arrival),
+        device,
+      ),
+    ).toBeUndefined();
+    expect(
+      offerTo(runner.status(device, image.imageId, UpdateStage.Installing, 0, 0, arrival), device),
+    ).toBeUndefined();
+  });
+
   test("a rollback: rolled back with the failed version, notified as a warning, the rollout paused", () => {
     const { runner, image } = fetching();
     runner.status(S1, image.imageId, UpdateStage.Verified);
@@ -206,6 +371,19 @@ describe("after the go-ahead", () => {
     expect(rowOf(runner, S1)?.state).not.toBe(DeviceUpdateState.RolledBack);
   });
 
+  test("a rollback flag cannot replace an explicit refusal at install", () => {
+    const { runner, image } = fetching();
+    runner.status(S1, image.imageId, UpdateStage.Verified);
+    runner.status(S1, image.imageId, UpdateStage.Refused, UpdateReason.ImageCheck);
+    const returned = runner.started(S1, OLD_VERSION, rolledBack(NEW_VERSION));
+    expect(decisions(returned)).toEqual([]);
+    expect(rowOf(runner, S1)).toMatchObject({
+      state: DeviceUpdateState.Refused,
+      lastReason: UpdateReason.ImageCheck,
+    });
+    expect(openRow(runner)?.pausedReason).toBe(UpdateReason.ImageCheck);
+  });
+
   test("restarted on its old image without trying: verified again, and the go-ahead given again", () => {
     const { runner, image } = fetching();
     runner.status(S1, image.imageId, UpdateStage.Verified);
@@ -230,6 +408,26 @@ describe("after the go-ahead", () => {
       NO_CONTACT_REASON,
     );
     expect(openRow(runner)?.pausedReason).toBe(NO_CONTACT_REASON);
+
+    const unrelated = runner.started(S1, OLD_VERSION, rolledBack(0x010001));
+    expect(decisions(unrelated)).toEqual([]);
+    expect(rowOf(runner, S1)?.state).toBe(DeviceUpdateState.Refused);
+    expect(openRow(runner)?.pausedReason).toBe(NO_CONTACT_REASON);
+
+    const returned = runner.started(S1, OLD_VERSION, rolledBack(NEW_VERSION));
+    expect(rowOf(runner, S1)).toMatchObject({
+      state: DeviceUpdateState.RolledBack,
+      lastReason: null,
+    });
+    expect(decisions(returned)).toEqual([
+      { kind: "firmware_rolled_back", device: S1, value: NEW_VERSION, durability: "now" },
+    ]);
+    expect(openRow(runner)).toMatchObject({
+      stage: RolloutStage.Paused,
+      pausedReason: ROLLED_BACK_REASON,
+      pausedDevice: S1,
+    });
+    expect(decisions(runner.started(S1, OLD_VERSION, rolledBack(NEW_VERSION)))).toEqual([]);
   });
 
   test("a siren's watch is its own deadline: 5 minutes and the grace", () => {
@@ -252,6 +450,7 @@ describe("after the go-ahead", () => {
     runner.status(S1, image.imageId, UpdateStage.Verified);
     runner.started(S1, NEW_VERSION, ON_TRIAL);
     runner.status(S1, image.imageId, UpdateStage.Confirmed);
+    expect(runner.slice.seen.get(S1)?.onTrial).toBe(false);
     const later = runner.run(HOUR_US);
     expect(decisions(later).map((d) => d.kind)).not.toContain("firmware_refused");
     expect(rowOf(runner, S1)?.state).toBe(DeviceUpdateState.Confirmed);

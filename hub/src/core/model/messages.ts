@@ -15,6 +15,7 @@ import type {
   AppEventBodyV2,
   AppOp,
   AppOpV2,
+  AppProtoVersion,
   NotificationObject,
 } from "@hsn/protocol/app";
 import type { AuditRecord } from "./audit.ts";
@@ -173,6 +174,11 @@ export type AnswerTo =
       readonly id: number;
       /** The change's `seq`, committed with the reply (section 3). */
       readonly seq: number | undefined;
+      /**
+       * The channel version the asking session agreed (docs/m3-m4-plan.md): the reply is made, and
+       * kept for a retry, in that version's form (`replyOf`). Absent is version 1.
+       */
+      readonly proto?: AppProtoVersion;
     }
   | {
       readonly kind: "schedule";
@@ -463,14 +469,15 @@ export type DomainMessage =
       readonly record: Seq;
     }
   /**
-   * The same, for the joint step 0's modules (`firmware`, `relay`), which own only version 2's
-   * operations (docs/m3-m4-plan.md). `app` and control send it once the shell agrees version 2
-   * (step 2); M2's modules' own version 2 rows (`backup.keyHeld`, `update.offers`, `update.fetch`,
-   * `presence.set`, `pair.*`) join `opRequest` then. Answered with `opAnswer`, as `opRequest` is.
+   * The same, for every operation only version 2 names (docs/m3-m4-plan.md), whose body version
+   * 1's `AppOp` cannot carry: the joint step 0's modules' (`firmware`, `relay`), and the version 2
+   * rows of modules that came before (`upkeep`'s `backup.keyHeld`, `update.offers`, `update.fetch`;
+   * `setup`'s `pair.prepare`, `pair.finish`). `app` answers its own (`presence.set`). Each owner
+   * checks `owner`; answered with `opAnswer`, as `opRequest` is.
    */
   | {
       readonly kind: "v2OpRequest";
-      readonly owner: M3M4ModuleName;
+      readonly owner: M3M4ModuleName | M2ModuleName | "setup";
       readonly op: AppOpV2;
       readonly actor: Actor;
       readonly answerTo: AnswerTo;
@@ -526,6 +533,12 @@ export type DomainMessage =
       readonly kind: "notificationRaised";
       readonly notification: NotificationObject;
       readonly clients: readonly ClientId[];
+      /**
+       * When the event it tells of happened (wall time), for version 2's `happenedAtMs` (D102):
+       * `app` adds it to the object on a version 2 session only, since version 1's object refuses
+       * it. Null for a notification raised as its event happened; absent until `notify` gives it.
+       */
+      readonly happenedAtMs?: number | null;
     }
 
   // The joint step 0 of M3 and M4 (docs/m3-m4-plan.md).

@@ -125,7 +125,7 @@ export class Direct {
     const sirens = new Map(
       [...this.state.sirens.sirens].map(([id, entry]) => [
         id,
-        { ...entry, reportNowWanted: false },
+        { ...entry, reportNowWanted: false as const },
       ]),
     );
     this.state = {

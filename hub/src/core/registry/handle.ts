@@ -173,7 +173,8 @@ function retire(
   const retired: DeviceRow = {
     ...row,
     state,
-    name: retiredName(row.id, row.name),
+    // A device reset by its owner and now removed already carries its retired name.
+    name: isNamed(row.state) ? retiredName(row.id, row.name) : row.name,
     removedMs: ctx.now.wall,
   };
   const reset = state === DeviceState.ResetByOwner;
@@ -245,6 +246,8 @@ function added(
       }),
     );
   }
+  const kept = slice.devices.get(message.device);
+  if (kept !== undefined && KEPT.has(kept.state)) return addedAgain(slice, kept, message, ctx);
   const row: DeviceRow = {
     id: message.device,
     address: message.address,
@@ -260,6 +263,45 @@ function added(
   return written(slice, ctx, "device_added", row, undefined, `${row.name} added, provisioning`);
 }
 
+/**
+ * Rows a chip keeps when it is added again (m3-design section 5): reset by its owner, or left
+ * behind by a forced move. A removed device's row is not one: it is added as a new row.
+ */
+const KEPT: ReadonlySet<DeviceState> = new Set([DeviceState.ResetByOwner, DeviceState.LeftBehind]);
+
+/**
+ * A kept row provisioning again (`setup`'s `kept.ts`): its number, address, permissions and
+ * history stay; it takes the name given now, which replaces the retired one, and the board's
+ * firmware and build. `removed_ms` keeps when it was retired (now, for a row left behind) while
+ * it provisions, so a refusal, also after a restart, returns it to "reset by its owner" rather
+ * than deleting a row with history (`answered`).
+ */
+function addedAgain(
+  slice: RegistrySlice,
+  kept: DeviceRow,
+  message: Extract<Internal, { readonly kind: "deviceAdded" }>,
+  ctx: Context,
+): Step {
+  const identity = provisionedIdentity(ctx.view, message.device);
+  if (identity === undefined) return unchanged(slice);
+  const row: DeviceRow = {
+    ...kept,
+    name: message.name,
+    firmware: firmwareNumber(identity.firmwareVersion),
+    development: identity.developmentBuild,
+    state: DeviceState.Provisioning,
+    removedMs: kept.removedMs ?? ctx.now.wall,
+  };
+  return written(
+    slice,
+    ctx,
+    "device_state",
+    row,
+    kept,
+    `${row.name} added again, provisioning, as device ${row.id}`,
+  );
+}
+
 function answered(
   slice: RegistrySlice,
   message: Extract<Internal, { readonly kind: "provisionAnswered" }>,
@@ -269,8 +311,25 @@ function answered(
   const row = slice.devices.get(message.device);
   if (row?.state !== DeviceState.Provisioning) return unchanged(slice);
   if (accepted) {
-    const paired: DeviceRow = { ...row, state: DeviceState.Paired };
+    const paired: DeviceRow = { ...row, state: DeviceState.Paired, removedMs: null };
     return written(slice, ctx, "device_state", paired, row, `${row.name} paired`);
+  }
+  if (row.removedMs !== null) {
+    // A kept row added again (`addedAgain`): back to "reset by its owner", its new key deleted.
+    const reset: DeviceRow = {
+      ...row,
+      state: DeviceState.ResetByOwner,
+      name: retiredName(row.id, row.name),
+    };
+    return written(
+      slice,
+      ctx,
+      "device_state",
+      reset,
+      row,
+      `${row.name} not added again: the board refused its Provision; it stays reset, its history kept`,
+      [...deleteKey(row.id), { kind: "deviceRemoved", device: row.id }],
+    );
   }
   return change(
     ctx,
@@ -322,9 +381,13 @@ function rename(
   ]);
 }
 
+/**
+ * `hsn device remove`, `device.remove`: a device that is there, or one its owner reset, which the
+ * app offers to add again or remove (m3-design section 5): removed, it leaves its groups for good.
+ */
 function remove(slice: RegistrySlice, request: RequestId, device: DeviceId, ctx: Context): Step {
   const row = deviceById(ctx.view, device);
-  if (row === undefined || !isNamed(row.state)) {
+  if (row === undefined || (!isNamed(row.state) && row.state !== DeviceState.ResetByOwner)) {
     return ok({
       slice,
       out: [answerError(request, "unknownDevice", "no such device, or it is already removed")],

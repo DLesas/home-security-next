@@ -12,13 +12,16 @@ import { FILE_CHUNKS } from "@hsn/protocol/app";
 import { err, ok, Result } from "neverthrow";
 import type { ChunkLine, ControlError, ReplyLine } from "../src/control-protocol/index.ts";
 import type { ClientError, Session } from "./client.ts";
+import type { FirmwareAdd } from "./firmware.ts";
 import { directFiles, type NamedFiles } from "./named-files.ts";
 
 /** A command that carries a file, as `hsn`'s command line gives it. */
 export type FileCommand =
   | { readonly kind: "updateInstall"; readonly path: string }
   | { readonly kind: "restore"; readonly path: string }
-  | { readonly kind: "backupExport"; readonly path: string; readonly history: boolean };
+  | { readonly kind: "backupExport"; readonly path: string; readonly history: boolean }
+  /** `hsn firmware add <file> [--own --version <v>]`, run by `firmware.ts`. */
+  | FirmwareAdd;
 
 /** The one upload a command makes on its connection. */
 export const UPLOAD_JOB = 1;
@@ -200,7 +203,7 @@ function day(ms: unknown): string {
 
 /** Runs one file command on an open session. */
 export async function runFileCommand(
-  command: FileCommand,
+  command: Exclude<FileCommand, FirmwareAdd>,
   session: Session,
   actor: string,
   io: FileIo,

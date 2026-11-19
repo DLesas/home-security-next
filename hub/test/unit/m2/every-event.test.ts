@@ -115,7 +115,8 @@ function people(store: NonNullable<Home["store"]>): void {
 function eventsTo(h: Home, conn: ConnId): readonly AppEvent[] {
   return h.app.flatMap((e) => {
     if (e.kind !== "appSend" || e.conn !== conn) return [];
-    const message: AppMessage = e.message;
+    // Every session here is version 1's.
+    const message = e.message as AppMessage;
     return "t" in message && message.t === "evt" ? [message] : [];
   });
 }

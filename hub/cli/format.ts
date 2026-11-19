@@ -277,6 +277,9 @@ export function formatResult(result: CommandResult): readonly string[] {
       ];
     case "fileChunk":
       return [];
+    // The lockstep hub's alone: `hsn` never sends it.
+    case "benchRestore":
+      return [];
     case "consoleTokenWait":
       return [result.used ? "the console token was used" : "the console token expired unused"];
   }

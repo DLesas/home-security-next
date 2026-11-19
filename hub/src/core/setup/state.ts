@@ -63,6 +63,20 @@ export interface SitePairing {
   readonly wifiPassword: Uint8Array;
 }
 
+/**
+ * A device a phone is adding over Bluetooth (`pair.prepare`, m3-design section 5): the board's
+ * Identity, as the phone relayed it, and the link label its records name (`bluetooth:<client>`).
+ * Memory only: after a restart `pair.finish` names the phone that finishes, and a retry of
+ * `pair.prepare` takes the key from `retryKeys`, as a USB retry does.
+ */
+export interface PhonePairing {
+  readonly device: DeviceId;
+  readonly identity: Identity;
+  readonly label: string;
+  /** The board said it was paired to this hub: a refusal then keeps the rows (PR2). */
+  readonly mayHoldKey: boolean;
+}
+
 export interface SetupSlice {
   readonly timers: readonly TimerOf<"setup">[];
   readonly boards: ReadonlyMap<LinkId, UsbBoard>;
@@ -76,6 +90,8 @@ export interface SetupSlice {
    * snapshot's `provisioningKeys`, so a retry sends the same key then too.
    */
   readonly retryKeys: ReadonlyMap<DeviceId, Uint8Array>;
+  /** Devices phones are adding over Bluetooth, by device (`pair.ts`). */
+  readonly pairings: ReadonlyMap<DeviceId, PhonePairing>;
 }
 
 /** The slice before the boot event. */
@@ -83,4 +99,5 @@ export const EMPTY_SETUP_SLICE: SetupSlice = {
   timers: [],
   boards: new Map(),
   retryKeys: new Map(),
+  pairings: new Map(),
 };

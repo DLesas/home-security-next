@@ -3,9 +3,9 @@
  * continues from its stage, rebuilt from migration 3's tables. Offers are made again (what each
  * device was told is memory, so it is told again; a sensor is reached at its next packet, a siren
  * or gateway when it is next on its link), grants are given again when a device asks on its link,
- * and devices resume from their own checkpoints. A go-ahead already committed is never given twice
- * as a new one: a device installing or on trial keeps its state and is watched again for the whole
- * of its trial deadline and grace, since the hub cannot tell how much of it passed while it was off.
+ * and devices resume from their own checkpoints. A device installing or on trial keeps its state
+ * and is watched again for the whole trial deadline and grace. An installing sensor can recover a
+ * missed reply by reporting its verified image after the old reply could no longer arrive.
  * Times kept as wall times (the soak's end, a session's expiry, the last reminder) are counted
  * again from the wall clock, each bounded by its rule.
  */
@@ -13,15 +13,21 @@ import type { DurableSnapshot } from "../model/events.ts";
 import { EMPTY_M3M4_SNAPSHOT } from "../model/events.ts";
 import type { Context } from "../model/handler.ts";
 import { type ImageId, rolloutId, type RolloutId } from "../model/ids.ts";
-import { type FirmwareImageRow, RolloutStage, UpdateHeld } from "../model/rows.ts";
+import {
+  DeviceUpdateState,
+  type FirmwareImageRow,
+  RolloutStage,
+  UpdateHeld,
+} from "../model/rows.ts";
 import { monoAfterMs } from "../model/time.ts";
 import { decodeIds, INSTALLING_STATES } from "./codes.ts";
 import { workingRole } from "./decide.ts";
 import { trialWatchMs } from "./deliver.ts";
+import { reminderDue } from "./devices.ts";
 import { eventBody, putEntry } from "./entries.ts";
 import type { Steps } from "./out.ts";
 import { writeUpdate } from "./records.ts";
-import { advance } from "./rollout.ts";
+import { advance, soakEnded } from "./rollout.ts";
 import { type DeviceEntry, EMPTY_FIRMWARE_SLICE, type Rollout } from "./state.ts";
 
 function clamp(value: number, max: number): number {
@@ -54,6 +60,9 @@ export function onBoot(steps: Steps, ctx: Context, snapshot: DurableSnapshot): v
     const entry: DeviceEntry = {
       row,
       told: undefined,
+      ...(row.state === DeviceUpdateState.Installing
+        ? { sensorGoAhead: { kind: "restored", bootedAt: ctx.now.mono } }
+        : {}),
       event: eventBody(steps.slice, row),
       eventAt: undefined,
       busyHolds: 0,
@@ -66,15 +75,19 @@ export function onBoot(steps: Steps, ctx: Context, snapshot: DurableSnapshot): v
   }
 
   const open = [...rollouts.values()].find((r) => r.row.endedMs === null);
+  let soakDue = false;
   if (open?.row.stage === RolloutStage.Soak) {
     const left =
       open.row.soakUntilMs === null
         ? fw.soakMs
         : clamp(open.row.soakUntilMs - ctx.now.wall, fw.soakMs);
-    steps.timer(
-      { module: "firmware", kind: "soakEnd", rollout: rolloutId(open.row.id) },
-      monoAfterMs(ctx.now.mono, left),
-    );
+    soakDue = left === 0;
+    if (!soakDue) {
+      steps.timer(
+        { module: "firmware", kind: "soakEnd", rollout: rolloutId(open.row.id) },
+        monoAfterMs(ctx.now.mono, left),
+      );
+    }
   }
   for (const entry of steps.slice.updates.values()) {
     const { row } = entry;
@@ -108,10 +121,13 @@ export function onBoot(steps: Steps, ctx: Context, snapshot: DurableSnapshot): v
         row.remindedMs === null
           ? fw.armedReminderAfterMs
           : clamp(row.remindedMs + fw.armedReminderEveryMs - ctx.now.wall, fw.armedReminderEveryMs);
-      steps.timer(
-        { module: "firmware", kind: "armedReminder", device },
-        monoAfterMs(ctx.now.mono, next),
-      );
+      if (next === 0) reminderDue(steps, ctx, device);
+      else {
+        steps.timer(
+          { module: "firmware", kind: "armedReminder", device },
+          monoAfterMs(ctx.now.mono, next),
+        );
+      }
     }
     if (inOpen && row.held === UpdateHeld.GatewayBusy) {
       steps.timer(
@@ -120,5 +136,7 @@ export function onBoot(steps: Steps, ctx: Context, snapshot: DurableSnapshot): v
       );
     }
   }
-  advance(steps, ctx);
+  // An expired deadline is settled in this boot step, as the dispatcher cannot see it yet.
+  if (soakDue) soakEnded(steps, ctx);
+  else advance(steps, ctx);
 }

@@ -9,7 +9,7 @@
  * request, whatever its source.
  */
 import { Role } from "@hsn/protocol";
-import type { AppOp, AppOpName } from "@hsn/protocol/app";
+import type { AppOp, AppOpName, AppOpNameV2, AppOpV2, AppProtoVersion } from "@hsn/protocol/app";
 import { armState } from "../alarm/view.ts";
 import type { DeviceId } from "../model/ids.ts";
 import { deviceId, groupId, modeId } from "../model/ids.ts";
@@ -75,11 +75,37 @@ const MANAGE_SYSTEM: ReadonlySet<AppOpName> = new Set<AppOpName>([
   "update.cancel",
 ]);
 
-/** Whether the operation may come only on the console listener (C), as this body has it. */
-export function consoleOnly(op: AppOp): boolean {
+/**
+ * Whether the operation may come only on the console listener (C), as this body has it, on a
+ * session of `proto`. Version 2 opens `site.wifi` to manage system from any client (m3-design
+ * section 5: every Provision already carries the password inside the channel); a version 1
+ * session keeps version 1's rule.
+ */
+export function consoleOnly(op: AppOp, proto: AppProtoVersion = 1): boolean {
   // `backup.settings`: MS; the folder C (section 6).
   if (op.op === "backup.settings") return op.body.folder !== undefined;
+  if (op.op === "site.wifi") return proto === 1;
   return CONSOLE_ONLY.has(op.op);
+}
+
+/**
+ * Version 2's rows `app` checks for their owners (m3-design sections 3 to 6, m4-design section 9):
+ * manage system for pairing and the hub's offered releases. `firmware` and `relay` check their
+ * own; `presence.set` and `backup.keyHeld` are the phone's own, which `app` (`presence.ts`) and
+ * `upkeep` check.
+ */
+const MANAGE_SYSTEM_V2: ReadonlySet<AppOpNameV2> = new Set<AppOpNameV2>([
+  "pair.prepare",
+  "pair.finish",
+  "update.offers",
+  "update.fetch",
+]);
+
+/** The refusal of a version 2 operation by `app`, or undefined when it goes to its owner. */
+export function refusalV2(view: HubState, actor: Actor, op: AppOpV2): OpOutcome | undefined {
+  return MANAGE_SYSTEM_V2.has(op.op) && !hasGlobal(view, actor, "manageSystem")
+    ? unauthorizedSystem()
+    : undefined;
 }
 
 /**
@@ -144,7 +170,8 @@ export function refusal(
 ): OpOutcome | undefined {
   // The hub computer's own commands have every permission (HD 9) and are C by nature.
   const onConsole = session === undefined || session.listener === "console";
-  if (consoleOnly(op) && !onConsole)
+  const proto: AppProtoVersion = session !== undefined && session.proto >= 2 ? 2 : 1;
+  if (consoleOnly(op, proto) && !onConsole)
     return { ok: false, error: { code: "consoleOnly", detail: {} } };
   if (MANAGE_SYSTEM.has(op.op) && !hasGlobal(view, actor, "manageSystem"))
     return unauthorizedSystem();

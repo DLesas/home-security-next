@@ -80,6 +80,16 @@ export interface DeviceEntry {
   readonly row: DeviceUpdateRow;
   /** The last offer it was given this run; undefined after a restart, so it is offered again. */
   readonly told: Told | undefined;
+  /** How to recognize a sensor still verified after an unanswered go-ahead. */
+  readonly sensorGoAhead?:
+    | {
+        readonly kind: "radio";
+        readonly counter: number;
+        readonly endedAt: Mono;
+        readonly rate: number;
+      }
+    | { readonly kind: "restored"; readonly bootedAt: Mono }
+    | undefined;
   /** Its `deviceUpdate` body as last sent to `app` (`deviceUpdateEvent`), for the progress bound. */
   readonly event: DeviceUpdateEvent | undefined;
   /** When progress was last published, for the 2 s ‡ bound. */

@@ -4,7 +4,7 @@
  * misspelt option never passes silently. Names refer to devices by their `name`; the core's control
  * module looks them up.
  */
-import { type AppOp, fileChunkBody, parseAppOp, RETENTION_DAYS } from "@hsn/protocol/app";
+import { type AppOpV2, fileChunkBody, parseAppOpIn, RETENTION_DAYS } from "@hsn/protocol/app";
 import { z } from "zod";
 import { dataRate, deviceName, roleName, siteChannel, time, unsigned } from "./values.ts";
 
@@ -246,7 +246,7 @@ export const CONTROL_OPS = [
  * does and sends `{job, own?, confirmOwn?}`, and `firmware.bluetooth` for the bench. The phone's
  * own operations (`push.*`, `presence.set`, `backup.keyHeld`) and `pair.*` are not the hub
  * computer's. The `op` command takes them once the core routes version 2 (docs/m3-m4-plan.md,
- * step 2); until then it refuses them as it refuses any name `CONTROL_OPS` does not hold.
+ * step 2), which it does since B6 joined version 2 (`controlOps` below).
  */
 export const CONTROL_OPS_V2 = [
   "relay.status",
@@ -267,7 +267,8 @@ export const CONTROL_OPS_V2 = [
   "rollout.status",
 ] as const;
 
-const controlOps: ReadonlySet<string> = new Set(CONTROL_OPS);
+/** Every operation `op` carries: version 1's and, since the core routes them, version 2's. */
+const controlOps: ReadonlySet<string> = new Set<string>([...CONTROL_OPS, ...CONTROL_OPS_V2]);
 
 /** `hsn <operation> [<json body>]`: an app operation from the hub computer (m2-design.md section 6). */
 const op = z
@@ -281,7 +282,7 @@ const op = z
       });
       return;
     }
-    const parsed = parseAppOp(value.op, value.body);
+    const parsed = parseAppOpIn(2, value.op, value.body);
     if (!parsed.ok)
       for (const issue of parsed.issues) ctx.addIssue({ code: "custom", message: issue });
   })
@@ -372,7 +373,7 @@ export const controlCommand = z.discriminatedUnion("kind", [
  */
 export type ControlCommand =
   | Exclude<ParsedControlCommand, { readonly kind: "op" | "fileChunk" }>
-  | { readonly kind: "op"; readonly operation: AppOp };
+  | { readonly kind: "op"; readonly operation: AppOpV2 };
 
 /** A file chunk `hsn` sends, which the shell answers itself. */
 export type FileChunkCommand = Extract<ParsedControlCommand, { readonly kind: "fileChunk" }>;
@@ -391,7 +392,7 @@ export type ParsedControlCommand = z.infer<typeof controlCommand>;
 export function typedCommand(parsed: ParsedControlCommand): ControlCommand | undefined {
   if (parsed.kind === "fileChunk") return undefined;
   if (parsed.kind !== "op") return parsed;
-  const op = parseAppOp(parsed.op, parsed.body);
+  const op = parseAppOpIn(2, parsed.op, parsed.body);
   return op.ok ? { kind: "op", operation: op.value } : undefined;
 }
 export type ControlCommandKind = ControlCommand["kind"];

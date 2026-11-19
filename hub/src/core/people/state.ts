@@ -8,7 +8,7 @@
  * "Requests for M1a's modules": `usb.add` answers when the board does) is held in memory only:
  * its `seq` is committed in the request's own step, its reply when the answer comes.
  */
-import type { AppReply } from "@hsn/protocol/app";
+import type { AppReply, AppReplyV2 } from "@hsn/protocol/app";
 import type { BootId, ClientId, DeviceId, PersonId, RequestId, TokenId } from "../model/ids.ts";
 import type {
   ClientRow,
@@ -23,7 +23,7 @@ import type { TimerOf } from "../model/timers.ts";
 /** A change's reply as kept for a retry with the same `seq` (section 5). */
 export type StoredReply =
   /** Sent, or ready to be: a retry is answered with it again, marked `repeat`. */
-  | { readonly kind: "sent"; readonly reply: AppReply }
+  | { readonly kind: "sent"; readonly reply: AppReply | AppReplyV2 }
   /** Its owner has not answered yet; a retry is answered when it does. */
   | { readonly kind: "pending" };
 
@@ -56,8 +56,11 @@ export interface PeopleSlice {
   /** Per client, the replies of its last changes by `seq` (`client_replies`, 16 ‡). */
   readonly replies: ReadonlyMap<ClientId, ReadonlyMap<number, StoredReply>>;
   readonly tokens: ReadonlyMap<TokenId, LiveToken>;
-  /** Phones' `backup.key` requests waiting for `upkeep`'s answer, by `conn:id`: memory only. */
-  readonly keyAsks: ReadonlyMap<string, ClientId>;
+  /**
+   * Phones' `backup.keyHeld {epoch}` requests waiting for `upkeep`'s answer, by `conn:id`, with
+   * the epoch they confirm (m3-design section 4): memory only.
+   */
+  readonly keyAsks: ReadonlyMap<string, { readonly client: ClientId; readonly epoch: number }>;
   /** `hsn open`'s waits for a console token, by token (`console-wait.ts`): memory only. */
   readonly consoleWaits: ReadonlyMap<TokenId, readonly RequestId[]>;
   /** The console tokens used to link in this run. */

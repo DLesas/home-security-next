@@ -34,14 +34,18 @@ import { type Core, MODULES, makeCore } from "../../core/step.ts";
 import type { Clock } from "../../ports/clock.ts";
 import type { LogQuery } from "../../ports/reader.ts";
 import { ensureHubKeys, seededHubKeys } from "../advertise/hub-keys.ts";
+import { controlChunkReply, UploadStore } from "../app/uploads.ts";
+import { retryWaitingRestore } from "../backup/restore.ts";
 import { KeyStoreCipher } from "../cipher/device-cipher.ts";
-import { FILE_CHUNK_NOT_BUILT } from "../control/file-chunks.ts";
 import { recordJson } from "../control/records.ts";
+import { TransferServer } from "../firmware/serve.ts";
+import { sendSession } from "../firmware/session.ts";
 import { LockstepLinks } from "../links/lockstep.ts";
 import { LinkRegistry } from "../links/registry.ts";
 import { HubLoop } from "../loop.ts";
 import { MemoryKeyStore } from "../storage/keys.ts";
 import { type OpenedStore, openStore } from "../storage/store.ts";
+import { benchRestore, lockstepFiles, seedBackupKeys, writeRunStats } from "./files.ts";
 import { SeededRandom } from "./random.ts";
 
 const ORIGIN = "shell/lockstep";
@@ -137,6 +141,15 @@ export interface LockstepOptions {
   readonly core?: Core;
 }
 
+/** What the lockstep hub keeps for its file work: uploads, transfers, the restore's inputs. */
+interface LockstepFileParts {
+  readonly uploads: UploadStore;
+  readonly transfers: TransferServer;
+  readonly dataDir: string;
+  readonly migrationsFolder: string;
+  readonly rules: HubRules;
+}
+
 /** Why the hub refused a message: the run cannot go on (section 11, "Errors"). */
 export interface LockstepRefusal {
   readonly kind: "refused";
@@ -159,6 +172,7 @@ export class LockstepHub {
   #stopped = false;
   /** A fatal error the loop reported: it takes nothing more, so every answer is `error`. */
   #fatal: string | undefined;
+  readonly #files: LockstepFileParts;
 
   private constructor(
     clock: LockstepClock,
@@ -166,12 +180,14 @@ export class LockstepHub {
     loop: HubLoop,
     links: LockstepLinks,
     at: number,
+    files: LockstepFileParts,
   ) {
     this.#clock = clock;
     this.#store = store;
     this.#loop = loop;
     this.#links = links;
     this.#reached = at;
+    this.#files = files;
   }
 
   /**
@@ -197,10 +213,14 @@ export class LockstepHub {
     const clock = new LockstepClock(message.at, message.wall, message.trusted, message.mono ?? 0);
     const seed = fromHex(message.seed);
     const keysHolder: { keys: MemoryKeyStore | undefined } = { keys: undefined };
+    const migrationsFolder =
+      options.migrationsFolder ?? join(import.meta.dir, "..", "..", "..", "drizzle");
+    // A restore the controller asked for (`benchRestore`) is put in place before the database
+    // opens, as `main.ts` puts a waiting one (m2-design.md section 9, "A swap that did not happen").
+    const retried = retryWaitingRestore(options.dataDir);
     const opened = openStore({
       dataDir: options.dataDir,
-      migrationsFolder:
-        options.migrationsFolder ?? join(import.meta.dir, "..", "..", "..", "drizzle"),
+      migrationsFolder,
       clock,
       rules,
       platform: process.platform,
@@ -217,17 +237,39 @@ export class LockstepHub {
       seededHubKeys(scalar.value),
     );
     if (hubKeys.isErr()) return err(hubKeys.error);
+    // The backup key and the app key from the seed at the first start (`files.ts`), so the
+    // controller can restore a backup the hub wrote.
+    const seeded = seedBackupKeys(store.db, store.writer, seed, store.snapshot.m2.backupKey);
+    if (seeded.isErr()) return err(seeded.error);
     const keys = MemoryKeyStore.load(store.db);
     if (keys.isErr()) return err(keys.error);
     keysHolder.keys = keys.value;
+    const uploads = new UploadStore(options.dataDir);
+    const cleared = uploads.clearAll();
+    if (cleared.isErr()) return err(cleared.error);
     const registry = new LinkRegistry();
     const links = new LockstepLinks(registry, () => clock.mono);
     const holder: {
       respond: ((request: RequestId, reply: ControlReply) => void) | undefined;
       publish: ((record: AuditRecord) => void) | undefined;
       fatal: ((error: HubError) => void) | undefined;
-    } = { respond: undefined, publish: undefined, fatal: undefined };
-    const loop = new HubLoop(
+      loop: HubLoop | undefined;
+    } = { respond: undefined, publish: undefined, fatal: undefined, loop: undefined };
+    // Firmware transfers on granted links, answered by the shell as on the running hub
+    // (m3-updates-design section 5): their frames leave in the `idle` with the hub's own.
+    const transfers = new TransferServer({
+      dataDir: options.dataDir,
+      send: (link, bytes) => registry.sendTransfer(link, bytes),
+      emit: (event) => {
+        holder.loop?.enqueue(event);
+      },
+      // Measured for the run's figures only: no answer on the wire carries it.
+      stopwatch: () => performance.now(),
+    });
+    registry.serveTransfers(transfers);
+    // A backup's salt from the seed's own stream: never the host's random source.
+    const salts = lockstepRandom(new Uint8Array([...seed, 0x73]), store.boot.id);
+    const loop: HubLoop = new HubLoop(
       options.core ?? makeCore(MODULES),
       { cipher: new KeyStoreCipher(keys.value), rules, calendar: calendar.value, sha256 },
       {
@@ -245,12 +287,45 @@ export class LockstepHub {
         report: () => undefined,
         // The loop has stopped (section 10): the next answer is `error`, never a silent `idle`.
         fatal: (error) => holder.fatal?.(error),
+        // Each turn's own time, for the run's figures only (`writeRunStats`): `hsn status` in
+        // lockstep still says 0, so no answer on the wire depends on the machine's speed.
+        stopwatch: () => performance.now(),
+        files: lockstepFiles({
+          db: store.db,
+          dataDir: options.dataDir,
+          migrationsFolder,
+          rules,
+          uploads,
+          writer: store.writer,
+          state: () => loop.state,
+          nowMs: () => clock.now().wall,
+          random: (length) => salts.bytes(length),
+        }),
+        transfers,
+        // `firmware.bluetooth`'s answer, with the session key, on the control line that asked.
+        // A key that cannot be derived is answered `unavailable` by `sendSession` itself.
+        bluetoothSession: (effect) => {
+          sendSession(effect, keys.value, {
+            app: () => undefined,
+            control: (request, reply) => holder.respond?.(request, reply),
+          }).match(
+            () => undefined,
+            () => undefined,
+          );
+        },
       },
     );
+    holder.loop = loop;
     registry.listen((event) => {
       loop.enqueue(event);
     });
-    const hub = new LockstepHub(clock, store, loop, links, message.at);
+    const hub = new LockstepHub(clock, store, loop, links, message.at, {
+      uploads,
+      transfers,
+      dataDir: options.dataDir,
+      migrationsFolder,
+      rules,
+    });
     holder.respond = (request, reply) => {
       hub.#respond(request, reply);
     };
@@ -260,11 +335,27 @@ export class LockstepHub {
     holder.fatal = (error) => {
       hub.#fatal ??= error.message;
     };
+    const m2 = store.snapshot.m2;
     loop.enqueue({
       kind: "boot",
-      snapshot: { ...store.snapshot, hubKeys: hubKeys.value },
+      snapshot: {
+        ...store.snapshot,
+        hubKeys: hubKeys.value,
+        m2: {
+          ...m2,
+          backupKey: seeded.value.backupKey,
+          appKeys: { appStaticPublic: seeded.value.appStaticPublic },
+        },
+      },
       boot: store.boot,
     });
+    if (retried.kind === "refused")
+      loop.enqueue({
+        kind: "shellWarning",
+        code: "restore_waiting",
+        message: "a restore is waiting and could not be put in place",
+        detail: JSON.stringify({ reason: retried.reason }),
+      });
     // The time zone, when the controller gives one: queued behind the boot, before anything else
     // is admitted, as `main.ts` queues the system's (section 2).
     if (zone !== undefined) loop.enqueue({ kind: "timeZone", zone });
@@ -308,6 +399,12 @@ export class LockstepHub {
           if (stopped.isErr())
             return err({ kind: "refused" as const, message: stopped.error.message });
           this.#stopped = true;
+          // What the run cost, for the controller's budget (`files.ts`, `writeRunStats`).
+          writeRunStats(this.#files.dataDir, {
+            writer: this.#store.writer.stats,
+            longestTurnMs: this.#loop.takeLongestTurnMs(),
+            longestTransferMs: this.#files.transfers.takeLongestMs(),
+          });
           // The clean stop's commit is not a record: the idle before it is the last.
           return ok([idle, { type: "stopped" as const, at: message.at }]);
         });
@@ -326,6 +423,7 @@ export class LockstepHub {
 
   /** Closes the database without committing anything more, as a kill would leave it. */
   close(): void {
+    this.#files.transfers.close();
     this.#store.db.close();
   }
 
@@ -431,7 +529,9 @@ export class LockstepHub {
       const wake = this.#wake();
       if (wake !== undefined && wake <= at) this.#loop.enqueue({ kind: "tick" });
     }
-    for (let turns = 0; this.#loop.waiting > 0; turns++) {
+    // A file job in pieces runs a piece a turn (m2-design.md section 3); in lockstep its turns
+    // take no time, so it runs to its end at the instant it began, the inputs it makes with it.
+    for (let turns = 0; this.#loop.waiting > 0 || this.#loop.openJobs > 0; turns++) {
       if (turns > MAX_TURNS_PER_INSTANT)
         return err({
           kind: "refused",
@@ -451,7 +551,24 @@ export class LockstepHub {
     parsed: Extract<LockstepToHub, { readonly type: "control" }>["request"]["command"],
   ): void {
     if (parsed.kind === "fileChunk") {
-      this.#replies.push({ id, reply: FILE_CHUNK_NOT_BUILT });
+      // The shell's own (m2-design.md section 6), kept for the operation that names its job.
+      const { job, n, data, end } = parsed;
+      const chunk = end === undefined ? { job, n, data } : { job, n, data, end };
+      this.#replies.push({
+        id,
+        reply: controlChunkReply(this.#files.uploads.chunk(LOCKSTEP_CONTROL_CONN, chunk)),
+      });
+      return;
+    }
+    if (parsed.kind === "benchRestore") {
+      // The lockstep hub's alone, before the core (which refuses it on every other socket).
+      const restored = benchRestore(parsed.file, parsed.key, this.#files);
+      this.#replies.push({
+        id,
+        reply: restored.isOk()
+          ? { ok: true, result: { kind: "benchRestore" } }
+          : { ok: false, error: { code: "failed", message: `benchRestore: ${restored.error}` } },
+      });
       return;
     }
     const typed = typedCommand(parsed);

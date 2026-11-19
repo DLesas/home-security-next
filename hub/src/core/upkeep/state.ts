@@ -8,6 +8,7 @@
  * What is not a row is memory: the jobs in flight, the coalescing window, a restore (its token is
  * never stored, section 9), and the running version (from `hubFacts`).
  */
+import type { ReleaseOffer } from "@hsn/protocol/app";
 import type { AnswerTo } from "../model/messages.ts";
 import type { FileFailure } from "../model/events.ts";
 import { type ConnId, type JobId, TOKEN_RANGES, type TokenId } from "../model/ids.ts";
@@ -42,6 +43,23 @@ export interface RestoreHeader {
   readonly madeMs: number;
   readonly lastChangeMs: number;
 }
+
+/**
+ * An update being staged (`stageUpdate`): an upload's, whose answer waits for it, or a release
+ * fetched through the relay (`update.fetch`, m4-design section 6), answered `{job}` already and
+ * staged by the shell under the fetch's own job, so `stagingJob` names that job.
+ */
+export type StagingState =
+  | {
+      readonly source: "upload";
+      readonly job: JobId;
+      readonly upload: UploadRef;
+      readonly answerTo: AnswerTo;
+    }
+  | { readonly source: "fetch"; readonly job: JobId; readonly version: string };
+
+/** The hub release a relay offers now (m4-design section 6), as `release.offer` gave it. */
+export type HubReleaseOffer = Extract<ReleaseOffer, { readonly kind: "hub" }>;
 
 /** A restore under way (section 9, "Restore"). Memory only: a restart loses the upload too. */
 export type RestoreState =
@@ -103,9 +121,15 @@ export interface UpkeepSlice {
   readonly lastFailure: FileFailure | undefined;
   /** Export jobs streaming, so their outcome is recognised. */
   readonly exports: ReadonlySet<JobId>;
-  /** An update being staged (`stageUpdate`), with where its answer goes. */
-  readonly staging:
-    { readonly job: JobId; readonly upload: UploadRef; readonly answerTo: AnswerTo } | undefined;
+  /** An update being staged (`stageUpdate`), from an upload or a fetch. */
+  readonly staging: StagingState | undefined;
+  /**
+   * The hub release the relay offers now (memory: the relay offers again when the link opens);
+   * undefined when its last `release.offer` held none above the running version.
+   */
+  readonly offer: HubReleaseOffer | undefined;
+  /** Versions recorded as offered this run: `update_offered` once each (m4-design section 6). */
+  readonly offeredVersions: ReadonlySet<string>;
   /** The switch to the staged version was handed to the shell (`switchUpdate`). */
   readonly switchJob: JobId | undefined;
   readonly restore: RestoreState | undefined;
@@ -145,6 +169,8 @@ export const EMPTY_UPKEEP_SLICE: UpkeepSlice = {
   lastFailure: undefined,
   exports: new Set(),
   staging: undefined,
+  offer: undefined,
+  offeredVersions: new Set(),
   switchJob: undefined,
   restore: undefined,
   warnedFolder: null,

@@ -4,10 +4,17 @@
  * `deviceAdded` and `deviceRemoved`; for each `devicePacket` it runs the checks of `accept.ts`
  * and either counts a rejection by source and reason (`rejected`, which audit counts per minute,
  * HB15) or emits `accepted` with the packet's `rx` record, its window and reading, and for a log
- * entries packet a `device_log` row per entry. Door, cover, button and Started reports are
- * written now; routine packets are not (section 5).
+ * entries packet a `device_log` row per entry. Door, cover, button and Started reports, update
+ * queries and statuses are written now; routine packets are not (section 5).
+ *
+ * After a restore (D141, m3-updates-design section 7) a packet under a key the hub held at the
+ * backup is recorded, its `rx` row flagged `oldKey`, and emitted as `oldKeyPacket`, never as
+ * `accepted`: its window, readings and decisions are untouched, so no module can act on it. The
+ * first packet under the device's new key switches it: its window starts again, the switch is
+ * written now with the packet (`key_changed`, before the packet's `accepted`, so the module that
+ * owns the key starts its counters again before it answers), and the packet is acted on as any other.
  */
-import { ok, type Result } from "neverthrow";
+import { ok, Result } from "neverthrow";
 import {
   decodeReplayWindow,
   EMPTY_REPLAY_WINDOW,
@@ -17,7 +24,7 @@ import {
 } from "@hsn/protocol";
 import type { CoreFault } from "../model/errors.ts";
 import type { Effect } from "../model/effects.ts";
-import type { DurableSnapshot } from "../model/events.ts";
+import { type DurableSnapshot, EMPTY_M3M4_SNAPSHOT } from "../model/events.ts";
 import type { Context, Handled, Handler } from "../model/handler.ts";
 import type { DeviceId, Seq } from "../model/ids.ts";
 import type { Arrival, Internal, RejectSource, HeardCopy as CopyHeard } from "../model/messages.ts";
@@ -27,7 +34,7 @@ import { type Mono, monoAfterMs, msBetween } from "../model/time.ts";
 import { safeEncodeMessage } from "../util/protocol-safe.ts";
 import { decisionMessage, orFault, recordMessage } from "../sensors/view.ts";
 import { slotEstimates } from "../slots/view.ts";
-import { checkPacket, unknownTypeOf, type Verdict } from "./accept.ts";
+import { checkPacket, type KeyState, unknownTypeOf, type Verdict } from "./accept.ts";
 import { durabilityOf, rxTableOf } from "./classes.ts";
 import type { HeardCopy, IntakeSlice, KnownDevice, LoggedEntry } from "./state.ts";
 import { deviceStateRow } from "./view.ts";
@@ -123,6 +130,7 @@ function rxRow(
   counter: number,
   arrival: Arrival,
   body: Uint8Array,
+  oldKey = false,
 ): RxRow {
   const lora = arrival.path === "lora" ? arrival : undefined;
   return {
@@ -145,7 +153,7 @@ function rxRow(
     snrQ: lora?.snrQuarterDb ?? null,
     rate: lora?.dataRate ?? null,
     body,
-    oldKey: false,
+    oldKey,
   };
 }
 
@@ -310,10 +318,11 @@ function onAccepted(
 ): Step {
   const known = slice.devices.get(verdict.device);
   if (known === undefined) return ok({ slice, out: [] });
-  const { message, counter, newest } = verdict;
+  const { message, counter, newest, switched } = verdict;
   return orFault(ctx, safeEncodeMessage(message)).andThen((plaintext) =>
     ctx.records.take().andThen((seq) => {
-      const durability = durabilityOf(message);
+      // The switch to a new key is written now, with its cleared window (D141).
+      const durability = switched ? "now" : durabilityOf(message);
       const ended = endedAt(ctx, arrival);
       const body = plaintext.slice(1);
       const lora = arrival.path === "lora" ? arrival : undefined;
@@ -335,12 +344,13 @@ function onAccepted(
           : ok({ logs: known.logs, out: [] });
       return logged.andThen(({ logs, out: logOut }) => {
         const updated: KnownDevice = { ...known, ...readings, window: verdict.window, logs };
-        const next = withCopy(
+        const withDevice = withCopy(
           ctx,
           withDevices(slice, new Map(slice.devices).set(known.device, updated)),
           updated,
           arrival,
         );
+        const next = switched ? switchedSlice(withDevice, known.device) : withDevice;
         const view = { ...ctx.view, intake: next };
         const started =
           message.type === MessageType.Started
@@ -357,30 +367,98 @@ function onAccepted(
                 "now",
               ).map((m): readonly Out[] => [m])
             : ok<readonly Out[], CoreFault>([]);
-        return started.map((startedOut): Handled<"intake"> => ({
-          slice: next,
-          out: [
-            recordMessage(durability, {
-              kind: "rx",
-              table: rxTableOf(message),
-              row: rxRow(ctx, seq, known.device, message.type, counter, arrival, body),
-            }),
-            {
-              kind: "accepted",
-              device: known.device,
-              role: known.role,
-              counter,
-              message,
-              arrival,
-              record: seq,
-              newest,
-            },
-            ...stateWrite(view, known.device, durability),
-            ...logOut,
-            ...startedOut,
-          ],
-        }));
+        const keyChanged = switched
+          ? decisionMessage(
+              ctx,
+              { kind: "key_changed", device: known.device, cause: seq, value: null },
+              "now",
+            ).map((m): readonly Out[] => [m])
+          : ok<readonly Out[], CoreFault>([]);
+        return Result.combine([started, keyChanged]).map(
+          ([startedOut, keyOut]): Handled<"intake"> => ({
+            slice: next,
+            out: [
+              recordMessage(durability, {
+                kind: "rx",
+                table: rxTableOf(message),
+                row: rxRow(ctx, seq, known.device, message.type, counter, arrival, body),
+              }),
+              ...keyOut,
+              {
+                kind: "accepted",
+                device: known.device,
+                role: known.role,
+                counter,
+                message,
+                arrival,
+                record: seq,
+                newest,
+                ...(verdict.startedImage === undefined
+                  ? {}
+                  : { startedImage: verdict.startedImage }),
+              },
+              ...stateWrite(view, known.device, durability),
+              ...logOut,
+              ...startedOut,
+            ],
+          }),
+        );
       });
+    }),
+  );
+}
+
+/** The device switched to its new key in this run: its key change is over (D141). */
+function switchedSlice(slice: IntakeSlice, device: DeviceId): IntakeSlice {
+  const rekey = new Map(slice.rekey);
+  rekey.delete(device);
+  return { ...slice, rekey, switched: new Set(slice.switched).add(device) };
+}
+
+/**
+ * A packet under a key the hub held at the backup (D141): recorded, its `rx` row flagged `oldKey`
+ * and routine (its window is untouched, so a replay of it is the same packet again, drawing at most
+ * one Key change every 10 s ‡), and given to the module that owns the device's key as
+ * `oldKeyPacket`. Which key it opened under is kept for that module: for a row both of whose keys
+ * were held at the backup, it is the key the device holds, and the row is then `Required`.
+ */
+function onOldKey(
+  slice: IntakeSlice,
+  verdict: Extract<Verdict, { kind: "oldKey" }>,
+  arrival: Arrival,
+  ctx: Context,
+): Step {
+  const known = slice.devices.get(verdict.device);
+  if (known === undefined) return ok({ slice, out: [] });
+  const { message, counter, keyUsed } = verdict;
+  return orFault(ctx, safeEncodeMessage(message)).andThen((plaintext) =>
+    ctx.records.take().map((seq): Handled<"intake"> => {
+      const rekey = new Map(slice.rekey).set(known.device, { bothHeld: false, lastKey: keyUsed });
+      const row = rxRow(
+        ctx,
+        seq,
+        known.device,
+        message.type,
+        counter,
+        arrival,
+        plaintext.slice(1),
+        true,
+      );
+      return {
+        slice: { ...slice, rekey },
+        out: [
+          recordMessage("routine", { kind: "rx", table: rxTableOf(message), row }),
+          {
+            kind: "oldKeyPacket",
+            device: known.device,
+            role: known.role,
+            counter,
+            message,
+            arrival,
+            record: seq,
+          },
+        ],
+      };
     }),
   );
 }
@@ -434,10 +512,28 @@ function onAuthenticInvalid(
   }));
 }
 
+/** Where the device is in a key change after a restore (`accept.ts`, `KeyState`). */
+function keyStateOf(slice: IntakeSlice, device: DeviceId): KeyState {
+  if (slice.switched.has(device)) return "switched";
+  const rekey = slice.rekey.get(device);
+  if (rekey === undefined) return "none";
+  return rekey.bothHeld ? "bothHeld" : "required";
+}
+
+/** The key changes after a restore not finished at the last commit (D141). */
+function rekeyOf(snapshot: DurableSnapshot): IntakeSlice["rekey"] {
+  const m3m4 = snapshot.m3m4 ?? EMPTY_M3M4_SNAPSHOT;
+  const both = new Set(m3m4.rekeyBothHeld ?? []);
+  return new Map(
+    m3m4.rekey.map((device) => [device, { bothHeld: both.has(device), lastKey: undefined }]),
+  );
+}
+
 function onPacket(slice: IntakeSlice, bytes: Uint8Array, arrival: Arrival, ctx: Context): Step {
   const known = {
     deviceAt: (address: number) => slice.byAddress.get(address),
     windowOf: (device: DeviceId) => slice.devices.get(device)?.window ?? EMPTY_REPLAY_WINDOW,
+    keyStateOf: (device: DeviceId) => keyStateOf(slice, device),
   };
   return orFault(ctx, checkPacket(known, ctx.deps.cipher, bytes, arrival)).andThen(
     (verdict): Step => {
@@ -477,6 +573,8 @@ function onPacket(slice: IntakeSlice, bytes: Uint8Array, arrival: Arrival, ctx: 
           return onAuthenticInvalid(slice, verdict, arrival, bytes, ctx);
         case "accepted":
           return onAccepted(slice, verdict, arrival, ctx);
+        case "oldKey":
+          return onOldKey(slice, verdict, arrival, ctx);
       }
     },
   );
@@ -488,7 +586,13 @@ export const handleIntake: Handler<"intake"> = (slice, message, ctx) => {
     case "boot":
       return ok({
         slice: withDevices(
-          { ...slice, boot: message.boot.id, copies: new Map() },
+          {
+            ...slice,
+            boot: message.boot.id,
+            copies: new Map(),
+            rekey: rekeyOf(message.snapshot),
+            switched: new Set(),
+          },
           fromSnapshot(message.snapshot),
         ),
         out: [],
@@ -507,7 +611,11 @@ export const handleIntake: Handler<"intake"> = (slice, message, ctx) => {
     case "deviceRemoved": {
       const devices = new Map(slice.devices);
       devices.delete(message.device);
-      return ok({ slice: withDevices(slice, devices), out: [] });
+      const rekey = new Map(slice.rekey);
+      rekey.delete(message.device);
+      const switched = new Set(slice.switched);
+      switched.delete(message.device);
+      return ok({ slice: { ...withDevices(slice, devices), rekey, switched }, out: [] });
     }
     case "devicePacket":
       return onPacket(slice, message.bytes, message.arrival, ctx);

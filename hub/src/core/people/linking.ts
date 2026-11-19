@@ -34,6 +34,7 @@ import { type Mono, msBetween } from "../model/time.ts";
 import type { Internal } from "../model/messages.ts";
 import { ClientKind, type ClientRow, type LinkTokenRow, TokenKind } from "../model/rows.ts";
 import { hubEventRecord } from "../registry/view.ts";
+import { relayForLinkCode } from "../relay/view.ts";
 import {
   addPerson,
   answer,
@@ -168,6 +169,7 @@ export function linkCreate(
   if (secret.code !== undefined) shown = { code: secret.code };
   else if (secret.secret !== undefined && facts !== undefined && appKey !== undefined) {
     const identity = formatIdentity(appIdentityBytes(sha256, appKey));
+    const relay = relayForLinkCode(ctx.view);
     shown =
       body.form === "qr"
         ? {
@@ -177,6 +179,7 @@ export function linkCreate(
               addresses: facts.addresses,
               port: facts.appsPort,
               fingerprint: facts.certificateSha256,
+              ...(relay === null ? {} : { relay }),
             }),
           }
         : {

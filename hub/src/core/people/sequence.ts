@@ -95,7 +95,7 @@ export function changeAnswered(
     // An old `seq` with no reply kept is answered `seqTooLow` by `app`, and never comes here.
     return { slice, out: [] };
   }
-  const reply = replyOf(answerTo.id, outcome);
+  const reply = replyOf(answerTo.id, outcome, answerTo.proto);
   const replies = new Map(next.replies.get(change.client));
   replies.set(change.seq, { kind: "sent", reply });
   out.push(

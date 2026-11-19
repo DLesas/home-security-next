@@ -16,7 +16,6 @@ import {
   linkResults,
   nowWrites,
   onlyReply,
-  rowWritten,
   testModules,
 } from "./support/hub.ts";
 
@@ -54,25 +53,21 @@ describe("askName (section 5): the hub's message 2 asks the new person's name", 
 describe("a phone's backup key epoch (sections 3 and 9)", () => {
   const withUpkeep = () => booted(testModules({ upkeep: MODULES.upkeep }));
 
-  test("fetched with backup.key: the phone's row holds the epoch, written now; asked again, refused", () => {
+  // m3-design section 4 changed M2's rule: answering `backup.key` no longer records the epoch as
+  // held (a phone that lost the reply was taken to hold a key it did not have, and refused ever
+  // after); a phone at the current epoch asks again and is answered again. `backup.keyHeld`
+  // records it (`hub/test/unit/upkeep/backup-key.test.ts`).
+  test("fetched with backup.key: answered, nothing written; asked again, answered again", () => {
     const hub = withUpkeep();
     const epoch = hub.state.upkeep.key?.epoch;
+    const held = hub.state.people.clients.get(ANNA_PHONE)?.backupKeyEpoch;
     const phone = hub.connect(ANNA_PHONE);
     const { effects } = hub.request(phone, ANNA_PHONE, { op: "backup.key", body: {} });
     expect(onlyReply(effects, phone)).toMatchObject({ ok: true, body: { epoch } });
-    expect(
-      rowWritten(
-        effects.filter((e) => e.kind === "write" && e.durability === "now"),
-        "clients",
-        {
-          id: ANNA_PHONE,
-          backupKeyEpoch: epoch,
-        },
-      ),
-    ).toBeDefined();
-    expect(hub.state.people.clients.get(ANNA_PHONE)?.backupKeyEpoch).toBe(epoch);
+    expect(nowWrites(effects).filter((op) => op.table === "clients")).toEqual([]);
+    expect(hub.state.people.clients.get(ANNA_PHONE)?.backupKeyEpoch).toBe(held);
     const again = hub.request(phone, ANNA_PHONE, { op: "backup.key", body: {} });
-    expect(codeOf(onlyReply(again.effects, phone))).toBe("unauthorized");
+    expect(onlyReply(again.effects, phone)).toMatchObject({ ok: true, body: { epoch } });
     expect(nowWrites(again.effects).filter((op) => op.table === "clients")).toEqual([]);
   });
 

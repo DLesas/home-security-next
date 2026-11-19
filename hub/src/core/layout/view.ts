@@ -6,7 +6,9 @@
  */
 import { alarmSensors, armingPlan, disarmingPlan } from "../alarm/view.ts";
 import type { DeviceId, GroupId, ModeId } from "../model/ids.ts";
+import { DeviceState } from "../model/rows.ts";
 import type { HubState } from "../model/state.ts";
+import { deviceById, isNamed } from "../registry/view.ts";
 import { groupObject, modeObject } from "./config.ts";
 import { modeSensors } from "./resolve.ts";
 import type { Group, LayoutSlice, Mode } from "./state.ts";
@@ -62,10 +64,14 @@ export function groupsOf(view: HubState, sensor: DeviceId): readonly Group[] {
  */
 export function triggerSirens(view: HubState, sensor: DeviceId): readonly DeviceId[] | "all" {
   const groups = groupsOf(view, sensor);
-  // A list left empty sounds every siren too, so no group can silently sound nothing (section 7).
-  const every = (group: Group) => group.allSirens || group.sirens.length === 0;
+  // A siren its owner reset stays in its groups until it is added again (`handle.ts`); until
+  // then it is not one of the group's to sound, and a list left with none sounds every siren, so
+  // no group can silently sound nothing (section 7).
+  const present = (group: Group) =>
+    group.sirens.filter((siren) => isNamed(deviceById(view, siren)?.state ?? DeviceState.Removed));
+  const every = (group: Group) => group.allSirens || present(group).length === 0;
   if (groups.length === 0 || groups.some(every)) return "all";
-  return [...new Set(groups.flatMap((group) => group.sirens))];
+  return [...new Set(groups.flatMap(present))];
 }
 
 /** Whether a group exists, for a schedule entry's target (section 7, "Schedules"). */

@@ -44,7 +44,7 @@ import {
   INSTALLING_STATES,
   versionNumber,
 } from "./codes.ts";
-import { decide, openRollout, seenOf, type Where } from "./decide.ts";
+import { decide, type Decision, openRollout, seenOf, type Where } from "./decide.ts";
 import { deliver, imageOfEntry, revokeDevice } from "./deliver.ts";
 import { change, forgetTold, inProgress, putEntry, setHeld, transition } from "./entries.ts";
 import type { Steps } from "./out.ts";
@@ -118,9 +118,10 @@ export function onAccepted(steps: Steps, ctx: Context, message: Accepted): void 
 }
 
 /** A sensor's packet is answered with the hub's decision, bound to it. */
-function answerSensor(steps: Steps, ctx: Context, message: Accepted): void {
-  if (message.role !== Role.Sensor) return;
-  const decision = decide(steps.slice, factsOf(ctx), message.device, whereOf(message.arrival));
+function answerSensor(steps: Steps, ctx: Context, message: Accepted, answer?: Decision): void {
+  if (message.role !== Role.Sensor || !message.newest) return;
+  const decision =
+    answer ?? decide(steps.slice, factsOf(ctx), message.device, whereOf(message.arrival));
   deliver(
     steps,
     ctx,
@@ -129,6 +130,24 @@ function answerSensor(steps: Steps, ctx: Context, message: Accepted): void {
     { counter: message.counter, record: message.record },
     true,
   );
+  if (decision.kind !== "install") return;
+  const entry = steps.slice.updates.get(message.device);
+  if (entry === undefined) return;
+  const { arrival } = message;
+  const sensorGoAhead: DeviceEntry["sensorGoAhead"] =
+    arrival.path === "lora" &&
+    message.message.type === MessageType.UpdateStatus &&
+    message.message.stage === UpdateStage.Verified
+      ? {
+          kind: "radio",
+          counter: message.counter,
+          endedAt: arrival.endedAt,
+          rate: arrival.dataRate,
+        }
+      : undefined;
+  if (sensorGoAhead !== undefined || entry.sensorGoAhead !== undefined) {
+    putEntry(steps, { ...entry, sensorGoAhead });
+  }
 }
 
 /** Update query: what the device holds, its Wi-Fi details and power; then the hub's answer. */
@@ -144,14 +163,26 @@ function onQuery(
     externalPower: query.flags.externalPower,
   });
   const found = inRollout(steps, device);
+  // Only sensors require an answer. A wait offer could replace a siren's pending go-ahead.
+  if (message.role !== Role.Sensor && found?.entry.row.state === DeviceUpdateState.Installing)
+    return;
   if (found !== undefined && sameBytes(query.imageId, found.image.imageId)) {
     const state = found.entry.row.state;
     const early =
       state === DeviceUpdateState.Planned ||
       state === DeviceUpdateState.Offered ||
       state === DeviceUpdateState.Fetching;
-    if (query.held === UpdateHolding.Verified && early) {
-      verified(steps, ctx, device, found.image, message);
+    if (query.held === UpdateHolding.Verified) {
+      if (early) {
+        verified(steps, ctx, device, found.image, message);
+      } else if (
+        state === DeviceUpdateState.Installing &&
+        query.bytesHeld === found.entry.row.bytes &&
+        found.entry.sensorGoAhead?.kind === "restored" &&
+        missedRadioGoAhead(ctx, found.entry, message)
+      ) {
+        waitForGoAhead(steps, ctx, device);
+      }
     } else if (query.held === UpdateHolding.Part && early) {
       if (state !== DeviceUpdateState.Fetching) {
         transition(steps, ctx, device, DeviceUpdateState.Fetching, { bytes: query.bytesHeld });
@@ -307,6 +338,40 @@ function refuse(
   pause(steps, ctx, reason, device, message?.record);
 }
 
+/** A fresh LoRa report of the verified image after the old reply window proves the sensor returned. */
+function missedRadioGoAhead(ctx: Context, entry: DeviceEntry, report: Accepted): boolean {
+  const previous = entry.sensorGoAhead;
+  if (
+    previous === undefined ||
+    report.arrival.path !== "lora" ||
+    !report.newest ||
+    report.role !== Role.Sensor
+  ) {
+    return false;
+  }
+  if (previous.kind === "restored") {
+    // The earlier hub's longest possible radio reply window has now closed.
+    const longestMs = Math.max(...ctx.deps.rules.replies.eventListenMs);
+    return report.arrival.endedAt > monoAfterMs(previous.bootedAt, longestMs);
+  }
+  if (report.counter <= previous.counter) return false;
+  const listenMs = ctx.deps.rules.replies.eventListenMs[previous.rate];
+  return listenMs !== undefined && report.arrival.endedAt > monoAfterMs(previous.endedAt, listenMs);
+}
+
+/** A verified sensor that returned may get a go-ahead after the install conditions are checked again. */
+function waitForGoAhead(steps: Steps, ctx: Context, device: DeviceId): void {
+  forgetGoAhead(steps, device);
+  steps.clear({ module: "firmware", kind: "trialWatch", device });
+  change(steps, ctx, device, { state: DeviceUpdateState.Verified });
+}
+
+/** Forgets the unanswered go-ahead once this run knows the device's actual stage. */
+function forgetGoAhead(steps: Steps, device: DeviceId): void {
+  const entry = steps.slice.updates.get(device);
+  if (entry?.sensorGoAhead !== undefined) putEntry(steps, { ...entry, sensorGoAhead: undefined });
+}
+
 /** Update status: the device's stage. */
 function onStatus(
   steps: Steps,
@@ -336,6 +401,14 @@ function onStatus(
           state === DeviceUpdateState.Fetching
         ) {
           verified(steps, ctx, device, image, message);
+        } else if (
+          state === DeviceUpdateState.Installing &&
+          status.bytesWritten === entry.row.bytes &&
+          missedRadioGoAhead(ctx, entry, message)
+        ) {
+          // Accepting the bound go-ahead ends the sensor's Verified retries. A fresh retry after
+          // its window proves it missed the answer. Check the install conditions again for this try.
+          waitForGoAhead(steps, ctx, device);
         }
         break;
       case UpdateStage.Refused:
@@ -352,6 +425,7 @@ function onStatus(
           // before a restart. It is watched as one.
           deliver(steps, ctx, device, { kind: "install" }, undefined, false);
         }
+        forgetGoAhead(steps, device);
         break;
       case UpdateStage.Confirmed:
         if (inProgress(state)) confirmed(steps, ctx, device, image, message);
@@ -370,6 +444,10 @@ function onStatus(
     const entry = steps.slice.updates.get(device);
     if (entry?.discard === true) putEntry(steps, { ...entry, discard: false });
   }
+  if (status.stage === UpdateStage.Installing) {
+    answerSensor(steps, ctx, message, { kind: "wait", held: undefined });
+    return;
+  }
   answerSensor(steps, ctx, message);
   advance(steps, ctx);
 }
@@ -381,6 +459,8 @@ function confirmed(
   image: FirmwareImageRow,
   message: Accepted,
 ): void {
+  setSeen(steps, device, { onTrial: false });
+  forgetGoAhead(steps, device);
   steps.clear({ module: "firmware", kind: "trialWatch", device });
   revokeDevice(steps, device);
   transition(
@@ -415,9 +495,26 @@ function onStarted(
   const running = versionNumber(started.firmwareVersion);
   const state = entry.row.state;
   const rollout = openRollout(steps.slice);
+  const timedOut =
+    state === DeviceUpdateState.Refused && entry.row.lastReason === NO_CONTACT_REASON;
+  const rollback =
+    image?.flags.rolledBack === true && versionNumber(image.failedVersion) === row.version;
+  const updateAttempted = INSTALLING_STATES.has(state) || timedOut;
+  if (
+    !entry.row.sameVersion ||
+    running !== row.version ||
+    onTrial ||
+    (rollback && updateAttempted)
+  ) {
+    forgetGoAhead(steps, device);
+  }
 
-  if (image?.flags.rolledBack === true && versionNumber(image.failedVersion) === row.version) {
-    if (inProgress(state) || state === DeviceUpdateState.Confirmed) {
+  if (rollback) {
+    if (
+      entry.row.sameVersion
+        ? updateAttempted
+        : inProgress(state) || state === DeviceUpdateState.Confirmed || timedOut
+    ) {
       steps.clear({ module: "firmware", kind: "trialWatch", device });
       revokeDevice(steps, device);
       transition(
@@ -425,12 +522,12 @@ function onStarted(
         ctx,
         device,
         DeviceUpdateState.RolledBack,
-        { held: UpdateHeld.No },
+        { held: UpdateHeld.No, lastReason: null },
         { kind: "firmware_rolled_back", value: row.version, cause: message.record },
       );
       pause(steps, ctx, ROLLED_BACK_REASON, device, message.record);
     }
-  } else if (running === row.version && inProgress(state)) {
+  } else if (!entry.row.sameVersion && running === row.version && inProgress(state)) {
     if (onTrial) {
       if (state !== DeviceUpdateState.OnTrial) {
         transition(

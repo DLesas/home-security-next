@@ -35,7 +35,7 @@ import { type CoreFault, coreFault } from "../model/errors.ts";
 import type { Context, Handled, Handler } from "../model/handler.ts";
 import { type DeviceId, type LinkId, moduleSendRef } from "../model/ids.ts";
 import type { Internal } from "../model/messages.ts";
-import { type DeviceRow, DeviceState, Rekey } from "../model/rows.ts";
+import { type DeviceRow, DeviceState } from "../model/rows.ts";
 import { type Mono, monoAfterMs } from "../model/time.ts";
 import type { TimerOf } from "../model/timers.ts";
 import {
@@ -67,6 +67,8 @@ import {
 import type { Asker, Exchange, Identity, SetupSlice, SitePairing, UsbBoard } from "./state.ts";
 import { siteRow } from "../site/view.ts";
 import { belonging } from "./view.ts";
+import { keptPlan, keyWrites } from "./kept.ts";
+import { keptRow, onPairRequest } from "./pair.ts";
 
 const ORIGIN = "core/setup";
 
@@ -77,15 +79,13 @@ const ORIGIN = "core/setup";
  */
 export const SETUP_SEND_REF = moduleSendRef("setup", 0);
 
-/** The hub's resume point written at pairing: counters 1 to 1,023 are usable at once (section 4). */
-export const PAIRING_RESUME_POINT = 1024;
+export { PAIRING_RESUME_POINT } from "./kept.ts";
 
-/** Rows a new add finds already ours (section 9: "refuses one already ours"). */
-const ALREADY_OURS: ReadonlySet<DeviceState> = new Set([
-  DeviceState.Paired,
-  DeviceState.Contacted,
-  DeviceState.LeftBehind,
-]);
+/**
+ * Rows a new add finds already ours (section 9: "refuses one already ours"). A row left behind by
+ * a forced move is not: it is kept and added again (m3-design section 5, `kept.ts`).
+ */
+const ALREADY_OURS: ReadonlySet<DeviceState> = new Set([DeviceState.Paired, DeviceState.Contacted]);
 const PROVISIONING: ReadonlySet<DeviceState> = new Set([DeviceState.Provisioning]);
 
 type Out = Internal | Effect;
@@ -262,29 +262,6 @@ function refusal(code: ControlErrorCode, message: string): Refusal {
   return { kind: "refusal", code, message };
 }
 
-function keyWrites(device: DeviceId, key: Uint8Array): readonly Effect[] {
-  return [
-    {
-      kind: "write",
-      durability: "now",
-      op: {
-        table: "device_keys",
-        op: "upsert",
-        row: { deviceId: device, key, nextKey: null, rekey: Rekey.None },
-      },
-    },
-    {
-      kind: "write",
-      durability: "now",
-      op: {
-        table: "send_counters",
-        op: "upsert",
-        row: { deviceId: device, resumePoint: PAIRING_RESUME_POINT },
-      },
-    },
-  ];
-}
-
 /** A retry of an add that left `pending` provisioning (section 9: the same address and key). */
 function retryPlan(
   slice: SetupSlice,
@@ -392,7 +369,10 @@ function provision(
         `the board is already paired to this hub as ${known.name}`,
       );
     }
-    const problem = newNameProblem(ctx.view, name);
+    // A chip this hub holds as reset by its owner, or left behind by a forced move, keeps its row
+    // (m3-design section 5): number, permissions and history, under the name given now.
+    const kept = keptRow(ctx, identity);
+    const problem = newNameProblem(ctx.view, name, kept?.id);
     if (problem === "taken")
       return fail(acc, ctx, asker, "nameTaken", `another device is called ${name}`);
     if (problem !== undefined)
@@ -400,18 +380,27 @@ function provision(
     const site = siteForPairing(sitePairing(ctx), identity.role);
     if (site.isErr()) return fail(acc, ctx, asker, "failed", SITE_PROBLEM_TEXT[site.error]);
     const device = nextDeviceId(ctx.view);
-    plan = drawAddress(ctx, (address) => addressFree(ctx.view, address)).andThen((address) =>
-      drawKey(ctx).map((key) => ({
-        device,
-        address,
-        key,
-        mayHoldKey: false,
-        before: [
-          { kind: "deviceAdded", device, role: identity.role, address, name } satisfies Internal,
-          ...keyWrites(device, key),
-        ],
-      })),
-    );
+    plan =
+      kept !== undefined
+        ? keptPlan(ctx, kept, identity.role, name).map((made) => ({ ...made, mayHoldKey: false }))
+        : drawAddress(ctx, (address) => addressFree(ctx.view, address)).andThen((address) =>
+            drawKey(ctx).map((key) => ({
+              device,
+              address,
+              key,
+              mayHoldKey: false,
+              before: [
+                {
+                  kind: "deviceAdded",
+                  device,
+                  role: identity.role,
+                  address,
+                  name,
+                } satisfies Internal,
+                ...keyWrites(device, key),
+              ],
+            })),
+          );
   }
   if (plan.isErr()) {
     const problem = plan.error;
@@ -804,6 +793,7 @@ function booted(slice: SetupSlice, snapshot: DurableSnapshot): Step {
       boards: new Map(),
       // A device still provisioning keeps its committed key, so a retry sends it again (section 9).
       retryKeys: new Map(snapshot.provisioningKeys),
+      pairings: new Map(),
     },
     out: [],
   });
@@ -838,8 +828,20 @@ export const handleSetup: Handler<"setup"> = (slice, message, ctx) => {
           actor: message.actor,
         }),
       );
-    case "deviceRemoved":
-      return done(ok({ slice: withRetryKey(slice, message.device, undefined), out: [] }));
+    case "deviceRemoved": {
+      // A row left behind and added again is `deviceRemoved` just before its `deviceAdded`, still
+      // left behind (`kept.ts`): the key drawn for it stays. A removal or reset retires the row
+      // first, so its key goes.
+      if (deviceById(ctx.view, message.device)?.state === DeviceState.LeftBehind)
+        return done(ok(acc));
+      const pairings = new Map(slice.pairings);
+      pairings.delete(message.device);
+      return done(
+        ok({ slice: { ...withRetryKey(slice, message.device, undefined), pairings }, out: [] }),
+      );
+    }
+    case "v2OpRequest":
+      return done(message.owner === "setup" ? onPairRequest(slice, ctx, message) : ok(acc));
     case "timer":
       return done(message.key.module === "setup" ? timedOut(acc, ctx, message.key.link) : ok(acc));
     default:

@@ -437,7 +437,9 @@ describe("a board on USB that is no longer paired to this hub", () => {
     expect(hub.state.registry.devices.get(deviceId(3))?.state).toBe(DeviceState.Provisioning);
   });
 
-  test("a factory-reset gateway is added again at once, under its own name, as a new device (D100)", () => {
+  test("a factory-reset gateway is added again at once, under its own name, keeping its row (D100, m3-design section 5)", () => {
+    // Before M3 it came back as a new device; from M3 a chip the hub holds as reset by its owner
+    // keeps its row (number, permissions, history) with a new key (HD 9, m3-design section 5).
     const old = row(2, { role: Role.Gateway, name: gatewayName(CHIP_A), chipId: CHIP_A });
     const hub = booted([old]);
     const { link } = hub.openUsb("/dev/ttyACM0");
@@ -445,13 +447,20 @@ describe("a board on USB that is no longer paired to this hub", () => {
       link,
       identityFrame({ role: Role.Gateway, chipId: CHIP_A, development: false }),
     );
-    expect(hub.state.registry.devices.get(deviceId(2))?.state).toBe(DeviceState.ResetByOwner);
-    expect(deviceNamed(hub.state, gatewayName(CHIP_A))?.id).toBe(deviceId(3));
-    // The old row's new name is staged before the new row takes the name (unique key, section 6).
+    const kept = hub.state.registry.devices.get(deviceId(2));
+    expect(kept?.state).toBe(DeviceState.Provisioning);
+    expect(kept?.address).toBe(old.address);
+    expect(deviceNamed(hub.state, gatewayName(CHIP_A))?.id).toBe(deviceId(2));
+    expect(hub.state.registry.devices.has(deviceId(3))).toBe(false);
+    // Retired (its name freed, its key deleted), then provisioning again under its name: both
+    // writes of the one row, in that order.
     const deviceWrites = writes(effects).flatMap((op) =>
-      op.table === "devices" && op.op === "upsert" ? [op.row.id] : [],
+      op.table === "devices" && op.op === "upsert" ? [[op.row.id, op.row.state, op.row.name]] : [],
     );
-    expect(deviceWrites).toEqual([deviceId(2), deviceId(3)]);
+    expect(deviceWrites).toEqual([
+      [deviceId(2), DeviceState.ResetByOwner, `#2-${gatewayName(CHIP_A)}`],
+      [deviceId(2), DeviceState.Provisioning, gatewayName(CHIP_A)],
+    ]);
     expect(sends(effects).some((s) => s.bytes[1] === 0x03)).toBe(true);
   });
 });

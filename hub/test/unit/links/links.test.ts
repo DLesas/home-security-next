@@ -9,6 +9,8 @@ import { MessageType, toHex } from "@hsn/protocol";
 import { linkId } from "../../../src/core/model/ids.ts";
 import { DeviceState } from "../../../src/core/model/rows.ts";
 import { CLOSED_LINKS_KEPT } from "../../../src/core/links/state.ts";
+import { TRANSFER_MARKER } from "../../../src/core/links/sort.ts";
+import { TRANSFER_PREFIX } from "@hsn/protocol/update";
 import {
   deviceAtAddress,
   linkCarrier,
@@ -95,15 +97,56 @@ describe("sorting frames", () => {
     });
   });
 
-  test("a sensor's address on a link is wrongPath: sensors talk through gateways (§5)", () => {
+  test("a sensor's address on USB is wrongPath: sensors talk through gateways (§5)", () => {
     const h = booted();
-    h.open(1, "network");
+    h.open(1, "usb");
     expect(sorted(h, 1, heartbeat.packet)).toMatchObject({
       kind: "rejected",
       reason: "wrongPath",
       address: SENSOR_ADDRESS,
       source: { link: linkId(1) },
     });
+  });
+
+  test("a sensor's address on a network link is a device packet by Wi-Fi: its update's link (§10)", () => {
+    // Intake then refuses there every type a sensor does not send on Wi-Fi: a heartbeat is
+    // wrongPath (test/unit/intake/accept.test.ts), an update query is accepted.
+    const h = booted();
+    h.open(1, "network");
+    expect(sorted(h, 1, heartbeat.packet)).toEqual({
+      kind: "devicePacket",
+      bytes: heartbeat.packet,
+      arrival: { path: "wifi", link: linkId(1) },
+    });
+  });
+
+  test("a transfer frame (0xF2) no grant covered is transferNotGranted, on any link, nothing else", () => {
+    const h = booted();
+    h.open(1, "network");
+    h.open(2, "usb");
+    // A Get (§10): 0xF2 0x01, an image id, an offset, a length.
+    const get = Uint8Array.from([0xf2, 0x01, ...new Uint8Array(8).fill(7), 0, 0, 0, 0, 0x80, 0]);
+    for (const link of [1, 2]) {
+      const out = h.frame(linkId(link), get);
+      expect(out.messages).toEqual([
+        {
+          kind: "rejected",
+          source: { link: linkId(link) },
+          reason: "transferNotGranted",
+          address: undefined,
+          sample: get.slice(0, 16),
+          copy: undefined,
+        },
+      ]);
+      expect(out.effects).toEqual([]);
+    }
+    // A frame one byte off is a packet as before, refused by its header.
+    const notTransfer = Uint8Array.from([0xf3, ...get.subarray(1)]);
+    expect(sorted(h, 1, notTransfer)).toMatchObject({ kind: "rejected", reason: "truncated" });
+  });
+
+  test("the core's transfer marker is the protocol's", () => {
+    expect(TRANSFER_MARKER).toBe(TRANSFER_PREFIX);
   });
 
   test("an address the hub does not know is unknownAddress, with no AES spent", () => {

@@ -94,10 +94,9 @@ export function dropClientPushes(
   client: ClientId,
   reason: DroppedReason,
 ): void {
-  const theirs = (owner: ClientId) => owner === client;
   if (
-    ![...steps.slice.outbox.values()].some((pending) => theirs(pending.row.clientId)) &&
-    ![...steps.slice.tests.values()].some(theirs)
+    ![...steps.slice.outbox.values()].some((pending) => pending.row.clientId === client) &&
+    ![...steps.slice.tests.values()].some((target) => target.clientId === client)
   ) {
     return;
   }
@@ -110,7 +109,7 @@ export function dropClientPushes(
     steps.push(deleteOutbox(id));
     dropped += 1;
   }
-  const tests = new Map([...steps.slice.tests].filter(([, owner]) => owner !== client));
+  const tests = new Map([...steps.slice.tests].filter(([, target]) => target.clientId !== client));
   steps.update((slice) => ({ ...slice, outbox, tests }));
   recordDropped(steps, ctx, reason, dropped);
 }
@@ -161,24 +160,36 @@ export function unregister(
   sendRoster(steps, ctx);
 }
 
-/** The push service refused a phone's token: its target is invalid until it registers again. */
-export function invalidate(steps: Steps, ctx: Context, client: ClientId): void {
-  dropClientPushes(steps, ctx, client, "invalid");
+/** Invalidates a refused registration only while its destination is still current. */
+export function invalidate(steps: Steps, ctx: Context, sentTo: PushTargetRow | undefined): boolean {
+  if (sentTo === undefined) return false;
+  const client = sentTo.clientId;
   const target = steps.slice.targets.get(client);
-  if (target?.invalidMs !== null) return;
+  if (
+    target?.invalidMs !== null ||
+    target.token !== sentTo.token ||
+    target.platform !== sentTo.platform ||
+    target.environment !== sentTo.environment ||
+    !sameKeyId(target.keyId, sentTo.keyId)
+  )
+    return false;
+  dropClientPushes(steps, ctx, client, "invalid");
   const row: PushTargetRow = { ...target, invalidMs: ctx.now.wall };
   steps.update((slice) => ({ ...slice, targets: new Map(slice.targets).set(client, row) }));
   steps.push(writeTarget(row));
   steps.pushResult(pushDecision(ctx, "push_target_invalid", client, null));
   sendRoster(steps, ctx);
+  return true;
+}
+
+/** Whether two registrations name the same sealing key. */
+function sameKeyId(a: Uint8Array, b: Uint8Array): boolean {
+  return a.length === b.length && a.every((byte, i) => byte === b[i]);
 }
 
 /** Whether any other client's target already uses this key id (the roster names each once). */
 export function keyIdTaken(steps: Steps, client: ClientId, keyId: Uint8Array): boolean {
   return [...steps.slice.targets.values()].some(
-    (target) =>
-      target.clientId !== client &&
-      target.keyId.length === keyId.length &&
-      target.keyId.every((byte, i) => byte === keyId[i]),
+    (target) => target.clientId !== client && sameKeyId(target.keyId, keyId),
   );
 }

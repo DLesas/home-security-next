@@ -1,11 +1,14 @@
 /**
  * upkeep's operations (m2-design.md section 6; `OP_OWNERS`): `backup.*`, `restore.start` and
- * `update.*`. `app` has already checked the console listener (C) and *manage system* (MS) for an
- * app's request; the hub computer has every permission (HD 9). upkeep checks what only it can:
- * whose `backup.key` it is, and the state each operation needs.
+ * `update.*`, with version 2's `backup.keyHeld`, `update.offers` and `update.fetch` (m3-design
+ * section 4, m4-design section 6), which `app` sends as `v2OpRequest`. `app` has already checked
+ * the console listener (C) and *manage system* (MS) for an app's request; the hub computer has
+ * every permission (HD 9). upkeep checks what only it can: whose `backup.key` it is, and the state
+ * each operation needs.
  */
-import type { AppOp } from "@hsn/protocol/app";
+import type { AppError, AppOpV2 } from "@hsn/protocol/app";
 import type { Context } from "../model/handler.ts";
+import type { ClientId } from "../model/ids.ts";
 import type { Actor, AnswerTo } from "../model/messages.ts";
 import { BackupResult, ClientKind } from "../model/rows.ts";
 import { liveClient } from "../people/view.ts";
@@ -21,7 +24,14 @@ import {
 import { invalid, type Steps, UNAVAILABLE } from "./out.ts";
 import { writeBackupState } from "./records.ts";
 import { restoreStart } from "./restore.ts";
-import { updateApprove, updateCancel, updateStatus, updateUpload } from "./update.ts";
+import {
+  updateApprove,
+  updateCancel,
+  updateFetch,
+  updateOffers,
+  updateStatus,
+  updateUpload,
+} from "./update.ts";
 
 const BASE64URL = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
 
@@ -45,30 +55,60 @@ const RESULT_NAMES = {
   [BackupResult.Failed]: "failed",
 } as const;
 
+/** The refusal of a phone-only request from anyone else (version 2's `NOT_A_PHONE`, M2 5). */
+const NOT_A_PHONE: AppError = { code: "unauthorized", detail: {} };
+
+/** The live phone (client kind 2) asking, or undefined for any other actor (m3-design section 4). */
+function askingPhone(ctx: Context, actor: Actor): ClientId | undefined {
+  const client = actor.kind === "person" ? liveClient(ctx.view, actor.client) : undefined;
+  return client?.kind === ClientKind.Phone ? client.id : undefined;
+}
+
 /**
- * `backup.key` (section 9): only a phone whose epoch is older than the key's; it is the one read
- * that hands out a secret, which `app` records as a routine `commands` row. Browsers are never
- * given the key (section 5).
+ * `backup.key` (m3-design section 4, the fix of M2's fault): any linked phone, at any time, gets
+ * the current key and its epoch, so a phone that lost the reply asks again. Answering records
+ * nothing as held: `backup.keyHeld` does, once the phone has written the key. It is the one read
+ * that hands out a secret, which `app` records as a routine `commands` row without it. Browsers,
+ * the console and the hub computer are never given the key (section 5).
  */
 function backupKey(steps: Steps, ctx: Context, answerTo: AnswerTo, actor: Actor): void {
   const key = steps.slice.key;
-  const client = actor.kind === "person" ? liveClient(ctx.view, actor.client) : undefined;
-  if (
-    key === undefined ||
-    client?.kind !== ClientKind.Phone ||
-    client.backupKeyEpoch === key.epoch
-  ) {
-    steps.refuse(answerTo, { code: "unauthorized", detail: {} });
+  if (key === undefined || askingPhone(ctx, actor) === undefined) {
+    steps.refuse(answerTo, NOT_A_PHONE);
     return;
   }
   steps.answer(answerTo, { key: base64url(key.key), epoch: key.epoch });
+}
+
+/**
+ * `backup.keyHeld {epoch}` (m3-design section 4): the phone has written the key of `epoch`. Only
+ * the current epoch is accepted; `people`, which keeps the phone's row, records it as held from
+ * this answer, written now (`people/backup-epoch.ts`).
+ */
+function backupKeyHeld(
+  steps: Steps,
+  ctx: Context,
+  answerTo: AnswerTo,
+  actor: Actor,
+  epoch: number,
+): void {
+  const key = steps.slice.key;
+  if (key === undefined || askingPhone(ctx, actor) === undefined) {
+    steps.refuse(answerTo, NOT_A_PHONE);
+    return;
+  }
+  if (epoch !== key.epoch) {
+    steps.refuse(answerTo, invalid("epoch", "range"));
+    return;
+  }
+  steps.answer(answerTo, {});
 }
 
 function backupSettings(
   steps: Steps,
   ctx: Context,
   answerTo: AnswerTo,
-  body: Extract<AppOp, { readonly op: "backup.settings" }>["body"],
+  body: Extract<AppOpV2, { readonly op: "backup.settings" }>["body"],
 ): void {
   const row = steps.slice.backup;
   const next = {
@@ -85,11 +125,11 @@ function backupSettings(
   consider(steps, ctx);
 }
 
-/** One operation upkeep owns, answered now or when its file job ends. */
+/** One operation upkeep owns, of either version, answered now or when its file job ends. */
 export function upkeepOp(
   steps: Steps,
   ctx: Context,
-  op: AppOp,
+  op: AppOpV2,
   actor: Actor,
   answerTo: AnswerTo,
 ): void {
@@ -97,6 +137,10 @@ export function upkeepOp(
   switch (op.op) {
     case "backup.key": {
       backupKey(steps, ctx, answerTo, actor);
+      return;
+    }
+    case "backup.keyHeld": {
+      backupKeyHeld(steps, ctx, answerTo, actor, op.body.epoch);
       return;
     }
     case "backup.status": {
@@ -173,6 +217,14 @@ export function upkeepOp(
     }
     case "update.cancel": {
       updateCancel(steps, answerTo);
+      return;
+    }
+    case "update.offers": {
+      updateOffers(steps, answerTo);
+      return;
+    }
+    case "update.fetch": {
+      updateFetch(steps, answerTo, op.body);
       return;
     }
     default: {

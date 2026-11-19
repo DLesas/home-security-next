@@ -501,5 +501,12 @@ function apply(db: Database, statements: Statements, item: StagedEffect): void {
     case "prune":
       prune(db, op);
       return;
+    case "pendingKey":
+      statements.pendingKey.run({
+        deviceId: op.key.deviceId,
+        nextKey: op.nextKey,
+        rekey: op.rekey,
+      });
+      return;
   }
 }

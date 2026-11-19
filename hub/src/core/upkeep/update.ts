@@ -5,6 +5,12 @@
  *
  * - `update.upload {job}`: the shell checks the release and unpacks it beside the running version
  *   (`stageUpdate`); the answer waits for it. `update_staged`, written now with the staged row.
+ * - From M4 (m4-design section 6): the relay's offer (`releaseOffered`), kept for `update.offers`
+ *   and recorded once a run per version (`update_offered`); `update.fetch {version}` fetches the
+ *   offered file through the relay (`fetchRelease`), answered `{job}` at once, and the shell
+ *   stages it under that job as an upload is staged, ending `update_staged` or `update_refused`.
+ * - The switch also waits while a device installs firmware or is on trial with it
+ *   (`firmwareInstall`, m3-updates-design section 4).
  * - `update.approve`: the approval, written now; the switch follows at once when nothing holds it
  *   back, otherwise it waits.
  * - **The switch** is decided in the step whose message finds an approved update and nothing
@@ -22,21 +28,34 @@
  *   (section 9, step 5), so `update_rolled_back`. Either way the switch is over, written now. The
  *   shell tells the launcher once `update_healthy` is committed (section 9, step 4).
  */
-import type { AppOpBody } from "@hsn/protocol/app";
+import {
+  type AppOpBody,
+  type AppOpBodyV2,
+  OFFER_AND_ROLLOUT_REFUSALS,
+  type ReleaseOffer,
+} from "@hsn/protocol/app";
 import { alarmSummary, countdownOrAlarmRunning } from "../alarm/view.ts";
 import type { FileOutcome } from "../model/events.ts";
 import type { Context } from "../model/handler.ts";
 import type { AnswerTo, Actor } from "../model/messages.ts";
 import type { HubState } from "../model/state.ts";
 import { UpdateResult, type UpdateStateRow } from "../model/rows.ts";
+import { devicesInstalling } from "../firmware/view.ts";
 import { usbBoards } from "../setup/view.ts";
 import { latestMove } from "../site/view.ts";
 import { actorText, upkeepDecision, upkeepHubEvent, writeUpdateState } from "./records.ts";
+import { safeFromHex } from "../util/protocol-safe.ts";
 import { busy, fileRefusal, invalid, type Steps, UNAVAILABLE, uploadOf } from "./out.ts";
-import { NO_UPDATE, type UpkeepSlice } from "./state.ts";
+import { type HubReleaseOffer, NO_UPDATE, type UpkeepSlice } from "./state.ts";
 
-/** What holds a switch back (D54, HB23), as `busy`'s `because` names it. */
-export type SwitchBlock = "countdown" | "alarm" | "siteMove" | "provisioning" | "restore";
+/**
+ * What holds a switch back (D54, HB23), as `update.approve`'s `switchWhen` names it
+ * (`after:<hold>`), and the shell's words for it (`shell/update/notes.ts`). `firmwareInstall`: a
+ * device is installing a firmware image or on trial with one (m3-updates-design section 4,
+ * `devicesInstalling`), so the hub does not restart under a device whose trial it judges.
+ */
+export type SwitchBlock =
+  "countdown" | "alarm" | "siteMove" | "provisioning" | "restore" | "firmwareInstall";
 
 /** What would hold the switch back now, or undefined when it may go. */
 export function switchBlock(view: HubState, slice: UpkeepSlice): SwitchBlock | undefined {
@@ -46,6 +65,7 @@ export function switchBlock(view: HubState, slice: UpkeepSlice): SwitchBlock | u
   if (move?.stage === "announcing" || move?.stage === "switched") return "siteMove";
   if (usbBoards(view).some((board) => board.exchange?.kind === "provision")) return "provisioning";
   if (slice.restore !== undefined) return "restore";
+  if (devicesInstalling(view)) return "firmwareInstall";
   return undefined;
 }
 
@@ -104,11 +124,117 @@ export function updateUpload(
     return;
   }
   const job = steps.job();
-  steps.set({ ...steps.slice, staging: { job, upload, answerTo } });
+  steps.set({ ...steps.slice, staging: { source: "upload", job, upload, answerTo } });
   steps.push({ kind: "fileJob", job, work: { kind: "stageUpdate", upload } });
 }
 
-/** The release checked and unpacked, or refused (`stageUpdate`). */
+/** `MAJOR.MINOR.PATCH` as three numbers, or undefined for anything else (section 9, "The file"). */
+function versionParts(version: string): readonly [number, number, number] | undefined {
+  const match = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/u.exec(version);
+  if (match === null) return undefined;
+  return [Number(match[1]), Number(match[2]), Number(match[3])];
+}
+
+/** Whether `a` is a newer version than `b`, compared as numbers, major first. */
+export function newerVersion(a: string, b: string): boolean {
+  const x = versionParts(a);
+  const y = versionParts(b);
+  if (x === undefined || y === undefined) return false;
+  for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return (x[i] ?? 0) > (y[i] ?? 0);
+  return false;
+}
+
+/**
+ * The relay's `release.offer` (m4-design section 6): its hub entry replaces the last offer, the
+ * newest if it named several; one not above the running version (once `hubFacts` named it) is
+ * no offer, since the relay offers only releases above it. Each version is recorded once a run as
+ * `update_offered` (info, routine; notified in `updates` by notify, D75): the relay offers again
+ * each time the link opens and every 24 hours, and a restart may tell it once more.
+ */
+export function onReleaseOffered(
+  steps: Steps,
+  ctx: Context,
+  releases: readonly ReleaseOffer[],
+): void {
+  const running = steps.slice.version;
+  let offer: HubReleaseOffer | undefined;
+  for (const release of releases) {
+    if (release.kind !== "hub" || versionParts(release.version) === undefined) continue;
+    if (running !== undefined && !newerVersion(release.version, running)) continue;
+    if (offer === undefined || newerVersion(release.version, offer.version)) offer = release;
+  }
+  steps.set({ ...steps.slice, offer });
+  if (offer === undefined || steps.slice.offeredVersions.has(offer.version)) return;
+  steps.set({
+    ...steps.slice,
+    offeredVersions: new Set([...steps.slice.offeredVersions, offer.version]),
+  });
+  steps.pushResult(upkeepDecision(ctx, "update_offered", { detail: offer.version }, "routine"));
+}
+
+/** `update.offers`: the hub release the relay offers now, or null. */
+export function updateOffers(steps: Steps, answerTo: AnswerTo): void {
+  const offer = steps.slice.offer;
+  steps.answer(answerTo, {
+    offer:
+      offer === undefined
+        ? null
+        : { version: offer.version, bytes: offer.bytes, platform: offer.platform },
+  });
+}
+
+/**
+ * `update.fetch {version}` (m4-design section 6; *manage system*, which `app` checked): only the
+ * version offered, and only when nothing else is staging, switching or restoring, as
+ * `update.upload`. Answered `{job}` at once; the shell fetches the file through the relay and
+ * stages it under this same job (`stagingJob`), and the end is `update_staged` or
+ * `update_refused`, as for an upload.
+ */
+export function updateFetch(
+  steps: Steps,
+  answerTo: AnswerTo,
+  body: AppOpBodyV2<"update.fetch">,
+): void {
+  const slice = steps.slice;
+  const offer = slice.offer;
+  if (offer?.version !== body.version) {
+    steps.refuse(answerTo, OFFER_AND_ROLLOUT_REFUSALS.notOffered);
+    return;
+  }
+  if (slice.staging !== undefined) {
+    steps.refuse(answerTo, busy("upload"));
+    return;
+  }
+  if (slice.switchJob !== undefined || slice.update.switchingMs !== null) {
+    steps.refuse(answerTo, busy("updateSwitch"));
+    return;
+  }
+  if (slice.restore !== undefined) {
+    steps.refuse(answerTo, busy("restore"));
+    return;
+  }
+  const sha256 = safeFromHex(offer.sha256);
+  if (sha256.isErr() || sha256.value.length !== 32) {
+    steps.refuse(answerTo, UNAVAILABLE);
+    return;
+  }
+  const job = steps.job();
+  steps.set({ ...steps.slice, staging: { source: "fetch", job, version: offer.version } });
+  steps.answer(answerTo, { job });
+  steps.push({
+    kind: "fileJob",
+    job,
+    work: {
+      kind: "fetchRelease",
+      release: "hub",
+      file: offer.file,
+      bytes: offer.bytes,
+      sha256: sha256.value,
+    },
+  });
+}
+
+/** The release checked and unpacked, or refused (`stageUpdate`, after an upload or a fetch). */
 export function staged(steps: Steps, ctx: Context, outcome: FileOutcome): void {
   const staging = steps.slice.staging;
   if (staging === undefined) return;
@@ -116,6 +242,18 @@ export function staged(steps: Steps, ctx: Context, outcome: FileOutcome): void {
   if (outcome.kind !== "updateStaged") {
     const reason = outcome.kind === "failed" ? outcome.reason : "io";
     const message = outcome.kind === "failed" ? outcome.message : `unexpected ${outcome.kind}`;
+    if (staging.source === "fetch") {
+      // Answered `{job}` already: the end is the record, `update_refused` with the fetch's own
+      // reasons (`tooLarge`, `unreachable`, `badFile`, `io`) or M2's staging refusals.
+      steps.pushResult(
+        upkeepHubEvent(ctx, "update_refused", `fetched release refused: ${message}`, {
+          reason,
+          message,
+          version: staging.version,
+        }),
+      );
+      return;
+    }
     // Section 9, "What each bad file gets": `invalid {field: "job", reason}` and `update_refused`.
     const refusal = fileRefusal(outcome, staging.upload, {
       badFile: "badFile",
@@ -139,7 +277,7 @@ export function staged(steps: Steps, ctx: Context, outcome: FileOutcome): void {
     stagedMs: ctx.now.wall,
   });
   steps.pushResult(upkeepDecision(ctx, "update_staged", { detail: outcome.version }));
-  steps.answer(staging.answerTo, { version: outcome.version });
+  if (staging.source === "upload") steps.answer(staging.answerTo, { version: outcome.version });
 }
 
 /** `update.approve`: when it will switch (D54). */
@@ -160,15 +298,15 @@ export function updateApprove(steps: Steps, ctx: Context, answerTo: AnswerTo, ac
 }
 
 /**
- * A staging under way dropped (a cancel, a restore): its upload answered `unavailable`; the
- * shell's next piece finds it unwanted (`view.ts`'s `stagingJob`) and removes what it wrote. An
- * outcome that still comes for it is ignored.
+ * A staging under way dropped (a cancel, a restore): an upload's answered `unavailable` (a
+ * fetch's was answered `{job}` already); the shell's next piece finds it unwanted (`view.ts`'s
+ * `stagingJob`) and removes what it wrote. An outcome that still comes for it is ignored.
  */
 export function dropStaging(steps: Steps): void {
   const staging = steps.slice.staging;
   if (staging === undefined) return;
   steps.set({ ...steps.slice, staging: undefined });
-  steps.refuse(staging.answerTo, UNAVAILABLE);
+  if (staging.source === "upload") steps.refuse(staging.answerTo, UNAVAILABLE);
 }
 
 /** `update.cancel`: a staging, the staged version and its approval dropped, unless the switch began. */

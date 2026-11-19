@@ -22,6 +22,7 @@ import {
   type HubSigningKeys,
   type NotificationReadRow,
   type NotificationRow,
+  Rekey,
 } from "../../core/model/rows.ts";
 import type { AuditTable, StateTable, StateTables } from "../../core/model/store.ts";
 import * as schema from "../../db/schema.ts";
@@ -195,6 +196,18 @@ export class SqliteReader implements Reader {
           updateState: one("update_state"),
           ...this.#recentNotifications(deviceState),
         },
+        // Migration 3 (the joint step 0 of M3 and M4): every table small and read whole, as the
+        // firmware and relay modules' `boot.ts` rebuild from them; push keys stay in the shell
+        // (`PushKeys`). The pending key changes after a restore (D141), with each pending key.
+        m3m4: {
+          firmwareImages: all("firmware_images"),
+          rollouts: all("rollouts"),
+          deviceUpdates: all("device_updates"),
+          relaySettings: one("relay_settings"),
+          pushTargets: all("push_targets"),
+          pushOutbox: all("push_outbox"),
+          ...this.#rekey(),
+        },
       };
     });
   }
@@ -275,6 +288,36 @@ export class SqliteReader implements Reader {
       )
       .all(DeviceState.Provisioning);
     return new Map(rows.map((row) => [deviceId(row.id), new Uint8Array(row.key)]));
+  }
+
+  /**
+   * The devices whose key change after a restore is not finished (`device_keys.rekey`, D141), those
+   * of them both of whose keys were held at the backup, and the pending next key of each that has
+   * one: with the provisioning keys, the only keys the snapshot carries (hub-design.md section 2).
+   * Never a device's current key.
+   */
+  #rekey(): {
+    readonly rekey: readonly DeviceId[];
+    readonly rekeyBothHeld: readonly DeviceId[];
+    readonly rekeyKeys: ReadonlyMap<DeviceId, Uint8Array>;
+  } {
+    const rows = this.#db
+      .query<{ id: number; rekey: number; next: Uint8Array | null }, [number]>(
+        `SELECT "device_id" AS id, "rekey" AS rekey, "next_key" AS next FROM "device_keys" ` +
+          `WHERE "rekey" <> ? ORDER BY "device_id"`,
+      )
+      .all(Rekey.None);
+    const rekeyKeys = new Map<DeviceId, Uint8Array>();
+    for (const row of rows) {
+      if (row.next !== null) rekeyKeys.set(deviceId(row.id), new Uint8Array(row.next));
+    }
+    return {
+      rekey: rows.map((row) => deviceId(row.id)),
+      rekeyBothHeld: rows
+        .filter((row) => row.rekey === Rekey.BothHeld)
+        .map((row) => deviceId(row.id)),
+      rekeyKeys,
+    };
   }
 
   /** The previous run's boot row: the newest. */

@@ -256,6 +256,7 @@ describe("a session's expiry at its exact moment: live one millisecond before, o
       held: UpdateHeld.No,
       bytes: 0,
       attempts: 0,
+      sameVersion: false,
       lastReason: null,
       sinceMs: 0,
       bleNonce: new Uint8Array(8).fill(3),

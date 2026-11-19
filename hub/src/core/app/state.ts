@@ -3,12 +3,13 @@
  * version, subscriptions), the live revision, and the requests waiting for their owner's answer.
  * Memory only (section 3): sessions close at a restart and clients reconnect and take a snapshot.
  */
-import type { AppOp, Topic } from "@hsn/protocol/app";
+import type { AppOp, AppOpV2, AppProtoVersion, Topic } from "@hsn/protocol/app";
 import type { AppListener, HubEvent } from "../model/events.ts";
 import type { ClientId, ConnId, DeviceId, RequestId, Seq } from "../model/ids.ts";
 import type { DeviceRow } from "../model/rows.ts";
 import type { Mono, Now } from "../model/time.ts";
 import type { TimerOf } from "../model/timers.ts";
+import type { PresenceMap } from "./presence.ts";
 
 export interface Session {
   readonly conn: ConnId;
@@ -32,6 +33,8 @@ export interface AppAnswerTo {
   readonly client: ClientId;
   readonly id: number;
   readonly seq: number | undefined;
+  /** The asking session's channel version: its reply is made, and kept, in that version's form. */
+  readonly proto: AppProtoVersion;
 }
 
 /** A change's `commands` record (section 4), numbered and stamped when the request arrived. */
@@ -46,7 +49,8 @@ export interface CommandStamp {
 /** A request sent on to its owner, until the owner answers. */
 export interface PendingRequest {
   readonly answerTo: AppAnswerTo;
-  readonly op: AppOp;
+  /** Of either channel version: a version 2 session's request may be a version 2 operation. */
+  readonly op: AppOpV2;
   /** The change's `commands` record; undefined for a read, which is not recorded. */
   readonly command: CommandStamp | undefined;
   /** The record the request's decisions name as their cause. */
@@ -114,6 +118,13 @@ export interface AppSlice {
    * schedule), by where their answer goes: each answered with success is a `config` event.
    */
   readonly configAsked: ReadonlyMap<string, AppOp>;
+  /** What each phone last said of its presence (`presence.ts`): memory only. */
+  readonly presence: PresenceMap;
+  /**
+   * The relay's status as last told, for version 2's `hub` event `relay` (`v2-live.ts`):
+   * undefined until the boot step.
+   */
+  readonly relaySent: string | undefined;
 }
 
 /** One client's sessions today: how many, the first one's start, the last moment seen. */
@@ -157,4 +168,6 @@ export const EMPTY_APP_SLICE: AppSlice = {
   databaseFailing: false,
   facts: undefined,
   configAsked: new Map(),
+  presence: new Map(),
+  relaySent: undefined,
 };

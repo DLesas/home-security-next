@@ -14,6 +14,7 @@ import {
   SirenAction,
   SirenReportReason,
   SirenState,
+  UpdateStage,
 } from "@hsn/protocol";
 import { sirenCorrectable, sirenShould } from "../alarm/view.ts";
 import type { Context } from "../model/handler.ts";
@@ -22,7 +23,7 @@ import type { Arrival, DomainMessage, HeardCopy } from "../model/messages.ts";
 import { PacketPath } from "../model/rows.ts";
 import { MICROS_PER_MILLISECOND, MILLISECONDS_PER_SECOND } from "../model/time.ts";
 import { after, type Changing, decide, secondsUntil, then, unchanged } from "./out.ts";
-import { command, counterLow, sendSettings } from "./send.ts";
+import { bestGateway, command, counterLow, recentSockets, sendSettings } from "./send.ts";
 import type { Commanded, InFlight, SirenEntry, SirenPaths, SirensSlice } from "./state.ts";
 
 type Accepted = Extract<DomainMessage, { readonly kind: "accepted" }>;
@@ -108,11 +109,20 @@ export function onSirenPacket(slice: SirensSlice, ctx: Context, accepted: Accept
     message.reason === SirenReportReason.WifiReportFailed &&
     !entry.paths.wifiLost;
   const paths = seenOn(entry.paths, arrival, ctx);
+  const trial = message.type === MessageType.Started && accepted.startedImage?.flags.onTrial;
+  const trialEnded =
+    message.type === MessageType.Started ||
+    (message.type === MessageType.UpdateStatus && message.stage === UpdateStage.Confirmed);
   const seen: SirenEntry = {
     ...entry,
     paths: lostWifi ? { ...paths, wifiLost: true } : paths,
     // A siren that started has forgotten nothing it was told, but its sounding may have stopped.
     commanded: message.type === MessageType.Started ? undefined : entry.commanded,
+    reportNowWanted: trial
+      ? "trial"
+      : trialEnded && entry.reportNowWanted === "trial"
+        ? false
+        : entry.reportNowWanted,
   };
   const marked = withEntry(slice, siren, seen);
   const recorded = lostWifi
@@ -129,12 +139,23 @@ export function onSirenPacket(slice: SirensSlice, ctx: Context, accepted: Accept
 }
 
 /**
- * "Report now" (§7 "Hub restart"), once the siren has a path and nothing is in flight, while it is
- * owed: from the start until it reports, or the window's timer ends it (section 7, step 4).
+ * "Report now" goes once a path is available and nothing is in flight. A trial image needs the
+ * command even if it has already sent a report (m3-updates-design section 2).
  */
 export function reportNowIfOwed(slice: SirensSlice, ctx: Context, siren: DeviceId): Changing {
   const entry = slice.sirens.get(siren);
-  if (entry?.reportNowWanted !== true || entry.inFlight !== undefined) return unchanged(slice);
+  if (!entry?.reportNowWanted || entry.inFlight !== undefined) return unchanged(slice);
+  if (entry.reportNowWanted === "trial") {
+    const now = ctx.now.mono;
+    const rules = ctx.deps.rules.sirens;
+    if (
+      recentSockets(entry, now, rules.wifiSocketWindowMs).length === 0 &&
+      bestGateway(slice, entry, now, rules.bestGatewayWindowMs) === undefined
+    ) {
+      return unchanged(slice);
+    }
+    slice = withEntry(slice, siren, { ...entry, reportNowWanted: false });
+  }
   return command(slice, ctx, siren, SirenAction.ReportNow, 0, undefined);
 }
 
@@ -160,7 +181,8 @@ function onReport(slice: SirensSlice, ctx: Context, accepted: Accepted, report: 
           at: now,
         }
       : entry.reported,
-    reportNowWanted: accepted.newest ? false : entry.reportNowWanted,
+    reportNowWanted:
+      accepted.newest && entry.reportNowWanted === "boot" ? false : entry.reportNowWanted,
     paths: graceOver ? { ...entry.paths, graceUntil: undefined } : entry.paths,
   };
   const updated = withEntry(slice, siren, next);
@@ -174,11 +196,18 @@ function onReport(slice: SirensSlice, ctx: Context, accepted: Accepted, report: 
         pathCode(accepted.arrival),
       ).map((m) => ({ slice: updated, out: [m] }))
     : unchanged(updated);
-  if (accepted.newest)
-    return then(confirmation, (current) => answerReport(current, ctx, siren, accepted));
-  // An older copy that confirmed lets waiting settings go; nothing else follows it (section 8).
-  return confirmed && next.settingsWanted
-    ? then(confirmation, (current) => sendSettings(current, ctx, siren, next.moveSettings))
+  if (accepted.newest) {
+    return then(
+      then(confirmation, (current) => answerReport(current, ctx, siren, accepted)),
+      (current) => reportNowIfOwed(current, ctx, siren),
+    );
+  }
+  // An older copy can release waiting settings or a trial nudge, but cannot correct the output.
+  if (confirmed && next.settingsWanted) {
+    return then(confirmation, (current) => sendSettings(current, ctx, siren, next.moveSettings));
+  }
+  return confirmed && next.reportNowWanted === "trial"
+    ? then(confirmation, (current) => reportNowIfOwed(current, ctx, siren))
     : confirmation;
 }
 

@@ -1,7 +1,7 @@
 /**
  * The control protocol's additions of the joint step 0 (docs/m3-m4-plan.md): the lockstep hub's
- * test-only `benchRestore {file, key}` (m3-updates-design section 7), which the core refuses as
- * not built until U10 and K1 build it.
+ * test-only `benchRestore {file, key}` (m3-updates-design section 7), which the lockstep hub's
+ * shell takes before the core, so the core refuses it: it reaches the core only from another socket.
  */
 import { describe, expect, test } from "bun:test";
 import { controlCommand } from "../../../src/control-protocol/index.ts";
@@ -22,7 +22,7 @@ describe("benchRestore", () => {
     expect(controlCommand.safeParse({ ...good, extra: 1 }).success).toBe(false);
   });
 
-  test("is refused notBuilt by the core until it is built", () => {
+  test("is refused by the core: only the lockstep hub takes it", () => {
     const driver = new Driver(makeCore(MODULES));
     driver.boot(snapshot());
     const reply = onlyReply(
@@ -34,6 +34,6 @@ describe("benchRestore", () => {
         command: { kind: "benchRestore", file: "/tmp/b.hsnb", key: KEY },
       }),
     );
-    expect(reply.ok ? "ok" : reply.error.code).toBe("notBuilt");
+    expect(reply.ok ? "ok" : reply.error.code).toBe("badRequest");
   });
 });

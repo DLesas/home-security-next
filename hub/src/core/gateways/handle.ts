@@ -26,17 +26,35 @@ import { handleGatewayPacket } from "./packets.ts";
 import { handleLinkClosed, handleUnproven } from "./sessions.ts";
 import { handleRadioOut, handleSendFailed, handleTransmitTimeout } from "./transmit.ts";
 
-/** The handler of module 6 (section 2). */
 import { setGateway, siteSet, startSurvey } from "./survey.ts";
+import { onUpdateOffer } from "./updates.ts";
+import {
+  afterCommit,
+  keyChangesFromSnapshot,
+  withoutDevice as withoutKeyChange,
+} from "../intake/view.ts";
+
+/** The handler of module 6 (section 2). */
 
 export const handleGateways: Handler<"gateways"> = (slice, message, ctx) => {
   switch (message.kind) {
     case "boot":
-      return handleBoot(slice, message.snapshot, message.boot.id, ctx);
+      return handleBoot(slice, message.snapshot, message.boot.id, ctx).map((booted) => ({
+        slice: {
+          ...booted.slice,
+          keys: keyChangesFromSnapshot(message.snapshot, (d) => booted.slice.gateways.has(d)),
+        },
+        out: booted.out,
+      }));
     case "deviceAdded":
       return handleAdded(slice, message, ctx);
     case "deviceRemoved":
-      return handleRemoved(slice, message.device);
+      return handleRemoved(
+        { ...slice, keys: withoutKeyChange(slice.keys, message.device) },
+        message.device,
+      );
+    case "updateOffer":
+      return onUpdateOffer(slice, message, ctx);
     case "siteMove":
       return handleSiteMove(slice, message, ctx);
     case "siteSurveyRequest":
@@ -47,8 +65,11 @@ export const handleGateways: Handler<"gateways"> = (slice, message, ctx) => {
       return message.reply.ok && message.reply.result.kind === "siteSet"
         ? siteSet(slice, message.reply.result, ctx)
         : done(slice);
-    case "commit":
-      return message.outcome.kind === "failed" ? handleCommitFailed(slice) : done(slice);
+    case "commit": {
+      const keys = afterCommit(slice.keys, message.outcome);
+      const next = keys === slice.keys ? slice : { ...slice, keys };
+      return message.outcome.kind === "failed" ? handleCommitFailed(next) : done(next);
+    }
     case "gatewayPacket":
       return handleGatewayPacket(slice, message.link, message.bytes, ctx);
     case "radioOut":

@@ -20,6 +20,7 @@ import {
   groupObject,
   modeObject,
   type NotificationObject,
+  type NotificationObjectV2,
   scheduleObject,
 } from "@hsn/protocol/app";
 import type { AuditRecord } from "../model/audit.ts";
@@ -34,6 +35,7 @@ import { Role } from "@hsn/protocol";
 import type { Sending } from "./events.ts";
 import { recordFor } from "./history.ts";
 import { siteMoveObject } from "./objects.ts";
+import { notificationFor } from "./versions.ts";
 
 /** Where an answer goes, as a key. */
 export function answerKey(answerTo: AnswerTo): string {
@@ -123,22 +125,25 @@ export function siteMoved(sending: Sending, view: HubState): void {
   );
 }
 
-/** `notify`'s notification, to every session of the clients it names. */
+/**
+ * `notify`'s notification, to every session of the clients it names, in the session's version:
+ * version 2's with `happenedAtMs` (D102), which `notify` gives beside the object.
+ */
 export function notificationEvents(
   sending: Sending,
+  view: HubState,
   notification: NotificationObject,
   clients: readonly ClientId[],
+  happenedAtMs: number | null | undefined,
 ): void {
   const to: ReadonlySet<ClientId> = new Set(clients);
-  const sessions = [...sending.slice.sessions.values()].filter((s) => to.has(s.client));
-  if (sessions.length === 0) return;
-  const rev = sending.rev();
-  for (const session of sessions)
-    sending.out.push({
-      kind: "appSend",
-      conn: session.conn,
-      message: { t: "evt", rev, ev: "notification", body: notification },
-    });
+  const v2 = notificationFor(view, notification, happenedAtMs, 2);
+  sending.versioned(
+    view,
+    "notification",
+    { v1: () => notification, v2: () => v2 as NotificationObjectV2 },
+    (session) => to.has(session.client),
+  );
 }
 
 type HealthWhat =

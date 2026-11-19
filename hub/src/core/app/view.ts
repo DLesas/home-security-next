@@ -3,9 +3,13 @@
  * section 2): the sessions, so `notify` can deliver to them; the live revision; and, for `people`,
  * which client and `seq` a request `app` numbered for an M1a module belongs to.
  */
+import type { DeviceObjectV2 } from "@hsn/protocol/app";
+import type { CoreDeps } from "../model/handler.ts";
 import type { ClientId, ConnId, RequestId } from "../model/ids.ts";
+import type { DeviceRow } from "../model/rows.ts";
 import type { HubState } from "../model/state.ts";
 import type { AppSlice, HubFacts, Session } from "./state.ts";
+import { deviceObjectV2 } from "./updates.ts";
 
 export type { HubFacts, Session } from "./state.ts";
 
@@ -45,4 +49,16 @@ export function liveRevision(view: HubState): number {
 /** The shell's latest `hubFacts` (section 2), for `hub.info` and the link formats; undefined until the first. */
 export function hubFacts(view: HubState): HubFacts | undefined {
   return view.app.facts;
+}
+
+/**
+ * A device as version 2's objects carry it (with its update), for an operation another module
+ * answers with a device on a version 2 session (`setup`'s `pair.finish`).
+ */
+export function deviceObjectV2Of(
+  view: HubState,
+  deps: CoreDeps,
+  row: DeviceRow,
+): DeviceObjectV2 | undefined {
+  return deviceObjectV2(view, deps, row);
 }

@@ -23,8 +23,8 @@ export function boardByLabel(view: HubState, label: string): UsbBoard | undefine
 }
 
 /**
- * The Identity of the board being provisioned as `device`, for the registry's new row: its
- * chip, firmware and build (section 6, `devices`).
+ * The Identity of the board being provisioned as `device`, over USB or by a phone over
+ * Bluetooth, for the registry's row: its chip, firmware and build (section 6, `devices`).
  */
 export function provisionedIdentity(view: HubState, device: DeviceId): Identity | undefined {
   for (const board of view.setup.boards.values()) {
@@ -32,7 +32,8 @@ export function provisionedIdentity(view: HubState, device: DeviceId): Identity 
       return board.identity;
     }
   }
-  return undefined;
+  // A phone adding it over Bluetooth (`pair.prepare`, m3-design section 5).
+  return view.setup.pairings.get(device)?.identity;
 }
 
 /** The Identity a setup frame carries, if `message` is one with a valid Identity (§10). */

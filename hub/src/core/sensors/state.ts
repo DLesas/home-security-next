@@ -7,7 +7,8 @@
 import type { SendCounter } from "@hsn/protocol";
 import { type BootId, bootId, type DeviceId, type SendRef, type Seq } from "../model/ids.ts";
 import type { PacketTable } from "../model/audit.ts";
-import type { RadioPurpose } from "../model/messages.ts";
+import type { Arrival, RadioPurpose } from "../model/messages.ts";
+import { type KeyChanges, NO_KEY_CHANGES } from "../intake/view.ts";
 import type { SensorConfigRow } from "../model/rows.ts";
 import { type Mono, mono } from "../model/time.ts";
 import type { TimerOf } from "../model/timers.ts";
@@ -95,6 +96,16 @@ export interface Notice {
   readonly copiesLeft: number;
 }
 
+/**
+ * The newest accepted packet of a sensor, which an Update offer firmware makes in the same step
+ * answers (`updateOffer.answers`): bound to its counter, on the path it came by (m3-updates section 5).
+ */
+export interface Answerable {
+  readonly record: Seq;
+  readonly counter: number;
+  readonly arrival: Arrival;
+}
+
 export interface SensorsSlice {
   readonly timers: readonly TimerOf<"sensors">[];
   readonly boot: BootId;
@@ -105,6 +116,16 @@ export interface SensorsSlice {
   readonly notices: ReadonlyMap<DeviceId, Notice>;
   /** The next `SendRef` this module hands out. */
   readonly nextRef: number;
+  /** Each sensor's newest accepted packet, for the Update offer that answers it (memory). */
+  readonly answerable: ReadonlyMap<DeviceId, Answerable>;
+  /** The key changes after a restore of the sensors (D141), and those switched in this run. */
+  readonly keys: KeyChanges;
+  /**
+   * The last settings version of each sensor that left this run (removed, or reset by its owner),
+   * so one added again starts above it (hub-design section 9, from M3): memory only, since at a
+   * start a reset sensor's entry is restored with its version.
+   */
+  readonly retiredVersions: ReadonlyMap<DeviceId, number>;
 }
 
 /** The slice before the boot event. */
@@ -116,4 +137,7 @@ export const EMPTY_SENSORS_SLICE: SensorsSlice = {
   inFlight: new Map(),
   notices: new Map(),
   nextRef: 1,
+  answerable: new Map(),
+  keys: NO_KEY_CHANGES,
+  retiredVersions: new Map(),
 };

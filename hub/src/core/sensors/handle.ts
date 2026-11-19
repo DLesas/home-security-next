@@ -19,17 +19,19 @@ import type { Effect } from "../model/effects.ts";
 import type { CoreFault } from "../model/errors.ts";
 import type { Context, Handled, Handler } from "../model/handler.ts";
 import type { DeviceId, RequestId } from "../model/ids.ts";
-import type { Arrival, Internal, SensorSettingsChange } from "../model/messages.ts";
-import {
-  ArmState,
-  NEXT_SETTING_STAYS,
-  PacketPath,
-  type SensorConfigRow,
-  TxOutcome,
-} from "../model/rows.ts";
+import type { Internal, SensorSettingsChange } from "../model/messages.ts";
+import { ArmState, NEXT_SETTING_STAYS, PacketPath, TxOutcome } from "../model/rows.ts";
 import { monoAfterMs, msBetween } from "../model/time.ts";
 import type { TimerOf } from "../model/timers.ts";
-import { isLeftBehind, latestMove, onSiteSettings, switchedMove } from "../site/view.ts";
+import { isLeftBehind } from "../site/view.ts";
+import { offerWaiting } from "../firmware/view.ts";
+import {
+  afterCommit,
+  keyChangedDevice,
+  keyChangesFromSnapshot,
+  withoutDevice as withoutKeyChange,
+} from "../intake/view.ts";
+import { isFollowing, replyRateFor, versionFor } from "./answer.ts";
 import { nextHeartbeatTenths } from "../slots/view.ts";
 import { armedSince, replyArming } from "../alarm/view.ts";
 import { sensorSilenceHeldBack } from "../gateways/view.ts";
@@ -47,6 +49,8 @@ import {
 } from "./entries.ts";
 import { isStatus, observe, versionNamed } from "./observe.ts";
 import { isKnownRate } from "./radio.ts";
+import { nextVersion } from "./settings.ts";
+import { onKeyChanged, onOldKeyPacket, onUpdateOffer, rememberAnswerable } from "./updates.ts";
 import {
   clearTimer,
   decisionMessage,
@@ -64,7 +68,6 @@ import {
   send,
 } from "./reply.ts";
 import { boundReplyRate, chooseReplyRate } from "./reply-rate.ts";
-import { keptVersion } from "./settings.ts";
 import {
   dayOf,
   isPoorLink,
@@ -78,7 +81,6 @@ import type { SensorEntry, SensorsSlice } from "./state.ts";
 type Out = Internal | Effect;
 type Step = Result<Handled<"sensors">, CoreFault>;
 type Accepted = Extract<Internal, { kind: "accepted" }>;
-type Lora = Extract<Arrival, { path: "lora" }>;
 
 /** `poor_link`'s value is the loss in parts per thousand (model/decisions.ts). */
 const PER_MILLE = 1000;
@@ -105,53 +107,6 @@ function settle(ctx: Context, slice: SensorsSlice, entry: SensorEntry): SensorsS
 // ——— Replies ———
 
 /**
- * The version a reply carries (section 8, "Follow"): after a switch, a packet that still came
- * on the old settings is answered with the version that announced the move; otherwise the
- * current one.
- */
-function versionFor(ctx: Context, entry: SensorEntry, arrival: Lora): SensorConfigRow {
-  if (
-    switchedMove(ctx.view) !== undefined &&
-    entry.announcing !== undefined &&
-    !onSiteSettings(ctx.view, ctx.deps.rules, arrival)
-  ) {
-    return entry.announcing;
-  }
-  return entry.config;
-}
-
-/**
- * True when this packet is the sensor's first on the new settings of a switched move. The site
- * module has already seen it, and may have ended the move with it, so a move done counts too.
- */
-function isFollowing(ctx: Context, entry: SensorEntry, arrival: Arrival): boolean {
-  const move = latestMove(ctx.view);
-  return (
-    (move?.stage === "switched" || move?.stage === "done") &&
-    entry.config.moveFollowed !== move.id &&
-    onSiteSettings(ctx.view, ctx.deps.rules, arrival)
-  );
-}
-
-/**
- * The rate a reply goes at (section 8, "Which rate a packet goes at"): with flag bit 7, or the
- * first on a move's new settings, the rate it arrived at; otherwise the reply rate of the version
- * it names, from the last 16 kept; for one not kept, the arrival rate. An unlisted arrival rate
- * gives the sending rate.
- */
-function replyRateFor(
-  entry: SensorEntry,
-  named: number | undefined,
-  atSendRate: boolean,
-  following: boolean,
-  arrival: Lora,
-): number {
-  const arrived = isKnownRate(arrival.dataRate) ? arrival.dataRate : entry.config.sendRate;
-  if (atSendRate || following || named === undefined) return arrived;
-  return keptVersion(entry.config, named)?.replyRate ?? arrived;
-}
-
-/**
  * What one accepted packet needs in answer: a reply, or nothing (section 8, "When to reply").
  * `heldUnits` is the correction the sensor holds with the version the packet names, as it was
  * before this packet changed any setting.
@@ -163,9 +118,17 @@ function planReply(
   heldUnits: number,
 ): Result<Outgoing | "skipped" | undefined, CoreFault> {
   const { message, arrival, counter, record } = accepted;
-  // A sensor's packets come through a gateway; on a link there is no radio path back (§5).
+  // A sensor's packets come through a gateway; on a link there is no radio path back (§5). On the
+  // network link a sensor joins for its update, it sends only update packets and log entries, which
+  // firmware's offers answer (m3-updates-design section 5).
   if (arrival.path !== "lora") return ok(undefined);
+  // An update query or status is answered by firmware's Update offer, never by a reply (section 5).
+  if (message.type === MessageType.UpdateQuery || message.type === MessageType.UpdateStatus) {
+    return ok(undefined);
+  }
   const rules = ctx.deps.rules;
+  // "Update available" (§6, bit 2): an offer waits for this sensor (firmware runs first, section 2).
+  const update = offerWaiting(ctx.view, rules, ctx.now, entry.device);
   const following = isFollowing(ctx, entry, arrival);
   const settings = versionFor(ctx, entry, arrival);
   // The countdown this very packet may have started: alarm runs before sensors (section 2).
@@ -174,7 +137,9 @@ function planReply(
   const base = { entry, binding: counter, gateway: arrival.gateway, cause: record };
 
   if (message.type === MessageType.Heartbeat) {
-    const wanted = message.flags.replyWanted || message.settingsVersion !== settings.version;
+    // Also while an offer waits for it (HD 8, "When to reply"; D72, D139).
+    const wanted =
+      message.flags.replyWanted || message.settingsVersion !== settings.version || update;
     if (!wanted) return ok(undefined);
     // Decided too late, the gateway would only answer "too late" (section 8; §6, 20 ms †).
     if (msBetween(arrival.endedAt, ctx.now.mono) > rules.replies.heartbeatTooLateMs)
@@ -190,7 +155,7 @@ function planReply(
     return orFault(ctx, nextHeartbeatTenths(ctx.view, entry.device, arrival.endedAt, aheadMs)).map(
       (tenths): Outgoing => ({
         ...base,
-        message: replyMessage(settings, left, tenths),
+        message: replyMessage(settings, left, tenths, update),
         timing: heartbeatMoment(
           ctx,
           entry.device,
@@ -232,7 +197,7 @@ function planReply(
   return tenths.andThen((next) =>
     eventLatest(ctx, arrival.endedAt, arrivalRate, rate).map((timing): Outgoing => ({
       ...base,
-      message: replyMessage(settings, left, next),
+      message: replyMessage(settings, left, next, update),
       timing,
       rate,
       purpose: "eventReply",
@@ -266,7 +231,7 @@ function onAccepted(slice: SensorsSlice, accepted: Accepted, ctx: Context): Step
             },
           ]),
     ];
-    const observedSlice = settle(ctx, slice, observed.entry);
+    const observedSlice = rememberAnswerable(settle(ctx, slice, observed.entry), accepted);
     const view = { ...ctx.view, sensors: observedSlice };
     // The correction the sensor holds: its version's, known for the current one before this
     // packet bumped it; for an older version, the current one's is the best guess.
@@ -679,6 +644,8 @@ function onBoot(
       sensors,
       inFlight: new Map(),
       notices: new Map(),
+      answerable: new Map(),
+      keys: keyChangesFromSnapshot(message.snapshot, (device) => sensors.has(device)),
       timers: [],
     };
     const settled = [...sensors.values()].reduce(
@@ -699,7 +666,10 @@ function onDeviceAdded(
   ctx: Context,
 ): Step {
   if (message.role !== ROLE_SENSOR) return unchanged(slice);
-  const config = firstConfig(ctx, message.device);
+  // A sensor added again (its owner reset it) starts above its last version (hub-design section 9).
+  const last =
+    slice.sensors.get(message.device)?.config.version ?? slice.retiredVersions.get(message.device);
+  const config = firstConfig(ctx, message.device, last === undefined ? 1 : nextVersion(last));
   const entry = newEntry(
     ctx,
     message.device,
@@ -717,12 +687,18 @@ function onDeviceAdded(
 }
 
 function onDeviceRemoved(slice: SensorsSlice, device: DeviceId): Step {
+  const left = slice.sensors.get(device)?.config.version;
+  const retiredVersions =
+    left === undefined ? slice.retiredVersions : new Map(slice.retiredVersions).set(device, left);
   const sensors = new Map(slice.sensors);
   sensors.delete(device);
   const notices = new Map(slice.notices);
   notices.delete(device);
+  const answerable = new Map(slice.answerable);
+  answerable.delete(device);
   const timers = slice.timers.filter((t) => !("sensor" in t.key) || t.key.sensor !== device);
-  return unchanged({ ...slice, sensors, notices, timers });
+  const keys = withoutKeyChange(slice.keys, device);
+  return unchanged({ ...slice, sensors, notices, answerable, keys, timers, retiredVersions });
 }
 
 /** A move's confirmation or follow, written now (section 8). */
@@ -767,6 +743,18 @@ export const handleSensors: Handler<"sensors"> = (slice, message, ctx) => {
       return onMoveMark(slice, message.device, ctx, "followed", message.move);
     case "timer":
       return message.key.module === "sensors" ? onTimer(slice, message.key, ctx) : unchanged(slice);
+    case "updateOffer":
+      return onUpdateOffer(slice, message, ctx);
+    case "oldKeyPacket":
+      return message.role === ROLE_SENSOR ? onOldKeyPacket(slice, message, ctx) : unchanged(slice);
+    case "auditRecord": {
+      const switched = keyChangedDevice(message);
+      return switched === undefined ? unchanged(slice) : onKeyChanged(slice, switched, ctx);
+    }
+    case "commit": {
+      const keys = afterCommit(slice.keys, message.outcome);
+      return keys === slice.keys ? unchanged(slice) : unchanged({ ...slice, keys });
+    }
     default:
       return unchanged(slice);
   }

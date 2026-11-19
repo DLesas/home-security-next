@@ -512,10 +512,13 @@ describe("its operations", () => {
     expect(jobs(fromHsn, "export")[0]?.work).toMatchObject({ conn: connId(42) });
   });
 
-  test("backup.key: only a phone whose epoch is older; a browser is refused", () => {
+  // m3-design section 4 changed M2's rule (a phone at the current epoch was refused): any phone,
+  // whatever epoch it is recorded as holding, is given the current key.
+  test("backup.key: any phone, at an older epoch or the current one; a browser is refused", () => {
     const runner = booted();
     const phone = clientId(5);
     const browser = clientId(6);
+    const current = clientId(7);
     runner.view = {
       ...runner.view,
       people: {
@@ -523,6 +526,7 @@ describe("its operations", () => {
         clients: new Map([
           [phone, clientRow(phone, ClientKind.Phone, 0)],
           [browser, clientRow(browser, ClientKind.Web, null)],
+          [current, clientRow(current, ClientKind.Phone, 1)],
         ]),
       },
     };
@@ -536,6 +540,7 @@ describe("its operations", () => {
         record: 0 as never,
       });
     expect(answer(as(phone))).toMatchObject({ ok: true, body: { epoch: 1 } });
+    expect(answer(as(current))).toMatchObject({ ok: true, body: { epoch: 1 } });
     expect(answer(as(browser))).toMatchObject({ ok: false, error: { code: "unauthorized" } });
   });
 });

@@ -5,8 +5,21 @@
  * for `app`, unread across a restart, and the three operations.
  */
 import { describe, expect, test } from "bun:test";
-import { categoryBit, type NotificationObject } from "@hsn/protocol/app";
-import { DECISION_KINDS, type DecisionKind } from "../../../src/core/model/decisions.ts";
+import { ok } from "neverthrow";
+import {
+  categoryBit,
+  type NotificationObject,
+  notificationObject,
+  notificationObjectV2,
+  type NotificationObjectV2,
+} from "@hsn/protocol/app";
+import {
+  DECISION_KINDS,
+  type DecisionKind,
+  eventAtDetail,
+  M3M4_DECISION_KINDS,
+  M3M4_HUB_EVENTS,
+} from "../../../src/core/model/decisions.ts";
 import type { Effect } from "../../../src/core/model/effects.ts";
 import {
   type ClientId,
@@ -14,29 +27,54 @@ import {
   connId,
   type DeviceId,
   deviceId,
+  HUB_DEVICE,
   type PersonId,
   personId,
   type Seq,
 } from "../../../src/core/model/ids.ts";
+import { pausedDetail } from "../../../src/core/firmware/records.ts";
+import type { Context } from "../../../src/core/model/handler.ts";
+import { ALL_OPTIONAL_ON } from "../../../src/core/notify/deliver.ts";
+import { entropyCursor } from "../../../src/core/util/entropy.ts";
 import type { Actor, AnswerTo, Internal } from "../../../src/core/model/messages.ts";
 import { DEFAULT_RULES } from "../../../src/core/model/rules.ts";
 import {
   ClientKind,
   type ClientRow,
+  type HubEventLevel,
+  PILOT_FAILED_REASON,
+  NO_CONTACT_REASON,
+  ROLLED_BACK_REASON,
   type NotificationRow,
   type PermissionRow,
 } from "../../../src/core/model/rows.ts";
 import type { HubState } from "../../../src/core/model/state.ts";
 import type { Durability } from "../../../src/core/model/store.ts";
 import { clientsFor } from "../../../src/core/notify/audience.ts";
+import { notifyDeadlines } from "../../../src/core/notify/deadlines.ts";
 import { handleNotify, recipientBytes, recipientsOf } from "../../../src/core/notify/handle.ts";
 import {
   type Classified,
   classifyDecision,
+  classifyHubEvent,
   floodExempt,
   scheduleWarnings,
 } from "../../../src/core/notify/table.ts";
-import { unreadFor } from "../../../src/core/notify/view.ts";
+import { asVersion2, happenedAtFor, unreadFor } from "../../../src/core/notify/view.ts";
+import { NEVER_PUSHED, PRESENCE_OFFER_KINDS } from "../../../src/core/relay/content.ts";
+import {
+  ANNA as R_ANNA,
+  ANNA_PHONE as R_ANNA_PHONE,
+  BEN as R_BEN,
+  BEN_PHONE as R_BEN_PHONE,
+  BEN_PHONE2 as R_BEN_PHONE2,
+  pushes,
+  relayRunner,
+  relaySnapshot,
+  type Runner as RelayRunner,
+  R1 as R_R1,
+  S2 as R_S2,
+} from "../relay-core/support.ts";
 import {
   boot,
   GATEWAY,
@@ -855,5 +893,681 @@ describe("rules values", () => {
       sameKindEveryMs: 600_000,
       consoleGetsAll: true,
     });
+  });
+});
+
+// ——— M3 and M4 (docs/m4-design.md sections 4, 5, 6 and 9; m3-updates-design section 4; D102) ———
+
+let h = 0;
+
+/** A hub event on its way to audit, at the level and class the model gives it. */
+function hubEventRecord(code: string, detail: string | null = null): Internal {
+  h += 1;
+  const table: Readonly<
+    Record<string, { level: HubEventLevel; durability: Durability } | undefined>
+  > = M3M4_HUB_EVENTS;
+  const spec = table[code] ?? { level: "warning", durability: "now" };
+  return {
+    kind: "auditRecord",
+    durability: spec.durability,
+    record: {
+      kind: "hubEvent",
+      row: {
+        seq: rec(600_000 + h),
+        atMs: 0,
+        clockOk: true,
+        level: spec.level,
+        origin: "core",
+        code,
+        message: "",
+        detail,
+      },
+    },
+  };
+}
+
+/** Every `notificationRaised` message in full, as `app` and `relay` read it. */
+function raisedMessages(out: readonly (Internal | Effect)[]) {
+  return out.flatMap((item) => (item.kind === "notificationRaised" ? [item] : []));
+}
+
+/** `notifications.list`'s notifications, from its answer. */
+function listedIn(out: readonly (Internal | Effect)[]): readonly NotificationObject[] {
+  const answer = out.find((o) => o.kind === "opAnswer");
+  return answer?.kind === "opAnswer" && answer.outcome.ok
+    ? (answer.outcome.body as { notifications: NotificationObject[] }).notifications
+    : [];
+}
+
+function viewOfRunner(runner: Runner<"notify">): HubState {
+  return { ...runner.view, notify: runner.slice };
+}
+
+/** The fields of version 1's object, exactly: nothing added (version 1 parses strictly). */
+const V1_FIELDS = [
+  "atMs",
+  "category",
+  "cause",
+  "clockOk",
+  "critical",
+  "delayed",
+  "device",
+  "kind",
+  "read",
+  "seq",
+];
+
+describe("the new notifications, each with its category, recipients and durability", () => {
+  // Anna has manage system; Ben does not, but may view SENSOR2.
+  const home: Home = { userManagement: true };
+
+  test("relay_unreachable: hub, to manage system and the console, not to be turned off, routine", () => {
+    const runner = notify({ ...home, prefs: [{ client: ANNA_LAPTOP, categories: 0 }] });
+    const out = runner.run(hubEventRecord("relay_unreachable"));
+    const rows = notifications(out);
+    expect(rows.map((r) => [r.row.kind, r.row.category, r.row.critical, r.durability])).toEqual([
+      ["relay_unreachable", "hub", false, "routine"],
+    ]);
+    expect(rows[0]?.row.deviceId).toBe(null);
+    expect(recipientsIn(out)).toEqual([ANNA]);
+    // Every optional category off on Anna's laptop: it is told all the same.
+    expect(clientsTold(out)).toEqual([CONSOLE, ANNA_LAPTOP, ANNA_PHONE]);
+    expect(raisedMessages(out)).toHaveLength(1);
+    // The hub event is written now as the model gives it; the notice rides on that commit.
+    expect(M3M4_HUB_EVENTS.relay_unreachable).toEqual({ level: "warning", durability: "now" });
+  });
+
+  test("relay_unreachable is the one kind the relay module never pushes (section 9)", () => {
+    const out = notify(home).run(hubEventRecord("relay_unreachable"));
+    const kind = raisedMessages(out)[0]?.notification.kind ?? "";
+    expect(NEVER_PUSHED.has(kind)).toBe(true);
+    for (const other of [
+      "update_offered",
+      "firmware_rolled_back",
+      "rollout_paused",
+      "firmware_store_damaged",
+    ]) {
+      expect(NEVER_PUSHED.has(other)).toBe(false);
+    }
+  });
+
+  test("relay_unreachable is told at each outage: the flood rule does not hold back the hub's", () => {
+    const runner = notify(home);
+    expect(notifications(runner.run(hubEventRecord("relay_unreachable")))).toHaveLength(1);
+    runner.at(5 * MINUTE_US);
+    expect(notifications(runner.run(hubEventRecord("relay_unreachable")))).toHaveLength(1);
+  });
+
+  const UPDATES: readonly [DecisionKind, DeviceId | null, number | null, Uint8Array | null][] = [
+    ["update_offered", null, null, null],
+    ["firmware_release_offered", null, (1 << 16) | (2 << 8) | 3, null],
+    ["firmware_refused", SENSOR2, 8, null],
+    ["firmware_refused", SIREN, 18, null],
+    ["firmware_rolled_back", SENSOR2, (1 << 16) | (2 << 8) | 3, null],
+    // The pause the hub makes with no notice of its own: a pilot failed its soak.
+    ["rollout_paused", SENSOR2, 1, pausedDetail(SENSOR2, PILOT_FAILED_REASON)],
+    ["firmware_reminder", SENSOR2, 2, null],
+  ];
+
+  test.each(UPDATES)(
+    "%s about %p: updates, can be turned off, not critical, to manage system only, routine",
+    (kind, device, value, detail) => {
+      const runner = notify(home);
+      const out = runner.run(decisionRecord(kind, { device, value, detail }));
+      const rows = notifications(out);
+      expect(rows.map((r) => [r.row.kind, r.row.category, r.row.critical, r.durability])).toEqual([
+        [kind, "updates", false, "routine"],
+      ]);
+      // The device it names stays on it, for its words; who is told is manage system's.
+      expect(rows[0]?.row.deviceId).toBe(device);
+      expect(recipientsIn(out)).toEqual([ANNA]);
+      expect(clientsTold(out)).toEqual([CONSOLE, ANNA_LAPTOP, ANNA_PHONE]);
+      expect(raisedMessages(out)).toHaveLength(1);
+      expect(classifyDecision(kind, device, value, detail, FACTS_ARMED)).toMatchObject({
+        category: "updates",
+        critical: false,
+        mandatory: false,
+      });
+    },
+  );
+
+  test("with updates turned off, a client is not told them; its person's other clients are", () => {
+    const runner = notify({ ...home, prefs: [{ client: ANNA_PHONE, categories: 0 }] });
+    // Each kind about each device once: the flood rule holds none of them back.
+    for (const [kind, device, value, detail] of UPDATES) {
+      expect(clientsTold(runner.run(decisionRecord(kind, { device, value, detail })))).toEqual([
+        CONSOLE,
+        ANNA_LAPTOP,
+      ]);
+    }
+  });
+
+  test("with user management off, every person has manage system, so every person is told", () => {
+    const out = notify().run(decisionRecord("firmware_rolled_back", { device: SENSOR, value: 1 }));
+    expect(recipientsIn(out)).toEqual([ANNA, BEN]);
+  });
+
+  test("no other decision or hub event of M3 and M4 raises one", () => {
+    const told = new Set<string>([
+      ...UPDATES.map((u) => u[0]),
+      "presence_offer_away",
+      "presence_offer_disarm",
+    ]);
+    for (const kind of M3M4_DECISION_KINDS.filter((k) => !told.has(k))) {
+      expect(classifyDecision(kind, SENSOR, 1, null, FACTS_ARMED)).toBeUndefined();
+      expect(notify(home).run(decisionRecord(kind, { device: SENSOR, value: 1 }))).toEqual([]);
+    }
+    const toldEvents = new Set(["relay_unreachable", "firmware_store_damaged"]);
+    for (const code of Object.keys(M3M4_HUB_EVENTS).filter((c) => !toldEvents.has(c))) {
+      expect(classifyHubEvent(code)).toBeUndefined();
+      expect(notify(home).run(hubEventRecord(code))).toEqual([]);
+    }
+  });
+
+  test("no notify deadline at or before the step's time, after any of them", () => {
+    const runner = notify(home);
+    const check = () => {
+      expect(notifyDeadlines(runner.slice).filter((t) => t.at <= runner.now.mono)).toEqual([]);
+    };
+    runner.run(hubEventRecord("relay_unreachable"));
+    check();
+    for (const [i, [kind, device, value, detail]] of UPDATES.entries()) {
+      runner.at((i + 1) * MINUTE_US);
+      runner.run(decisionRecord(kind, { device, value, detail }));
+      check();
+    }
+    runner.run(op("notifications.list", { limit: 50 }, ANNA, ANNA_LAPTOP));
+    check();
+  });
+});
+
+describe("happenedAtMs (D102), for version 2 only", () => {
+  const LATE_MS = WALL0 - 5 * 3_600_000;
+
+  test("a late notification's event time beside its object; null for one raised as it happened", () => {
+    const runner = notify();
+    const late = (out: readonly (Internal | Effect)[]) => raisedMessages(out)[0]?.happenedAtMs;
+    expect(late(runner.run(decisionRecord("alarm", { detail: eventAtDetail(LATE_MS) })))).toBe(
+      LATE_MS,
+    );
+    expect(
+      late(
+        runner.run(
+          decisionRecord("late_report_sirens", { value: 20, detail: eventAtDetail(LATE_MS + 7) }),
+        ),
+      ),
+    ).toBe(LATE_MS + 7);
+    expect(
+      late(runner.run(decisionRecord("late_report_notification", { value: LATE_MS / 1000 }))),
+    ).toBe(LATE_MS);
+    // Raised as the event happens: null, never left out.
+    for (const out of [
+      runner.run(decisionRecord("alarm")),
+      runner.run(decisionRecord("battery_low", { device: SENSOR2 })),
+      runner.run(hubEventRecord("relay_unreachable")),
+      runner.run(decisionRecord("update_offered", { device: null })),
+      runner.run({ kind: "clientAdded", client: ANNA_PHONE, person: ANNA }),
+    ]) {
+      const [message] = raisedMessages(out);
+      expect(message).toBeDefined();
+      expect(message !== undefined && "happenedAtMs" in message).toBe(true);
+      expect(message?.happenedAtMs).toBe(null);
+    }
+  });
+
+  test("the snapshot's and notifications.list's give the same value, and so after a restart", () => {
+    const runner = notify();
+    const lateOut = runner.run(decisionRecord("alarm", { detail: eventAtDetail(LATE_MS) }));
+    const onTimeOut = runner.run(decisionRecord("battery_low", { device: SENSOR2 }));
+    const given = new Map(
+      [...raisedMessages(lateOut), ...raisedMessages(onTimeOut)].map((m) => [
+        m.notification.seq,
+        m.happenedAtMs,
+      ]),
+    );
+    const [lateSeq, onTimeSeq] = [...given.keys()];
+    expect([...given.values()]).toEqual([LATE_MS, null]);
+
+    const check = (r: Runner<"notify">) => {
+      const view = viewOfRunner(r);
+      expect(happenedAtFor(view, lateSeq ?? 0)).toBe(LATE_MS);
+      expect(happenedAtFor(view, onTimeSeq ?? 0)).toBe(null);
+      expect(happenedAtFor(view, 12_345)).toBeUndefined();
+      const snapshot = asVersion2(view, unreadFor(view, ANNA, WALL0, DEFAULT_RULES, WALL0));
+      const listed = asVersion2(
+        view,
+        listedIn(r.run(op("notifications.list", { limit: 10 }, ANNA, ANNA_LAPTOP))),
+      );
+      const pairs = (objects: readonly NotificationObjectV2[]) =>
+        objects.map((o): readonly [number, number | null | undefined] => [o.seq, o.happenedAtMs]);
+      expect(pairs(snapshot)).toEqual([...given]);
+      expect(pairs(listed)).toEqual([...given].reverse());
+      for (const object of [...snapshot, ...listed]) {
+        expect(notificationObjectV2.safeParse(object).success).toBe(true);
+      }
+    };
+    check(runner);
+    const rows = notifications(runner.out).map((r) => r.row);
+    check(notify({ notifications: rows }));
+  });
+
+  test("version 1's objects never gain it: the event's, the snapshot's and the list's", () => {
+    const runner = notify();
+    const out = runner.run(decisionRecord("alarm", { detail: eventAtDetail(LATE_MS) }));
+    const view = viewOfRunner(runner);
+    const objects = [
+      ...raisedMessages(out).map((m) => m.notification),
+      ...unreadFor(view, ANNA, WALL0, DEFAULT_RULES, WALL0),
+      ...listedIn(runner.run(op("notifications.list", { limit: 10 }, ANNA, ANNA_LAPTOP))),
+    ];
+    expect(objects).toHaveLength(3);
+    for (const object of objects) {
+      expect(Object.keys(object).sort()).toEqual(V1_FIELDS);
+      expect(notificationObject.safeParse(object).success).toBe(true);
+    }
+  });
+
+  test("an existing notification's every field is unchanged for a version 1 client", () => {
+    const runner = notify();
+    const out = runner.run(decisionRecord("countdown_started"));
+    const seq = notifications(out)[0]?.row.seq ?? 0;
+    const cause = rec(500_000 + n);
+    const expected: NotificationObject = {
+      seq,
+      atMs: WALL0,
+      clockOk: true,
+      kind: "countdown_started",
+      category: "countdown",
+      critical: true,
+      device: SENSOR,
+      cause,
+      read: false,
+      delayed: false,
+    };
+    expect(raisedMessages(out)).toEqual([
+      {
+        kind: "notificationRaised",
+        notification: expected,
+        clients: [CONSOLE, ANNA_LAPTOP, ANNA_PHONE, BEN_LAPTOP],
+        happenedAtMs: null,
+      },
+    ]);
+    const view = viewOfRunner(runner);
+    expect(unreadFor(view, ANNA, WALL0, DEFAULT_RULES, WALL0)).toEqual([expected]);
+    expect(
+      listedIn(runner.run(op("notifications.list", { limit: 10 }, ANNA, ANNA_LAPTOP))),
+    ).toEqual([expected]);
+  });
+});
+
+describe("notifications.list's delayed: what the notification's own row says (D102)", () => {
+  const listed = (runner: Runner<"notify">) =>
+    listedIn(runner.run(op("notifications.list", { limit: 10 }, ANNA, ANNA_LAPTOP)))
+      .map((o) => [o.kind, o.delayed])
+      .reverse();
+
+  test("raised exactly 60 s ‡ after its event: not delayed; a millisecond more: delayed", () => {
+    const runner = notify();
+    runner.run(decisionRecord("alarm", { detail: eventAtDetail(WALL0 - 60_000) }));
+    runner.run(decisionRecord("late_report_sirens", { detail: eventAtDetail(WALL0 - 60_001) }));
+    expect(listed(runner)).toEqual([
+      ["alarm", false],
+      ["late_report_sirens", true],
+    ]);
+    expect(raisedMessages(runner.out).map((m) => m.notification.delayed)).toEqual([false, true]);
+  });
+
+  test("late_report_notification counted from the opening, at the edge too", () => {
+    const runner = notify();
+    runner.run(decisionRecord("late_report_notification", { value: (WALL0 - 60_000) / 1000 }));
+    runner.run(decisionRecord("late_report_notification", { value: (WALL0 - 61_000) / 1000 }));
+    expect(listed(runner)).toEqual([
+      ["late_report_notification", false],
+      ["late_report_notification", true],
+    ]);
+  });
+
+  test("asked an hour later, the same: one raised on time is not delayed, a late one is", () => {
+    const runner = notify();
+    runner.run(decisionRecord("battery_low", { device: SENSOR2 }));
+    runner.run(decisionRecord("alarm", { detail: eventAtDetail(WALL0 - 3_600_000) }));
+    runner.at(60 * MINUTE_US);
+    expect(listed(runner)).toEqual([
+      ["battery_low", false],
+      ["alarm", true],
+    ]);
+    // After a restart, from the rows alone.
+    const rows = notifications(runner.out).map((r) => r.row);
+    expect(listed(notify({ notifications: rows }).at(60 * MINUTE_US))).toEqual([
+      ["battery_low", false],
+      ["alarm", true],
+    ]);
+  });
+});
+
+describe("a rollout paused: one notice per event, none for a person's own pause", () => {
+  const home: Home = { userManagement: true };
+  const kindsOf = (out: readonly (Internal | Effect)[]) =>
+    notifications(out).map((r) => r.row.kind);
+  const paused = (device: DeviceId | null, detail: Uint8Array | null) =>
+    decisionRecord("rollout_paused", { device, value: 1, detail });
+
+  test("a person's pause (no detail) is not told", () => {
+    const runner = notify(home);
+    expect(classifyDecision("rollout_paused", null, 1, null, FACTS_ARMED)).toBeUndefined();
+    expect(runner.run(paused(null, null))).toEqual([]);
+  });
+
+  test("a refusal that pauses: only firmware_refused, for every device reason and noContact", () => {
+    const runner = notify(home);
+    for (let reason = 1; reason <= NO_CONTACT_REASON; reason++) {
+      const device = reason % 2 === 0 ? SENSOR2 : SIREN;
+      runner.at(reason * 11 * MINUTE_US);
+      const out = [
+        ...runner.run(decisionRecord("firmware_refused", { device, value: reason })),
+        ...runner.run(paused(device, pausedDetail(device, reason))),
+      ];
+      expect(kindsOf(out)).toEqual(["firmware_refused"]);
+      expect(raisedMessages(out)).toHaveLength(1);
+    }
+  });
+
+  test("a rollback that pauses: only firmware_rolled_back", () => {
+    const runner = notify(home);
+    const out = [
+      ...runner.run(decisionRecord("firmware_rolled_back", { device: SENSOR2, value: 0x010203 })),
+      ...runner.run(paused(SENSOR2, pausedDetail(SENSOR2, ROLLED_BACK_REASON))),
+    ];
+    expect(kindsOf(out)).toEqual(["firmware_rolled_back"]);
+  });
+
+  test("decided from the pause's own record, not from what came before it in the step", () => {
+    // Alone, with no refusal or rollback before it, a refusal's or rollback's pause is still not told.
+    const runner = notify(home);
+    expect(runner.run(paused(SENSOR2, pausedDetail(SENSOR2, 8)))).toEqual([]);
+    expect(runner.run(paused(SENSOR2, pausedDetail(SENSOR2, ROLLED_BACK_REASON)))).toEqual([]);
+  });
+
+  test("the reasons at their edges, with a device: 18 no, 19 (pilot failed) yes, 20 no, 21 yes", () => {
+    const told = [NO_CONTACT_REASON, PILOT_FAILED_REASON, ROLLED_BACK_REASON, 21].map(
+      (reason) =>
+        classifyDecision(
+          "rollout_paused",
+          SENSOR2,
+          1,
+          pausedDetail(SENSOR2, reason),
+          FACTS_ARMED,
+        ) !== undefined,
+    );
+    expect(told).toEqual([false, true, false, true]);
+    // Reason 0 names no refusal either: told.
+    expect(
+      classifyDecision("rollout_paused", SENSOR2, 1, pausedDetail(SENSOR2, 0), FACTS_ARMED),
+    ).toBeDefined();
+  });
+
+  test("a pilot that failed its soak: told, in updates, to manage system", () => {
+    const out = notify(home).run(paused(SENSOR2, pausedDetail(SENSOR2, PILOT_FAILED_REASON)));
+    expect(notifications(out).map((r) => [r.row.kind, r.row.category, r.durability])).toEqual([
+      ["rollout_paused", "updates", "routine"],
+    ]);
+    expect(recipientsIn(out)).toEqual([ANNA]);
+  });
+
+  test("the store damaged: one notice, the critical firmware_store_damaged, not its pause too", () => {
+    const runner = notify(home);
+    const out = [
+      ...runner.run(hubEventRecord("firmware_store_damaged", "{}")),
+      ...runner.run(paused(null, pausedDetail(HUB_DEVICE, 8))),
+    ];
+    expect(kindsOf(out)).toEqual(["firmware_store_damaged"]);
+    expect(raisedMessages(out)).toHaveLength(1);
+    // Alone, from its own record: still not told.
+    expect(runner.run(paused(null, pausedDetail(HUB_DEVICE, 8)))).toEqual([]);
+    // With no device and a reason the rule does not know: told rather than lost.
+    expect(kindsOf(runner.run(paused(null, pausedDetail(HUB_DEVICE, 21))))).toEqual([
+      "rollout_paused",
+    ]);
+  });
+
+  test("a detail not laid out as firmware's (not 5 bytes) is told rather than lost", () => {
+    expect(
+      classifyDecision("rollout_paused", null, 1, Uint8Array.of(0, 0, 0, 0), FACTS_ARMED),
+    ).toBeDefined();
+  });
+});
+
+describe("firmware_store_damaged: critical, as restore_waiting is", () => {
+  const home: Home = { userManagement: true, prefs: [{ client: ANNA_LAPTOP, categories: 0 }] };
+  const detail = JSON.stringify({ image: 3, problem: "missing", version: "1.2.3" });
+
+  test("hub, critical, written now, to manage system and the console, not to be turned off", () => {
+    expect(M3M4_HUB_EVENTS.firmware_store_damaged).toEqual({
+      level: "critical",
+      durability: "now",
+    });
+    const out = notify(home).run(hubEventRecord("firmware_store_damaged", detail));
+    const rows = notifications(out);
+    expect(rows.map((r) => [r.row.kind, r.row.category, r.row.critical, r.durability])).toEqual([
+      ["firmware_store_damaged", "hub", true, "now"],
+    ]);
+    expect(classifyHubEvent("firmware_store_damaged")).toEqual(classifyHubEvent("restore_waiting"));
+    expect(rows[0]?.row.deviceId).toBe(null);
+    expect(recipientsIn(out)).toEqual([ANNA]);
+    expect(clientsTold(out)).toEqual([CONSOLE, ANNA_LAPTOP, ANNA_PHONE]);
+    expect(new TextDecoder().decode(rows[0]?.row.detail ?? new Uint8Array())).toBe(detail);
+    expect(raisedMessages(out)[0]?.happenedAtMs).toBe(null);
+  });
+
+  test("critical, so each one is told: two images damaged at the same start", () => {
+    const runner = notify(home);
+    expect(
+      notifications(runner.run(hubEventRecord("firmware_store_damaged", detail))),
+    ).toHaveLength(1);
+    expect(
+      notifications(runner.run(hubEventRecord("firmware_store_damaged", detail))),
+    ).toHaveLength(1);
+  });
+});
+
+describe("presence offers (m3-design section 6): to exactly the people named, in armDisarm", () => {
+  const offer = (
+    kind: "presence_offer_away" | "presence_offer_disarm",
+    people: readonly PersonId[],
+  ) =>
+    decisionRecord(kind, {
+      device: null,
+      value: kind === "presence_offer_disarm" ? (people[0] ?? null) : null,
+      detail: recipientBytes(people),
+    });
+
+  test.each(["presence_offer_away", "presence_offer_disarm"] as const)(
+    "%s: armDisarm, can be turned off, not critical, routine, to the named people only",
+    (kind) => {
+      // With user management off every person may arm and view everything: still only Ben.
+      const out = notify().run(offer(kind, [BEN]));
+      expect(
+        notifications(out).map((r) => [r.row.kind, r.row.category, r.row.critical, r.durability]),
+      ).toEqual([[kind, "armDisarm", false, "routine"]]);
+      expect(notifications(out)[0]?.row.deviceId).toBe(null);
+      expect(recipientsIn(out)).toEqual([BEN]);
+      // Ben's laptop, and the console, which is told every notification (section 7); none of Anna's.
+      expect(clientsTold(out)).toEqual([CONSOLE, BEN_LAPTOP]);
+      expect(raisedMessages(out)).toHaveLength(1);
+      expect(classifyDecision(kind, null, null, recipientBytes([BEN]), FACTS_ARMED)).toMatchObject({
+        category: "armDisarm",
+        critical: false,
+        mandatory: false,
+      });
+    },
+  );
+
+  test("the away offer to every person it names; a person with manage system not named gets none", () => {
+    const out = notify({ userManagement: true }).run(offer("presence_offer_away", [BEN]));
+    expect(recipientsIn(out)).toEqual([BEN]);
+    expect(clientsTold(out)).not.toContain(ANNA_LAPTOP);
+    const both = notify({ userManagement: true }).run(offer("presence_offer_away", [BEN, ANNA]));
+    expect(recipientsIn(both)).toEqual([ANNA, BEN]);
+    expect(clientsTold(both)).toEqual([CONSOLE, ANNA_LAPTOP, ANNA_PHONE, BEN_LAPTOP]);
+  });
+
+  test("a client with armDisarm turned off is not told; its person's other clients are", () => {
+    const runner = notify({ prefs: [{ client: ANNA_PHONE, categories: 0 }] });
+    for (const kind of ["presence_offer_away", "presence_offer_disarm"] as const) {
+      expect(clientsTold(runner.run(offer(kind, [ANNA])))).toEqual([CONSOLE, ANNA_LAPTOP]);
+    }
+    const off = notify({
+      prefs: [
+        { client: ANNA_PHONE, categories: 0 },
+        { client: ANNA_LAPTOP, categories: ALL_OPTIONAL_ON & ~categoryBit("armDisarm") },
+      ],
+    });
+    expect(clientsTold(off.run(offer("presence_offer_disarm", [ANNA])))).toEqual([CONSOLE]);
+  });
+
+  test("a named person since removed, or no one named, is told to nobody's clients", () => {
+    expect(recipientsIn(notify().run(offer("presence_offer_away", [personId(9)])))).toEqual([]);
+    const none = notify().run(offer("presence_offer_away", []));
+    expect(recipientsIn(none)).toEqual([]);
+    expect(clientsTold(none)).toEqual([CONSOLE]);
+  });
+
+  test("each offer is told, though two come within 10 minutes (armDisarm is exempt)", () => {
+    const runner = notify();
+    expect(notifications(runner.run(offer("presence_offer_away", [ANNA])))).toHaveLength(1);
+    expect(notifications(runner.run(offer("presence_offer_away", [ANNA])))).toHaveLength(1);
+  });
+
+  test("the kinds are the relay module's: pushed, never in NEVER_PUSHED", () => {
+    expect(Object.values(PRESENCE_OFFER_KINDS).sort()).toEqual([
+      "presence_offer_away",
+      "presence_offer_disarm",
+    ]);
+    for (const kind of Object.values(PRESENCE_OFFER_KINDS))
+      expect(NEVER_PUSHED.has(kind)).toBe(false);
+  });
+});
+
+describe("presence offers through notify and on to relay: each push with its one action", () => {
+  /** notify's handler on the relay runner's whole view, its `notificationRaised` sent to relay. */
+  function offerToRelay(
+    runner: RelayRunner,
+    kind: "presence_offer_away" | "presence_offer_disarm",
+    people: readonly PersonId[],
+  ): ReadonlyMap<number, readonly string[]> {
+    let next = 0;
+    const ctx: Context = {
+      now: runner.now,
+      view: runner.view,
+      deps: runner.deps,
+      entropy: entropyCursor(new Uint8Array(32), "tick"),
+      records: { take: () => ok(rec(900_000 + (next += 1))) },
+      event: "tick",
+    };
+    const handled = handleNotify(runner.view.notify, offerRecord(kind, people), ctx);
+    expect(handled.isOk()).toBe(true);
+    const out = handled.isOk() ? handled.value.out : [];
+    const sent = raisedMessages(out).flatMap((message) => pushes(runner.send(message).out));
+    return new Map(sent.map((p) => [p.client, p.content.actions]));
+  }
+
+  function offerRecord(
+    kind: "presence_offer_away" | "presence_offer_disarm",
+    people: readonly PersonId[],
+  ): Internal {
+    return decisionRecord(kind, {
+      device: null,
+      value: kind === "presence_offer_disarm" ? (people[0] ?? null) : null,
+      detail: recipientBytes(people),
+    });
+  }
+
+  function upRelay(): RelayRunner {
+    const runner = relayRunner(relaySnapshot());
+    runner.up();
+    return runner;
+  }
+
+  test("Away: Arm away, to the phones of the people named only", () => {
+    const runner = upRelay();
+    expect(offerToRelay(runner, "presence_offer_away", [R_BEN])).toEqual(
+      new Map([
+        [R_BEN_PHONE, ["armAway"]],
+        [R_BEN_PHONE2, ["armAway"]],
+      ]),
+    );
+    expect(offerToRelay(runner, "presence_offer_away", [R_ANNA, R_BEN])).toEqual(
+      new Map([
+        [R_ANNA_PHONE, ["armAway"]],
+        [R_BEN_PHONE, ["armAway"]],
+        [R_BEN_PHONE2, ["armAway"]],
+      ]),
+    );
+  });
+
+  test("Disarm: Disarm to the arriving person, who may manage a sensor that is armed", () => {
+    const runner = upRelay();
+    runner.arm(R_S2);
+    expect(offerToRelay(runner, "presence_offer_disarm", [R_BEN])).toEqual(
+      new Map([
+        [R_BEN_PHONE, ["disarm"]],
+        [R_BEN_PHONE2, ["disarm"]],
+      ]),
+    );
+  });
+
+  test("a phone with armDisarm turned off gets no push of the offer", () => {
+    const base = relaySnapshot();
+    const prefs = [
+      {
+        clientId: R_BEN_PHONE2,
+        categories: ALL_OPTIONAL_ON & ~categoryBit("armDisarm"),
+        revision: 1,
+      },
+    ];
+    const runner = relayRunner({ ...base, m2: { ...base.m2, notificationPrefs: prefs } });
+    runner.up();
+    expect([...offerToRelay(runner, "presence_offer_away", [R_BEN]).keys()]).toEqual([R_BEN_PHONE]);
+  });
+});
+
+describe("group_sirens_gone (D144): a history record only, notified to nobody", () => {
+  const groups = Uint8Array.of(1, 0, 0, 0, 3, 0, 0, 0);
+  const gone = (client: ClientId | null) =>
+    decisionRecord("group_sirens_gone", { device: SIREN, value: client, detail: groups });
+
+  test("raises nothing, whoever asked: the app, the console, hsn, the siren's button, a start", () => {
+    expect(classifyDecision("group_sirens_gone", SIREN, null, groups, FACTS_ARMED)).toBeUndefined();
+    for (const home of [{}, { userManagement: true }]) {
+      const runner = notify(home);
+      for (const client of [null, ANNA_PHONE, BEN_LAPTOP, CONSOLE, clientId(99)]) {
+        expect(runner.run(gone(client))).toEqual([]);
+      }
+    }
+  });
+
+  test("nothing for the relay to push", () => {
+    const runner = relayRunner(relaySnapshot());
+    runner.up();
+    let next = 0;
+    const ctx: Context = {
+      now: runner.now,
+      view: runner.view,
+      deps: runner.deps,
+      entropy: entropyCursor(new Uint8Array(32), "tick"),
+      records: { take: () => ok(rec(950_000 + (next += 1))) },
+      event: "tick",
+    };
+    for (const client of [null, R_ANNA_PHONE]) {
+      const record = decisionRecord("group_sirens_gone", {
+        device: R_R1,
+        value: client,
+        detail: groups,
+      });
+      const handled = handleNotify(runner.view.notify, record, ctx);
+      const out = handled.isOk() ? handled.value.out : [];
+      expect(out).toEqual([]);
+      expect(raisedMessages(out).flatMap((m) => pushes(runner.send(m).out))).toEqual([]);
+    }
   });
 });

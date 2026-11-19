@@ -181,7 +181,7 @@ describe("clientRefused", () => {
     ws.send(await new IkClient(side, anna.key).message1());
     await ws.waitClosed();
     await take();
-    // consoleOnLan
+    // consoleNotLocal (was consoleOnLan before the relay listener, m4-design section 4)
     ws = await WsClient.open(side, "lan");
     ws.send(await new IkClient(side, hubConsole.key).message1());
     await ws.waitClosed();
@@ -203,7 +203,7 @@ describe("clientRefused", () => {
     expect(reasons).toEqual([
       "unknownKey",
       "removedKey",
-      "consoleOnLan",
+      "consoleNotLocal",
       "noVersion",
       "timeout",
       "malformed",

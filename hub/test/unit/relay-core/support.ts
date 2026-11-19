@@ -617,7 +617,12 @@ export class Runner {
   }
 
   /** A decision another module made, passing on its way to audit. */
-  decision(kind: string, value: number | null, device: DeviceId | null = null): Seq {
+  decision(
+    kind: string,
+    value: number | null,
+    device: DeviceId | null = null,
+    detail: Uint8Array | null = null,
+  ): Seq {
     const number = this.nextRecord();
     this.#record += 1;
     this.send({
@@ -633,7 +638,7 @@ export class Runner {
           deviceId: device,
           causeSeq: null,
           value,
-          detail: null,
+          detail,
         },
       },
     });

@@ -6,7 +6,8 @@
  *   (`table.ts`); a client linked (`clientAdded`) is told to the other clients of its person.
  *   Each notification is one `notifications` record naming its recipients (`audience.ts`, read
  *   from `people`'s view) and the record that caused it, and one `notificationRaised` naming the
- *   clients whose categories let it through, for `app` to send to their sessions.
+ *   clients whose categories let it through, for `app` to send to their sessions, with version 2's
+ *   `happenedAtMs` beside the object (D102), never in it.
  * - Durability: a critical notification is written now, by this module, whatever the class of the
  *   decision that raised it; a "now" commit takes everything staged, so the decision goes with it
  *   (HD 5). Every other notification, and every read, is routine (section 3).
@@ -54,6 +55,8 @@ import { recordMessage } from "../util/records.ts";
 import { type About, clientsFor, personOf, recipients } from "./audience.ts";
 import {
   categoryOn,
+  delayedWhenRaised,
+  happenedAtMsOf,
   isDelayed,
   isForPerson,
   LATE_DECISIONS,
@@ -100,6 +103,8 @@ export function recipientsOf(row: NotificationRow): readonly PersonId[] {
 
 /** What a notification about `device` is about, for its recipients. */
 function aboutOf(ctx: Context, device: DeviceId | null, classified: Classified): About {
+  if (classified.people !== undefined) return { kind: "people", people: classified.people };
+  if (classified.toManageSystem === true) return { kind: "hub" };
   if (classified.sensors !== undefined) return { kind: "sensors", sensors: classified.sensors };
   if (device === null) return { kind: "hub" };
   const row = deviceById(ctx.view, device);
@@ -196,6 +201,8 @@ function raise(slice: NotifySlice, ctx: Context, raising: Raising): Step {
           isDelayed(ctx.deps.rules, raised, ctx.now.wall),
         ),
         clients,
+        // For version 2's object only (D102): `app` adds it there, never to version 1's.
+        happenedAtMs: happenedAtMsOf(raised),
       },
     ];
     const lastRaised = freshFloodTimes(slice, ctx);
@@ -367,7 +374,13 @@ function listed(
     .filter((raised) => before === undefined || raised.row.seq < before)
     .reverse()
     .slice(0, limit)
-    .map((raised) => notificationObject(raised, readBy(ctx.view, raised, person), false));
+    .map((raised) =>
+      notificationObject(
+        raised,
+        readBy(ctx.view, raised, person),
+        delayedWhenRaised(ctx.deps.rules, raised),
+      ),
+    );
   return { notifications };
 }
 

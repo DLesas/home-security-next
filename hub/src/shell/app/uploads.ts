@@ -14,6 +14,9 @@
  * - The last chunk names the total and the SHA-256 of the whole; a wrong total or hash voids the
  *   upload (`invalid {end.chunks | end.sha256}`).
  * - An upload is deleted when its job ends, when its connection closes, and at every start.
+ *
+ * A release fetched over the relay link is kept here too, as an upload of the relay link's own
+ * connection (`beginFetch`, m4-design section 6), under the same cap and the same deletions.
  */
 import { join } from "node:path";
 import { FILE_CHUNKS, type AppError, type AppOpBody } from "@hsn/protocol/app";
@@ -40,6 +43,19 @@ export type ChunkOutcome =
 export interface UploadLimits {
   readonly maxChunkBytes: number;
   readonly maxUploadBytes: number;
+}
+
+/** A release being fetched into the store (`beginFetch`). */
+export interface FetchedFile {
+  /** Writes the next bytes at the end, hashing them. */
+  append(bytes: Uint8Array): Result<void, HubError>;
+  /** Bytes written so far. */
+  bytes(): number;
+  /**
+   * The whole is in: true, and the upload finished, when it is `bytes` long and hashes to `sha256`;
+   * false, and the file deleted, otherwise.
+   */
+  finish(bytes: number, sha256: Uint8Array): boolean;
 }
 
 /** A finished upload, for the file job that names it. */
@@ -168,6 +184,50 @@ export class UploadStore {
     }
     upload.finished = { path: upload.path, bytes: upload.bytes, sha256: whole };
     return { ok: true, done: true };
+  }
+
+  /**
+   * A release fetched over the relay link (docs/m4-design.md section 6): an upload of the relay
+   * link's own connection, its job the fetch's, written in order by the relay client as the pieces
+   * come and hashed as it goes, under the same cap as any upload. Refused when that job already
+   * has one. `finish` checks the whole against the offer's length and SHA-256: then it is finished
+   * like an upload, for the staging that follows; otherwise it is deleted.
+   */
+  beginFetch(ref: UploadRef): Result<FetchedFile, HubError> {
+    const mine = this.#uploads.get(ref.conn) ?? new Map<number, Upload>();
+    if (mine.has(ref.job))
+      return err({ kind: "storage", origin: ORIGIN, message: `upload ${ref.job} exists already` });
+    const upload = this.#start(ref.job);
+    if (upload === undefined)
+      return err({ kind: "storage", origin: ORIGIN, message: "cannot create the fetched file" });
+    mine.set(ref.job, upload);
+    this.#uploads.set(ref.conn, mine);
+    return ok({
+      append: (bytes) => {
+        if (upload.fd === undefined || upload.finished !== undefined)
+          return err({ kind: "storage", origin: ORIGIN, message: "the fetched file is closed" });
+        if (upload.bytes + bytes.length > this.#limits.maxUploadBytes)
+          return err({ kind: "storage", origin: ORIGIN, message: "past the upload cap" });
+        const written = writeUploadFile(upload.fd, bytes);
+        if (written.isErr()) return err(written.error);
+        upload.hash.update(bytes);
+        upload.bytes += bytes.length;
+        return ok(undefined);
+      },
+      bytes: () => upload.bytes,
+      finish: (bytes, sha) => {
+        if (upload.fd === undefined || upload.finished !== undefined) return false;
+        const closed = closeUploadFile(upload.fd);
+        upload.fd = undefined;
+        const whole = upload.hash.digest();
+        if (closed.isErr() || upload.bytes !== bytes || !same(whole, sha)) {
+          this.#void(ref.conn, upload);
+          return false;
+        }
+        upload.finished = { path: upload.path, bytes: upload.bytes, sha256: whole };
+        return true;
+      },
+    });
   }
 
   /** The finished upload `ref` names, for its file job; undefined if there is none. */

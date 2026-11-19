@@ -14,6 +14,7 @@ import {
   typedLookup,
   typedPsk,
 } from "@hsn/protocol/app";
+import { EMPTY_M3M4_SNAPSHOT } from "../../../src/core/model/events.ts";
 import { connId, tokenId } from "../../../src/core/model/ids.ts";
 import { ClientKind, type LinkTokenRow, TokenKind } from "../../../src/core/model/rows.ts";
 import { DEFAULT_RULES } from "../../../src/core/model/rules.ts";
@@ -47,6 +48,23 @@ import {
 import { HUB_DEVICE, bootId } from "../../../src/core/model/ids.ts";
 
 const SECRET = new Uint8Array(16).map((_, i) => 0xc0 + i);
+const DEFAULT_RELAY = "wss://relay.example.invalid";
+const OWN_RELAY = "ws://127.0.0.1:8480/example";
+
+/** Boots with the same relay setting and deployment default that a real hub reads at startup. */
+function bootedOnRelay(url: string | null, defaultRelayUrl: string | null = DEFAULT_RELAY): Hub {
+  const hub = new Hub();
+  hub.input({
+    kind: "boot",
+    snapshot: {
+      ...household(),
+      m3m4: { ...EMPTY_M3M4_SNAPSHOT, relaySettings: { url, revision: 1 } },
+    },
+    boot: { id: bootId(1), previousExit: "clean", cause: undefined, defaultRelayUrl },
+  });
+  hub.input({ kind: "hubFacts", ...FACTS });
+  return hub;
+}
 
 function booted(h = household()): Hub {
   const hub = new Hub();
@@ -122,6 +140,41 @@ function complete(
 }
 
 describe("making a token (section 5)", () => {
+  test.each(["ownDevice", { newPerson: { name: "Cleo" } }] as const)(
+    "QR links for %j carry the self-hosted relay, including when shared as an invite",
+    (kind) => {
+      for (const invite of [false, true]) {
+        const hub = bootedOnRelay(OWN_RELAY);
+        const { reply } = linkCreate(hub, ANNA_LAPTOP, { kind, invite });
+        const qr = String(bodyOf(reply).qr);
+        expect(parseLinkQr(qr)?.relay).toBe(OWN_RELAY);
+        expect(new URLSearchParams(qr.split("?")[1]).getAll("r")).toEqual([OWN_RELAY]);
+      }
+    },
+  );
+
+  test.each([
+    [null, DEFAULT_RELAY],
+    [DEFAULT_RELAY, DEFAULT_RELAY],
+    [null, null],
+  ] as const)("a QR link omits r= with setting %s and default %s", (url, defaultUrl) => {
+    const { reply } = linkCreate(bootedOnRelay(url, defaultUrl));
+    const qr = String(bodyOf(reply).qr);
+    expect(parseLinkQr(qr)).toBeDefined();
+    expect(new URLSearchParams(qr.split("?")[1]).has("r")).toBe(false);
+  });
+
+  test("typed codes and local browser addresses keep their home-network formats", () => {
+    const hub = bootedOnRelay(OWN_RELAY);
+    const typed = bodyOf(linkCreate(hub, ANNA_LAPTOP, { form: "code", invite: true }).reply);
+    expect(parseTypedCode(String(typed.code))).toBeDefined();
+    const address = bodyOf(linkCreate(hub, ANNA_LAPTOP, { form: "url", invite: true }).reply);
+    const url = new URL(String(address.url));
+    expect(url.hostname).toBe(FACTS.addresses[0]);
+    expect(url.search).toBe("");
+    expect(parseLinkFragment(url.hash.slice(1)) !== undefined).toBe(true);
+  });
+
   test("a QR code carries a 128-bit secret; the shell gets its key, the row its lookup", () => {
     const hub = booted();
     const { effects, reply } = linkCreate(hub);

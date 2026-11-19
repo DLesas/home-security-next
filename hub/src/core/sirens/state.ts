@@ -7,7 +7,8 @@
  *
  * Its timers are data in `timers` (section 2), kept equal to what the sirens imply by `withTimers`.
  */
-import type { SendCounter } from "@hsn/protocol";
+import type { MessageOf, MessageType, SendCounter } from "@hsn/protocol";
+import { type KeyChanges, NO_KEY_CHANGES } from "../intake/view.ts";
 import type { DeviceId, LinkId, Seq, SendRef } from "../model/ids.ts";
 import type { RadioPurpose } from "../model/messages.ts";
 import type { PacketPath } from "../model/rows.ts";
@@ -101,9 +102,15 @@ export interface SirenEntry {
   readonly settingsWanted: boolean;
   /** The settings waiting are those of a site switch (D115). */
   readonly moveSettings: boolean;
-  /** "Report now" is owed: the hub started and has not heard this siren report (section 7). */
-  readonly reportNowWanted: boolean;
+  /** "Report now" is owed after a hub start (§7) or to prove a trial image (D134). */
+  readonly reportNowWanted: "boot" | "trial" | false;
   readonly paths: SirenPaths;
+  /**
+   * An Update offer firmware made while a command or settings packet was in flight: it waits, as
+   * settings do, and goes once nothing is (m3-updates-design section 4; §7 step 5). A newer one
+   * replaces it.
+   */
+  readonly offer?: MessageOf<typeof MessageType.UpdateOffer> | undefined;
 }
 
 /** A packet handed to a path, kept until its outcome is known, for its `tx` row (section 6). */
@@ -136,6 +143,19 @@ export interface SirensSlice {
   /** The next of this module's send references. */
   readonly nextRef: number;
   readonly sent: ReadonlyMap<SendRef, SentPacket>;
+  /** The key changes after a restore of the sirens (D141), and those switched in this run. */
+  readonly keys: KeyChanges;
+  /**
+   * Sirens owed a Key change at this start, in place of "report now" (§7 "Hub restart", D141): each
+   * gets it on both paths as soon as one is up, or in answer to its first packet.
+   */
+  readonly keyChangeOwed: ReadonlySet<DeviceId>;
+  /**
+   * The last settings version of each siren that left this run (removed, or reset by its owner),
+   * so one added again starts above it (hub-design section 9, from M3): memory only, since at a
+   * start a reset siren's entry is restored with its version.
+   */
+  readonly retiredVersions: ReadonlyMap<DeviceId, number>;
 }
 
 /** The slice before the boot event. */
@@ -146,4 +166,7 @@ export const EMPTY_SIRENS_SLICE: SirensSlice = {
   reportNowUntil: undefined,
   nextRef: 0,
   sent: new Map(),
+  keys: NO_KEY_CHANGES,
+  keyChangeOwed: new Set(),
+  retiredVersions: new Map(),
 };

@@ -19,12 +19,32 @@ import { installPaths, isVersionName } from "../../../launcher/src/layout.ts";
 import { PACKAGE_TRIAL_VARIABLE, PROGRAM_VARIABLE } from "../../../launcher/src/launcher.ts";
 import type { AuditRecord } from "../../core/model/audit.ts";
 import type { FileOutcome } from "../../core/model/events.ts";
+import type { SwitchBlock } from "../../core/upkeep/view.ts";
 import { exists, writeDurably } from "../backup/files.ts";
 
 /** The hub's program tree, from the launcher; undefined when the hub was not started by one. */
 export function prefixFrom(env: Readonly<Record<string, string | undefined>>): string | undefined {
   const prefix = env[PROGRAM_VARIABLE];
   return prefix === undefined || prefix === "" ? undefined : prefix;
+}
+
+/**
+ * What a person is told holds an update's switch back, by the core's name for it
+ * (`core/upkeep/update.ts`'s `SwitchBlock`, which `update.approve` answers as `after:<hold>`).
+ */
+export const SWITCH_HOLD_WORDS: Readonly<Record<SwitchBlock, string>> = {
+  countdown: "a countdown is running",
+  alarm: "the alarm is sounding",
+  siteMove: "the site is moving to new radio settings",
+  provisioning: "a board is being added",
+  restore: "a restore is under way",
+  firmwareInstall: "a device is installing new firmware or checking it on trial",
+};
+
+/** A hold's words, or its name for one without (none, while the type above lists them all). */
+function holdWords(hold: string): string {
+  const words: Readonly<Record<string, string>> = SWITCH_HOLD_WORDS;
+  return words[hold] ?? hold;
 }
 
 /**
@@ -37,7 +57,11 @@ export function requestSwitch(
   blockedBy: string | undefined,
 ): Result<void, FileOutcome> {
   if (blockedBy !== undefined)
-    return err({ kind: "failed", reason: "io", message: `held back: a ${blockedBy} started` });
+    return err({
+      kind: "failed",
+      reason: "io",
+      message: `held back: ${holdWords(blockedBy)}`,
+    });
   if (prefix === undefined)
     return err({
       kind: "failed",

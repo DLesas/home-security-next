@@ -75,7 +75,8 @@ export class ScriptedClient {
   /** Takes what a step sent this client's connection. */
   take(effects: readonly Effect[]): readonly AppMessage[] {
     const mine = effects.flatMap((e) =>
-      e.kind === "appSend" && e.conn === this.conn ? [e.message] : [],
+      // A scripted client's sessions are version 1's unless it asked otherwise; tests read them so.
+      e.kind === "appSend" && e.conn === this.conn ? [e.message as AppMessage] : [],
     );
     this.received.push(...mine);
     return mine;

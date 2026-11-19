@@ -296,7 +296,6 @@ export function decide(
   const onTrial = seenOf(slice, device).onTrial;
   switch (entry.row.state) {
     case DeviceUpdateState.Installing:
-      return { kind: "install" };
     case DeviceUpdateState.OnTrial:
       return wait(undefined);
     case DeviceUpdateState.Planned:
@@ -311,6 +310,7 @@ export function decide(
       // The store lost the image's file (`firmwareStoreDamaged`): nothing can be served.
       if (imageGone(slice, rollout)) return wait(undefined);
       if (started) {
+        if (onTrial) return wait(undefined);
         const climate = climateOf(facts.view);
         if (climate === "countdown" || climate === "alarm")
           return wait(UpdateHeld.CountdownAlarmOrSiteMove);

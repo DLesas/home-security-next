@@ -403,6 +403,7 @@ describe("updates", () => {
       certificateSha256: new Uint8Array(32),
     });
     staged(runner);
+    const timersBefore = runner.slice.timers;
     const approve = op(runner, { op: "update.approve", body: {} });
     expect(answer(approve)).toEqual({ ok: true, body: { switchWhen: "now" } });
     // The answer first, then the switch: the shell runs the job after the commit and the answer.
@@ -413,7 +414,7 @@ describe("updates", () => {
     expect(runner.slice.update.previousVersion).toBe("1.0.0");
     expect(runner.slice.update.switchingMs).not.toBeNull();
     // No timer left for it, and nothing more in the next step.
-    expect(runner.slice.timers.some((t) => t.key.kind === "updateWait")).toBe(false);
+    expect(runner.slice.timers).toEqual(timersBefore);
     expect(job(runner.run(0))).toBeUndefined();
   });
 

@@ -32,7 +32,9 @@
  *
  * M2's channel effects (`appSend`, `closeClient`, `closeConn`, `linkSecret`, `hubStatusRead`) and
  * `historyRead` go to the app side in step 4, held after a failed "now" commit exactly as
- * `respond` is.
+ * `respond` is; so do the relay client's (`relayConnect`, `relayRoster`, `pushSend`, `pushKey`,
+ * m4-design section 4). A job in pieces that says it is waiting (a release fetch waiting on the
+ * network) asks for no turn of its own.
  */
 import type { Result } from "neverthrow";
 import type { AuditRecord } from "../core/model/audit.ts";
@@ -55,6 +57,7 @@ import type { Advertiser } from "../ports/advertiser.ts";
 import type { Clock } from "../ports/clock.ts";
 import type { Links } from "../ports/links.ts";
 import type { Random } from "../ports/random.ts";
+import type { Transfers } from "../ports/transfers.ts";
 import type {
   CommitInfo,
   FlushReason,
@@ -77,6 +80,12 @@ const ORIGIN = "shell/loop";
 export interface JobPieces {
   next(): { readonly done: false } | { readonly done: true; readonly outcome: FileOutcome };
   abort(): void;
+  /**
+   * True while the job has nothing to do until something outside the loop happens (a release
+   * fetched over the relay link, waiting for its next piece, m4-design section 6): the loop then
+   * asks for no turn on its account, and the job asks for one itself when its wait ends.
+   */
+  waiting?(): boolean;
 }
 
 /** What starting a file job gives the loop: done at once, a switch, or pieces to continue. */
@@ -98,6 +107,18 @@ export type ChannelEffect = Extract<
       "appSend" | "closeClient" | "closeConn" | "linkSecret" | "hubStatusRead" | "historyRead";
   }
 >;
+
+/**
+ * The relay client's effects (m4-design section 4), held after a failed "now" commit as the
+ * channel's are: a push, a roster or a push key must not leave before the rows behind it.
+ */
+export type RelayLoopEffect = Extract<
+  Effect,
+  { readonly kind: "relayConnect" | "relayRoster" | "pushSend" | "pushKey" }
+>;
+
+/** `firmware.bluetooth`'s reply for the shell to send (m3-updates-design section 5). */
+export type BluetoothSessionLoopEffect = Extract<Effect, { readonly kind: "bluetoothSession" }>;
 
 /** Commit outcomes one turn hands the core; any more wait for the next turn. */
 const MAX_OUTCOMES_PER_TURN = 4;
@@ -139,6 +160,8 @@ export interface LoopPorts {
   readonly fatal: (error: HubError) => void;
   /** The app channel (m2-design.md section 5); without it, its effects are reported. */
   readonly channel?: { perform(effect: ChannelEffect): void };
+  /** The relay client (m4-design section 4); without it, its effects are ignored. */
+  readonly relay?: { perform(effect: RelayLoopEffect): void };
   /** The file jobs (section 9); without them, `fileJob` is reported. */
   readonly files?: {
     perform(job: JobId, work: FileWork): JobStarted;
@@ -147,9 +170,19 @@ export interface LoopPorts {
   };
   /**
    * A switching job's end: stop cleanly, run `afterStop` once the database is closed, and exit
-   * 70 for the launcher (section 9).
+   * 70 for the launcher (section 9); `reason` says which switch, for the relay (m4-design 4).
    */
-  readonly restart?: (afterStop: () => Result<void, string>) => void;
+  readonly restart?: (afterStop: () => Result<void, string>, reason: "update" | "restore") => void;
+  /**
+   * The firmware transfers (m3-updates-design section 4, `Transfers`): `transferGrant` and
+   * `transferRevoke` are given to it at once, in effect order; without it they are reported.
+   */
+  readonly transfers?: Transfers;
+  /**
+   * `firmware.bluetooth`'s reply, which the shell derives and sends (`shell/firmware/session.ts`):
+   * only after the commit that holds the session's nonce, held after a failed one as an answer is.
+   */
+  readonly bluetoothSession?: (effect: BluetoothSessionLoopEffect) => void;
   /** Each commit's records, once committed: the healthy mark watches for `update_healthy`. */
   readonly committed?: (records: readonly AuditRecord[]) => void;
   /**
@@ -194,7 +227,9 @@ export class HubLoop {
   #held: (
     | { readonly kind: "respond"; readonly request: RequestId; readonly reply: ControlReply }
     | { readonly kind: "channel"; readonly effect: ChannelEffect }
+    | { readonly kind: "relay"; readonly effect: RelayLoopEffect }
     | { readonly kind: "fileJob"; readonly job: JobId; readonly work: FileWork }
+    | { readonly kind: "bluetoothSession"; readonly effect: BluetoothSessionLoopEffect }
   )[] = [];
   #failing = false;
   #faultTimes: Mono[] = [];
@@ -359,7 +394,8 @@ export class HubLoop {
     const upkeep = writer.maintain();
     if (upkeep.isErr()) this.#ports.report(upkeep.error);
     this.#arm();
-    if (this.#queue.length > 0 || this.#open.length > 0) this.#ports.soon();
+    if (this.#queue.length > 0 || this.#open.some((o) => o.pieces.waiting?.() !== true))
+      this.#ports.soon();
     const durationMs = Math.max(0, stopwatch() - startedMs);
     if (durationMs > this.#longestTurnMs) this.#longestTurnMs = durationMs;
     return { inputs: inputs.length, faults, effects, committed, durationMs };
@@ -466,6 +502,8 @@ export class HubLoop {
     for (const item of held) {
       if (item.kind === "respond") this.#ports.control.respond(item.request, item.reply);
       else if (item.kind === "channel") this.#ports.channel?.perform(item.effect);
+      else if (item.kind === "relay") this.#ports.relay?.perform(item.effect);
+      else if (item.kind === "bluetoothSession") this.#ports.bluetoothSession?.(item.effect);
       else jobs.push({ job: item.job, work: item.work });
     }
   }
@@ -505,7 +543,7 @@ export class HubLoop {
     // A switch ends the hub: nothing more is taken, and the caller stops cleanly and exits 70.
     this.#ended(job, work, undefined);
     this.stop();
-    this.#ports.restart?.(done.afterStop);
+    this.#ports.restart?.(done.afterStop, done.reason);
   }
 
   /** One piece of each open job, in the order they started (section 3). */
@@ -597,6 +635,35 @@ export class HubLoop {
         else this.#held.push({ kind: "channel", effect });
         return;
       case "fileJob":
+        return;
+      // The relay client's effects (m4-design section 4), held as the channel's are.
+      case "relayConnect":
+      case "relayRoster":
+      case "pushSend":
+      case "pushKey":
+        if (this.#ports.relay === undefined) return;
+        if (committed && !this.#failing) this.#ports.relay.perform(effect);
+        else this.#held.push({ kind: "relay", effect });
+        return;
+      // The firmware module's (m3-updates-design section 4): grants and revokes at once; a
+      // Bluetooth session's reply only after the commit that holds its nonce.
+      case "transferGrant":
+        if (this.#ports.transfers === undefined) this.#notBuilt(effect.kind);
+        else
+          this.#ports.transfers.grant(effect.link, {
+            imageId: effect.imageId,
+            header: effect.header,
+            file: effect.file,
+          });
+        return;
+      case "transferRevoke":
+        if (this.#ports.transfers === undefined) this.#notBuilt(effect.kind);
+        else this.#ports.transfers.revoke(effect.link, effect.reason);
+        return;
+      case "bluetoothSession":
+        if (this.#ports.bluetoothSession === undefined) this.#notBuilt(effect.kind);
+        else if (committed && !this.#failing) this.#ports.bluetoothSession(effect);
+        else this.#held.push({ kind: "bluetoothSession", effect });
         return;
     }
   }

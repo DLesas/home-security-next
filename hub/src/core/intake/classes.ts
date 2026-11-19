@@ -16,6 +16,10 @@ const PATHS: Readonly<Record<number, readonly Arrival["path"][]>> = {
   [MessageType.Started]: ["lora", "wifi", "usb"],
   [MessageType.SirenReport]: ["lora", "wifi"],
   [MessageType.LogEntries]: ["lora", "wifi", "usb"],
+  // Firmware updates (m3-updates-design section 5): any device, any path; a sensor's on the
+  // network link it joins only for its update (§10).
+  [MessageType.UpdateQuery]: ["lora", "wifi", "usb"],
+  [MessageType.UpdateStatus]: ["lora", "wifi", "usb"],
   // A gateway's own packets travel on its link; inside a forwarded packet, or on a siren's
   // link, they are on a path they do not use (section 8).
 };
@@ -25,18 +29,24 @@ export function onItsPath(type: number, path: Arrival["path"]): boolean {
   return PATHS[type]?.includes(path) ?? false;
 }
 
-/** Door, cover, button and Started: written now, before their reply (section 5, D112). */
+/**
+ * Door, cover, button and Started: written now, before their reply (section 5, D112). Update query
+ * and status too (m3-updates-design section 4, R13): each changes what the hub may tell the device
+ * next, and none may be replayed.
+ */
 const EVENT_REPORTS: ReadonlySet<number> = new Set([
   MessageType.DoorChanged,
   MessageType.CoverChanged,
   MessageType.Button,
   MessageType.Started,
+  MessageType.UpdateQuery,
+  MessageType.UpdateStatus,
 ]);
 
 /**
  * Whether an accepted packet's record, window and reading are written now (section 5): every
- * door, cover, button and Started report, and a siren report with reason 3, which raises a
- * warning; every other packet is routine.
+ * door, cover, button and Started report, every update query and status, and a siren report with
+ * reason 3, which raises a warning; every other packet is routine.
  */
 export function durabilityOf(message: Message): Durability {
   if (EVENT_REPORTS.has(message.type)) return "now";

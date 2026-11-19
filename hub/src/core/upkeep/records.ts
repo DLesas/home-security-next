@@ -2,7 +2,8 @@
  * upkeep's rows, decisions and hub events (m2-design.md sections 3, 4 and 9). Every row is written
  * now as a full value: backup settings, the backup key, the update state and whether a backup is
  * due are "few and decisive" (section 3). The decisions are written now too: each is a warning or
- * a change of the hub people are told of (section 7). The two hub events are routine, as
+ * a change of the hub people are told of (section 7); only `update_offered`, news of a release
+ * nothing has changed for, is routine. The two hub events are routine, as
  * `M2_HUB_EVENTS` has them.
  *
  * Each decision's `value` and `detail` (section 4 leaves them to their owner):
@@ -10,6 +11,7 @@
  * | Kind | `value` | `detail`, UTF-8 |
  * | --- | --- | --- |
  * | `restored` | the file's `madeMs` | the file's hub identity, 26 characters |
+ * | `update_offered` (routine: info, m4-design section 6) | — | the version offered |
  * | `update_staged` | — | the version |
  * | `update_switching` | — | the version switched to |
  * | `update_healthy` | — | the version now running |
@@ -21,7 +23,8 @@
  *
  * And the hub events' `detail` (JSON): `backup_written` `{name, bytes, epoch}`; `backup_failed`
  * `{reason, message}`; `update_refused` `{reason, message}` (a release refused, or a switch without
- * the room for the database's copy). None ever holds the key.
+ * the room for the database's copy), with `version` for a fetched release: the version asked for.
+ * None ever holds the key.
  */
 import type { Result } from "neverthrow";
 import type { DecisionKind } from "../model/decisions.ts";
@@ -55,13 +58,14 @@ export function writeUpdateState(row: UpdateStateRow): Effect {
   return { kind: "write", durability: "now", op: { table: "update_state", op: "upsert", row } };
 }
 
-/** One of upkeep's decisions, written now. */
+/** One of upkeep's decisions, written now unless it is only news (`update_offered`). */
 export function upkeepDecision(
   ctx: Context,
   kind: DecisionKind,
   fields: { readonly value?: number; readonly detail?: string; readonly cause?: Seq },
+  durability: Durability = "now",
 ): Result<Internal, CoreFault> {
-  return decision(ctx, "now", {
+  return decision(ctx, durability, {
     kind,
     device: null,
     cause: fields.cause ?? null,

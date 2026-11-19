@@ -5,6 +5,7 @@
 import { err, ok, Result } from "neverthrow";
 import { type ParsedControlCommand, controlCommand } from "../src/control-protocol/index.ts";
 import type { FileCommand } from "./files.ts";
+import { firmwareAddCommand, firmwareCommand, type FirmwareCommand } from "./firmware.ts";
 
 /** Options that go with any command. */
 export interface Globals {
@@ -28,7 +29,9 @@ export type Parsed =
   /** `hsn op <operation> -`: the body is read from standard input, then checked (section 6). */
   | { readonly kind: "opFromStdin"; readonly globals: Globals; readonly op: string }
   /** A command that carries a file: its own connection and flow (`files.ts`). */
-  | { readonly kind: "file"; readonly globals: Globals; readonly file: FileCommand };
+  | { readonly kind: "file"; readonly globals: Globals; readonly file: FileCommand }
+  /** `hsn firmware …` and `hsn rollout …` but `firmware add`: their own flow (`firmware.ts`). */
+  | { readonly kind: "firmware"; readonly globals: Globals; readonly command: FirmwareCommand };
 
 /** What `hsn op <operation> -` means: read the body from standard input. */
 export const BODY_FROM_STDIN = "-";
@@ -364,7 +367,10 @@ function siteFields(
   }
 }
 
-/** `update install <file>`, `restore <file>`, `backup export <file> [--history]`, or none. */
+/**
+ * `update install <file>`, `restore <file>`, `backup export <file> [--history]`, `firmware add
+ * <file> [--own --version <v>]`, or none.
+ */
 function fileCommand(words: readonly string[]): Result<FileCommand, string> | undefined {
   const [first, second, ...rest] = words;
   if (first === "update" && second === "install")
@@ -377,6 +383,7 @@ function fileCommand(words: readonly string[]): Result<FileCommand, string> | un
       ? ok({ kind: "restore", path })
       : usage("restore <file>");
   }
+  if (first === "firmware" && second === "add") return firmwareAddCommand(rest);
   if (first === "backup" && second === "export") {
     const history = rest.includes("--history");
     const paths = rest.filter((w) => w !== "--history");
@@ -419,6 +426,9 @@ export function parseArgs(argv: readonly string[], nowMs: number): Result<Parsed
   const globals: Globals = { data, socket, json, timeoutS };
   const file = fileCommand(words);
   if (file !== undefined) return file.map((f) => ({ kind: "file", globals, file: f }));
+  const firmware = firmwareCommand(words);
+  if (firmware !== undefined)
+    return firmware.map((command) => ({ kind: "firmware", globals, command }));
   return fields(new Words(words), nowMs).andThen(({ passwordFromStdin, ...raw }) => {
     if (raw.kind === "opFromStdin" && typeof raw.op === "string")
       return ok<Parsed, string>({ kind: "opFromStdin", globals, op: raw.op });

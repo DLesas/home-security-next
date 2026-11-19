@@ -6,7 +6,12 @@
  *   is not the client the notification is about (a new client is told to the other clients of its
  *   person), and its category is on for that client or cannot be turned off (D69, D75, AP9a).
  * - One delivered more than 60 s ‡ after it was raised is `delayed` (D102's rule, for sessions);
- *   a late one (`LATE_DECISIONS`), more than 60 s ‡ after its event happened.
+ *   a late one (`LATE_DECISIONS`), more than 60 s ‡ after its event happened. `notifications.list`
+ *   gives what the notification's own row says: whether it was raised more than 60 s ‡ after its
+ *   event (`delayedWhenRaised`), so a list read later does not call every old one late.
+ * - Version 2's `happenedAtMs` (D102) is when a late one's event happened, and null for one raised
+ *   as it happened (`happenedAtMsOf`). Version 1's object never carries it: `app` adds it on a
+ *   version 2 session only.
  * - A notification is read for a person once any of their clients marked it read.
  */
 import {
@@ -66,12 +71,25 @@ export function happenedAtOf(raised: Raised): number | undefined {
   return LATE_DECISIONS.has(raised.row.kind) ? eventAtOf(raised.row.detail) : undefined;
 }
 
+/** Version 2's `happenedAtMs` (D102): a late notification's event time, null for any other. */
+export function happenedAtMsOf(raised: Raised): number | null {
+  return happenedAtOf(raised) ?? null;
+}
+
 /**
  * Whether a notification delivered at `wallMs` is late (D102's rule, 60 s ‡): counted from when
  * its event happened, for a late one, otherwise from when it was raised.
  */
 export function isDelayed(rules: HubRules, raised: Raised, wallMs: number): boolean {
   return wallMs - (happenedAtOf(raised) ?? raised.row.atMs) > rules.notify.delayedAfterMs;
+}
+
+/**
+ * Whether the notification's own row says it was late: raised more than 60 s ‡ after its event
+ * happened (D102). What `notifications.list` reports, whenever it is asked.
+ */
+export function delayedWhenRaised(rules: HubRules, raised: Raised): boolean {
+  return isDelayed(rules, raised, raised.row.atMs);
 }
 
 /** The notification as `notifications.list`, the snapshot and the `notification` event carry it. */

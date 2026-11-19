@@ -11,6 +11,7 @@ import {
   concatBytes,
   createAesCcm,
   Direction,
+  MessageType,
   nodeAes128,
   openPacket,
   type OpenedPacket,
@@ -89,7 +90,7 @@ export function openToHub(
   return err({ error, plaintext: authenticPlaintext(packet, key, aes, request) });
 }
 
-/** One device's key with its block cipher, kept while the key stays the same. */
+/** One key with its block cipher, kept while the key stays the same. */
 interface Keyed {
   readonly key: Uint8Array;
   readonly aes: BlockCipher;
@@ -99,38 +100,113 @@ function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
   return a.length === b.length && a.every((byte, i) => byte === b[i]);
 }
 
-/** The hub's cipher, with keys from the `KeyStore` (section 3). */
+/** The keys a device's packets open under: its current key, and its next key during a change. */
+interface Slots {
+  readonly current: Uint8Array;
+  readonly next: Uint8Array | undefined;
+}
+
+/**
+ * The hub's cipher, with keys from the `KeyStore` (section 3). During a key change after a restore
+ * (D141, m3-updates-design section 7) a device has two keys: `open` tries the next key first, then
+ * the current one, and says which opened the packet (`keyUsed`, absent for the current key, as
+ * before M3); `seal` uses the one `SealRequest.key` names.
+ *
+ * **A Key change sealed is a change of keys at once, for opening.** The core makes a device's new
+ * key, writes it now and seals a Key change (0x84) carrying it in one step; the `KeyStore` learns
+ * of the write only after its commit, at the end of the loop's turn. Until then the device's keys
+ * for opening are those the Key change implies: the key it was sealed under as current, and the
+ * key it carries as next. Without this, a packet still under a key the core has just dropped (the
+ * other key of a row both of whose keys were held at the backup) would open in the same turn as
+ * next, and be taken for the switch. The Key change cannot leave before the commit (the send gate,
+ * hub-design.md section 4), so no packet under its new key can arrive before; and if the commit
+ * never comes, the hub's restart forgets this as it forgets the core's state. It ends as soon as
+ * the `KeyStore` holds those keys, or the device's switch to its new key, or the device's removal.
+ *
+ * No key ever leaves here but inside a sealed packet: errors name the device, never a key.
+ */
 export class KeyStoreCipher implements DeviceCipher {
   readonly #keys: KeyStore;
-  readonly #keyed = new Map<DeviceId, Keyed>();
+  readonly #ciphers = new Map<string, Keyed>();
+  readonly #changed = new Map<
+    DeviceId,
+    { readonly current: Uint8Array; readonly next: Uint8Array }
+  >();
 
   constructor(keys: KeyStore) {
     this.#keys = keys;
   }
 
-  #keyedFor(device: DeviceId): Result<Keyed, HubError> {
-    const key = this.#keys.key(device);
-    if (key === undefined) {
-      this.#keyed.delete(device);
-      return err({ kind: "crypto", origin: ORIGIN, message: `no key for device ${device}` });
+  /** The device's keys for opening and sealing now, or undefined for a device with none. */
+  #slots(device: DeviceId): Slots | undefined {
+    const current = this.#keys.key(device);
+    if (current === undefined) {
+      this.#changed.delete(device);
+      return undefined;
     }
-    const cached = this.#keyed.get(device);
+    const next = this.#keys.nextKey?.(device);
+    const changed = this.#changed.get(device);
+    if (changed === undefined) return { current, next };
+    const caughtUp =
+      (sameBytes(current, changed.current) &&
+        next !== undefined &&
+        sameBytes(next, changed.next)) ||
+      sameBytes(current, changed.next);
+    if (caughtUp) {
+      this.#changed.delete(device);
+      return { current, next };
+    }
+    return changed;
+  }
+
+  /** One AES block cipher per key, made once (D94's seam). */
+  #keyed(device: DeviceId, slot: "current" | "next", key: Uint8Array): Result<Keyed, HubError> {
+    const name = `${device}:${slot}`;
+    const cached = this.#ciphers.get(name);
     if (cached !== undefined && sameBytes(cached.key, key)) return ok(cached);
     return safeAes(key).map((aes) => {
       const keyed = { key, aes };
-      this.#keyed.set(device, keyed);
+      this.#ciphers.set(name, keyed);
       return keyed;
     });
   }
 
-  seal: DeviceCipher["seal"] = (device, message, request) =>
-    this.#keyedFor(device).andThen((keyed) =>
-      safeSeal(message, { ...request, key: keyed.key, cipher: keyed.aes }),
-    );
+  seal: DeviceCipher["seal"] = (device, message, request) => {
+    const slots = this.#slots(device);
+    if (slots === undefined) {
+      this.#ciphers.delete(`${device}:current`);
+      this.#ciphers.delete(`${device}:next`);
+      return err({ kind: "crypto", origin: ORIGIN, message: `no key for device ${device}` });
+    }
+    const slot = request.key ?? "current";
+    const key = slot === "next" ? slots.next : slots.current;
+    if (key === undefined) {
+      return err({ kind: "crypto", origin: ORIGIN, message: `no next key for device ${device}` });
+    }
+    return this.#keyed(device, slot, key)
+      .andThen((keyed) => safeSeal(message, { ...request, key: keyed.key, cipher: keyed.aes }))
+      .map((sealed) => {
+        if (message.type === MessageType.KeyChange) {
+          this.#changed.set(device, { current: key, next: message.newKey.slice() });
+        }
+        return sealed;
+      });
+  };
 
   open: DeviceCipher["open"] = (device, packet, request) => {
-    const keyed = this.#keyedFor(device);
-    if (keyed.isErr()) return err(BAD_TAG);
-    return openToHub(packet, keyed.value.key, keyed.value.aes, request);
+    const slots = this.#slots(device);
+    if (slots === undefined) return err(BAD_TAG);
+    if (slots.next !== undefined) {
+      const next = this.#keyed(device, "next", slots.next);
+      if (next.isOk()) {
+        const opened = openToHub(packet, next.value.key, next.value.aes, request);
+        if (opened.isOk()) return ok({ ...opened.value, keyUsed: "next" as const });
+        // Authentic under the next key, though not a valid packet: that is its answer.
+        if (opened.error.error.code !== "badTag") return opened;
+      }
+    }
+    const current = this.#keyed(device, "current", slots.current);
+    if (current.isErr()) return err(BAD_TAG);
+    return openToHub(packet, current.value.key, current.value.aes, request);
   };
 }

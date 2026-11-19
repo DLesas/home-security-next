@@ -4,6 +4,7 @@
  * transmit requests in flight, its last status, its noise baseline and its silence; and for the
  * routing rules of section 8 which gateways heard which devices.
  */
+import { type KeyChanges, NO_KEY_CHANGES } from "../intake/view.ts";
 import type { SendCounter } from "@hsn/protocol";
 import type { LinkKind } from "../model/events.ts";
 import type { BootId, DeviceId, LinkId, SendRef, RequestId } from "../model/ids.ts";
@@ -175,6 +176,8 @@ export interface GatewaysSlice {
   readonly nextOwnRef: number;
   /** A channel survey in progress, or none. */
   readonly survey: Survey | undefined;
+  /** The key changes after a restore of the gateways (D141), and those switched in this run. */
+  readonly keys: KeyChanges;
 }
 
 /** A noise judgement with nothing learned yet. */
@@ -201,4 +204,5 @@ export const EMPTY_GATEWAYS_SLICE: GatewaysSlice = {
   sirenCopies: new Map(),
   nextOwnRef: 0,
   survey: undefined,
+  keys: NO_KEY_CHANGES,
 };

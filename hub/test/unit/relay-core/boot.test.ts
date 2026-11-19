@@ -147,7 +147,7 @@ describe("at a start", () => {
     );
     const restored = [...runner.slice.outbox.values()];
     expect(restored.map((p) => [p.row.armed, p.cause])).toEqual([
-      [1, { seq: seq(RECORDS_PER_BOOT + 40), kind: "countdown_started", value: 30 }],
+      [1, { seq: seq(RECORDS_PER_BOOT + 40), kind: "countdown_started", value: 30, at: null }],
       [0, undefined],
       [0, undefined],
     ]);
@@ -155,6 +155,29 @@ describe("at a start", () => {
     const [first, second] = pushes(up.out);
     expect([first?.content.armed, first?.content.detail]).toEqual([true, { seconds: 30 }]);
     expect([second?.content.armed, second?.content.detail]).toEqual([false, undefined]);
+  });
+
+  test("an alarm's event time is read back: the push after the start says when the countdown ended, late", () => {
+    const endedAtMs = WALL0 - 5 * 3_600_000;
+    const facts = JSON.stringify({
+      seq: RECORDS_PER_BOOT + 40,
+      kind: "alarm",
+      value: null,
+      at: endedAtMs,
+    });
+    const { runner } = bootWith(
+      [{ ...row(1, 1), facts }],
+      [notification(1, { kind: "alarm", category: "alarm" })],
+    );
+    expect(runner.slice.outbox.get(outboxId(1))?.cause).toEqual({
+      seq: seq(RECORDS_PER_BOOT + 40),
+      kind: "alarm",
+      value: null,
+      at: endedAtMs,
+    });
+    const [push] = pushes(runner.up().out);
+    expect(push?.content.detail).toEqual({ endedAtMs });
+    expect(push?.content.delayed).toBe(true);
   });
 
   test("a notification of a category this version does not know is not pushed", () => {

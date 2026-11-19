@@ -3,7 +3,7 @@
  * stamped with the time and carrying 32 fresh random bytes. The shell knows nothing of the
  * protocol: a frame is bytes from a link, and the core decides what it is.
  */
-import type { AppRequest, LinkRequest, PushOutcome, ReleaseOffer } from "@hsn/protocol/app";
+import type { AppRequestV2, LinkRequest, PushOutcome, ReleaseOffer } from "@hsn/protocol/app";
 import type { ControlCommand } from "./control.ts";
 import type {
   BootId,
@@ -215,8 +215,14 @@ export interface M3M4Snapshot {
   readonly relaySettings: RelaySettingsRow | undefined;
   readonly pushTargets: readonly PushTargetRow[];
   readonly pushOutbox: readonly PushOutboxRow[];
-  /** The devices whose `device_keys.rekey` is set (D141). */
+  /** The devices whose `device_keys.rekey` is set (D141): `Required` or `BothHeld`. */
   readonly rekey: readonly DeviceId[];
+  /**
+   * Those of `rekey` whose row is `Rekey.BothHeld`: both its keys were held at the backup, so a
+   * packet under either is not acted on (section 7, the coordinator's ruling of 2026-11-18).
+   * Absent on a snapshot made before it was added (a test's): read as none.
+   */
+  readonly rekeyBothHeld?: readonly DeviceId[];
   /**
    * `device_keys.next_key` of each device that has one, so a Key change sent again after a
    * restart carries the same key (section 7). Like `provisioningKeys`, the only other keys the
@@ -355,9 +361,15 @@ export type InputRejection =
       readonly issues: readonly string[];
     }
   /**
-   * An input the core faulted on (section 10): its state stayed as it was. The loop hands it
-   * back as the next input, so its record takes the next number like any other and `seq` stays
-   * in time order (section 6).
+   * A fault in the core's own logic, handed back by the loop as the next input, so its record
+   * takes the next number like any other and `seq` stays in time order (section 6); `audit`
+   * records it as a critical hub event, written now (section 10). Two faults come this way:
+   * - an input `step` refused with a `CoreFault` (`event` its kind): the state stayed as it was
+   *   before that input;
+   * - a deadline a step left at or before its own time, which the loop's guard found (`HubLoop`,
+   *   `HubRules.loop`; `event` the `tick` that ran for it, `origin` the module or the writer,
+   *   `detail` the owner, timer and times): the step's state was kept, and the loop runs a turn
+   *   for that deadline at most every `overdueRetryMs` until it moves.
    */
   | {
       readonly source: "core";
@@ -565,12 +577,16 @@ export type HubEvent =
       /** The app's own version, from `ClientHello`. */
       readonly app: string;
     }
-  /** An authenticated, decrypted, schema-checked request (section 2). */
+  /**
+   * An authenticated, decrypted, schema-checked request (section 2), of the version its session
+   * agreed: a version 1 session's requests are version 1's operations, a version 2 session's may
+   * be version 2's (`AppRequestV2`, docs/m3-m4-plan.md; B6, the joint step 0's step 2).
+   */
   | {
       readonly kind: "clientRequest";
       readonly conn: ConnId;
       readonly client: ClientId;
-      readonly request: AppRequest;
+      readonly request: AppRequestV2;
     }
   | { readonly kind: "clientClosed"; readonly conn: ConnId; readonly reason: ConnCloseReason }
   /** An XXpsk3 handshake completed with a token's key: the core decides whether it links. */

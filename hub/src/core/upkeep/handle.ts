@@ -7,8 +7,10 @@
  * It acts on: the boot event (its rows; the backup key made at the first start of M2; the restore
  * mark); `hubFacts` (the running version: an update's outcome); `timeZone` and `wallTrustChanged`
  * (the daily backup's time; a backup that waited for a trusted clock); every `auditRecord` of a
- * change a backup must hold; `clientRemoved` (a phone's removal replaces the key); its operations;
- * `fileReady`, `restoreOpened` and `restoreKey`; and its six timers.
+ * change a backup must hold; `clientRemoved` (a phone's removal replaces the key); its operations
+ * (version 2's too); `releaseOffered` (a hub release the relay offers, M4); `fileReady`,
+ * `restoreOpened` and `restoreKey`; and its five timers (`updateWait` is never set: an approved
+ * update switches in the step that finds its way clear, `update.ts`).
  */
 import { ok } from "neverthrow";
 import type { Handler } from "../model/handler.ts";
@@ -35,7 +37,7 @@ import { upkeepOp } from "./ops.ts";
 import { upkeepDecision, writeBackupState } from "./records.ts";
 import { restoreExpired, restoreJobDone, restoreKey, restoreOpened } from "./restore.ts";
 import { NO_UPDATE, type UpkeepSlice } from "./state.ts";
-import { afterSwitch, staged, switchFailed, switchIfClear } from "./update.ts";
+import { afterSwitch, onReleaseOffered, staged, switchFailed, switchIfClear } from "./update.ts";
 
 type Boot = Extract<Internal, { readonly kind: "boot" }>;
 
@@ -132,11 +134,6 @@ function onTimer(
       restoreExpired(steps);
       return;
     }
-    case "updateWait": {
-      // Never set now (update.ts); one from an older state looks as every message does.
-      switchIfClear(steps, ctx);
-      return;
-    }
   }
 }
 
@@ -172,6 +169,18 @@ function handle(steps: Steps, ctx: Context, message: Internal): void {
         upkeepOp(steps, ctx, message.op, message.actor, message.answerTo);
         return;
       }
+    // Version 2's own rows (`backup.keyHeld`, `update.offers`, `update.fetch`), as `app` routes
+    // them (docs/m3-m4-plan.md, step 2).
+    case "v2OpRequest":
+      if (message.owner !== "upkeep") return;
+      {
+        upkeepOp(steps, ctx, message.op, message.actor, message.answerTo);
+        return;
+      }
+    case "releaseOffered": {
+      onReleaseOffered(steps, ctx, message.releases);
+      return;
+    }
     case "fileReady": {
       onFileReady(steps, ctx, message);
       return;

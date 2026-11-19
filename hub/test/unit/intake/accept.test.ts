@@ -203,7 +203,11 @@ describe("rejected-packets.json, case by case", () => {
   // only as the intake's own function sees them.
   for (const c of forHub.filter((c) => c.maxLength === 255 && !radioLength(c))) {
     test(`${c.name}: ${c.error}, in the checks themselves`, () => {
-      const known = { deviceAt: () => undefined, windowOf: () => EMPTY_REPLAY_WINDOW };
+      const known = {
+        deviceAt: () => undefined,
+        windowOf: () => EMPTY_REPLAY_WINDOW,
+        keyStateOf: () => "none" as const,
+      };
       const arrival = {
         path: "lora",
         gateway: deviceId(90),

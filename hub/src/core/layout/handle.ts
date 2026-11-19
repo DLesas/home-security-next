@@ -17,7 +17,11 @@
  * - **M1a's `hsn arm <sensor>…` and `hsn disarm <sensor>…`** go to the alarm as built; layout
  *   records their `arming_changed` and sets `mode_modified` as for any arming of a sensor.
  * - **A removed device** leaves its groups: a sensor their members, a siren their lists, and a
- *   list left empty returns its group to every siren (section 7).
+ *   list left empty returns its group to every siren (section 7). A device reset by its owner
+ *   stays in them until it is added again or removed.
+ * - **D144** (`gone.ts`): a removal or reset that leaves groups which chose sirens with none of
+ *   their own in use is recorded, `group_sirens_gone`, once per occurrence as it arises, a history
+ *   record only (nobody is notified); a start rebuilds what it knows and records nothing.
  * - **Making, changing and deleting groups and modes** (`config.ts`).
  * - A sensor added while a mode is current starts disarmed (section 12, Q8): the alarm adds it
  *   disarmed and nothing here changes; Away, which is every sensor, arms it at its next switch.
@@ -35,6 +39,7 @@ import type { DurableSnapshot } from "../model/events.ts";
 import type { Context, Handler } from "../model/handler.ts";
 import {
   AWAY_MODE,
+  type ClientId,
   type DeviceId,
   deviceId,
   DISARMED_MODE,
@@ -43,6 +48,8 @@ import {
   type Seq,
 } from "../model/ids.ts";
 import type { Internal } from "../model/messages.ts";
+import type { HubState } from "../model/state.ts";
+import { deviceById } from "../registry/view.ts";
 import { ArmState, DeviceState, type ModeStateRow } from "../model/rows.ts";
 import { notBuiltAnswer } from "../util/not-built.ts";
 import { actorDetail, decision } from "../util/records.ts";
@@ -56,6 +63,14 @@ import {
   unchanged,
   writeNow,
 } from "./out.ts";
+import {
+  clientOfActorText,
+  emptiedBy,
+  type GoneCause,
+  NOBODY_ASKED,
+  settleSirens,
+  sirensAtStart,
+} from "./gone.ts";
 import { isArmingOp, resolve } from "./resolve.ts";
 import { FIXED_MODES, type Group, type LayoutSlice, type Mode } from "./state.ts";
 
@@ -119,6 +134,7 @@ export function loadLayout(snapshot: DurableSnapshot): LayoutSlice {
     modes: new Map([...fixed.map((mode): [ModeId, Mode] => [mode.id, mode]), ...stored]),
     current: state.currentModeId,
     modified: state.modeModified,
+    sirensGone: new Set(),
   };
 }
 
@@ -304,7 +320,20 @@ function onM1Request(
  * list left empty returns its group to every siren ‡, so no group can silently sound nothing.
  * Each group changed takes a new revision, written now with its rows.
  */
-function onDeviceRemoved(slice: LayoutSlice, device: DeviceId): Changing {
+/**
+ * A device gone from the alarm (`deviceRemoved`): removed by a person, its Provision refused, or
+ * reset by its owner. A device its owner reset, or one left behind by a forced move being added
+ * again, keeps its groups (hub-design.md section 9, from M3: "keeps its row (number, name,
+ * groups, permissions, history)"), since the registry keeps its row for it to be added again.
+ * While it is not working it changes nothing: arming takes a group's members only among the
+ * sensors the alarm knows (`resolve.ts`), and a group's sirens only those still named
+ * (`view.ts`'s `triggerSirens`). Removed for good (a person's `device.remove`, of a reset device
+ * too) it leaves every group, as before.
+ */
+function onDeviceRemoved(slice: LayoutSlice, view: HubState, device: DeviceId): Changing {
+  const state = deviceById(view, device)?.state;
+  if (state === DeviceState.ResetByOwner || state === DeviceState.LeftBehind)
+    return unchanged(slice);
   const touched = [...slice.groups.values()].filter(
     (g) => g.sensors.includes(device) || g.sirens.includes(device),
   );
@@ -350,20 +379,78 @@ function onDeviceRemoved(slice: LayoutSlice, device: DeviceId): Changing {
   return ok({ slice: { ...slice, groups }, out });
 }
 
+/**
+ * A device removed or reset, and then D144's record (`gone.ts`): the groups it left with none of
+ * their own sirens in use, and those its removal turned to every siren.
+ */
+function onDeviceGone(slice: LayoutSlice, ctx: Context, cause: GoneCause & { siren: DeviceId }) {
+  return onDeviceRemoved(slice, ctx.view, cause.siren).andThen((changed) =>
+    settleSirens(changed.slice, ctx, cause, emptiedBy(slice, changed.slice)).map((settled) => ({
+      slice: settled.slice,
+      out: [...changed.out, ...settled.out],
+    })),
+  );
+}
+
+/**
+ * `device.remove` (the app's or `hsn`'s): the registry, before this module, has retired the
+ * device already, so its groups are left here, with the request's actor for D144's record; the
+ * `deviceRemoved` that follows finds nothing more to change.
+ */
+function onRemoveRequest(
+  slice: LayoutSlice,
+  ctx: Context,
+  message: Message<"deviceRemoveRequest">,
+) {
+  const removed = deviceById(ctx.view, message.device)?.state === DeviceState.Removed;
+  const listed = [...slice.groups.values()].some(
+    (g) => g.sensors.includes(message.device) || g.sirens.includes(message.device),
+  );
+  if (!removed || !listed) return unchanged(slice);
+  return onDeviceGone(slice, ctx, {
+    siren: message.device,
+    client: clientOfActorText(message.actor),
+    record: message.record,
+  });
+}
+
+/** The client of an operation's actor: a person's or the console's; null for `hsn` or a schedule. */
+function clientOfActor(actor: Message<"opRequest">["actor"]): ClientId | null {
+  return actor.kind === "person" || actor.kind === "console" ? actor.client : null;
+}
+
 function route(slice: LayoutSlice, message: Internal, ctx: Context): Changing {
   switch (message.kind) {
     case "boot":
-      return unchanged(loadLayout(message.snapshot));
+      return unchanged(sirensAtStart(loadLayout(message.snapshot), ctx.view));
     case "opRequest":
       if (message.owner !== "layout") return unchanged(slice);
       if (isArmingOp(message.op)) return onArmingOp(slice, ctx, message);
-      if (isConfigOp(message.op)) return onConfig(slice, ctx.view, message, message.op);
+      if (isConfigOp(message.op)) {
+        const cause = {
+          siren: undefined,
+          client: clientOfActor(message.actor),
+          record: message.record,
+        };
+        return onConfig(slice, ctx.view, message, message.op).andThen((changed) =>
+          settleSirens(changed.slice, ctx, cause, []).map((settled) => ({
+            slice: settled.slice,
+            out: [...changed.out, ...settled.out],
+          })),
+        );
+      }
       return ok({ slice, out: [notBuiltAnswer(message)] });
     case "armRequest":
     case "disarmRequest":
       return onM1Request(slice, ctx, message);
+    case "deviceRemoveRequest":
+      return onRemoveRequest(slice, ctx, message);
     case "deviceRemoved":
-      return onDeviceRemoved(slice, message.device);
+      return onDeviceGone(slice, ctx, { siren: message.device, client: null, record: undefined });
+    case "deviceAdded":
+    case "provisionAnswered":
+      // A siren added again: its groups have one of their own again (no record of the ending).
+      return settleSirens(slice, ctx, { ...NOBODY_ASKED, siren: message.device }, []);
     default:
       return unchanged(slice);
   }

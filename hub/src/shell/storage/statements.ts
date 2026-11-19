@@ -64,6 +64,11 @@ export interface Statements {
   readonly audit: Readonly<Record<AuditTable, Statement<unknown, [BoundRow]>>>;
   /** Sets the clean-stop mark in this boot's row of `boots` (section 5). */
   readonly cleanStop: Statement<unknown, [BoundRow]>;
+  /**
+   * A device's pending key change (`PendingKeyOp`, D141): `next_key` and `rekey` of its row and
+   * nothing else, so the core never names the current key. No row, nothing written.
+   */
+  readonly pendingKey: Statement<unknown, [BoundRow]>;
 }
 
 function prepareState(db: Database, spec: TableSpec): StateStatements {
@@ -93,6 +98,9 @@ export function prepareStatements(db: Database): Result<Statements, StorageError
     ),
     cleanStop: db.prepare<unknown, [BoundRow]>(
       `UPDATE "boots" SET "clean_stop_ms" = :cleanStopMs WHERE "id" = :id`,
+    ),
+    pendingKey: db.prepare<unknown, [BoundRow]>(
+      `UPDATE "device_keys" SET "next_key" = :nextKey, "rekey" = :rekey WHERE "device_id" = :deviceId`,
     ),
   }));
 }

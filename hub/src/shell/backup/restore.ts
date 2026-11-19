@@ -7,6 +7,8 @@
  *   `hub.db.restore`, a scratch file until it is renamed: a database at the backup's own schema (the first migrations, as many as it had), its configuration and keys
  *   (its app key too, so the hub has the old identity), then
  *   - every hub sending counter's resume point moved forward by 2²⁴ (§4, O16);
+ *   - every device's key marked for change (`device_keys.rekey`, D141): `Required`, or `BothHeld`
+ *     where the backup held a pending key, so no packet under a key held at the backup is acted on;
  *   - every client's last `seq` raised by 2³² ‡, so no request recorded before the restore passes;
  *   - every client kept exactly as the file has it (D122), and no link token at all;
  *   - the phone's key as the backup key, at the file's epoch;
@@ -30,11 +32,12 @@ import {
 } from "@hsn/protocol/app";
 import { err, ok, Result } from "neverthrow";
 import type { FileOutcome } from "../../core/model/events.ts";
-import { BACKUP_STATE_DEFAULTS } from "../../core/model/rows.ts";
+import { BACKUP_STATE_DEFAULTS, Rekey } from "../../core/model/rows.ts";
 import type { HubRules } from "../../core/model/rules.ts";
 import { applyMigrations, readMigrations } from "../safe/migrate.ts";
 import { closeDatabase, openDatabase, sqlite } from "../safe/sqlite.ts";
 import {
+  BACKUP_TABLES,
   columnsOf,
   copyBatch,
   copyRows,
@@ -106,7 +109,16 @@ function failed(
   return { kind: "failed", reason, message };
 }
 
-/** The tables of the backup's database, but Drizzle's own. */
+/** The tables a backup holds, Drizzle's own apart: only these are ever restored (`contents.ts`). */
+const RESTORED_TABLES: ReadonlySet<string> = new Set<string>(
+  BACKUP_TABLES.filter((name) => name !== MIGRATIONS_TABLE),
+);
+
+/**
+ * The tables of the backup's database that a backup holds. A file holding any other (a push key,
+ * a firmware image's row, history) is restored without it: those tables start as the migrations
+ * make them, as on a new hub.
+ */
 function tablesOf(db: Database): readonly string[] {
   return db
     .query<{ name: string }, []>(
@@ -114,7 +126,7 @@ function tablesOf(db: Database): readonly string[] {
     )
     .all()
     .map((row) => row.name)
-    .filter((name) => name !== MIGRATIONS_TABLE);
+    .filter((name) => RESTORED_TABLES.has(name));
 }
 
 /** Restore's rows copied a piece ‡ (provisional, section 3). */
@@ -149,8 +161,9 @@ type RestorePhase = "open" | "decrypt" | "build" | "rows" | "mark" | "migrate" |
  *    renamed (a failure deletes it), so it has no journal, and each piece is a synced commit of
  *    its own: no commit writes more than a piece's pages.
  * 4. Its tables copied `RESTORE_ROWS_PER_PIECE` ‡ rows a piece.
- * 5. The jumps (counters by 2²⁴, every client's `seq` by 2³²), no token, the phone's key at the
- *    file's epoch, the restore mark; committed.
+ * 5. The jumps (counters by 2²⁴, every client's `seq` by 2³²), every device key marked for
+ *    change, no token, the phone's key at the file's epoch, the restore mark; committed. A backup
+ *    from before migration 3 is marked right after it is migrated (6).
  * 6. Migrated forward to this code's schema.
  * 7. Closed and renamed `hub.db.restore`.
  *
@@ -398,6 +411,9 @@ export class RestorePieces {
       rules.restore.counterJump,
     ]);
     target.run(`UPDATE "clients" SET "last_seq" = "last_seq" + ?`, [rules.restore.seqJump]);
+    // Every device's key marked for change (D141); a backup older than migration 3 has no column
+    // for it yet, and is marked once it is migrated (`#migrate`).
+    if (columnsOf(target, "device_keys")._unsafeUnwrap().includes("rekey")) markKeyChanges(target);
     target.run(`DELETE FROM "link_tokens"`);
     target.run(`DELETE FROM "link_secrets"`);
     target.run(`DELETE FROM "client_replies"`);
@@ -430,8 +446,15 @@ export class RestorePieces {
   #migrate(): FileOutcome | undefined {
     const target = this.#target;
     if (target === undefined) return failed("io", "the restore lost its database");
+    const marked = columnsOf(target, "device_keys")._unsafeUnwrap().includes("rekey");
     const migrated = applyMigrations(target, this.#inputs.migrationsFolder);
     if (migrated.isErr()) return failed("io", migrated.error.message);
+    if (!marked) {
+      // A backup from before migration 3: its rows have just gained the column, at 0.
+      target.run("BEGIN IMMEDIATE");
+      markKeyChanges(target);
+      target.run("COMMIT");
+    }
     this.#phase = "place";
     return undefined;
   }
@@ -448,6 +471,21 @@ export class RestorePieces {
     if (placed.isErr()) return { kind: "failed", ...placed.error };
     return { kind: "restoreReady" };
   }
+}
+
+/**
+ * Marks every device's key for change after the restore (D141, m3-updates-design section 7): the
+ * hub acts on no packet sealed under a key it held at the backup. A row with no pending key is
+ * `Required`: its key was held at the backup, and the device's first packet under it draws a Key
+ * change with a key made then. A row whose backup held a pending `next_key` is `BothHeld`: both its
+ * keys were held at the backup, so a packet under either is not acted on, but says which one the
+ * device holds (the coordinator's ruling of 2026-11-18). Inside the restore's transaction.
+ */
+function markKeyChanges(db: Database): void {
+  db.run(`UPDATE "device_keys" SET "rekey" = CASE WHEN "next_key" IS NULL THEN ? ELSE ? END`, [
+    Rekey.Required,
+    Rekey.BothHeld,
+  ]);
 }
 
 /** All of `bytes` at the file's end. */

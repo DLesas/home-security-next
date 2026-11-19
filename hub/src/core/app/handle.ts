@@ -21,7 +21,19 @@
  * questions"), which hands out the backup key.
  */
 import { err, ok, type Result } from "neverthrow";
-import { type AppOp, type AppReply, SESSION_LIMITS } from "@hsn/protocol/app";
+import {
+  APP_PROTO_LATEST,
+  APP_PROTO_VERSIONS,
+  type AppOp,
+  type AppOpV2,
+  type AppProtoVersion,
+  type AppReply,
+  type AppReplyV2,
+  isVersion1Op,
+  type NotificationObject,
+  SESSION_LIMITS,
+  UNRECORDED_BODY_FIELDS,
+} from "@hsn/protocol/app";
 import { msBetween } from "../model/time.ts";
 import { recordStamp } from "../clock/view.ts";
 import type { ControlReply } from "../model/control.ts";
@@ -37,20 +49,23 @@ import {
   requestId,
   type Seq,
 } from "../model/ids.ts";
-import type { Actor, Internal, OpOutcome } from "../model/messages.ts";
-import { m2OwnerOf, OP_OWNERS } from "../model/ops.ts";
+import type { Actor, AnswerTo, Internal, OpOutcome } from "../model/messages.ts";
+import type { HubState } from "../model/state.ts";
+import { m2OwnerOf, m3m4OwnerOf, OP_OWNERS } from "../model/ops.ts";
 import { ClientKind } from "../model/rows.ts";
 import {
   actorOfClient,
   lastSeq,
   liveClient,
   repeatOf,
+  replyForVersion,
   replyOf,
   storedReply,
 } from "../people/view.ts";
+import { asVersion2 } from "../notify/view.ts";
 import { deviceById, hubEventRecord } from "../registry/view.ts";
 import { countdownChanges, siteChanges } from "./changes.ts";
-import { refusal } from "./checks.ts";
+import { refusal, refusalV2 } from "./checks.ts";
 import { closeDayIfOver, sessionClosed, sessionOpened } from "./sessions-day.ts";
 import { historyFilter } from "./history.ts";
 import { configAnswered, noteConfigAsked, notificationEvents } from "./live.ts";
@@ -63,13 +78,10 @@ import {
   visibleSet,
 } from "./events.ts";
 import { m1aOutcome, m1aRequest } from "./m1a.ts";
-import {
-  deviceList,
-  deviceObject,
-  deviceSettings,
-  hubInfoObject,
-  snapshotObject,
-} from "./objects.ts";
+import { deviceList, deviceObject, deviceSettings } from "./objects.ts";
+import { presenceSet, presenceWithout } from "./presence.ts";
+import { deviceUpdateEvents, offeredEvents, relayChanges } from "./v2-live.ts";
+import { deviceToV2, factsForApps, hubInfoFor, protoOf, snapshotFor } from "./versions.ts";
 import type {
   AppAnswerTo,
   AppSlice,
@@ -93,19 +105,35 @@ function retryKey(client: ClientId, seq: number): string {
   return `${client}:${seq}`;
 }
 
-function send(sending: Sending, conn: AppAnswerTo["conn"], reply: AppReply): void {
+/** A reply of either version, as `people` keeps it. */
+type AnyReply = AppReply | AppReplyV2;
+
+function send(sending: Sending, conn: AppAnswerTo["conn"], reply: AnyReply): void {
   if (sending.slice.sessions.has(conn)) sending.out.push({ kind: "appSend", conn, message: reply });
 }
 
 const REDACTED = "***";
 
-/** A request's body as its `commands` row keeps it, every secret field removed (section 4). */
-function recordedArgs(op: AppOp): string {
-  if (op.op === "site.wifi") return JSON.stringify({ ...op.body, password: REDACTED });
-  return JSON.stringify(op.body);
+/**
+ * A request's body as its `commands` row keeps it, every secret field removed (section 4):
+ * `UNRECORDED_BODY_FIELDS` names them, of either version (`site.wifi`'s password, `push.register`'s
+ * push key).
+ */
+function recordedArgs(op: AppOpV2): string {
+  const table: Readonly<Record<string, readonly string[] | undefined>> = UNRECORDED_BODY_FIELDS;
+  const hidden = table[op.op];
+  if (hidden === undefined) return JSON.stringify(op.body);
+  const body: Record<string, unknown> = { ...(op.body as Readonly<Record<string, unknown>>) };
+  for (const field of hidden) body[field] = REDACTED;
+  return JSON.stringify(body);
 }
 
-function commandRecord(stamp: CommandStamp, op: AppOp, outcome: OpOutcome): Internal {
+/** A version 1 operation as version 1's type has it; undefined for one only version 2 names. */
+function asVersion1(op: AppOpV2): AppOp | undefined {
+  return isVersion1Op(op.op) ? (op as AppOp) : undefined;
+}
+
+function commandRecord(stamp: CommandStamp, op: AppOpV2, outcome: OpOutcome): Internal {
   return {
     kind: "auditRecord",
     durability: "now",
@@ -137,6 +165,11 @@ function actorName(actor: Actor): string {
   }
 }
 
+/** The model's answer address of an app's request, with its version (absent is version 1). */
+function appAnswerTo(answerTo: Extract<AnswerTo, { readonly kind: "app" }>): AppAnswerTo {
+  return { ...answerTo, proto: answerTo.proto ?? 1 };
+}
+
 /** Before the shell has given its facts (`hubFacts`, after `boot`) or made the app key. */
 const NOT_YET: OpOutcome = { ok: false, error: { code: "unavailable", detail: {} } };
 
@@ -159,9 +192,11 @@ function ownOutcome(
   session: Session | undefined,
 ): OpOutcome {
   const view = ctx.view;
+  // The hub computer's own `hsn op` is answered in version 1's objects, as it always was.
+  const proto = session === undefined ? 1 : protoOf(session.proto);
   switch (op.op) {
     case "snapshot": {
-      const snapshot = snapshotObject(view, deps, actor, ctx.now, sending.slice.rev);
+      const snapshot = snapshotFor(view, deps, actor, ctx.now, sending.slice.rev, proto);
       if (snapshot === undefined) return NOT_YET;
       if (session !== undefined) {
         const sessions = new Map(sending.slice.sessions);
@@ -179,19 +214,27 @@ function ownOutcome(
       return { ok: true, body: { topics: [...topics] } };
     }
     case "hub.info": {
-      const info = hubInfoObject(view, deps, ctx.now);
+      const info = hubInfoFor(view, deps, ctx.now, proto);
       return info === undefined ? NOT_YET : { ok: true, body: info };
     }
-    case "device.list":
-      return { ok: true, body: deviceList(view, deps, actor) };
+    case "device.list": {
+      const list = deviceList(view, deps, actor);
+      return proto === 1
+        ? { ok: true, body: list }
+        : { ok: true, body: { devices: list.devices.map((d) => deviceToV2(view, d)) } };
+    }
     case "device.show": {
       const row = deviceById(view, deviceId(op.body.device));
       const object =
         row === undefined || row.role === 0 ? undefined : deviceObject(view, deps, row);
       const settings = row === undefined ? undefined : deviceSettings(view, row.id);
-      return object === undefined || settings === undefined
-        ? { ok: false, error: { code: "notFound", detail: { what: "device", id: op.body.device } } }
-        : { ok: true, body: { device: object, settings } };
+      if (object === undefined || settings === undefined)
+        return {
+          ok: false,
+          error: { code: "notFound", detail: { what: "device", id: op.body.device } },
+        };
+      const device = proto === 1 ? object : deviceToV2(view, object);
+      return { ok: true, body: { device, settings } };
     }
     // `hub.status` and `history.query` are the shell's to answer (`hubStatusRead`, `historyRead`),
     // which it can do only on an app's connection; the hub computer has `hsn status` and `hsn log`.
@@ -204,7 +247,7 @@ function ownOutcome(
 function stamp(
   ctx: Context,
   actor: Actor,
-  op: AppOp,
+  op: AppOpV2,
   change: boolean,
 ): Result<{ readonly record: Seq; readonly command: CommandStamp | undefined }, CoreFault> {
   return ctx.records.take().map((record) => {
@@ -227,8 +270,13 @@ function withPending(slice: AppSlice, key: string, pending: PendingRequest | und
 }
 
 /** A refusal of a request whose session or client is gone: sent at once, nothing kept. */
-function refuseNow(sending: Sending, request: Request, outcome: OpOutcome): void {
-  send(sending, request.conn, replyOf(request.request.id, outcome));
+function refuseNow(
+  sending: Sending,
+  request: Request,
+  outcome: OpOutcome,
+  proto: AppProtoVersion,
+): void {
+  send(sending, request.conn, replyOf(request.request.id, outcome, proto));
 }
 
 function onRequest(
@@ -241,9 +289,10 @@ function onRequest(
   const session = sending.slice.sessions.get(request.conn);
   if (session?.client !== request.client) return ok(undefined);
   const { id, seq, op } = request.request;
+  const proto = protoOf(session.proto);
   const actor = actorOfClient(view, request.client);
   if (actor === undefined) {
-    refuseNow(sending, request, { ok: false, error: { code: "unauthorized", detail: {} } });
+    refuseNow(sending, request, { ok: false, error: { code: "unauthorized", detail: {} } }, proto);
     sending.out.push({ kind: "closeClient", client: request.client, reason: "removed" });
     return ok(undefined);
   }
@@ -253,14 +302,17 @@ function onRequest(
     client: request.client,
     id,
     seq,
+    proto,
   };
   const key = keyOf(answerTo);
   if (sending.slice.pending.has(key)) {
     // An `id` must be unique among the connection's unanswered requests (section 5).
-    refuseNow(sending, request, {
-      ok: false,
-      error: { code: "invalid", detail: { field: "id", reason: "format" } },
-    });
+    refuseNow(
+      sending,
+      request,
+      { ok: false, error: { code: "invalid", detail: { field: "id", reason: "format" } } },
+      proto,
+    );
     return ok(undefined);
   }
 
@@ -268,14 +320,20 @@ function onRequest(
     const last = lastSeq(view, request.client);
     if (seq <= last) {
       const kept = storedReply(view, request.client, seq);
-      if (kept?.kind === "sent") send(sending, request.conn, repeatOf(kept.reply, id));
+      if (kept?.kind === "sent")
+        send(sending, request.conn, repeatOf(replyForVersion(kept.reply, proto), id));
       else if (kept?.kind === "pending") {
         const waiting = new Map(sending.slice.waiting);
         const k = retryKey(request.client, seq);
         waiting.set(k, [...(waiting.get(k) ?? []), answerTo]);
         sending.slice = { ...sending.slice, waiting };
       } else
-        refuseNow(sending, request, { ok: false, error: { code: "seqTooLow", detail: { last } } });
+        refuseNow(
+          sending,
+          request,
+          { ok: false, error: { code: "seqTooLow", detail: { last } } },
+          proto,
+        );
       return ok(undefined);
     }
   }
@@ -294,6 +352,91 @@ function onRequest(
     sending.out.push({ kind: "opAnswer", answerTo, outcome });
   };
 
+  const v1 = asVersion1(op);
+  if (v1 === undefined) return onVersion2(sending, ctx, op, { actor, answerTo, answer, record });
+  return onVersion1(sending, ctx, deps, request, v1, {
+    actor,
+    answerTo,
+    key,
+    answer,
+    session,
+    record,
+  });
+}
+
+/**
+ * An operation only version 2 names (docs/m3-m4-plan.md, step 2): `presence.set` is `app`'s own;
+ * every other goes to its owner as a `v2OpRequest` (`OP_OWNERS`): `firmware` and `relay`, which
+ * check who may ask themselves; `upkeep` (`backup.keyHeld`, `update.offers`, `update.fetch`) and
+ * `setup` (`pair.prepare`, `pair.finish`), after `app`'s check of manage system (`refusalV2`). A
+ * version 1 session is never given one (the shell refuses it `protoUnsupported` first); should one
+ * come, it is refused so here too.
+ */
+function onVersion2(
+  sending: Sending,
+  ctx: Context,
+  op: AppOpV2,
+  asked: {
+    readonly actor: Actor;
+    readonly answerTo: AppAnswerTo;
+    readonly answer: (outcome: OpOutcome) => void;
+    readonly record: Seq;
+  },
+): Result<void, CoreFault> {
+  const { actor, answerTo, answer, record } = asked;
+  if (answerTo.proto < APP_PROTO_LATEST) {
+    answer({
+      ok: false,
+      error: {
+        code: "protoUnsupported",
+        detail: { speaks: [APP_PROTO_VERSIONS[0], APP_PROTO_LATEST] },
+      },
+    });
+    return ok(undefined);
+  }
+  const refused = refusalV2(ctx.view, actor, op);
+  if (refused !== undefined) {
+    answer(refused);
+    return ok(undefined);
+  }
+  if (op.op === "presence.set") {
+    return presenceSet(ctx.view, ctx, sending.slice.presence, actor, op.body.away, record).map(
+      (done) => {
+        sending.slice = { ...sending.slice, presence: done.presence };
+        sending.out.push(...done.out);
+        answer(done.outcome);
+      },
+    );
+  }
+  const owner = OP_OWNERS[op.op];
+  if (owner === "upkeep" || owner === "setup" || m3m4OwnerOf(op.op) !== undefined) {
+    const to = m3m4OwnerOf(op.op) ?? (owner === "setup" ? "setup" : "upkeep");
+    sending.out.push({ kind: "v2OpRequest", owner: to, op, actor, answerTo, record });
+    return ok(undefined);
+  }
+  answer({ ok: false, error: { code: "notBuilt", detail: { op: op.op } } });
+  return ok(undefined);
+}
+
+/** A version 1 operation's check and routing, as M2 built them. */
+function onVersion1(
+  sending: Sending,
+  ctx: Context,
+  deps: CoreDeps,
+  request: Request,
+  op: AppOp,
+  asked: {
+    readonly actor: Actor;
+    readonly answerTo: AppAnswerTo;
+    readonly key: string;
+    readonly answer: (outcome: OpOutcome) => void;
+    readonly session: Session | undefined;
+    readonly record: Seq;
+  },
+): Result<void, CoreFault> {
+  const view = ctx.view;
+  const { actor, answerTo, key, answer, session, record } = asked;
+  const { id } = request.request;
   const refused = refusal(view, session, actor, op);
   if (refused !== undefined) {
     answer(refused);
@@ -345,10 +488,16 @@ function onRequest(
 }
 
 /** The reply to a request of an app, its `commands` record, and any retries waiting for it. */
-function onAnswer(sending: Sending, answerTo: AppAnswerTo, outcome: OpOutcome): void {
+function onAnswer(
+  sending: Sending,
+  view: HubState,
+  answerTo: AppAnswerTo,
+  outcome: OpOutcome,
+): void {
   const key = keyOf(answerTo);
   const pending = sending.slice.pending.get(key);
-  const reply = replyOf(answerTo.id, outcome);
+  const proto = answerTo.proto;
+  const reply = replyOf(answerTo.id, readForVersion(view, pending?.op, outcome, proto), proto);
   send(sending, answerTo.conn, reply);
   if (pending !== undefined) {
     sending.slice = withPending(sending.slice, key, undefined);
@@ -359,12 +508,41 @@ function onAnswer(sending: Sending, answerTo: AppAnswerTo, outcome: OpOutcome): 
     const k = retryKey(answerTo.client, answerTo.seq);
     const waiting = sending.slice.waiting.get(k);
     if (waiting !== undefined) {
-      for (const retry of waiting) send(sending, retry.conn, repeatOf(reply, retry.id));
+      for (const retry of waiting)
+        send(sending, retry.conn, repeatOf(replyForVersion(reply, retry.proto), retry.id));
       const all = new Map(sending.slice.waiting);
       all.delete(k);
       sending.slice = { ...sending.slice, waiting: all };
     }
   }
+}
+
+/**
+ * A read's answer from its owner, in the session's version: `notifications.list`'s objects with
+ * `happenedAtMs` on a version 2 session (D102, `notify`'s `asVersion2`). A read is not kept, so
+ * only the reply sent changes; every other answer is the same in both versions.
+ */
+function readForVersion(
+  view: HubState,
+  op: AppOpV2 | undefined,
+  outcome: OpOutcome,
+  proto: AppProtoVersion,
+): OpOutcome {
+  if (proto === 1 || !outcome.ok || op?.op !== "notifications.list") return outcome;
+  const body = outcome.body as { readonly notifications: readonly NotificationObject[] };
+  return { ok: true, body: { notifications: asVersion2(view, body.notifications) } };
+}
+
+/**
+ * An M1a module's outcome in the session's version: on a version 2 session the device a
+ * `device.rename`, `device.remove` or `usb.add` answers with is version 2's object, with its
+ * update. Made before the `opAnswer`, so the reply `people` keeps for a retry is this one.
+ */
+function m1aForVersion(view: HubState, op: AppOp, outcome: OpOutcome, proto: AppProtoVersion) {
+  if (proto === 1 || !outcome.ok) return outcome;
+  if (op.op !== "device.rename" && op.op !== "device.remove" && op.op !== "usb.add") return outcome;
+  const body = outcome.body as Parameters<typeof deviceToV2>[1];
+  return { ok: true, body: deviceToV2(view, body) } as const;
 }
 
 /** An M1a module's answer to one of app's numbers: the operation's outcome, as an `opAnswer`. */
@@ -380,9 +558,12 @@ function onM1aAnswer(
   m1a.delete(request);
   sending.slice = { ...sending.slice, m1a };
   const pending = sending.slice.pending.get(key);
-  if (pending === undefined) return ok(undefined);
-  return m1aOutcome(ctx, pending.op, reply, pending.record).map((outcome) => {
-    sending.out.push({ kind: "opAnswer", answerTo: pending.answerTo, outcome });
+  // Only a version 1 operation is ever given to an M1a module.
+  const op = pending === undefined ? undefined : asVersion1(pending.op);
+  if (pending === undefined || op === undefined) return ok(undefined);
+  return m1aOutcome(ctx, op, reply, pending.record).map((outcome) => {
+    const versioned = m1aForVersion(ctx.view, op, outcome, pending.answerTo.proto);
+    sending.out.push({ kind: "opAnswer", answerTo: pending.answerTo, outcome: versioned });
   });
 }
 
@@ -534,7 +715,10 @@ function handleMessage(
         consolePort: message.consolePort,
         certificateSha256: message.certificateSha256,
       };
-      if (!sameFacts(sending.slice.facts, facts)) sending.slice = { ...sending.slice, facts };
+      // The addresses apps are given: no link-local ones, IPv4 first (`versions.ts`).
+      const forApps = factsForApps(facts);
+      if (!sameFacts(sending.slice.facts, forApps))
+        sending.slice = { ...sending.slice, facts: forApps };
       return ok(undefined);
     }
     case "clientRefused":
@@ -551,17 +735,30 @@ function handleMessage(
       return ok(undefined);
     case "opAnswer":
       configAnswered(sending, ctx.view, message.answerTo, message.outcome);
-      if (message.answerTo.kind === "app") onAnswer(sending, message.answerTo, message.outcome);
+      if (message.answerTo.kind === "app")
+        onAnswer(sending, ctx.view, appAnswerTo(message.answerTo), message.outcome);
       return ok(undefined);
     case "answer":
       return isAppRequest(message.request)
         ? onM1aAnswer(sending, ctx, message.request, message.reply)
         : ok(undefined);
-    case "clientRemoved":
+    case "clientRemoved": {
       onRemoved(sending, message.client);
+      const presence = presenceWithout(sending.slice.presence, message.client);
+      if (presence !== sending.slice.presence) sending.slice = { ...sending.slice, presence };
       return ok(undefined);
+    }
     case "notificationRaised":
-      notificationEvents(sending, message.notification, message.clients);
+      notificationEvents(
+        sending,
+        ctx.view,
+        message.notification,
+        message.clients,
+        message.happenedAtMs,
+      );
+      return ok(undefined);
+    case "deviceUpdateEvent":
+      deviceUpdateEvents(sending, ctx.view, message.body);
       return ok(undefined);
     default:
       return ok(undefined);
@@ -585,5 +782,7 @@ export const handleApp: Handler<"app"> = (slice, message, ctx) => {
     forgetLost(sending, ctx.view);
   }
   eventsOf(sending, ctx, message);
+  if (message.kind === "auditRecord") offeredEvents(sending, ctx.view, message.record);
+  relayChanges(sending, ctx.view);
   return ok({ slice: sending.slice, out: sending.out });
 };

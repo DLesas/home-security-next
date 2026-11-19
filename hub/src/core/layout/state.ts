@@ -40,6 +40,11 @@ export interface LayoutSlice {
   readonly current: ModeId | null;
   /** `mode_state.mode_modified`: arming changed since the last switch ("Away, changed"). */
   readonly modified: boolean;
+  /**
+   * D144: the groups that chose sirens and have none of them in use, each already recorded
+   * (`group_sirens_gone`, `gone.ts`). Memory only: rebuilt at a start.
+   */
+  readonly sirensGone: ReadonlySet<GroupId>;
 }
 
 /** The two fixed modes as migration 2 makes them (D90). */
@@ -55,4 +60,5 @@ export const EMPTY_LAYOUT_SLICE: LayoutSlice = {
   modes: new Map(FIXED_MODES.map((mode) => [mode.id, mode])),
   current: null,
   modified: false,
+  sirensGone: new Set(),
 };

@@ -58,10 +58,11 @@ describe("admitting a session", () => {
     const side = openHub({ clients: clients() });
     const ws = await WsClient.open(side, "lan");
     const ik = new IkClient(side, anna.key);
+    // The highest version both speak: the hub speaks 1 and 2 (docs/m4-design.md section 9).
     ws.send(await ik.message1({ proto: [1, 3], app: "1.2.3" }));
     const m2 = await ws.next();
     expect(await ik.message2(m2 ?? new Uint8Array(0))).toEqual({
-      proto: 1,
+      proto: 2,
       hub: "0.1.0",
       boot: 3,
       rev: 41,
@@ -76,7 +77,7 @@ describe("admitting a session", () => {
     expect(connected).toMatchObject({
       client: clientId(7),
       listener: "lan",
-      proto: 1,
+      proto: 2,
       app: "1.2.3",
     });
     const request = await side.waitFor("clientRequest");
@@ -179,7 +180,7 @@ describe("admitting a session", () => {
   test("no version both speak: closed before message 2", async () => {
     const side = openHub({ clients: clients() });
     const ws = await WsClient.open(side, "lan");
-    ws.send(await new IkClient(side, anna.key).message1({ proto: [2, 4], app: "9.0.0" }));
+    ws.send(await new IkClient(side, anna.key).message1({ proto: [3, 4], app: "9.0.0" }));
     expect(await ws.next()).toBeUndefined();
   });
 

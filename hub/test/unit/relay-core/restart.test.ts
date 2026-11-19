@@ -14,6 +14,7 @@
  */
 import { describe, expect, test } from "bun:test";
 import type { PushContent } from "@hsn/protocol/app";
+import { eventAtDetail } from "@hsn/protocol/records";
 import { type ClientId, type OutboxId, RECORDS_PER_BOOT } from "../../../src/core/model/ids.ts";
 import {
   ArmState,
@@ -50,6 +51,8 @@ const oneFails: Step = (r) => {
   r.results(flying.map((id, i) => ({ id, outcome: i === 0 ? "failed" : "accepted" })));
 };
 
+const FIVE_HOURS_MS = 5 * 3_600_000;
+
 const SCRIPT: readonly Step[] = [
   (r) => r.up(),
   (r) => r.raise(countdown([ANNA_PHONE, BEN_PHONE], S1)),
@@ -66,6 +69,11 @@ const SCRIPT: readonly Step[] = [
   },
   (r) => r.raise(ordinary([ANNA_PHONE], S2)),
   (r) => r.raise(alarm([ANNA_PHONE, BEN_PHONE])),
+  (r) => {
+    // An alarm raised at a start for a countdown that ended five hours before (D102, D113).
+    const cause = r.decision("alarm", null, S2, eventAtDetail(r.now.wall - FIVE_HOURS_MS));
+    r.raise({ ...alarm([ANNA_PHONE]), device: S2, cause });
+  },
   (r) => {
     // Disarmed before the link returns: what the late pushes say of `armed` is when they were raised.
     r.arm(S1, ArmState.Disarmed);
@@ -286,10 +294,16 @@ describe("the outbox through an outage", () => {
     const list = delivered(runner);
     const pairs = list.map((d) => pairKey(d.client, d.content.n.seq));
     expect(new Set(pairs).size).toBe(pairs.length);
-    expect(list).toHaveLength(2 + 2 + 2 + 2 + 1 + 2 + 1);
+    expect(list).toHaveLength(2 + 2 + 2 + 2 + 1 + 2 + 1 + 1);
+    // The late alarm says when its countdown ended, and that it is late.
+    const lateAlarm = list.find((d) => d.content.n.kind === "alarm" && d.content.n.device === S2);
+    expect(lateAlarm?.content.detail).toEqual({
+      endedAtMs: (lateAlarm?.content.n.atMs ?? 0) - FIVE_HOURS_MS,
+    });
     const late = list.filter((d) => d.content.delayed).map((d) => d.content.n.kind);
     // Everything sent after the outage is late, the two in flight when it began included.
     expect(late.toSorted()).toEqual([
+      "alarm",
       "alarm",
       "alarm",
       ...Array.from({ length: 5 }, () => "battery_low"),

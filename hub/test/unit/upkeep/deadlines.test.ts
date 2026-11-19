@@ -233,6 +233,7 @@ describe("an approved update with nothing in its way", () => {
       job: upload?.job ?? jobId(0),
       outcome: { kind: "updateStaged", version: "1.1.0" },
     });
+    const before = core.timers();
     const approved = core.run(3 * SECOND_US, {
       kind: "command",
       conn: connId(0),
@@ -248,7 +249,8 @@ describe("an approved update with nothing in its way", () => {
       { kind: "switchUpdate", version: "1.1.0" },
     ]);
     expect(decisionsOf(approved, "update_switching")).toHaveLength(1);
-    expect(core.timers().some((t) => t.kind === "updateWait")).toBe(false);
+    // The approval set no timer of upkeep's: those it has are the ones it had before.
+    expect(core.timers()).toEqual(before);
     core.noneLeft();
     expect(jobsOf(core.run(3 * SECOND_US + 1, { kind: "tick" }))).toEqual([]);
   });

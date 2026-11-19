@@ -19,6 +19,15 @@ import { command, resumePoints } from "./send.ts";
 import type { SirensSlice } from "./state.ts";
 import { onSirenTimer, settlePaths } from "./tick.ts";
 import { withTimers } from "./timers.ts";
+import { afterCommit, keyChangedDevice } from "../intake/view.ts";
+import {
+  keyChangesAtBoot,
+  keyChangesOwed,
+  onKeyChanged,
+  onOldKeyPacket,
+  onUpdateOffer,
+  sendWaitingOffers,
+} from "./updates.ts";
 
 type Message<K extends DomainMessage["kind"]> = Extract<DomainMessage, { readonly kind: K }>;
 
@@ -85,14 +94,22 @@ function recordOutcome(
 function route(slice: SirensSlice, message: Internal, ctx: Context): Changing {
   switch (message.kind) {
     case "boot":
-      return onBoot(slice, ctx, message);
+      return onBoot(slice, ctx, message).map((booted) => ({
+        slice: keyChangesAtBoot(booted.slice, message.snapshot),
+        out: booted.out,
+      }));
     case "deviceAdded":
       return onDeviceAdded(slice, ctx, message);
     case "deviceRemoved": {
-      if (!slice.sirens.has(message.device)) return unchanged(slice);
+      const left = slice.sirens.get(message.device);
+      if (left === undefined) return unchanged(slice);
       const sirens = new Map(slice.sirens);
       sirens.delete(message.device);
-      return unchanged({ ...slice, sirens });
+      const retiredVersions = new Map(slice.retiredVersions).set(
+        message.device,
+        left.settings.version,
+      );
+      return unchanged({ ...slice, sirens, retiredVersions });
     }
     case "accepted":
       return message.role === Role.Siren ? onSirenPacket(slice, ctx, message) : unchanged(slice);
@@ -108,8 +125,12 @@ function route(slice: SirensSlice, message: Internal, ctx: Context): Changing {
       return onSiteMove(slice, ctx, message);
     case "gatewayUp": {
       const next = { ...slice, gateways: new Set(slice.gateways).add(message.gateway) };
-      // A siren waiting for a path after the start is asked to report (section 7, step 4).
-      return each(next, [...next.sirens.keys()], (s, siren) => reportNowIfOwed(s, ctx, siren));
+      // A siren waiting for a path after the start is asked to report (section 7, step 4), or,
+      // after a restore, given its Key change in place of that (D141).
+      return then(
+        each(next, [...next.sirens.keys()], (s, siren) => reportNowIfOwed(s, ctx, siren)),
+        (s) => keyChangesOwed(s, ctx),
+      );
     }
     case "gatewayDown": {
       if (!slice.gateways.has(message.gateway)) return unchanged(slice);
@@ -140,11 +161,22 @@ function route(slice: SirensSlice, message: Internal, ctx: Context): Changing {
         undefined,
         undefined,
       );
-    case "commit":
+    case "commit": {
       // A failed commit may have lost a resume point: every key's is written again (section 4).
+      const keys = afterCommit(slice.keys, message.outcome);
+      const next = keys === slice.keys ? slice : { ...slice, keys };
       return message.outcome.kind === "failed"
-        ? ok({ slice, out: resumePoints(slice) })
-        : unchanged(slice);
+        ? ok({ slice: next, out: resumePoints(next) })
+        : unchanged(next);
+    }
+    case "updateOffer":
+      return onUpdateOffer(slice, ctx, message);
+    case "oldKeyPacket":
+      return message.role === Role.Siren ? onOldKeyPacket(slice, ctx, message) : unchanged(slice);
+    case "auditRecord": {
+      const switched = keyChangedDevice(message);
+      return switched === undefined ? unchanged(slice) : onKeyChanged(slice, ctx, switched);
+    }
     case "timer":
       return message.key.module === "sirens"
         ? onSirenTimer(slice, ctx, message.key)
@@ -160,7 +192,7 @@ function route(slice: SirensSlice, message: Internal, ctx: Context): Changing {
  * made again from the sirens.
  */
 export const handleSirens: Handler<"sirens"> = (slice, message, ctx) =>
-  route(slice, message, ctx).andThen((changed) =>
+  then(route(slice, message, ctx), (routed) => sendWaitingOffers(routed, ctx)).andThen((changed) =>
     changed.slice === slice
       ? ok(changed)
       : then(ok(changed), (current) => settlePaths(current, ctx)).map((settled) => ({

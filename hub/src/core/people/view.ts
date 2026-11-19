@@ -23,7 +23,7 @@ import type { PeopleSlice, StoredReply } from "./state.ts";
 export type { GlobalPermission } from "./permissions.ts";
 export type { StoredReply } from "./state.ts";
 export { clientObject, personObject } from "./objects.ts";
-export { encodeReply, repeatOf, replyOf } from "./replies.ts";
+export { encodeReply, repeatOf, replyForVersion, replyOf } from "./replies.ts";
 
 /** The slice itself, for tests. */
 export function peopleSlice(view: HubState): PeopleSlice {

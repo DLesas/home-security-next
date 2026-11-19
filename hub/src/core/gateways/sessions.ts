@@ -20,6 +20,7 @@ import {
   MessageType,
   type PacketHeader,
   Role,
+  type StartedImage,
 } from "@hsn/protocol";
 import type { Effect } from "../model/effects.ts";
 import type { LinkKind } from "../model/events.ts";
@@ -90,7 +91,7 @@ export function sendSettings(
   ctx: Context,
 ): Outcome {
   const message = settingsMessage(entry.config, slice.site);
-  return sealToGateway(ctx, entry, message, session.binding).andThen((sealed) => {
+  return sealToGateway(ctx, entry, message, session.binding, slice.keys).andThen((sealed) => {
     const { slice: refd, ref } = ownRef(withGateway(slice, sealed.entry));
     const send: Effect = {
       kind: "send",
@@ -126,6 +127,7 @@ export function acceptedMessage(
   kind: LinkKind,
   record: Accepted["record"],
   counter: number,
+  startedImage?: StartedImage,
 ): Internal {
   return {
     kind: "accepted",
@@ -136,6 +138,8 @@ export function acceptedMessage(
     arrival: kind === "usb" ? { path: "usb", link } : { path: "wifi", link },
     record,
     newest: true,
+    // A Started's M3 fields, for firmware (m3-updates-design section 5), as intake gives a device's.
+    ...(startedImage === undefined ? {} : { startedImage }),
   };
 }
 
@@ -178,7 +182,7 @@ export function handleHello(
     candidates: [...entry.candidates.filter((c) => c.link !== link), session],
   };
   const welcome = { type: MessageType.Welcome, hubRandom } as const;
-  return sealToGateway(ctx, heard, welcome, welcomeBinding).andThen((sealed) => {
+  return sealToGateway(ctx, heard, welcome, welcomeBinding, slice.keys).andThen((sealed) => {
     const { slice: refd, ref } = ownRef(withGateway(slice, sealed.entry));
     const timed = setTimer(refd, {
       at: monoAfterMs(

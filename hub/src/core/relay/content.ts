@@ -5,14 +5,17 @@
  *
  * - `n`: the notification's fields as `notify` raised them (its `NotificationObject` without
  *   `read` and `delayed`).
- * - `delayed`: sent more than `HubRules.notify.delayedAfterMs` (60 s ‡) after it was raised.
+ * - `delayed`: sent more than `HubRules.notify.delayedAfterMs` (60 s ‡) after the event happened:
+ *   `endedAtMs`, else `openedAtMs`, else the notification's raise time (D102).
  * - `names`: only `device` (the device the notification names) and `mode` (a mode switched to).
  *   These are the only household-typed names a push carries, and only here, sealed for one phone:
  *   never in `detail`, `kind` or the roster's two alerts, which carry no name at all. A device
  *   name is put only when the recipient may view that device now; a name over 64 characters, which
  *   the schema would refuse, is left out.
  * - `detail`: numbers only, the values a kind's text needs: `seconds` for `countdown_started` (the
- *   countdown's whole seconds), `openedAtMs` for `late_report_notification` (when the door opened).
+ *   countdown's whole seconds), `openedAtMs` for `late_report_notification` (when the door opened),
+ *   `endedAtMs` for `late_report_sirens` and for an `alarm` raised late at a start (when the
+ *   countdown ended); wall milliseconds.
  * - `actions`: `disarm` on a countdown or an alarm when the recipient may manage its sensor (D76);
  *   a presence offer's one action (`PRESENCE_OFFERS`): `armAway`, or `disarm` when the recipient
  *   may manage a sensor that is armed. At most one.
@@ -141,16 +144,34 @@ function namesFor(view: HubState, notice: Notice, cause: CauseFacts | undefined)
   };
 }
 
-function detailFor(cause: CauseFacts | undefined): Detail | undefined {
-  if (cause === undefined || cause.value === null) return undefined;
+/**
+ * When the event behind a push happened, when its decision says (D102): `endedAtMs` for a late
+ * report's sirens and an alarm raised late at a start (when the countdown ended), `openedAtMs` for
+ * a report so late only a notification is left (when the door opened).
+ */
+function eventTimes(cause: CauseFacts | undefined): {
+  readonly endedAtMs?: number;
+  readonly openedAtMs?: number;
+} {
+  if (cause === undefined) return {};
   switch (cause.kind) {
-    case "countdown_started":
-      return { seconds: cause.value };
+    case "late_report_sirens":
+    case "alarm":
+      return cause.at === null ? {} : { endedAtMs: cause.at };
     case "late_report_notification":
-      return { openedAtMs: cause.value * 1000 };
+      return cause.value === null ? {} : { openedAtMs: cause.value * 1000 };
+    case "countdown_started":
     case "mode_switched":
-      return undefined;
+      return {};
   }
+}
+
+function detailFor(cause: CauseFacts | undefined): Detail | undefined {
+  if (cause?.kind === "countdown_started") {
+    return cause.value === null ? undefined : { seconds: cause.value };
+  }
+  const times = eventTimes(cause);
+  return Object.keys(times).length === 0 ? undefined : times;
 }
 
 function actionsFor(view: HubState, person: PersonId, notice: Notice): readonly PushAction[] {
@@ -162,6 +183,12 @@ function actionsFor(view: HubState, person: PersonId, notice: Notice): readonly 
   }
   if (!DISARM_CATEGORIES.has(notice.category) || notice.device === null) return [];
   return personMayManageDevice(view, person, deviceId(notice.device)) ? ["disarm"] : [];
+}
+
+/** When the event happened (D102): the decision's own time, else the notification's raise time. */
+function eventAt(notice: Notice, cause: CauseFacts | undefined): number {
+  const times = eventTimes(cause);
+  return times.endedAtMs ?? times.openedAtMs ?? notice.atMs;
 }
 
 export type Built =
@@ -198,7 +225,7 @@ export function pushFor(
     v: 1 as const,
     hub,
     n: notice,
-    delayed: now.wall - notice.atMs > deps.rules.notify.delayedAfterMs,
+    delayed: now.wall - eventAt(notice, pending.cause) > deps.rules.notify.delayedAfterMs,
     actions: actionsFor(view, person, notice),
     armed: pending.row.armed === 1,
   };

@@ -6,6 +6,7 @@
  * Rejections are not kept here: each is a `rejected` message, counted per minute by audit.
  */
 import type { ReplayWindow } from "@hsn/protocol";
+import type { KeyUsed } from "../model/cipher.ts";
 import { type BootId, bootId, type DeviceId } from "../model/ids.ts";
 import type { Mono } from "../model/time.ts";
 import type { TimerOf } from "../model/timers.ts";
@@ -49,12 +50,27 @@ export interface HeardCopy {
   readonly at: Mono;
 }
 
+/**
+ * A device whose key change after a restore is not finished (D141, `device_keys.rekey`), as intake
+ * opens its packets: whether both its keys were held at the backup, and which key the newest
+ * packet under a key held at the backup opened under (`oldKeyPacket`), for the module that owns
+ * the device's key, which answers it.
+ */
+export interface Rekeying {
+  readonly bothHeld: boolean;
+  readonly lastKey: KeyUsed | undefined;
+}
+
 export interface IntakeSlice {
   readonly timers: readonly TimerOf<"intake">[];
   readonly boot: BootId;
   readonly byAddress: ReadonlyMap<number, DeviceId>;
   readonly devices: ReadonlyMap<DeviceId, KnownDevice>;
   readonly copies: ReadonlyMap<DeviceId, readonly HeardCopy[]>;
+  /** Devices whose key change is not finished, from the boot snapshot (memory, section 5). */
+  readonly rekey: ReadonlyMap<DeviceId, Rekeying>;
+  /** Devices switched to their new key in this run: the old key is refused (D141). */
+  readonly switched: ReadonlySet<DeviceId>;
 }
 
 /** The slice before the boot event. */
@@ -64,4 +80,6 @@ export const EMPTY_INTAKE_SLICE: IntakeSlice = {
   byAddress: new Map(),
   devices: new Map(),
   copies: new Map(),
+  rekey: new Map(),
+  switched: new Set(),
 };

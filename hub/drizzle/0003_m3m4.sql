@@ -1,6 +1,7 @@
 CREATE TABLE `device_updates` (
 	`device_id` integer PRIMARY KEY NOT NULL,
 	`rollout_id` integer,
+	`same_version` integer DEFAULT 0 NOT NULL,
 	`state` integer NOT NULL,
 	`method` integer NOT NULL,
 	`held` integer NOT NULL,

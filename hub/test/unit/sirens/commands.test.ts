@@ -4,9 +4,18 @@
  * and "Hub restart"; D52, D73, D80, D95, D111, D115, SR4, SR5).
  */
 import { describe, expect, test } from "bun:test";
-import { MessageType, SirenAction, SirenState } from "@hsn/protocol";
-import { deviceId, linkId, requestId, sendRef, seq } from "../../../src/core/model/ids.ts";
-import type { Internal } from "../../../src/core/model/messages.ts";
+import { MessageType, Role, SirenAction, SirenState } from "@hsn/protocol";
+import { EMPTY_M3M4_SNAPSHOT } from "../../../src/core/model/events.ts";
+import {
+  deviceId,
+  linkId,
+  requestId,
+  rolloutId,
+  sendRef,
+  seq,
+} from "../../../src/core/model/ids.ts";
+import type { Arrival, Internal } from "../../../src/core/model/messages.ts";
+import { DeviceUpdateState, UpdateHeld, UpdateMethod } from "../../../src/core/model/rows.ts";
 import { mono } from "../../../src/core/model/time.ts";
 import {
   decisionsIn,
@@ -327,6 +336,100 @@ describe("report now after a start (§7 'Hub restart', D80)", () => {
         "siren_command",
       ),
     ).toEqual([]);
+  });
+});
+
+/** A real Started carries image flags separately from the original eight-byte message. */
+function started(onTrial: boolean, arrival: Arrival = { path: "wifi", link: WIFI }): Internal {
+  return {
+    kind: "accepted",
+    device: SIREN,
+    role: Role.Siren,
+    counter: 5001,
+    message: {
+      type: MessageType.Started,
+      role: Role.Siren,
+      firmwareVersion: { major: 2, minor: 0, patch: 0 },
+      settingsVersion: 3,
+      resetCause: 3,
+      lastFatalError: 0,
+    },
+    startedImage: {
+      flags: { onTrial, rolledBack: false },
+      failedVersion: { major: 0, minor: 0, patch: 0 },
+    },
+    arrival,
+    record: seq(1001),
+    newest: true,
+  };
+}
+
+describe("report now for a trial siren (D134)", () => {
+  test("a confirmed Started needs no nudge, while a trial Started sends the same command on both paths", () => {
+    expect(decisionsIn(hub().send(started(false)), "siren_command")).toEqual([]);
+    const out = hub().send(started(true));
+    expect(decisionsIn(out, "siren_command").map(commandOf)).toEqual([[SirenAction.ReportNow, 0]]);
+    expect(sendsIn(out).map((sent) => sent.link)).toEqual([WIFI]);
+    expect(radiosIn(out).map((sent) => sent.gateway)).toEqual([GATEWAY]);
+    expect(radiosIn(out)[0]?.packet).toEqual(sendsIn(out)[0]?.bytes);
+  });
+
+  test("a pending command keeps its counter and an unrelated report cannot clear the nudge", () => {
+    const d = hub();
+    const counter = (counterOf(d.send(off)) ?? 0) & 0xffff;
+    expect(decisionsIn(d.send(started(true)), "siren_command")).toEqual([]);
+    expect(decisionsIn(d.send(report({ last: counter + 1 })), "siren_command")).toEqual([]);
+    const out = d.send(report({ last: counter }));
+    expect(decisionsIn(out, "siren_command").map(commandOf)).toEqual([[SirenAction.ReportNow, 0]]);
+    const nudged = (counterOf(out) ?? 0) & 0xffff;
+    expect(decisionsIn(d.send(report({ last: nudged })), "siren_command")).toEqual([]);
+  });
+
+  test("a trial with no usable route waits for a gateway before taking a command counter", () => {
+    const d = new Direct();
+    d.boot(sirenSnapshot());
+    d.forgoReportNow();
+    const waiting = d.send(started(true, loraArrival(d.at)));
+    expect(decisionsIn(waiting, "siren_command")).toEqual([]);
+    expect(d.state.sirens.sirens.get(SIREN)?.inFlight).toBeUndefined();
+    const routed = d.send({ kind: "gatewayUp", gateway: GATEWAY, link: linkId(94) });
+    expect(decisionsIn(routed, "siren_command").map(commandOf)).toEqual([
+      [SirenAction.ReportNow, 0],
+    ]);
+    expect(radiosIn(routed).map((sent) => sent.gateway)).toEqual([GATEWAY]);
+  });
+
+  test("a restart remembers the trial even if the boot report window expires before the link returns", () => {
+    const d = new Direct();
+    d.boot({
+      ...sirenSnapshot(),
+      m3m4: {
+        ...EMPTY_M3M4_SNAPSHOT,
+        deviceUpdates: [
+          {
+            deviceId: SIREN,
+            rolloutId: rolloutId(1),
+            state: DeviceUpdateState.OnTrial,
+            method: UpdateMethod.OwnLink,
+            held: UpdateHeld.No,
+            bytes: 0,
+            attempts: 0,
+            sameVersion: false,
+            lastReason: null,
+            sinceMs: 0,
+            bleNonce: null,
+            bleExpiresMs: null,
+            remindedMs: null,
+          },
+        ],
+      },
+    });
+    d.advanceTo(120 * SECOND);
+    const out = d.send(report({ version: 3 }));
+    expect(decisionsIn(out, "siren_command").map(commandOf)).toEqual([[SirenAction.ReportNow, 0]]);
+    expect(sendsIn(out).map((sent) => sent.link)).toEqual([WIFI]);
+    expect(radiosIn(out)).toEqual([]);
+    expect(d.state.sirens.timers.every(({ at }) => at > d.at)).toBe(true);
   });
 });
 

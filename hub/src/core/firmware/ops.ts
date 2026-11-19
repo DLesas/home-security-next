@@ -289,6 +289,7 @@ function rolloutStart(
     const fresh: DeviceUpdateRow = {
       deviceId: device,
       rolloutId: id,
+      sameVersion: deviceById(ctx.view, device)?.firmware === image.version,
       state: DeviceUpdateState.Planned,
       method: role === Role.Sensor ? UpdateMethod.JoinWifi : UpdateMethod.OwnLink,
       held: UpdateHeld.No,

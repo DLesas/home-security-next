@@ -306,6 +306,8 @@ export const commandResult = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("consoleTokenWait"), used: z.boolean() }).readonly(),
   /** A file chunk taken by the shell (m2-design.md section 6). */
   z.object({ kind: z.literal("fileChunk") }).readonly(),
+  /** The lockstep hub's `benchRestore`: the restored database is ready for the next start. */
+  z.object({ kind: z.literal("benchRestore") }).readonly(),
 ]);
 
 /** Why a command failed. */

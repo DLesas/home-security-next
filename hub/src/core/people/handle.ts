@@ -61,6 +61,13 @@ const handleOne: Handler<"people"> = (slice, message, ctx) => {
         out: [...sent.out, ...handled.out],
       }));
     }
+    // A version 2 row for another module (docs/m3-m4-plan.md): its change's `seq` is written now
+    // and its reply held as pending, exactly as for an `opRequest` (section 5: every change one
+    // effect), and a phone's `backup.keyHeld` is noted (A8).
+    case "v2OpRequest": {
+      const sent = changeSentTo(keyAsked(slice, message), message.answerTo);
+      return ok({ slice: sent.slice, out: sent.out });
+    }
     case "opAnswer": {
       const held = keyAnswered(slice, message.answerTo, message.outcome);
       const answered = changeAnswered(

@@ -103,6 +103,18 @@ describe("migration 3 on an M2 database (the joint step 0)", () => {
     store.db.close();
   });
 
+  test("a device update defaults to a different-version rollout", () => {
+    const store = openTestStore(m2Database(), new TestClock());
+    const db = store.db;
+    db.run(`INSERT INTO device_updates (device_id, state, method, held, bytes, attempts, since_ms)
+      VALUES (1, 0, 0, 0, 0, 2, 0)`);
+    expect(db.query("SELECT same_version, attempts FROM device_updates").get()).toEqual({
+      same_version: 0,
+      attempts: 2,
+    });
+    store.db.close();
+  });
+
   test("an outbox row keeps whether a sensor was armed and the decision facts, or none", () => {
     const store = openTestStore(m2Database(), new TestClock());
     const db = store.db;

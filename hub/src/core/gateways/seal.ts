@@ -8,7 +8,9 @@ import { err, type Result } from "neverthrow";
 import { Direction, MaxPacketLength, type Message, takeSendCounter } from "@hsn/protocol";
 import type { Effect } from "../model/effects.ts";
 import type { CoreFault } from "../model/errors.ts";
+import type { KeyUsed } from "../model/cipher.ts";
 import type { Context } from "../model/handler.ts";
+import { failingCommitWrites, type KeyChanges, sealKeyOf } from "../intake/view.ts";
 import { asFault, fault } from "./common.ts";
 import type { GatewayEntry } from "./state.ts";
 
@@ -36,12 +38,18 @@ export function resumePointWrite(entry: GatewayEntry): Effect {
   };
 }
 
-/** Seals `message` to the gateway under `binding`, taking the next hub counter. */
+/**
+ * Seals `message` to the gateway under `binding`, taking the next hub counter, under the key `keys`
+ * names for it (D141: `next` once switched in this run), or `under` when given: a Key change's is
+ * the key the hello it answers came under.
+ */
 export function sealToGateway(
   ctx: Context,
   entry: GatewayEntry,
   message: Message,
   binding: Uint8Array,
+  keys: KeyChanges,
+  under: KeyUsed = sealKeyOf(keys, entry.device),
 ): Result<Sealed, CoreFault> {
   const taken = takeSendCounter(entry.counter);
   if (!taken.ok) {
@@ -56,12 +64,16 @@ export function sealToGateway(
       counter,
       binding,
       maxLength: MaxPacketLength.Link,
+      ...(under === "next" ? { key: under } : {}),
     })
     .mapErr((error) => asFault(ctx, error))
     .map((bytes) => ({
       bytes,
       counter,
       entry: next,
-      writes: saveResumePoint === undefined ? [] : [resumePointWrite(next)],
+      writes:
+        saveResumePoint === undefined
+          ? failingCommitWrites(keys, entry.device, state)
+          : [resumePointWrite(next)],
     }));
 }

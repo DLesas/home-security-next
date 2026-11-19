@@ -122,6 +122,10 @@ export interface HomeSpec {
   readonly calendar?: Calendar;
   /** The loop's file jobs (backups, exports, restores, updates); none when left out. */
   readonly files?: LoopPorts["files"];
+  /** The loop's relay client (m4-design.md section 4); none when left out. */
+  readonly relay?: LoopPorts["relay"];
+  /** The loop's stopwatch, for each turn's time; none (every turn 0 ms) when left out. */
+  readonly stopwatch?: LoopPorts["stopwatch"];
 }
 
 /** Section 5's home A: 10 sensors, 4 sirens; one gateway. */
@@ -590,6 +594,8 @@ export class Home {
           },
         },
         ...(this.spec.files === undefined ? {} : { files: this.spec.files }),
+        ...(this.spec.relay === undefined ? {} : { relay: this.spec.relay }),
+        ...(this.spec.stopwatch === undefined ? {} : { stopwatch: this.spec.stopwatch }),
       },
     );
     this.onOpen?.(store);

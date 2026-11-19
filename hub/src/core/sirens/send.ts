@@ -22,6 +22,7 @@ import type { Context } from "../model/handler.ts";
 import { type DeviceId, type LinkId, type Seq, type SendRef, moduleSendRef } from "../model/ids.ts";
 import type { Internal } from "../model/messages.ts";
 import { deviceById } from "../registry/view.ts";
+import { failingCommitWrites, sealKeyOf } from "../intake/view.ts";
 import { PacketPath, TxOutcome } from "../model/rows.ts";
 import type { Mono } from "../model/time.ts";
 import { safeEncodeMessage } from "../util/protocol-safe.ts";
@@ -110,7 +111,7 @@ interface Paths {
 }
 
 /** The slice's next reference and the entry kept for the packet's `tx` row. */
-function remember(
+export function remember(
   slice: SirensSlice,
   packet: SentPacket,
 ): { readonly slice: SirensSlice; readonly ref: SendRef } {
@@ -254,6 +255,8 @@ export function issue(
           counter: taken.counter,
           binding: NO_BINDING,
           maxLength: MaxPacketLength.Radio,
+          // After the siren's switch to its new key in this run, its new key (D141).
+          ...(sealKeyOf(slice.keys, siren) === "next" ? { key: "next" as const } : {}),
         })
         .andThen((sealed) => safeEncodeMessage(message).map((plain) => ({ sealed, plain })))
         .mapErr((error) => fault(ctx, error))
@@ -289,7 +292,7 @@ export function issue(
       };
       const saved: Out =
         taken.saveResumePoint === undefined
-          ? []
+          ? failingCommitWrites(slice.keys, siren, taken.state)
           : [
               writeNow({
                 table: "send_counters",

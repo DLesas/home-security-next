@@ -52,4 +52,9 @@ export type RejectReason =
    * A frame on a link the hub had closed. Only in lockstep, whose controller is not told of the
    * hub's closes (section 11) and may go on sending: such a frame is counted, never lost.
    */
-  | "closedLink";
+  | "closedLink"
+  /**
+   * A firmware transfer frame (0xF2) that reached the core: no grant covers its link, so the shell
+   * did not serve it (docs/m3-updates-design.md section 4, `links`).
+   */
+  | "transferNotGranted";

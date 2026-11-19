@@ -331,6 +331,7 @@ describe("hub events for upkeep's backup decisions, and a session ended by liven
       client: ANNA_LAPTOP,
       id: 3,
       seq: 5,
+      proto: 1 as const,
     });
     hub.state = {
       ...hub.state,

@@ -4,6 +4,8 @@
  *
  * - `backupKeyOf`: the key and its epoch, which `people` gives a phone in its `LinkResult` (from
  *   M3, D78, D99). It never enters a record or an event.
+ * - `backupKeyEpoch`: the current epoch alone, for a phone's snapshot (m3-design section 4).
+ * - `hubReleaseOffer`: the hub release a relay offers now (m4-design section 6).
  * - `switchBlockedBy`: what holds an update's switch back now, which the shell checks again after
  *   the commit of the step that asked for it (`update.ts`).
  * - `backupSummary`, `updateSummary`: for `hsn status` and the app's `hub` event.
@@ -24,6 +26,24 @@ export function upkeepSlice(view: HubState): UpkeepSlice {
 /** The backup key and its epoch; undefined before the boot event made it. */
 export function backupKeyOf(view: HubState): BackupKeyRow | undefined {
   return view.upkeep.key;
+}
+
+/**
+ * The backup key's current epoch, for a phone's snapshot (`backupKeyEpoch`, m3-design section 4):
+ * a phone that holds an older one asks `backup.key`. Null before the boot event made the key.
+ */
+export function backupKeyEpoch(view: HubState): number | null {
+  return view.upkeep.key?.epoch ?? null;
+}
+
+/** The hub release the relay offers now, as `update.offers` gives it (m4-design section 6). */
+export function hubReleaseOffer(
+  view: HubState,
+): { readonly version: string; readonly bytes: number; readonly platform: string } | undefined {
+  const offer = view.upkeep.offer;
+  return offer === undefined
+    ? undefined
+    : { version: offer.version, bytes: offer.bytes, platform: offer.platform };
 }
 
 /** What would hold an update's switch back now, or undefined when it may go (D54, HB23). */

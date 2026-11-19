@@ -16,6 +16,7 @@ import type { FileWork, UploadRef } from "../../core/model/effects.ts";
 import type { FileOutcome } from "../../core/model/events.ts";
 import type { JobId } from "../../core/model/ids.ts";
 import type { HubRules } from "../../core/model/rules.ts";
+import { firmwareJob, isFirmwareWork } from "../firmware/jobs.ts";
 import { HUB_VERSION } from "../hub-facts.ts";
 import { requestSwitch } from "../update/notes.ts";
 import { PUBLISHER_KEYS } from "../update/publisher-keys.ts";
@@ -63,6 +64,8 @@ export type JobDone =
   | { readonly kind: "ready"; readonly outcome: FileOutcome }
   | {
       readonly kind: "stopAndRestart";
+      /** Which switch: what the relay is told before it (m4-design section 4, D96). */
+      readonly reason: "update" | "restore";
       /** Run after the clean stop closed the database: the file work that must wait for it. */
       readonly afterStop: () => Result<void, string>;
     };
@@ -124,14 +127,13 @@ export function startJob(job: JobId, work: FileWork, deps: JobDeps): JobStart {
       }),
     };
   }
-  // The joint step 0's file work (docs/m3-m4-plan.md) is built in step 1 (B6, U9): until then, failed.
-  if (
-    work.kind === "fetchRelease" ||
-    work.kind === "stageFirmware" ||
-    work.kind === "removeFirmware" ||
-    work.kind === "sendFirmware"
-  )
-    return ready({ kind: "failed", reason: "io", message: `${work.kind} is not built yet` });
+  // The firmware store's file work (U9, m3-updates-design section 4): `shell/firmware/jobs.ts`.
+  if (isFirmwareWork(work)) return firmwareJob(job, work, deps);
+  // A release fetched over the relay link is the relay client's (`shell/relay/releases.ts`, B6):
+  // `main.ts` gives it the job, and it stages the fetched file through here as `stageUpdate` or
+  // `stageFirmware`. Only a wiring without a relay client (a test's) reaches this: failed.
+  if (work.kind === "fetchRelease")
+    return ready({ kind: "failed", reason: "unreachable", message: "no relay client to fetch it" });
   if (work.kind !== "stageUpdate") return atOnce(work, deps);
   const path = deps.uploads.pathOf(work.upload);
   if (path === undefined) return noUpload(work.upload);
@@ -173,7 +175,11 @@ function atOnce(work: AtOnce, deps: JobDeps): JobDone {
       return path === undefined ? noUpload(work.upload) : ready(readRestoreHeader(path));
     }
     case "switchRestore":
-      return { kind: "stopAndRestart", afterStop: () => swapRestored(deps.dataDir) };
+      return {
+        kind: "stopAndRestart",
+        reason: "restore",
+        afterStop: () => swapRestored(deps.dataDir),
+      };
     case "switchUpdate": {
       // The migration's copy needs room: the database and 50 MB ‡ more (section 9, step 4).
       const room = (deps.room ?? (() => roomOf(deps.dataDir)))();
@@ -186,7 +192,7 @@ function atOnce(work: AtOnce, deps: JobDeps): JobDone {
       const asked = requestSwitch(deps.prefix, work.version, deps.switchBlockedBy());
       return asked.isErr()
         ? ready(asked.error)
-        : { kind: "stopAndRestart", afterStop: () => ok(undefined) };
+        : { kind: "stopAndRestart", reason: "update", afterStop: () => ok(undefined) };
     }
   }
 }

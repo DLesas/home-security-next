@@ -1,9 +1,11 @@
 /**
  * Which phone holds which backup key epoch (m2-design.md section 3: "now, when made, replaced or
- * given"; section 9; section 11, "Step 1, wave 2"): `people` writes `clients.backup_key_epoch` when
- * a phone is given the key, in its `LinkResult` (D78, D99) or when it fetches it with `backup.key`
- * (`upkeep`'s operation, answered `{key, epoch}`). Only the epoch is read from the answer; the key
- * never enters this slice, a row of people's or a record.
+ * given"; section 9; m3-design section 4, the fix of M2's fault): `people` writes
+ * `clients.backup_key_epoch` when a phone is given the key in its `LinkResult` (D78, D99), and when
+ * the phone confirms it has written a key with `backup.keyHeld {epoch}` (`upkeep`'s operation,
+ * which accepts only the current epoch and answers `{}`). Answering `backup.key` records nothing,
+ * so a phone that lost that reply is never taken to hold a key it does not have. The key never
+ * enters this slice, a row of people's or a record.
  */
 import type { Effect } from "../model/effects.ts";
 import type { ClientId } from "../model/ids.ts";
@@ -13,26 +15,21 @@ import { withClient } from "./ops.ts";
 import { writeNow } from "./records.ts";
 import type { PeopleSlice } from "./state.ts";
 
-type OpRequest = Extract<Internal, { readonly kind: "opRequest" }>;
+/** An operation for its owner, as `app` sends it (version 2's rows may come as `v2OpRequest`). */
+type OpRequest = Extract<Internal, { readonly kind: "opRequest" | "v2OpRequest" }>;
 
 function keyOf(answerTo: AnswerTo): string | undefined {
   return answerTo.kind === "app" ? `${answerTo.conn}:${answerTo.id}` : undefined;
 }
 
-/** A phone's `backup.key` on its way to `upkeep`: noted, so its answer's epoch can be kept. */
+/** A phone's `backup.keyHeld` on its way to `upkeep`: noted with its epoch, for the answer. */
 export function keyAsked(slice: PeopleSlice, request: OpRequest): PeopleSlice {
   const key = keyOf(request.answerTo);
-  if (request.op.op !== "backup.key" || key === undefined || request.answerTo.kind !== "app")
+  if (request.op.op !== "backup.keyHeld" || key === undefined || request.answerTo.kind !== "app")
     return slice;
   const keyAsks = new Map(slice.keyAsks);
-  keyAsks.set(key, request.answerTo.client);
+  keyAsks.set(key, { client: request.answerTo.client, epoch: request.op.body.epoch });
   return { ...slice, keyAsks };
-}
-
-function epochOf(outcome: OpOutcome): number | undefined {
-  if (!outcome.ok || typeof outcome.body !== "object" || outcome.body === null) return undefined;
-  const epoch: unknown = (outcome.body as { readonly epoch?: unknown }).epoch;
-  return typeof epoch === "number" && Number.isInteger(epoch) && epoch >= 0 ? epoch : undefined;
 }
 
 /** A client now holds `epoch`: its row, written now. */
@@ -50,18 +47,17 @@ export function holdsEpoch(
   };
 }
 
-/** `backup.key`'s answer: on success, the phone holds its epoch. */
+/** `backup.keyHeld`'s answer: accepted, the phone holds the epoch it named; refused, nothing. */
 export function keyAnswered(
   slice: PeopleSlice,
   answerTo: AnswerTo,
   outcome: OpOutcome,
 ): { readonly slice: PeopleSlice; readonly out: readonly Effect[] } {
   const key = keyOf(answerTo);
-  const client = key === undefined ? undefined : slice.keyAsks.get(key);
-  if (key === undefined || client === undefined) return { slice, out: [] };
+  const asked = key === undefined ? undefined : slice.keyAsks.get(key);
+  if (key === undefined || asked === undefined) return { slice, out: [] };
   const keyAsks = new Map(slice.keyAsks);
   keyAsks.delete(key);
   const next = { ...slice, keyAsks };
-  const epoch = epochOf(outcome);
-  return epoch === undefined ? { slice: next, out: [] } : holdsEpoch(next, client, epoch);
+  return outcome.ok ? holdsEpoch(next, asked.client, asked.epoch) : { slice: next, out: [] };
 }

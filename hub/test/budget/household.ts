@@ -10,7 +10,14 @@
  * turn after the commit that started them.
  */
 import { dirname, join } from "node:path";
-import { APP_OPS, type AppMessage, type AppOp, type AppReply, TOPICS } from "@hsn/protocol/app";
+import {
+  APP_OPS,
+  type AppMessage,
+  type AppMessageV2,
+  type AppOp,
+  type AppReply,
+  TOPICS,
+} from "@hsn/protocol/app";
 import { ok } from "neverthrow";
 import type { Effect } from "../../src/core/model/effects.ts";
 import { type ClientId, clientId, type ConnId, connId } from "../../src/core/model/ids.ts";
@@ -258,6 +265,6 @@ export class Household {
   }
 }
 
-function isReply(message: AppMessage): message is AppReply {
+function isReply(message: AppMessage | AppMessageV2): message is AppReply {
   return "t" in message && message.t === "res";
 }

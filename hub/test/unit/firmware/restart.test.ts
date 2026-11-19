@@ -7,12 +7,14 @@
  * again once confirmed, never a second go-ahead recorded.
  */
 import { describe, expect, test } from "bun:test";
-import { UpdateStage } from "@hsn/protocol";
+import { UpdateAction, UpdateHolding, UpdateStage } from "@hsn/protocol";
 import type { Effect } from "../../../src/core/model/effects.ts";
 import type { M3M4Snapshot } from "../../../src/core/model/events.ts";
 import { deviceId, linkId, rolloutId } from "../../../src/core/model/ids.ts";
 import type { Internal } from "../../../src/core/model/messages.ts";
+import { mono } from "../../../src/core/model/time.ts";
 import {
+  ArmState,
   type DeviceUpdateRow,
   DeviceUpdateState,
   type FirmwareImageRow,
@@ -22,6 +24,7 @@ import {
 import { EMPTY_FIRMWARE_SLICE } from "../../../src/core/firmware/state.ts";
 import {
   CONFIRMED_IMAGE,
+  decisions,
   fileBytes,
   G1,
   G2,
@@ -29,9 +32,13 @@ import {
   HOUR_US,
   imageRow,
   linkAll,
+  LORA,
   NEW_VERSION,
+  OLD_VERSION,
   ON_TRIAL,
+  offerTo,
   openRow,
+  rowOf,
   R1,
   R2,
   Runner,
@@ -102,11 +109,11 @@ interface Committed {
 }
 
 /** What a power cut now leaves on disk: every write up to the last "now" one. */
-function committed(all: readonly (Internal | Effect)[]): Committed {
+function committed(all: readonly (Internal | Effect)[], initial = image): Committed {
   const writes = all.filter((e): e is Extract<Effect, { kind: "write" }> => e.kind === "write");
   const last = writes.map((w) => w.durability).lastIndexOf("now");
   const rows: Committed = {
-    images: new Map([[image.id, image]]),
+    images: new Map([[initial.id, initial]]),
     rollouts: new Map(),
     updates: new Map(),
   };
@@ -153,6 +160,95 @@ function fresh(): Runner {
 }
 
 describe("a restart at every point of a rollout", () => {
+  test.each(["query", "status"])(
+    "a restored go-ahead waits for a fresh verified LoRa %s",
+    (kind) => {
+      const before = fresh();
+      before.op({ op: "rollout.start", body: { image: image.id, pilots: [S1] } });
+      before.query(S1);
+      const verified = before.status(S1, image.imageId, UpdateStage.Verified);
+      expect(offerTo(verified, S1)?.offer.action).toBe(UpdateAction.InstallNow);
+      const after = new Runner({ ...before.view, firmware: EMPTY_FIRMWARE_SLICE });
+      after.now = before.now;
+      after.boot(siteSnapshot(snapshotOf(committed(before.all))));
+      /** The sensor still holds the file and asks again over LoRa. */
+      const report = (bytes: number) => {
+        const arrival = { ...LORA, endedAt: after.now.mono };
+        return kind === "query"
+          ? after.query(S1, { image: image.imageId, held: UpdateHolding.Verified, bytes }, arrival)
+          : after.status(S1, image.imageId, UpdateStage.Verified, 0, bytes, arrival);
+      };
+      const listenUs = Math.max(...after.rules.replies.eventListenMs) * 1000;
+      after.run(listenUs);
+      expect(offerTo(report(fileBytes(image)), S1)?.offer.action).toBe(UpdateAction.KeepAndWait);
+      after.run(1);
+      expect(offerTo(report(fileBytes(image) - 1), S1)?.offer.action).toBe(
+        UpdateAction.KeepAndWait,
+      );
+      expect(after.slice.updates.get(S1)?.row.state).toBe(DeviceUpdateState.Installing);
+      expect(offerTo(report(fileBytes(image)), S1)?.offer.action).toBe(UpdateAction.InstallNow);
+      expect(after.slice.updates.get(S1)?.row.state).toBe(DeviceUpdateState.Installing);
+      expect(offerTo(report(fileBytes(image)), S1)?.offer.action).toBe(UpdateAction.KeepAndWait);
+    },
+  );
+
+  test.each([-1, 0, 1])("a soak booted %i ms from expiry settles only if due", (offset) => {
+    const before = fresh();
+    for (const step of SCRIPT) {
+      step(before);
+      if (openRow(before)?.stage === RolloutStage.Soak) break;
+    }
+    expect(openRow(before)?.stage).toBe(RolloutStage.Soak);
+    const after = new Runner({ ...before.view, firmware: EMPTY_FIRMWARE_SLICE });
+    after.now = before.now;
+    after.advance(HOUR_US + offset * 1000);
+    after.boot(siteSnapshot(snapshotOf(committed(before.all))));
+    expect(openRow(after)?.stage).toBe(offset < 0 ? RolloutStage.Soak : RolloutStage.Rest);
+    const soak = after.slice.timers.find(({ key }) => key.kind === "soakEnd");
+    expect(soak?.at).toBe(offset < 0 ? mono(after.now.mono + 1000) : undefined);
+    expect(after.slice.timers.every(({ at }) => at > after.now.mono)).toBe(true);
+  });
+
+  test("an armed reminder due at restart is recorded in the boot step and rearmed for tomorrow", () => {
+    const before = fresh();
+    before.arm(S1);
+    before.op({ op: "rollout.start", body: { image: image.id, pilots: [S1] } });
+    before.send({ kind: "armedChanged", sensor: S1, arm: ArmState.Armed, cause: undefined });
+    before.run(before.rules.firmware.armedReminderAfterMs * 1000);
+    const after = new Runner({ ...before.view, firmware: EMPTY_FIRMWARE_SLICE });
+    after.now = before.now;
+    const daily = after.rules.firmware.armedReminderEveryMs * 1000;
+    after.advance(daily);
+    const restored = after.boot(siteSnapshot(snapshotOf(committed(before.all))));
+    expect(decisions(restored).filter(({ kind }) => kind === "firmware_reminder")).toHaveLength(1);
+    expect(after.slice.timers.find(({ key }) => key.kind === "armedReminder")?.at).toBe(
+      mono(after.now.mono + daily),
+    );
+  });
+
+  test("after a hub restart, only matching status confirms a same-version rollout", () => {
+    const rebuild = imageRow(1, OLD_VERSION);
+    const snapshot = siteSnapshot({ firmwareImages: [rebuild] });
+    const before = new Runner(bootedView(snapshot));
+    before.boot(snapshot);
+    before.hearAll();
+    before.op({ op: "rollout.start", body: { image: rebuild.id, devices: [S1] } });
+    before.query(S1);
+    before.query(S1, {}, wifi(501));
+    before.status(S1, rebuild.imageId, UpdateStage.Verified);
+    expect(rowOf(before, S1)?.state).toBe(DeviceUpdateState.Installing);
+    const stored = committed(before.all, rebuild);
+    expect(stored.updates.get(S1)).toMatchObject({ sameVersion: true, attempts: 0 });
+    const after = new Runner({ ...before.view, firmware: EMPTY_FIRMWARE_SLICE });
+    after.now = before.now;
+    after.boot(siteSnapshot(snapshotOf(stored)));
+    expect(rowOf(after, S1)).toMatchObject({ sameVersion: true, attempts: 0 });
+    after.started(S1, OLD_VERSION, CONFIRMED_IMAGE);
+    expect(rowOf(after, S1)?.state).toBe(DeviceUpdateState.Installing);
+    after.status(S1, rebuild.imageId, UpdateStage.Confirmed);
+    expect(rowOf(after, S1)?.state).toBe(DeviceUpdateState.Confirmed);
+  });
+
   test("without one, the script takes the rollout to done", () => {
     const runner = fresh();
     for (const step of SCRIPT) step(runner);

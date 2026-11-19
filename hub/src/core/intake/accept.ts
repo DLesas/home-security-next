@@ -13,18 +13,32 @@
  *   not travel to the hub) is still entered in the window, so each replay of it is refused
  *   without being opened and logged again (section 13's last flaw of the test hub; section 8 for
  *   unknown types).
+ *
+ * During a key change after a restore (D141, m3-updates-design section 7) the key a packet opened
+ * under decides, after the path check and before the window:
+ * - a device marked `Required`: under its next key, the switch: the window starts again, empty,
+ *   and the packet is checked against it as any other; under its current key, a key held at the
+ *   backup: `oldKey`, never entered in the window and never acted on;
+ * - a device marked `BothHeld`: under either key, `oldKey`;
+ * - a device switched in this run: under its new key (which the cipher names `next` for the rest of
+ *   the run), as usual; under the current key, which is then the old one, `badTag`, as from a
+ *   stranger;
+ * - during a change, an authentic packet that does not decode is counted and nothing more: which
+ *   key opened it is not known, so it is not entered in a window.
  */
 import { ok, type Result } from "neverthrow";
 import {
   Direction,
+  EMPTY_REPLAY_WINDOW,
   MaxPacketLength,
   type Message,
   NO_BINDING,
   type ProtocolError,
   readPacketHeader,
   type ReplayWindow,
+  type StartedImage,
 } from "@hsn/protocol";
-import type { DeviceCipher } from "../model/cipher.ts";
+import type { DeviceCipher, KeyUsed } from "../model/cipher.ts";
 import type { HubError, RejectReason } from "../model/errors.ts";
 import type { DeviceId } from "../model/ids.ts";
 import type { Arrival } from "../model/messages.ts";
@@ -60,12 +74,37 @@ export type Verdict =
       readonly window: ReplayWindow;
       /** Its counter is above every one accepted before: readings follow it (section 8). */
       readonly newest: boolean;
+      /** The first packet under the device's new key after a restore: it switches the device. */
+      readonly switched: boolean;
+      /** A Started's M3 fields, as the cipher read them (`OpenedPacket.startedImage`). */
+      readonly startedImage: StartedImage | undefined;
+    }
+  /** Authentic under a key held at the backup (D141): never entered in the window, never acted on. */
+  | {
+      readonly kind: "oldKey";
+      readonly device: DeviceId;
+      readonly address: number;
+      readonly counter: number;
+      readonly message: Message;
+      readonly keyUsed: KeyUsed;
     };
+
+/** Where a device is in a key change after a restore (`device_keys.rekey`, D141). */
+export type KeyState =
+  /** No change: its packets open under its key, as before M3. */
+  | "none"
+  /** `Rekey.Required`: its key was held at the backup; its next key, made since, switches it. */
+  | "required"
+  /** `Rekey.BothHeld`: both its keys were held at the backup. */
+  | "bothHeld"
+  /** Switched in this run: its new key opens as `next` until the hub restarts. */
+  | "switched";
 
 /** What the checks read of the intake's state. */
 export interface KnownWindows {
   readonly deviceAt: (address: number) => DeviceId | undefined;
   readonly windowOf: (device: DeviceId) => ReplayWindow;
+  readonly keyStateOf: (device: DeviceId) => KeyState;
 }
 
 /** The size limit a path allows (§3): a radio packet through a gateway, 1,024 bytes on a link. */
@@ -110,10 +149,12 @@ export function checkPacket(
 
   const opened = cipher.open(device, bytes, { binding: NO_BINDING, maxLength });
   const window = known.windowOf(device);
+  const state = known.keyStateOf(device);
   if (opened.isErr()) {
     const { error, plaintext } = opened.error;
     // The header passed above, so any error but the tag's comes after the tag verified.
     if (error.code === "badTag") return ok(rejected("badTag", address));
+    if (state !== "none") return ok(rejected(error.code, address));
     return windowCheck(window, counter).map((check): Verdict =>
       check.accepted
         ? {
@@ -128,9 +169,27 @@ export function checkPacket(
         : rejected(check.reason, address),
     );
   }
-  const message = opened.value.message;
+  const { message, startedImage } = opened.value;
+  const keyUsed: KeyUsed = opened.value.keyUsed ?? "current";
   if (!onItsPath(message.type, arrival.path)) return ok(rejected("wrongPath", address));
-  return windowCheck(window, counter).map((check): Verdict =>
+  const oldKey: Verdict = { kind: "oldKey", device, address, counter, message, keyUsed };
+  switch (state) {
+    case "bothHeld":
+      return ok(oldKey);
+    case "required":
+      if (keyUsed === "current") return ok(oldKey);
+      break;
+    case "switched":
+      // The key that was current is the old one now: its packets fail, as a stranger's (D141).
+      if (keyUsed === "current") return ok(rejected("badTag", address));
+      break;
+    case "none":
+      break;
+  }
+  const switched = state === "required";
+  // Counters start again under a new key (§4): the window starts again with it.
+  const from = switched ? EMPTY_REPLAY_WINDOW : window;
+  return windowCheck(from, counter).map((check): Verdict =>
     check.accepted
       ? {
           kind: "accepted",
@@ -139,7 +198,9 @@ export function checkPacket(
           counter,
           message,
           window: check.window,
-          newest: counter > window.highest,
+          newest: counter > from.highest,
+          switched,
+          startedImage,
         }
       : rejected(check.reason, address),
   );

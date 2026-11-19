@@ -6,6 +6,7 @@
  */
 import { describe, expect, test } from "bun:test";
 import { pushContent, type PushContent } from "@hsn/protocol/app";
+import { eventAtDetail } from "@hsn/protocol/records";
 import { PRESENCE_OFFER_KINDS, PRESENCE_OFFERS } from "../../../src/core/relay/content.ts";
 import { DEFAULT_RULES, type HubRules } from "../../../src/core/model/rules.ts";
 import { ArmState } from "../../../src/core/model/rows.ts";
@@ -15,6 +16,7 @@ import {
   ANNA_PHONE,
   BEN_PHONE,
   countdown,
+  DAY_US,
   DEVICE_NAMES,
   hubEvents,
   type Item,
@@ -382,7 +384,145 @@ describe("household-typed names only where the design puts them", () => {
   });
 });
 
-describe("timing", () => {
+describe("timing (D102): late is counted from when the event happened", () => {
+  const FIVE_HOURS_US = 5 * 3_600 * SECOND_US;
+
+  /** At a start, five hours after S1's countdown ended unseen: the alarm raised now, its time in detail. */
+  function lateAlarm(runner: Runner): number {
+    const endedAtMs = runner.now.wall - FIVE_HOURS_US / 1000;
+    const cause = runner.decision("alarm", null, S1, eventAtDetail(endedAtMs));
+    runner.raise({
+      kind: "alarm",
+      category: "alarm",
+      critical: true,
+      device: S1,
+      cause,
+      clients: [ANNA_PHONE],
+    });
+    return endedAtMs;
+  }
+
+  test("an alarm raised at a start for a countdown ended 5 hours before: delayed, with when it ended", () => {
+    const runner = relayRunner();
+    runner.advance(FIVE_HOURS_US);
+    runner.up();
+    const raisedAt = runner.now.wall;
+    const endedAtMs = lateAlarm(runner);
+    const content = byClient(pushes(runner.all)).get(ANNA_PHONE);
+    // Sent the moment it was raised, yet late: the event was five hours before.
+    expect(content?.n.atMs).toBe(raisedAt);
+    expect(content?.detail).toEqual({ endedAtMs });
+    expect(content?.delayed).toBe(true);
+    expect(pushContent.safeParse(content).success).toBe(true);
+  });
+
+  test("an alarm on time: no detail, not delayed", () => {
+    const runner = upRunner();
+    const cause = runner.decision("alarm", null, S1);
+    const sent = byClient(
+      runner.raise({
+        kind: "alarm",
+        category: "alarm",
+        critical: true,
+        device: S1,
+        cause,
+        clients: [ANNA_PHONE],
+      }).out,
+    );
+    expect(sent.get(ANNA_PHONE)?.detail).toBeUndefined();
+    expect(sent.get(ANNA_PHONE)?.delayed).toBe(false);
+  });
+
+  test("a late report's sirens: `endedAtMs` from the decision; delayed past 60 s ‡ from it, to the millisecond", () => {
+    for (const [agoMs, delayed] of [
+      [60_000, false],
+      [60_001, true],
+    ] as const) {
+      const runner = upRunner();
+      runner.advance(DAY_US);
+      const endedAtMs = runner.now.wall - agoMs;
+      const cause = runner.decision("late_report_sirens", 20, S1, eventAtDetail(endedAtMs));
+      const sent = byClient(
+        runner.raise({
+          kind: "late_report_sirens",
+          category: "alarm",
+          critical: true,
+          device: S1,
+          cause,
+          clients: [ANNA_PHONE],
+        }).out,
+      );
+      expect({
+        agoMs,
+        detail: sent.get(ANNA_PHONE)?.detail,
+        delayed: sent.get(ANNA_PHONE)?.delayed,
+      }).toEqual({
+        agoMs,
+        detail: { endedAtMs },
+        delayed,
+      });
+    }
+  });
+
+  test("a report so late only a notification is left: delayed from when the door opened", () => {
+    for (const [agoS, delayed] of [
+      [60, false],
+      [61, true],
+    ] as const) {
+      const runner = upRunner();
+      runner.advance(DAY_US);
+      const openedS = Math.floor(runner.now.wall / 1000) - agoS;
+      const cause = runner.decision("late_report_notification", openedS, S1);
+      const sent = byClient(
+        runner.raise({
+          kind: "late_report_notification",
+          category: "alarm",
+          critical: true,
+          device: S1,
+          cause,
+          clients: [ANNA_PHONE],
+        }).out,
+      );
+      expect(sent.get(ANNA_PHONE)?.detail).toEqual({ openedAtMs: openedS * 1000 });
+      expect({ agoS, delayed: sent.get(ANNA_PHONE)?.delayed }).toEqual({ agoS, delayed });
+    }
+  });
+
+  test("the event time counts even when the size rule left `detail` out", () => {
+    const runner = upRunner();
+    runner.advance(DAY_US);
+    const cause = runner.decision("alarm", null, S1, eventAtDetail(runner.now.wall - 3_600_000));
+    const full = byClient(
+      runner.raise({
+        kind: "alarm",
+        category: "alarm",
+        critical: true,
+        device: S1,
+        cause,
+        clients: [ANNA_PHONE],
+      }).out,
+    ).get(ANNA_PHONE);
+    const size = new TextEncoder().encode(JSON.stringify(full)).length;
+    const tight = upRunner({
+      ...DEFAULT_RULES,
+      relay: { ...DEFAULT_RULES.relay, contentMaxBytes: size - 1 },
+    });
+    tight.advance(DAY_US);
+    const again = tight.decision("alarm", null, S1, eventAtDetail(tight.now.wall - 3_600_000));
+    const content = byClient(
+      tight.raise({
+        kind: "alarm",
+        category: "alarm",
+        critical: true,
+        device: S1,
+        cause: again,
+        clients: [ANNA_PHONE],
+      }).out,
+    ).get(ANNA_PHONE);
+    expect(content?.detail).toBeUndefined();
+    expect(content?.delayed).toBe(true);
+  });
+
   test("a late push still says when it happened (`n.atMs`) and that it is late", () => {
     const runner = relayRunner();
     const raised = runner.raise(countdown([ANNA_PHONE], S1));

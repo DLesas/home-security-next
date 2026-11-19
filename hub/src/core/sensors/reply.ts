@@ -19,6 +19,7 @@ import {
 import type { PacketTable } from "../model/audit.ts";
 import type { Effect } from "../model/effects.ts";
 import type { CoreFault } from "../model/errors.ts";
+import type { KeyUsed } from "../model/cipher.ts";
 import type { Context } from "../model/handler.ts";
 import { type DeviceId, type Seq, moduleSendRef } from "../model/ids.ts";
 import type { Internal, RadioPurpose, RadioTiming } from "../model/messages.ts";
@@ -27,6 +28,13 @@ import { PACKAGE_SETTINGS_FIELDS, type SensorSettings } from "../model/settings.
 import { MICROS_PER_MILLISECOND, type Mono } from "../model/time.ts";
 import { fromProtocol, safeCounterBinding, safeEncodeMessage } from "../util/protocol-safe.ts";
 import { gatewayPowerDbm } from "../gateways/view.ts";
+import {
+  failingCommitWrites,
+  type KeyChanges,
+  NO_KEY_CHANGES,
+  recordedBody,
+  sealKeyOf,
+} from "../intake/view.ts";
 import { nextSettingFields, siteRow } from "../site/view.ts";
 import { sensorWaitMs } from "../slots/view.ts";
 import { airtimeMs, eventListenMs, REPLY_PACKET_BYTES } from "./radio.ts";
@@ -64,8 +72,8 @@ function settingsFields(
 }
 
 /**
- * The reply's "update available" flag: firmware transfer is defined in M3 (§14), so the hub of
- * M1a never sets it.
+ * The reply's "update available" flag when no offer waits for the sensor (firmware's
+ * `offerWaiting`, m3-updates-design section 4): the default, as the hub of M1a always sent it.
  */
 export const NO_UPDATE = false;
 
@@ -130,11 +138,17 @@ export function eventLatest(
   }));
 }
 
+/** What the hub sends a sensor (§5): a reply, a disarmed notice, an Update offer, a Key change. */
+export type SensorMessage =
+  | MessageOf<typeof MessageType.Reply>
+  | MessageOf<typeof MessageType.DisarmedNotice>
+  | MessageOf<typeof MessageType.UpdateOffer>
+  | MessageOf<typeof MessageType.KeyChange>;
+
 /** One packet to send to a sensor through a gateway. */
 export interface Outgoing {
   readonly entry: SensorEntry;
-  readonly message:
-    MessageOf<typeof MessageType.Reply> | MessageOf<typeof MessageType.DisarmedNotice>;
+  readonly message: SensorMessage;
   /** The counter of the sensor packet it is bound to (§4). */
   readonly binding: number;
   readonly gateway: DeviceId | undefined;
@@ -146,6 +160,12 @@ export interface Outgoing {
   readonly cause: Seq | undefined;
   /** For a reply naming a next heartbeat: the answered counter, which gives a slot once sent. */
   readonly slotFor: number | undefined;
+  /**
+   * Whether `send` records the `reply` or `disarmed_notice` decision (D110): yes unless false. An
+   * Update offer and a Key change are recorded by their `tx` rows, and firmware's and the key
+   * change's own decisions.
+   */
+  readonly decide?: false;
 }
 
 /** A sealed packet, the sensor with its counter taken, and the writes that counter asks for. */
@@ -159,13 +179,17 @@ export interface Sealed {
 /**
  * Takes the hub's next counter to the sensor and seals `message` bound to `binding` (§4). A
  * counter that is a multiple of 1,024 has its resume point written now, in the same step, so the
- * send gate lets the packet pass after the commit (section 4).
+ * send gate lets the packet pass after the commit (section 4). After a key change (D141) it seals
+ * under the key `keys` names for the sensor, and a Key change under `under`, the key the packet it
+ * answers came under.
  */
 export function seal(
   ctx: Context,
   entry: SensorEntry,
   message: Outgoing["message"],
   binding: number,
+  keys: KeyChanges = NO_KEY_CHANGES,
+  under: KeyUsed = sealKeyOf(keys, entry.device),
 ): Result<Sealed, CoreFault> {
   return orFault(ctx, fromProtocol(takeSendCounter(entry.counter))).andThen((taken) =>
     orFault(ctx, safeCounterBinding(binding)).andThen((bound) =>
@@ -177,6 +201,7 @@ export function seal(
           counter: taken.counter,
           binding: bound,
           maxLength: MaxPacketLength.Radio,
+          ...(under === "next" ? { key: under } : {}),
         }),
       ).map((packet): Sealed => ({
         entry: { ...entry, counter: taken.state },
@@ -184,7 +209,7 @@ export function seal(
         counter: taken.counter,
         writes:
           taken.saveResumePoint === undefined
-            ? []
+            ? failingCommitWrites(keys, entry.device, taken.state)
             : [
                 {
                   kind: "write",
@@ -227,8 +252,8 @@ export function radioOut(
       table: outgoing.table,
       type: outgoing.message.type,
       counter,
-      // The plaintext after the type byte (section 6, `tx_*.body`).
-      body: plaintext.slice(1),
+      // The plaintext after the type byte (section 6, `tx_*.body`); a Key change's key zeroed.
+      body: recordedBody(outgoing.message.type, plaintext.slice(1)),
       rate: outgoing.rate,
       power,
       slotFor: outgoing.slotFor,
@@ -269,31 +294,33 @@ export function send(
   { readonly slice: SensorsSlice; readonly out: readonly Out[]; readonly sealed: Sealed },
   CoreFault
 > {
-  return seal(ctx, outgoing.entry, outgoing.message, outgoing.binding).andThen((sealed) => {
-    const withEntry = {
-      ...slice,
-      sensors: new Map(slice.sensors).set(sealed.entry.device, sealed.entry),
-    };
-    const kind = outgoing.purpose === "disarmedNotice" ? "disarmed_notice" : "reply";
-    const value = kind === "disarmed_notice" ? outgoing.binding : sealed.counter;
-    const cause = outgoing.cause ?? null;
-    return radioOut(
-      ctx,
-      withEntry,
-      outgoing,
-      sealed.entry.device,
-      sealed.packet,
-      sealed.counter,
-    ).andThen((sent) => {
-      const done = { slice: sent.slice, out: [...sealed.writes, ...sent.out], sealed };
-      // A heartbeat's reply is recorded by its `tx_routine` row alone, kept 30 days like the
-      // heartbeat (D57); an event's reply keeps its decision, which names the report it answers.
-      if (outgoing.purpose === "heartbeatReply") return ok(done);
-      return decisionMessage(
+  return seal(ctx, outgoing.entry, outgoing.message, outgoing.binding, slice.keys).andThen(
+    (sealed) => {
+      const withEntry = {
+        ...slice,
+        sensors: new Map(slice.sensors).set(sealed.entry.device, sealed.entry),
+      };
+      const kind = outgoing.purpose === "disarmedNotice" ? "disarmed_notice" : "reply";
+      const value = kind === "disarmed_notice" ? outgoing.binding : sealed.counter;
+      const cause = outgoing.cause ?? null;
+      return radioOut(
         ctx,
-        { kind, device: sealed.entry.device, cause, value },
-        "routine",
-      ).map((recorded) => ({ ...done, out: [...done.out, recorded] }));
-    });
-  });
+        withEntry,
+        outgoing,
+        sealed.entry.device,
+        sealed.packet,
+        sealed.counter,
+      ).andThen((sent) => {
+        const done = { slice: sent.slice, out: [...sealed.writes, ...sent.out], sealed };
+        // A heartbeat's reply is recorded by its `tx_routine` row alone, kept 30 days like the
+        // heartbeat (D57); an event's reply keeps its decision, which names the report it answers.
+        if (outgoing.purpose === "heartbeatReply" || outgoing.decide === false) return ok(done);
+        return decisionMessage(
+          ctx,
+          { kind, device: sealed.entry.device, cause, value },
+          "routine",
+        ).map((recorded) => ({ ...done, out: [...done.out, recorded] }));
+      });
+    },
+  );
 }

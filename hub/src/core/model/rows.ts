@@ -101,12 +101,24 @@ export interface DeviceKeyRow {
    * any key change (PR4).
    */
   readonly nextKey: Uint8Array | null;
-  /** Migration 3: `Rekey.Required` after a restore until the device is heard under its new key. */
+  /**
+   * Migration 3: `Rekey.Required` or `Rekey.BothHeld` after a restore until the device is heard
+   * under its new key.
+   */
   readonly rekey: Rekey;
 }
 
-/** `device_keys.rekey` (D141). */
-export const Rekey = { None: 0, Required: 1 } as const;
+/**
+ * `device_keys.rekey` (D141; m3-updates-design section 7, as the coordinator ruled on 2026-11-18):
+ * - `None`: no key change pending.
+ * - `Required`: the restore's ordinary state. `key` was held at the backup; `next_key`, when set,
+ *   was made after the restore and is the one a packet must open under to switch the device.
+ * - `BothHeld`: the restore found a pending `next_key` in the backup, so both of the row's keys were
+ *   held at the backup. A packet under either is not acted on; it says which key the device holds,
+ *   which is kept as `key`, while a fresh `next_key` is made and the other key is dropped in the
+ *   same write, leaving the row `Required`.
+ */
+export const Rekey = { None: 0, Required: 1, BothHeld: 2 } as const;
 export type Rekey = (typeof Rekey)[keyof typeof Rekey];
 
 /** The hub's sending counter's saved resume point for one device key (section 4). */
@@ -836,6 +848,8 @@ export const ROLLED_BACK_REASON = 20;
 export interface DeviceUpdateRow {
   readonly deviceId: DeviceId;
   readonly rolloutId: RolloutId | null;
+  /** The rollout began with the target version already running on this device. */
+  readonly sameVersion: boolean;
   readonly state: DeviceUpdateState;
   readonly method: UpdateMethod;
   readonly held: UpdateHeld;

@@ -12,7 +12,14 @@
 import { Role } from "@hsn/protocol";
 import type { Context } from "../model/handler.ts";
 import { type DeviceId, HUB_DEVICE, rolloutId, type Seq } from "../model/ids.ts";
-import { DeviceUpdateState, type RolloutRow, RolloutStage, UpdateHeld } from "../model/rows.ts";
+import {
+  DeviceUpdateState,
+  NO_CONTACT_REASON,
+  ROLLED_BACK_REASON,
+  type RolloutRow,
+  RolloutStage,
+  UpdateHeld,
+} from "../model/rows.ts";
 import { monoAfterMs } from "../model/time.ts";
 import { FETCHING_STATES, INSTALLING_STATES } from "./codes.ts";
 import {
@@ -68,7 +75,18 @@ export function pause(
   cause: Seq | undefined,
 ): void {
   const rollout = openRollout(steps.slice);
-  if (rollout === undefined || rollout.row.stage === RolloutStage.Paused) return;
+  if (rollout === undefined) return;
+  if (rollout.row.stage === RolloutStage.Paused) {
+    // The rollback explains the earlier silence. Update the reason without recording a new pause.
+    if (
+      reason === ROLLED_BACK_REASON &&
+      rollout.row.pausedReason === NO_CONTACT_REASON &&
+      rollout.row.pausedDevice === device
+    ) {
+      putRollout(steps, rollout, { ...rollout.row, pausedReason: reason });
+    }
+    return;
+  }
   steps.clear(soakKey(rollout));
   putRollout(steps, rollout, {
     ...rollout.row,

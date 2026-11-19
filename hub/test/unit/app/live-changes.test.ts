@@ -51,7 +51,7 @@ function subscribed(hub: Hub, client: typeof ANNA_LAPTOP, topics: readonly strin
 function events(effects: readonly Effect[], conn: ConnId): readonly AppEvent[] {
   return effects.flatMap((e) =>
     e.kind === "appSend" && e.conn === conn && "t" in e.message && e.message.t === "evt"
-      ? [e.message]
+      ? [e.message as AppEvent]
       : [],
   );
 }

@@ -19,7 +19,16 @@
  * battery, `config`, `notification` and `hub` are made from modules whose views are stubs (A4, A5,
  * A6, A8). `notification` events are `notify`'s to send (section 2).
  */
-import type { AppEvent, AppEventBody, AppEventName, Topic } from "@hsn/protocol/app";
+import type {
+  AppEvent,
+  AppEventBody,
+  AppEventBodyV2,
+  AppEventName,
+  AppEventNameV2,
+  AppEventV2,
+  AppProtoVersion,
+  Topic,
+} from "@hsn/protocol/app";
 import { sensorSummary } from "../alarm/view.ts";
 import { currentMode } from "../layout/view.ts";
 import type { AuditRecord } from "../model/audit.ts";
@@ -43,10 +52,11 @@ import {
 } from "./objects.ts";
 import type { CoreDeps } from "../model/handler.ts";
 import { commitEvents, recordEvents, siteMoved } from "./live.ts";
+import { deviceToV2 } from "./versions.ts";
 import type { AppSlice, PeopleSeen, Session } from "./state.ts";
 
 /** Which topic carries each event; those with none go to every session (section 6). */
-const TOPIC_OF: Readonly<Partial<Record<AppEventName, Topic>>> = {
+const TOPIC_OF: Readonly<Partial<Record<AppEventNameV2, Topic>>> = {
   arming: "arming",
   countdown: "arming",
   alarm: "alarm",
@@ -60,7 +70,27 @@ const TOPIC_OF: Readonly<Partial<Record<AppEventName, Topic>>> = {
   people: "people",
   site: "hub",
   hub: "hub",
+  // Version 2 (m3-updates-design section 4, `NEW_EVENT_TOPICS_V2`).
+  deviceUpdate: "devices",
 };
+
+/**
+ * An event's body for one session, by the version it agreed: `v1` for a version 1 session (absent
+ * for an event version 1 does not name, which such a session is never sent), `v2` for a version 2
+ * session. Either may give undefined: not this session's to see.
+ */
+export interface ByVersion<N extends AppEventNameV2> {
+  readonly v1?: (
+    session: Session,
+    actor: Actor,
+  ) => (N extends AppEventName ? AppEventBody<N> : never) | undefined;
+  readonly v2: (session: Session, actor: Actor) => AppEventBodyV2<N> | undefined;
+}
+
+/** A session's channel version, as the protocol names it. */
+export function versionOf(session: Session): AppProtoVersion {
+  return session.proto >= 2 ? 2 : 1;
+}
 
 /** What one handler call sends: the slice as it now stands, and the effects. */
 export class Sending {
@@ -106,6 +136,38 @@ export class Sending {
     for (const { session, body: made } of targets) {
       // The schema of `ev` types `made`, so the frame is that variant of `AppEvent`.
       const message = { t: "evt", rev, ev, body: made } as AppEvent;
+      this.out.push({ kind: "appSend", conn: session.conn, message });
+    }
+  }
+
+  /**
+   * An event whose body differs by version (`device`, `notification`, `hub`) or that only version
+   * 2 names (`deviceUpdate`): each session subscribed to its topic is given its own version's body.
+   * `topic` false sends it whatever the session's subscriptions (a notification, `live.ts`), to
+   * the sessions `to` names.
+   */
+  versioned<N extends AppEventNameV2>(
+    view: HubState,
+    ev: N,
+    bodies: ByVersion<N>,
+    to?: (session: Session) => boolean,
+  ): void {
+    const topic = to === undefined ? TOPIC_OF[ev] : undefined;
+    const targets: { readonly session: Session; readonly body: unknown }[] = [];
+    for (const session of this.slice.sessions.values()) {
+      if (to !== undefined && !to(session)) continue;
+      if (topic !== undefined && !session.topics.has(topic)) continue;
+      const actor = actorOfClient(view, session.client);
+      if (actor === undefined) continue;
+      const made =
+        versionOf(session) === 2 ? bodies.v2(session, actor) : bodies.v1?.(session, actor);
+      if (made !== undefined) targets.push({ session, body: made });
+    }
+    if (targets.length === 0) return;
+    const rev = this.rev();
+    for (const { session, body: made } of targets) {
+      // The schema of `ev` in the session's version typed `made`, so the frame is that variant.
+      const message = { t: "evt", rev, ev, body: made } as AppEvent | AppEventV2;
       this.out.push({ kind: "appSend", conn: session.conn, message });
     }
   }
@@ -249,6 +311,7 @@ export function deviceChanges(
     if (old === row) continue;
     const object = deviceObject(view, deps, row);
     if (object === undefined) continue;
+    const objectV2 = deviceToV2(view, object);
     const what =
       old === undefined
         ? "added"
@@ -257,9 +320,11 @@ export function deviceChanges(
           : row.name !== old.name
             ? "renamed"
             : "state";
-    sending.event(view, "device", (_session, actor) =>
-      deviceVisible(view, actor, row) ? { what, device: object } : undefined,
-    );
+    const visible = (actor: Actor): boolean => deviceVisible(view, actor, row);
+    sending.versioned(view, "device", {
+      v1: (_session, actor) => (visible(actor) ? { what, device: object } : undefined),
+      v2: (_session, actor) => (visible(actor) ? { what, device: objectV2 } : undefined),
+    });
   }
   return now;
 }

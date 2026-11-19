@@ -8,8 +8,9 @@
  *   written in its notification's class: now when critical, routine otherwise, so it rides on the
  *   commit the notification already makes. With the link up it is sent at once (`pushSend`),
  *   counted as its first attempt in the same write.
- * - **Results.** `accepted` deletes the row (routine). `badToken` marks the phone's target invalid
- *   and deletes all its rows (`targets.ts`). `limited` and `failed` try the row again after
+ * - **Results.** `accepted` deletes the row (routine). `badToken` for the current registration
+ *   marks it invalid and deletes its rows (`targets.ts`). A refusal for an older registration
+ *   retries that row, as do `limited` and `failed`, after
  *   `retryAfterMs` (1, 5, 15 minutes ‡) by its attempts, then every `retryEveryMs` (15 minutes ‡),
  *   for as long as it is not too old. A result for a row no longer waiting is ignored, but an
  *   `accepted` or `badToken` for any row still kept is taken (a push known delivered is not sent
@@ -23,7 +24,8 @@
  *   (`push_dropped`, `age`); the `outboxExpiry` timer is set for the oldest row.
  * - **Delivery is at least once.** A row's delete is routine, so a power cut after `accepted` and
  *   before the next commit sends it again after the restart, with the same `n.seq`; the phone
- *   drops a repeat by its hub and `seq` (section 4).
+ *   drops a repeat of a hub notification by its hub and positive `seq` (section 4).
+ *   A relay alert's `seq: 0` means no sequence: each alert replaces the last relay alert for its hub.
  */
 import type { NotificationObject, PushOutcome } from "@hsn/protocol/app";
 import { anySensorArmed } from "../alarm/view.ts";
@@ -34,7 +36,7 @@ import { monoAfterMs } from "../model/time.ts";
 import { NEVER_PUSHED, noticeOf, pushFor, recipientOf } from "./content.ts";
 import type { Steps } from "./out.ts";
 import { deleteOutbox, recordDropped, writeOutbox } from "./records.ts";
-import type { CauseFacts, Pending } from "./state.ts";
+import { CAUSE_KINDS, type CauseFacts, type CauseKind, type Pending } from "./state.ts";
 import { urlInUse } from "./settings.ts";
 import { invalidate } from "./targets.ts";
 
@@ -76,7 +78,8 @@ function dispatch(
     return;
   }
   const row = { ...pending.row, attempts: pending.row.attempts + 1 };
-  putPending(steps, { ...pending, row, inFlight: true });
+  const sentTo = steps.slice.targets.get(row.clientId);
+  putPending(steps, { ...pending, row, inFlight: true, sentTo });
   steps.push(writeOutbox(row, insert ?? "routine"), {
     kind: "pushSend",
     id: row.id,
@@ -209,10 +212,9 @@ export function onResults(
         steps.push(deleteOutbox(id));
         break;
       case "badToken":
-        invalidate(steps, ctx, pending.row.clientId);
-        break;
       case "limited":
       case "failed":
+        if (outcome === "badToken" && invalidate(steps, ctx, pending.sentTo)) break;
         if (!pending.inFlight) break;
         putPending(steps, { ...pending, inFlight: false });
         steps.timer(
@@ -266,19 +268,25 @@ export function expire(steps: Steps, ctx: Context): void {
  * order, whole numbers. Read back by that form alone (no `JSON.parse`, which throws), so a value
  * not written here is undefined: the push then says no decision facts.
  */
-const FACTS =
-  /^\{"seq":(\d{1,16}),"kind":"(countdown_started|late_report_notification|mode_switched)","value":(-?\d{1,16}|null)\}$/u;
+const FACTS = new RegExp(
+  `^\\{"seq":(\\d{1,16}),"kind":"(${CAUSE_KINDS.join("|")})","value":(-?\\d{1,16}|null)(?:,"at":(\\d{1,16}|null))?\\}$`,
+  "u",
+);
+
+function isCauseKind(kind: string): kind is CauseKind {
+  return (CAUSE_KINDS as readonly string[]).includes(kind);
+}
 
 /** A row's `facts` read back: the decision's facts, or undefined for none or a form not ours. */
 export function factsOf(text: string | null): CauseFacts | undefined {
   const match = text === null ? null : FACTS.exec(text);
   if (match === null) return undefined;
-  const [, number = "", kind = "", value = "null"] = match;
-  if (
-    kind !== "countdown_started" &&
-    kind !== "late_report_notification" &&
-    kind !== "mode_switched"
-  )
-    return undefined;
-  return { seq: seq(Number(number)), kind, value: value === "null" ? null : Number(value) };
+  const [, number = "", kind = "", value = "null", at = "null"] = match;
+  if (!isCauseKind(kind)) return undefined;
+  return {
+    seq: seq(Number(number)),
+    kind,
+    value: value === "null" ? null : Number(value),
+    at: at === "null" ? null : Number(at),
+  };
 }
