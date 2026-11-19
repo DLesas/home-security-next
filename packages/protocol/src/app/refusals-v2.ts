@@ -12,7 +12,8 @@ type Refusals = Readonly<Record<string, AppErrorV2>>;
 /**
  * `firmware.bluetooth` (m3-updates-design section 5, "What this gives the phone design"; the
  * phone's words in m3-design section 7): a hold that ends by waiting is `busy`, one a person must
- * act on is `invalid` on the body's `device`.
+ * act on is `invalid` on the body's `device`. A live session for the device is no refusal: asked
+ * again, the hub answers with that session (section 5, step 1).
  */
 export const FIRMWARE_BLUETOOTH_REFUSALS = {
   /** held: armed. "It is armed. Disarm it first." */
@@ -31,8 +32,6 @@ export const FIRMWARE_BLUETOOTH_REFUSALS = {
   /** It runs an image on trial: "It is checking a new version already." */
   onTrial: { code: "busy", detail: { because: "onTrial" } },
   noImage: { code: "invalid", detail: { field: "device", reason: "noImage" } },
-  /** Another session for it: "Another update of it is under way." */
-  busy: { code: "busy", detail: { because: "bluetoothSession" } },
 } as const satisfies Refusals;
 
 /** `pair.prepare` (m3-design section 5). */

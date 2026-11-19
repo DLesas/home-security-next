@@ -393,7 +393,7 @@ describe("version 2's refusals in M2's scheme", () => {
         t: "res",
         id: 1,
         ok: false,
-        error: FIRMWARE_BLUETOOTH_REFUSALS.busy,
+        error: FIRMWARE_BLUETOOTH_REFUSALS.onTrial,
       }).success,
     ).toBe(true);
   });
@@ -415,10 +415,10 @@ describe("version 2's refusals in M2's scheme", () => {
       code: "busy",
       detail: { because: "onTrial" },
     });
-    expect(FIRMWARE_BLUETOOTH_REFUSALS.busy).toEqual({
-      code: "busy",
-      detail: { because: "bluetoothSession" },
-    });
+    // A live session is no refusal (m3-updates section 5, step 1): its `busy` is gone.
+    expect(
+      appErrorV2.safeParse({ code: "busy", detail: { because: "bluetoothSession" } }).success,
+    ).toBe(false);
     expect(Object.keys(FIRMWARE_BLUETOOTH_REFUSALS).toSorted()).toEqual(
       [
         "armed",
@@ -430,7 +430,6 @@ describe("version 2's refusals in M2's scheme", () => {
         "notPaired",
         "onTrial",
         "noImage",
-        "busy",
       ].toSorted(),
     );
   });
@@ -506,7 +505,7 @@ describe("version 2's errors on a version 1 session", () => {
   test("a value only version 2 lists becomes protoUnsupported, which version 1 parses", () => {
     const v2Only = [
       FIRMWARE_BLUETOOTH_REFUSALS.armed,
-      FIRMWARE_BLUETOOTH_REFUSALS.busy,
+      FIRMWARE_BLUETOOTH_REFUSALS.onTrial,
       FIRMWARE_FILE_REFUSALS.storeFull,
       OFFER_AND_ROLLOUT_REFUSALS.rolloutOpen,
       RELAY_SET_REFUSALS.notLocal,

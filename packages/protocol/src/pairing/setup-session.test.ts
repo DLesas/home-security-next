@@ -307,6 +307,43 @@ describe("five wrong codes", () => {
     expect(after.wrongCode(PAIRING_CODE.windowMs)).toBe(true);
   });
 
+  test("the window is the first wrong code's: later wrong codes do not move it", () => {
+    const attempts = pairingAttempts();
+    attempts.wrongCode(0);
+    for (let i = 0; i < 3; i++) expect(attempts.wrongCode(PAIRING_CODE.windowMs - 1)).toBe(false);
+    expect(attempts.wrongCodes).toBe(4);
+    // The first is now a window old: that window has ended, and this one is the first of a new one.
+    expect(attempts.wrongCode(PAIRING_CODE.windowMs)).toBe(false);
+    expect(attempts.wrongCodes).toBe(1);
+    expect(attempts.stopped(PAIRING_CODE.windowMs)).toBe(false);
+  });
+
+  test("a board whose proof fails is a wrong code, counted as one: the fifth stops the board", async () => {
+    /** The siren's client, whose check of the board's proof fails. */
+    const proofFails: StartSecurity2 = (code) => {
+      const client = SIREN_A(code);
+      return {
+        ...client,
+        finish: () => Promise.resolve({ ok: false, error: "wrongCode" } as const),
+      };
+    };
+    const clock = fakeClock();
+    const attempts = pairingAttempts();
+    const open = () =>
+      setupSessionOpener({ clock, attempts, start: proofFails })(
+        replayBoard(sessionSteps(WHOLE), VERSION_TEXT).connect(),
+        RIGHT,
+      );
+    for (let i = 1; i <= 4; i++) {
+      const opened = await open();
+      expect(opened.ok ? "ok" : opened.fault).toBe("wrongCode");
+      expect(attempts.wrongCodes).toBe(i);
+    }
+    const fifth = await open();
+    expect(fifth.ok ? "ok" : fifth.fault).toBe("tooManyTries");
+    expect(attempts.stopped(clock.now())).toBe(true);
+  });
+
   test("a right code clears the count; a wrong code while stopped is not counted again", () => {
     const a = pairingAttempts();
     for (let i = 0; i < 4; i++) a.wrongCode(i);

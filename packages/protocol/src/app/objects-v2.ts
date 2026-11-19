@@ -268,7 +268,7 @@ export const bluetoothSessionObject = z
     version: versionText,
     /** The header and the image: the bytes the device pulls. */
     fileBytes: z.int().min(129),
-    /** SHA-256 of those bytes. */
+    /** SHA-256 of the image alone, without the header: the header's bytes 16 to 48. */
     sha256: sha256Hex,
     /** The session key K, 32 bytes. Never stored beyond `expiresInMs`, logged or shown. */
     sessionKey: key32Base64url,

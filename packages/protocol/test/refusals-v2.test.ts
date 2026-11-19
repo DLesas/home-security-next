@@ -30,7 +30,6 @@ describe("version 2's refusal table, row by row", () => {
       notPaired: { code: "invalid", detail: { field: "device", reason: "notPaired" } },
       onTrial: { code: "busy", detail: { because: "onTrial" } },
       noImage: { code: "invalid", detail: { field: "device", reason: "noImage" } },
-      busy: { code: "busy", detail: { because: "bluetoothSession" } },
     });
   });
 

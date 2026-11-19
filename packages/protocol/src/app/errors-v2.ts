@@ -70,8 +70,6 @@ export const BUSY_BECAUSE_V2 = [
   "onTrial",
   /** The device is not heard yet under its new key after a restore (held: keyChange, D141). */
   "keyChange",
-  /** Another Bluetooth session for the device is open. */
-  "bluetoothSession",
 ] as const;
 
 /** One error of version 2: version 1's codes and details, with the lists above. */
