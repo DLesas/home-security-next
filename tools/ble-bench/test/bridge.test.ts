@@ -139,7 +139,8 @@ describe("the bridge, end to end over a WebSocket", () => {
       { dropAfterData: 20, reconnectAfterMs: 50 },
     );
     script.start();
-    expect(await until(() => script.done !== undefined)).toBe(true);
+    // The bridge delivers Done and the final disconnect in separate messages.
+    expect(await until(() => script.done !== undefined && script.disconnections >= 2)).toBe(true);
     expect(script.connections).toBe(2);
     expect(script.disconnections).toBe(2);
     expect(script.done?.result).toBe(0);
