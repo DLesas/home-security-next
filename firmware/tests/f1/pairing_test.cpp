@@ -154,6 +154,27 @@ TEST_CASE("F1: a hold opens while down at five seconds, and a reset wins at fift
   CHECK(button.up(down + seconds(16)) == HoldAction::none);
 }
 
+TEST_CASE("F1: a first tick at or after fifteen seconds resets immediately") {
+  const Instant down{1234567};
+  const auto reset_at = down + seconds(15);
+  using hsn::device::milliseconds;
+  for (const auto first_tick : {reset_at, reset_at + milliseconds(1)}) {
+    PairButton button;
+    button.down(down);
+    CHECK(button.tick(first_tick) == HoldAction::reset);
+    CHECK(button.tick(first_tick + milliseconds(1)) == HoldAction::none);
+    CHECK(button.up(first_tick + milliseconds(2)) == HoldAction::none);
+  }
+
+  PairButton button;
+  button.down(down);
+  const auto before_reset = reset_at + milliseconds(-1);
+  CHECK(button.tick(before_reset) == HoldAction::pair);
+  CHECK(button.tick(before_reset) == HoldAction::none);
+  CHECK(button.tick(reset_at) == HoldAction::reset);
+  CHECK(button.tick(reset_at + milliseconds(1)) == HoldAction::none);
+}
+
 TEST_CASE("F1: two-minute window, connected extension, fifth wrong proof and fresh window") {
   PairWindow window;
   const Instant now{32000000};

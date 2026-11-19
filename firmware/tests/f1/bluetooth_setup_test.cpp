@@ -66,6 +66,46 @@ TEST_CASE("F1: encrypted setup dispatch allows Identify and unpaired Provision")
   }
 }
 
+TEST_CASE("F1: Bluetooth Provision requires a role in every build") {
+  protocol::Provision provision;
+  provision.pairing.address = kAddress;
+  provision.pairing.key = kKey;
+  provision.pairing.site_channel = 2;
+  provision.pairing.allowed_data_rate_mask = 0x24;
+
+  for (const bool development : {false, true}) {
+    CAPTURE(development);
+    Fixture unassigned(development);
+    unassigned.storage.records.erase(device::StoreKey::role);
+    device::SetupService without_role(unassigned.storage, unassigned.build);
+    REQUIRE(without_role.load() == device::HalError::none);
+    REQUIRE(without_role.role() == 0);
+    REQUIRE_FALSE(without_role.paired());
+    const auto refused = unassigned.receive(without_role, provision);
+    REQUIRE(refused.reply_size == 3);
+    CHECK(unassigned.output[1] == protocol::setup_type::provision_result);
+    CHECK(unassigned.output[2] == protocol::ProvisionOutcome::refused);
+    CHECK(refused.action == device::SetupAction::none);
+    CHECK(unassigned.storage.operations.empty());
+    CHECK(unassigned.storage.records.empty());
+    CHECK_FALSE(without_role.paired());
+
+    Fixture assigned(development);
+    device::SetupService with_role(assigned.storage, assigned.build);
+    REQUIRE(with_role.load() == device::HalError::none);
+    REQUIRE(with_role.role() == protocol::Role::sensor);
+    REQUIRE_FALSE(with_role.paired());
+    const auto accepted = assigned.receive(with_role, provision);
+    REQUIRE(accepted.reply_size == 3);
+    CHECK(assigned.output[1] == protocol::setup_type::provision_result);
+    CHECK(assigned.output[2] == protocol::ProvisionOutcome::accepted);
+    CHECK(accepted.action == device::SetupAction::restart);
+    CHECK(assigned.storage.has(device::StoreKey::pairing));
+    CHECK(with_role.paired());
+    CHECK(with_role.pairing().address == kAddress);
+  }
+}
+
 TEST_CASE("F1: Bluetooth refuses Erase and Set role even in development") {
   Fixture f(true);
   device::SetupService setup(f.storage, f.build);
