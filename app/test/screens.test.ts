@@ -252,6 +252,7 @@ describe("the home screen", () => {
     const html = await renderWith(createElement(arming.Doors), {});
     expect(textOf(html)).toContain("No doors yet. Add a door sensor with the phone app.");
     expect(html).not.toContain('href="/setup"');
+    expect(html).not.toContain('href="/device/add"');
   });
 
   test("needs attention: only when a device has something wrong, said in words", async () => {

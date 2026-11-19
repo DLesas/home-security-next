@@ -17,8 +17,20 @@ import type { ScanState } from "../src/ui/scan";
 import type { VaultStatus } from "../src/platform/vault";
 import type { ReachState } from "../src/hub/phone-client";
 import { createStore } from "zustand/vanilla";
+import type {
+  BluetoothSessionObject,
+  DeviceObjectV2,
+  FirmwareImageObject,
+} from "@hsn/protocol/app";
+import { Role } from "@hsn/protocol/messages";
+import { makePairingCode, PAIR_PROTOCOL_LABEL } from "@hsn/protocol/pairing";
+import type { AnyOutcome } from "../src/hub/channel";
+import { toBase64url } from "../src/hub/files";
+import type { PhoneHub } from "../src/pairing/hub";
+import type { Candidate } from "../src/pairing/pair-device";
 import type { checkBluetooth as checkNativeBluetooth } from "../src/platform/ble.native";
-import { renderWith, textOf } from "./support/screens";
+import type { AppStateStatus } from "react-native";
+import { renderWith, screenWorld, textOf } from "./support/screens";
 import { clientScreen, screenAct } from "./support/client-screen";
 import { ManualClock } from "../../tools/ble-bench/src/clock";
 
@@ -530,7 +542,15 @@ describe("the Bluetooth permission before pairing or an update", () => {
 const ble = await import("../src/platform/ble");
 const { BluetoothEntry } = await import("../src/pairing/permission");
 const { TextLink } = await import("../src/ui/parts");
+const { AppState } = await import("react-native");
 const { radioClock } = await import("../src/pairing/radio");
+const { PairPage } = await import("../src/pairing/pair-page");
+const { UpdatePage } = await import("../src/pairing/update-page");
+const pairDevice = await import("../src/pairing/pair-device");
+const updateFlow = await import("../src/pairing/update-flow");
+const download = await import("../src/pairing/download");
+const cache = await import("../src/pairing/safe/cache");
+
 type BluetoothCheck = typeof checkNativeBluetooth;
 
 describe("starting Bluetooth on a mounted phone page", () => {
@@ -566,6 +586,63 @@ describe("starting Bluetooth on a mounted phone page", () => {
     return { view, onReady };
   }
 
+  /** Mounts a real route and supplies the test's forward operation to its phone hub. */
+  async function mountRoute(
+    forward: PhoneHub["forward"],
+    props:
+      | { device: number }
+      | { initialCode: NonNullable<Parameters<typeof PairPage>[0]["initialCode"]> },
+  ) {
+    spyOn(AppState, "addEventListener").mockReturnValue({ remove: () => undefined });
+    const world = await screenWorld({});
+    const hub: PhoneHub = { client: world.client, forward, onNewEvent: () => () => undefined };
+    const element =
+      "device" in props
+        ? createElement(UpdatePage, { hub, ...props })
+        : createElement(PairPage, { hub, ...props });
+    const view = await mount(world.wrap(element), () => Promise.resolve("on"));
+    return { view, live: world.client.live };
+  }
+
+  test("ready Bluetooth enters without rendering the explainer", async () => {
+    const { view, onReady } = await enter(() => Promise.resolve("on"));
+    expect(onReady).toHaveBeenCalledTimes(1);
+    expect(textOf(view.html())).not.toContain("Bluetooth adds devices");
+    expect(view.html()).not.toContain('role="button"');
+  });
+
+  test("unasked Bluetooth renders the explainer and its Allow button", async () => {
+    const { view, onReady } = await enter(() => Promise.resolve(undefined));
+    expect(textOf(view.html())).toContain("Bluetooth adds devices");
+    expect(view.html()).toContain('aria-label="Allow Bluetooth"');
+    expect(onReady).not.toHaveBeenCalled();
+  });
+
+  test("refused Bluetooth rechecks on return from Settings and enters when ready", async () => {
+    let change: ((state: AppStateStatus) => void) | undefined;
+    const remove = mock(() => undefined);
+    spyOn(AppState, "addEventListener").mockImplementation((event, listener) => {
+      if (event === "change") change = listener as NonNullable<typeof change>;
+      return { remove };
+    });
+    const check = mock<BluetoothCheck>(() => Promise.resolve("unauthorized"));
+    const { view, onReady } = await enter(check);
+    expect(textOf(view.html())).toContain("Bluetooth is blocked.");
+    expect(textOf(view.html())).toContain("Open settings");
+    expect(onReady).not.toHaveBeenCalled();
+
+    await screenAct(() => {
+      change?.("background");
+    });
+    expect(check).toHaveBeenCalledTimes(1);
+    check.mockImplementation(() => Promise.resolve("on"));
+    await screenAct(() => {
+      change?.("active");
+    });
+    expect(check).toHaveBeenCalledTimes(2);
+    expect(onReady).toHaveBeenCalledTimes(1);
+  });
+
   test("a pending Bluetooth check keeps the page frame and exit visible", async () => {
     const pending = Promise.withResolvers<Awaited<ReturnType<BluetoothCheck>>>();
     const { view, onReady } = await enter(() => pending.promise);
@@ -594,6 +671,165 @@ describe("starting Bluetooth on a mounted phone page", () => {
       pending.resolve("on");
     });
     expect(onReady).not.toHaveBeenCalled();
+  });
+
+  test("the update page asks the hub for a grant as soon as Bluetooth is ready", async () => {
+    const pending = Promise.withResolvers<AnyOutcome>();
+    const forward = mock<PhoneHub["forward"]>(() => pending.promise);
+    const { view } = await mountRoute(forward, { device: 7 });
+    expect(forward.mock.calls).toEqual([["firmware.bluetooth", { device: 7 }]]);
+    expect(textOf(view.html())).toContain("Asking the hub…");
+  });
+
+  test("the update page restarts the estimate from the resumed connection's first offset", async () => {
+    const image: FirmwareImageObject = {
+      id: 1,
+      imageId: "01".repeat(8),
+      version: "1.4.0",
+      kind: "ownBuild",
+      roles: [Role.Sensor],
+      bytes: 872,
+      addedMs: 0,
+    };
+    const grant: BluetoothSessionObject = {
+      device: 7,
+      address: 7,
+      imageId: image.imageId,
+      version: image.version,
+      fileBytes: 1000,
+      sha256: "02".repeat(32),
+      sessionKey: toBase64url(new Uint8Array(32)),
+      windowS: 120,
+      expiresInMs: 120_000,
+      needsWake: false,
+    };
+    const clock = new ManualClock();
+    spyOn(radioClock, "now").mockImplementation(clock.now.bind(clock));
+    spyOn(radioClock, "after").mockImplementation(clock.after.bind(clock));
+    spyOn(cache, "imageCache").mockReturnValue({
+      size: 1000,
+      read: () => undefined,
+      append: () => false,
+      remove: () => undefined,
+    });
+    spyOn(download, "downloadImage").mockResolvedValue({ ok: true, value: undefined });
+    type Run = ReturnType<typeof updateFlow.updateTransfer>["run"];
+    const progress: Parameters<Run>[4][] = [];
+    const dropped = Promise.withResolvers<Awaited<ReturnType<Run>>>();
+    spyOn(updateFlow, "updateTransfer").mockReturnValue({
+      resumeUntil: () => clock.now() + 30_000,
+      run: (_file, _signal, _wait, connected, report) => {
+        progress.push(report);
+        connected();
+        return progress.length === 1 ? dropped.promise : new Promise(() => undefined);
+      },
+    });
+    const { view } = await mountRoute(
+      (op) =>
+        Promise.resolve({
+          ok: true,
+          body: op === "firmware.bluetooth" ? grant : { images: [image], devices: [] },
+          repeat: false,
+        }),
+      { device: 7 },
+    );
+
+    expect(textOf(view.html())).toContain("Get close to the sensor");
+    expect(await view.press("Find the sensor")).toBe(true);
+    expect(progress).toHaveLength(1);
+    await screenAct(() => {
+      progress[0]?.(540, 540);
+    });
+    await screenAct(() => {
+      dropped.resolve({ kind: "failed", fault: "lost" });
+    });
+    expect(await view.press("Carry on")).toBe(true);
+    expect(progress).toHaveLength(2);
+    await screenAct(() => {
+      progress[1]?.(540, 540);
+    });
+    expect(textOf(view.html())).toContain("54%");
+    expect(textOf(view.html())).not.toContain("seconds left");
+    await screenAct(() => clock.advance(2000));
+    await screenAct(() => {
+      progress[1]?.(620, 620);
+    });
+    expect(textOf(view.html())).toContain("62%, about 10 seconds left");
+  });
+
+  test("the pairing page replaces its timed-out result when the live device is heard", async () => {
+    const code = makePairingCode(1n);
+    if (code === undefined) return expect.unreachable();
+    const chipId = new Uint8Array(6);
+    const candidate = {
+      advert: { id: "board", name: null, serviceData: null, rssi: -40 },
+      version: {
+        v: PAIR_PROTOCOL_LABEL,
+        role: Role.Sensor,
+        chip: "00".repeat(6),
+        firmware: "1.0.0",
+        sec: 2,
+      },
+    } as const satisfies Candidate;
+    const device: DeviceObjectV2 = {
+      id: 7,
+      name: "Door-sensor",
+      role: "sensor",
+      state: "paired",
+      firmware: "1.0.0",
+      batteryPercent: null,
+      signal: null,
+      temperatureC: null,
+      lastSeenMs: null,
+      heardBy: null,
+      health: { silent: false, batteryLow: false, tamperOpen: false, poorLink: false },
+      update: null,
+    };
+    const clock = new ManualClock();
+    spyOn(radioClock, "after").mockImplementation(clock.after.bind(clock));
+    spyOn(pairDevice, "findPairingBoards").mockResolvedValue({ ok: true, value: [candidate] });
+    spyOn(pairDevice, "pairingFlow").mockReturnValue({
+      open: () =>
+        Promise.resolve({
+          ok: true,
+          value: {
+            version: candidate.version,
+            identity: new Uint8Array(),
+            session: {
+              version: candidate.version,
+              exchange: () => Promise.resolve({ ok: false, fault: "lost" }),
+              close: () => undefined,
+            },
+            disconnected: () => undefined,
+          },
+        }),
+      remaining: () => 5,
+      reopened: () => undefined,
+    });
+    spyOn(pairDevice, "addBoard").mockResolvedValue({ kind: "added", device, groupsFailed: false });
+    const { view, live } = await mountRoute(
+      () => Promise.resolve({ ok: false, local: "offline" }),
+      {
+        initialCode: { code, chipId },
+      },
+    );
+    expect(await view.press("Check the code")).toBe(true);
+    expect(textOf(view.html())).toContain("Name this door sensor");
+    expect(await view.press("Add this door sensor")).toBe(true);
+    expect(textOf(view.html())).toContain("Waiting for the door sensor to reach the hub…");
+
+    await screenAct(() => {
+      live.setState({ devices: { [device.id]: device } });
+    });
+    await screenAct(() => clock.advance(60_000));
+    expect(textOf(view.html())).toContain("Added, waiting for the hub");
+    expect(textOf(view.html())).toContain("It has not been heard yet.");
+
+    await screenAct(() => {
+      live.setState({ devices: { [device.id]: { ...device, state: "contacted" } } });
+    });
+    expect(textOf(view.html())).toContain("Door sensor added It is working.");
+    expect(textOf(view.html())).not.toContain("Added, waiting for the hub");
   });
 });
 
