@@ -4,13 +4,15 @@
  * over Bluetooth"): a sensor, a siren or a gateway, as the firmware will behave. Bluetooth is off
  * except in two windows, never both at once (D138):
  *
- * - **The pairing window**, 2 minutes (DS7): opened on an unpaired board at power-up and after a
- *   five-second hold; a paired board opens none in a release build (the hold is ignored and
- *   counted), but does in a development build (PR5). It closes when a Provision is accepted, after
- *   5 wrong codes, or at its end, and stays open while a phone is connected. While open, the board
- *   advertises protocomm's service with no service data and
- *   the name `hsn-pair-<last 4 hex of the chip>`, and serves protocomm's endpoints (`protocomm.ts`)
- *   with its security (`pairing-security.ts`) and the setup messages (`setup.ts`).
+ * - **The pairing window**, 2 minutes (DS7): opened only when the button of an unpaired board is
+ *   held for 5 seconds (`holdButton`; ruling of 2026-11-19, as the firmware does). Nothing opens
+ *   it at power-up or on a shorter press. A paired board opens none in any build (the hold is
+ *   ignored and counted); holding on through 15 seconds closes the window and resets the board:
+ *   its pairing is forgotten and it makes a new code. The window closes when a Provision is
+ *   accepted, after 5 wrong codes, or at its end, and stays open while a phone is connected. While
+ *   open, the board advertises protocomm's service with no service data and the name
+ *   `hsn-pair-<last 4 hex of the chip>`, and serves protocomm's endpoints (`protocomm.ts`) with
+ *   its security (`pairing-security.ts`) and the setup messages (`setup.ts`).
  * - **The update window**, only on the hub's offer with action 3 (`offerUpdate`): the update
  *   service's UUID and the name `hsn-<address in 8 hex>`, and the device side of the update
  *   (`update-service.ts`).
@@ -75,6 +77,13 @@ export const UPDATE_SERVICE: ServiceSpec = {
 export const DEFAULT_CAPACITY = 3 * 1024 * 1024;
 /** Wrong codes in one window before the board stops listening. */
 export const MAX_WRONG_CODES = PAIRING_CODE.maxTries;
+/** The hold that opens the pairing window on an unpaired board (DS7). */
+export const PAIRING_HOLD_MS = 5000;
+/** The hold that resets the board (D89, button action 4). */
+export const RESET_HOLD_MS = 15_000;
+
+/** What a hold of the button did. */
+export type HoldResult = "nothing" | "ignored" | "pairing" | "reset";
 
 export type BoardRole = typeof Role.Sensor | typeof Role.Siren | typeof Role.Gateway;
 
@@ -85,8 +94,6 @@ export interface BoardOptions {
   /** The id phones see; by default `bench-<role>-<last 4 hex of the chip>`. */
   readonly id?: string;
   readonly firmware?: FirmwareVersion;
-  /** A development build (PR5): a paired board opens the pairing window and takes Provision. */
-  readonly development?: boolean;
   /** The pairing code; by default made from the board's random numbers, as at first boot. */
   readonly code?: PairingCodeText;
   /** Paired already. */
@@ -142,8 +149,6 @@ export class ScriptedBoard implements Peripheral, SetupHolder {
   readonly role: BoardRole;
   readonly chipId: Uint8Array;
   readonly firmware: FirmwareVersion;
-  readonly development: boolean;
-  readonly code: PairingCodeText;
   readonly capacity: number;
   pairing: PairingData | undefined;
   /** Storing a pairing fails; a test may change it. */
@@ -153,8 +158,10 @@ export class ScriptedBoard implements Peripheral, SetupHolder {
   powered = false;
   /** Wrong codes in the current pairing window. */
   wrongCodes = 0;
-  /** Presses ignored: a paired release board opens no pairing window. */
+  /** Holds ignored: a paired board, or one in an update window, opens no pairing window. */
   ignoredPresses = 0;
+  /** Resets by the 15-second hold. */
+  resets = 0;
   /** Restarts after an accepted Provision. */
   restarts = 0;
   /** Connections taken, in all. */
@@ -170,6 +177,7 @@ export class ScriptedBoard implements Peripheral, SetupHolder {
   readonly #windowMs: number;
   readonly #restartBeforeResult: boolean;
 
+  #code: PairingCodeText;
   #pairingOpen = false;
   #pairingEnded = false;
   #cancelWindow: () => void = () => undefined;
@@ -189,9 +197,8 @@ export class ScriptedBoard implements Peripheral, SetupHolder {
     this.rssi = options.rssi ?? -60;
     this.maxMtu = options.maxMtu ?? 517;
     this.firmware = options.firmware ?? { major: 1, minor: 0, patch: 0 };
-    this.development = options.development ?? false;
     this.#random = options.random ?? defaultRandom;
-    this.code = options.code ?? this.#makeCode();
+    this.#code = options.code ?? this.#makeCode();
     this.capacity = options.capacity ?? DEFAULT_CAPACITY;
     this.pairing = options.pairing;
     this.storageFails = options.storageFails ?? false;
@@ -213,6 +220,11 @@ export class ScriptedBoard implements Peripheral, SetupHolder {
   }
 
   // ----- What the display shows (D85) -----
+
+  /** The pairing code: made at first boot, and again at each reset. */
+  get code(): PairingCodeText {
+    return this.#code;
+  }
 
   /** The QR code's text: `hsn://pair/1?c=<code>&d=<chip id>`. */
   get qr(): string {
@@ -243,11 +255,10 @@ export class ScriptedBoard implements Peripheral, SetupHolder {
     return this.#update;
   }
 
-  /** Power comes: an unpaired board opens its pairing window. */
+  /** Power comes. No pairing window opens: only the five-second hold opens one. */
   powerOn(): void {
     if (this.powered) return;
     this.powered = true;
-    if (this.pairing === undefined) this.#openPairing();
   }
 
   /** The board vanishes: no more advertising, its phone's link is lost; flash stays. */
@@ -262,15 +273,26 @@ export class ScriptedBoard implements Peripheral, SetupHolder {
     this.#dropConnection();
   }
 
-  /** Completes the five-second hold under the cover. The pairing light shows and the code stays. */
-  pressButton(): void {
-    if (!this.powered) return;
+  /**
+   * The button under the cover held for `ms`, then let go. Under 5 seconds nothing happens. From
+   * 5 seconds an unpaired board opens its pairing window (the light shows, the code stays); a
+   * paired board ignores it. Through 15 seconds the board closes its window and resets: its
+   * pairing is forgotten and it makes a new code. While an update window is open, every hold is
+   * ignored.
+   */
+  holdButton(ms: number): HoldResult {
+    if (!this.powered || ms < PAIRING_HOLD_MS) return "nothing";
     const updating = this.#update !== undefined && this.#update.session !== "closed";
-    if ((this.pairing !== undefined && !this.development) || updating) {
+    if (updating || (ms < RESET_HOLD_MS && this.pairing !== undefined)) {
       this.ignoredPresses += 1;
-      return;
+      return "ignored";
+    }
+    if (ms >= RESET_HOLD_MS) {
+      this.#reset();
+      return "reset";
     }
     this.#openPairing();
+    return "pairing";
   }
 
   /** The hub's Update offer with action 3, over LoRa: opens the update window. */
@@ -291,6 +313,20 @@ export class ScriptedBoard implements Peripheral, SetupHolder {
       if (this.#connection === undefined) this.#closePairing();
       else this.#pairingEnded = true;
     });
+  }
+
+  /** The factory reset: the window closes, the pairing is forgotten, a new code is made. */
+  #reset(): void {
+    this.#closePairing();
+    this.#cancelRestart();
+    this.#restartPending = false;
+    this.#dropConnection();
+    this.#update = undefined;
+    this.#updateAdvertising = false;
+    this.pairing = undefined;
+    this.wrongCodes = 0;
+    this.#code = this.#makeCode();
+    this.resets += 1;
   }
 
   #closePairing(): void {
@@ -511,7 +547,7 @@ export class ScriptedBoard implements Peripheral, SetupHolder {
   }
 }
 
-/** Puts a board on the air and powers it on. */
+/** Puts a board on the air and powers it on; its pairing window stays closed until a hold. */
 export function placeBoard(air: BleAir, board: ScriptedBoard): ScriptedBoard {
   air.add(board);
   board.powerOn();

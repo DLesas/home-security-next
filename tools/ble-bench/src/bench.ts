@@ -5,15 +5,17 @@
  * two pages: `/smoke` (the bridge's smoke run, a caller of the bench's own that a simulator's
  * browser opens) and `/desk` (the Chrome desk page for a real board).
  *
- * It says what happens as `BenchLine`s, one JSON object each, and takes `BenchCommand`s: a press
- * of a board's button, power off and on, an update offer, faults. A line names a board and what it
+ * It says what happens as `BenchLine`s, one JSON object each, and takes `BenchCommand`s: a hold
+ * of a board's button, power off and on, an update offer, faults. No board's pairing window is open
+ * at the start, as on a real board: `hold` for 5000 ms opens one, for 15000 ms resets the board,
+ * and the smoke page's siren is held when the page asks for its session. A line names a board and what it
  * did; the boards' codes and QR texts are what their displays show (scripted boards, test codes);
  * no key and no session byte is ever in a line.
  */
 import { join } from "node:path";
 import { BleAir } from "./air/air.ts";
 import type { Faults } from "./air/faults.ts";
-import { type BoardRole, ScriptedBoard } from "./boards/board.ts";
+import { type BoardRole, PAIRING_HOLD_MS, ScriptedBoard } from "./boards/board.ts";
 import { startBridge } from "./bridge/server.ts";
 import { fromHex, toHex } from "./bridge/wire.ts";
 import { realClock } from "./clock.ts";
@@ -65,7 +67,8 @@ export type BenchLine =
   | { readonly kind: "problem"; readonly message: string };
 
 export type BenchCommand =
-  | { readonly cmd: "press"; readonly board: string }
+  /** The button held for `ms`: under 5 s nothing, from 5 s the window, from 15 s a reset. */
+  | { readonly cmd: "hold"; readonly board: string; readonly ms: number }
   | { readonly cmd: "power"; readonly board: string; readonly on: boolean }
   | {
       readonly cmd: "offer";
@@ -164,6 +167,8 @@ export async function startBench(
     const sensor = boards.get("smoke-sensor");
     if (siren === undefined || sensor === undefined)
       return new Response("no smoke boards", { status: 404 });
+    // The person holds the siren's button for 5 seconds: its pairing window opens.
+    siren.holdButton(PAIRING_HOLD_MS);
     // A fresh session each time, as the hub's offer would make: a new nonce, its window.
     const nonce = crypto.getRandomValues(new Uint8Array(8));
     sensor.offerUpdate({ imageId: smokeImage.imageId, nonce, windowUnits: 12 });
@@ -235,8 +240,8 @@ export async function startBench(
       return;
     }
     switch (c.cmd) {
-      case "press":
-        board?.pressButton();
+      case "hold":
+        board?.holdButton(c.ms);
         break;
       case "power":
         if (c.on) board?.powerOn();
@@ -298,8 +303,10 @@ export function readCommand(text: string): BenchCommand | undefined {
   const num = (v: unknown) =>
     typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : undefined;
   switch (c.cmd) {
-    case "press":
-      return board === undefined ? undefined : { cmd: "press", board };
+    case "hold": {
+      const ms = num(c.ms);
+      return board === undefined || ms === undefined ? undefined : { cmd: "hold", board, ms };
+    }
     case "power":
       return board === undefined || typeof c.on !== "boolean"
         ? undefined

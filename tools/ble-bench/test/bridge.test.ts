@@ -21,7 +21,7 @@ import {
 import type { PairingData } from "../../../packages/protocol/src/pairing.ts";
 import { BleAir } from "../src/air/air.ts";
 import { nthFrame, TransferKind } from "../src/air/faults.ts";
-import { ScriptedBoard } from "../src/boards/board.ts";
+import { PAIRING_HOLD_MS, ScriptedBoard } from "../src/boards/board.ts";
 import { standInSecurity } from "../src/boards/pairing-security.ts";
 import { type BridgeCentral, bridgeBleCentral } from "../src/bridge/client.ts";
 import { type BridgeServer, startBridge } from "../src/bridge/server.ts";
@@ -43,12 +43,14 @@ afterEach(() => {
   delete running.server;
 });
 
+/** The air with `boards` powered on; each unpaired one is held for 5 seconds, opening its window. */
 function bench(boards: (air: BleAir) => ScriptedBoard[]) {
   const air = new BleAir(realClock, { advertIntervalMs: 20, connectTimeoutMs: 400 });
   const made = boards(air);
   for (const board of made) {
     air.add(board);
     board.powerOn();
+    if (board.pairing === undefined) board.holdButton(PAIRING_HOLD_MS);
   }
   const started = startBridge({ air });
   expect(started.ok).toBe(true);

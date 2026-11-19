@@ -4,7 +4,7 @@
  * per request on `hsn-setup`, inside the session, with Bluetooth's rule:
  *
  * - **Identify** at any time in a session: the board's Identity.
- * - **Provision** only while unpaired in a release build, at any time in a development build;
+ * - **Provision** only while unpaired, in every build (a paired board opens no pairing window);
  *   otherwise answered "refused". Accepting forgets the old pairing first, so a storage failure
  *   answers "refused" with no pairing kept (as `SetupService::provision` and `ScriptedBoard` in
  *   `hub/test/unit/setup/support/board.ts`). A Provision whose pairing data does not decode is
@@ -36,7 +36,6 @@ export interface SetupHolder {
   readonly role: Role;
   readonly chipId: Uint8Array;
   readonly firmware: FirmwareVersion;
-  readonly development: boolean;
   readonly pairing: PairingData | undefined;
   /** Stores a pairing, forgetting the old first; false when storing failed (none is kept). */
   store(pairing: PairingData): boolean;
@@ -51,7 +50,8 @@ export function identityOf(holder: SetupHolder): Uint8Array {
     firmwareVersion: holder.firmware,
     paired: holder.pairing !== undefined,
     hubIdentity: holder.pairing?.hubIdentity ?? new Uint8Array(HUB_IDENTITY_LENGTH),
-    developmentBuild: holder.development,
+    // The scripted boards are release builds: a paired board is never reached over Bluetooth.
+    developmentBuild: false,
   });
 }
 
@@ -79,7 +79,7 @@ export function answerSetup(
     case SetupType.Identify:
       return ok({ answer: identityOf(holder), effect: "none" });
     case SetupType.Provision: {
-      if (!holder.development && holder.pairing !== undefined) {
+      if (holder.pairing !== undefined) {
         return ok({ answer: result(ProvisionResultCode.Refused), effect: "none" });
       }
       if (!holder.store(setup.pairing)) {

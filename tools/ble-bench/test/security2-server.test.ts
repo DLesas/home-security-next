@@ -12,7 +12,7 @@ import {
 import { openDeskSession } from "../pages/desk-security.ts";
 import { BleAir } from "../src/air/air.ts";
 import { ScriptedCentral } from "../src/air/central.ts";
-import { placeBoard, ScriptedBoard } from "../src/boards/board.ts";
+import { PAIRING_HOLD_MS, placeBoard, ScriptedBoard } from "../src/boards/board.ts";
 import { PAIRING_UUIDS } from "../src/boards/protocomm.ts";
 import { security2Server } from "../src/boards/security2-server.ts";
 import { ManualClock } from "../src/clock.ts";
@@ -67,6 +67,7 @@ for (const fixture of script.cases) {
         },
       ),
     );
+    board.holdButton(PAIRING_HOLD_MS);
     const connected = await settled(clock, new ScriptedCentral(air).connect(board.id, 23));
     expect(connected?.ok).toBe(true);
     if (!connected?.ok) return;
@@ -102,6 +103,7 @@ test("the desk opener uses the real handshake and can Identify a scripted board"
     air,
     new ScriptedBoard(clock, { role: Role.Sensor, chipId: fromHex("010203040506") }),
   );
+  board.holdButton(PAIRING_HOLD_MS);
   const connected = await settled(clock, new ScriptedCentral(air).connect(board.id, 23));
   expect(connected?.ok).toBe(true);
   if (!connected?.ok) return;
@@ -134,6 +136,7 @@ test("the desk opener closes a refused link and reports when five wrong codes st
     air,
     new ScriptedBoard(clock, { role: Role.Sensor, chipId: fromHex("010203040506"), code }),
   );
+  board.holdButton(PAIRING_HOLD_MS);
   const central = new ScriptedCentral(air);
   const attempts = pairingAttempts();
   for (const fault of [

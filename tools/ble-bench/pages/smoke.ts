@@ -50,6 +50,7 @@ async function run(): Promise<boolean> {
   about.textContent = `From ${navigator.userAgent.includes("iPhone") ? "an iPhone simulator" : "this browser"} to the bench at ${location.host}.`;
   page?.append(heading, about, list);
 
+  // Asking for the session holds the smoke siren's button for 5 seconds: its window opens.
   const session = (await (await fetch("/smoke/session")).json()) as SmokeSession;
   const central = bridgeBleCentral(`ws://${location.host}`);
   const ready = await central.ready;

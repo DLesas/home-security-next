@@ -3,7 +3,7 @@
  * `bun tools/ble-bench/src/bridge/main.ts [--port N] [--smoke]`: the
  * bench in real time (`bench.ts`) for the simulators and the desk page. Standard output carries one
  * JSON line per event (`BenchLine`); standard input takes one command per line (`BenchCommand`),
- * e.g. `{"cmd":"press","board":"siren"}`. It listens on 127.0.0.1 only. tools/ble-bench/README.md
+ * e.g. `{"cmd":"hold","board":"siren","ms":5000}`. It listens on 127.0.0.1 only. tools/ble-bench/README.md
  * and app/e2e-native/checklist.md say how a simulator reaches it.
  */
 import { type BenchLine, readCommand, startBench } from "../bench.ts";

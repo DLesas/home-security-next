@@ -25,7 +25,12 @@ import { BLUETOOTH_UPDATE } from "../../../packages/protocol/src/update/bluetoot
 import type { GattLink, SetupSession } from "../../../app/src/platform/ble.ts";
 import { BleAir } from "../src/air/air.ts";
 import { ScriptedCentral } from "../src/air/central.ts";
-import { type BoardOptions, ScriptedBoard } from "../src/boards/board.ts";
+import {
+  type BoardOptions,
+  PAIRING_HOLD_MS,
+  RESET_HOLD_MS,
+  ScriptedBoard,
+} from "../src/boards/board.ts";
 import { standInSecurity, unjoinedSecurity } from "../src/boards/pairing-security.ts";
 import { endpointUuid, PAIRING_UUIDS } from "../src/boards/protocomm.ts";
 import { answerSetup } from "../src/boards/setup.ts";
@@ -40,7 +45,15 @@ const CODE = makePairingCode(0x3_1415_9265n) ?? ("" as PairingCodeText);
 const WRONG = makePairingCode(0x3_1415_9266n) ?? ("" as PairingCodeText);
 const CHIP = Uint8Array.of(0x3c, 0x84, 0x27, 0xe2, 0x4f, 0x2a);
 
-function pairingWorld(board: Partial<BoardOptions> = {}, provisioned: PairingData[] = []) {
+/**
+ * A board on the air, powered on; an unpaired one is then held for 5 seconds, as the person does
+ * before the phone searches, unless `hold` is false.
+ */
+function pairingWorld(
+  board: Partial<BoardOptions> = {},
+  provisioned: PairingData[] = [],
+  hold = true,
+) {
   const clock = new ManualClock();
   const air = new BleAir(clock, { advertIntervalMs: 10, connectTimeoutMs: 3000 });
   const made = new ScriptedBoard(
@@ -61,6 +74,7 @@ function pairingWorld(board: Partial<BoardOptions> = {}, provisioned: PairingDat
   );
   air.add(made);
   made.powerOn();
+  if (hold && made.pairing === undefined) made.holdButton(PAIRING_HOLD_MS);
   const central = new ScriptedCentral(air);
   return { clock, air, board: made, central, provisioned };
 }
@@ -97,7 +111,45 @@ function provision(pairing: PairingData): Uint8Array {
 }
 
 describe("the pairing window and its advertising", () => {
-  test("an unpaired board opens it at power-up: protocomm's service, no service data, hsn-pair-<4 hex>", () => {
+  test("an unpaired board opens no pairing window at power-up or on a short press: only the five-second hold opens it", () => {
+    const { board, clock } = pairingWorld({}, [], false);
+    expect(board.window).toBe("closed");
+    expect(board.advertising()).toBeNull();
+    expect(board.holdButton(PAIRING_HOLD_MS - 1)).toBe("nothing");
+    expect(board.window).toBe("closed");
+    expect(board.holdButton(PAIRING_HOLD_MS)).toBe("pairing");
+    expect(board.window).toBe("pairing");
+    // The window's two minutes are counted from the hold.
+    expect(clock.now()).toBe(0);
+  });
+
+  test("a board powered off is held in vain", () => {
+    const { board } = pairingWorld({}, [], false);
+    board.powerOff();
+    expect(board.holdButton(PAIRING_HOLD_MS)).toBe("nothing");
+    board.powerOn();
+    expect(board.window).toBe("closed");
+  });
+
+  test("held through 15 seconds the board closes its window and resets: no pairing, a new code, nothing open", () => {
+    const world = pairingWorld();
+    const before = world.board.code;
+    expect(world.board.window).toBe("pairing");
+    expect(world.board.holdButton(RESET_HOLD_MS - 1)).toBe("pairing");
+    expect(world.board.holdButton(RESET_HOLD_MS)).toBe("reset");
+    expect(world.board.window).toBe("closed");
+    expect(world.board.resets).toBe(1);
+    expect(world.board.code).not.toBe(before);
+    expect(readPairingCode(world.board.code)).toBe(world.board.code);
+    const paired = pairingWorld({ pairing: testPairing() });
+    expect(paired.board.holdButton(RESET_HOLD_MS)).toBe("reset");
+    expect(paired.board.pairing).toBeUndefined();
+    expect(paired.board.update).toBeUndefined();
+    expect(paired.board.window).toBe("closed");
+    expect(paired.board.holdButton(PAIRING_HOLD_MS)).toBe("pairing");
+  });
+
+  test("after the five-second hold: protocomm's service, no service data, hsn-pair-<4 hex>", () => {
     const { board } = pairingWorld();
     const advert = board.advertising();
     expect(advert?.serviceUuids).toEqual([PROTOCOMM.serviceUuid]);
@@ -147,19 +199,18 @@ describe("the pairing window and its advertising", () => {
     expect(world.board.window).toBe("closed");
   });
 
-  test("a press opens it again; a paired release board ignores the press, a development one opens it", async () => {
+  test("a hold opens it again after it ended; a paired board opens none, its hold ignored and counted", async () => {
     const world = pairingWorld();
     await world.clock.advance(PAIRING_CODE.windowMs);
-    world.board.pressButton();
+    expect(world.board.window).toBe("closed");
+    expect(world.board.holdButton(PAIRING_HOLD_MS)).toBe("pairing");
     expect(world.board.window).toBe("pairing");
     const paired = pairingWorld({ pairing: testPairing() });
     expect(paired.board.window).toBe("closed");
-    paired.board.pressButton();
+    expect(paired.board.holdButton(PAIRING_HOLD_MS)).toBe("ignored");
     expect(paired.board.window).toBe("closed");
     expect(paired.board.ignoredPresses).toBe(1);
-    const development = pairingWorld({ pairing: testPairing(), development: true });
-    development.board.pressButton();
-    expect(development.board.window).toBe("pairing");
+    expect(paired.board.advertising()).toBeNull();
   });
 
   test("while connected the board does not advertise; a second phone's connect times out", async () => {
@@ -300,8 +351,8 @@ describe("the code and its five tries", () => {
     }
     expect(world.board.window).toBe("closed");
     expect(world.board.advertising()).toBeNull();
-    // The press opens a new window, with five tries again.
-    world.board.pressButton();
+    // The hold opens a new window, with five tries again.
+    world.board.holdButton(PAIRING_HOLD_MS);
     expect(world.board.wrongCodes).toBe(0);
     const right = await session(world);
     expect(right?.opened.ok).toBe(true);
@@ -321,8 +372,8 @@ describe("the code and its five tries", () => {
 });
 
 describe("the setup messages over Bluetooth", () => {
-  test("Identify: the board's Identity", async () => {
-    const world = pairingWorld({ development: true });
+  test("Identify: the board's Identity, a release build's", async () => {
+    const world = pairingWorld();
     const s = await session(world);
     if (s?.opened.ok !== true) return;
     const answer = await exchange(world, s.opened.value, identify);
@@ -334,7 +385,7 @@ describe("the setup messages over Bluetooth", () => {
       firmwareVersion: { major: 1, minor: 0, patch: 0 },
       paired: false,
       hubIdentity: new Uint8Array(8),
-      developmentBuild: true,
+      developmentBuild: false,
     });
   });
 
@@ -364,8 +415,8 @@ describe("the setup messages over Bluetooth", () => {
     expect(provisioned).toEqual([pairing]);
     expect(world.board.pairing?.wifiName).toEqual(Uint8Array.of(0xe2, 0x98, 0x83));
     expect(world.board.pairing?.wifiPassword).toEqual(Uint8Array.of(0, 1, 255));
-    // Paired: a release board opens no window again.
-    world.board.pressButton();
+    // Paired: the board opens no window again.
+    expect(world.board.holdButton(PAIRING_HOLD_MS)).toBe("ignored");
     expect(world.board.window).toBe("closed");
   });
 
@@ -391,8 +442,7 @@ describe("the setup messages over Bluetooth", () => {
   });
 
   test("a Provision that does not decode is not valid; storage that fails is refused, the pairing gone", async () => {
-    const world = pairingWorld({ development: true, pairing: testPairing() });
-    world.board.pressButton();
+    const world = pairingWorld();
     const s = await session(world);
     if (s?.opened.ok !== true) return;
     const bad = encodeSetupMessage({ type: SetupType.Provision, pairing: testPairing() });
@@ -425,7 +475,7 @@ describe("the setup messages over Bluetooth", () => {
   });
 
   test("Erase, Set role and anything not a setup message are refused over Bluetooth", async () => {
-    const world = pairingWorld({ development: true });
+    const world = pairingWorld();
     const s = await session(world);
     if (s?.opened.ok !== true) return;
     for (const message of [
@@ -441,27 +491,30 @@ describe("the setup messages over Bluetooth", () => {
     expect(world.board.role).toBe(Role.Siren);
   });
 
-  test("the rule per build: a paired release board refuses Provision, a development one takes it", () => {
-    const holder = (development: boolean) => ({
+  test("in every build a paired board refuses Provision and keeps its pairing; an unpaired one takes it", () => {
+    const holder = (pairing: PairingData | undefined) => ({
       role: Role.Sensor,
       chipId: CHIP,
       firmware: { major: 1, minor: 0, patch: 0 },
-      development,
-      pairing: testPairing() as PairingData | undefined,
-      store(pairing: PairingData) {
-        this.pairing = pairing;
+      pairing,
+      store(next: PairingData) {
+        this.pairing = next;
         return true;
       },
     });
-    const refused = answerSetup(holder(false), provision(testPairing({ address: 9 })));
+    const kept = testPairing();
+    const paired = holder(kept);
+    const refused = answerSetup(paired, provision(testPairing({ address: 9 })));
     expect(refused.ok && refused.value.answer[2]).toBe(ProvisionResultCode.Refused);
-    const taken = answerSetup(holder(true), provision(testPairing({ address: 9 })));
+    expect(refused.ok && refused.value.effect).toBe("none");
+    expect(paired.pairing).toBe(kept);
+    const taken = answerSetup(holder(undefined), provision(testPairing({ address: 9 })));
     expect(taken.ok && taken.value.effect).toBe("provisioned");
   });
 });
 
 describe("faults of a pairing", () => {
-  test("a board that vanishes mid-pairing: the phone's next exchange is lost; powered again it opens a window", async () => {
+  test("a board that vanishes mid-pairing: the phone's next exchange is lost; powered again it opens a window only when held", async () => {
     const world = pairingWorld();
     const s = await session(world);
     if (s?.opened.ok !== true) return;
@@ -469,6 +522,8 @@ describe("faults of a pairing", () => {
     expect(await exchange(world, s.opened.value, identify)).toEqual({ ok: false, fault: "lost" });
     expect(world.board.advertising()).toBeNull();
     world.board.powerOn();
+    expect(world.board.window).toBe("closed");
+    world.board.holdButton(PAIRING_HOLD_MS);
     expect(world.board.window).toBe("pairing");
   });
 
