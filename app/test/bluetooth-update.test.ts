@@ -2,6 +2,7 @@
 import { expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { closeSync, mkdtempSync, openSync, readSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   FIRMWARE_BLUETOOTH_REFUSALS,
@@ -36,7 +37,7 @@ import { firmwareLink } from "./support/firmware-link";
 
 /** Opens fixture bytes as an actual random-access file and keeps its cleanup beside it. */
 function fileOf(bytes: Uint8Array): ImageReader & { close(): void } {
-  const folder = mkdtempSync("/tmp/hsn-p4-image-");
+  const folder = mkdtempSync(join(tmpdir(), "hsn-p4-image-"));
   const path = join(folder, "image.hsnf");
   writeFileSync(path, bytes);
   const fd = openSync(path, "r");

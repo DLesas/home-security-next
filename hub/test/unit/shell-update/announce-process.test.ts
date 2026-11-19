@@ -10,6 +10,7 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { RELAY_LIMITS } from "@hsn/protocol/relay";
 import { exchange } from "../../../cli/client.ts";
@@ -22,7 +23,7 @@ import { type RelayRun, startRelayRun, stopAll, until } from "../shell-relay/sup
 const HUB = join(import.meta.dir, "..", "..", "..");
 const TEST_ENTRY = join(HUB, "test", "unit", "shell-main", "hub-with-test-key.ts");
 const HSN = join(HUB, "cli", "hsn.ts");
-const root = mkdtempSync("/tmp/hsn-announce-");
+const root = mkdtempSync(join(tmpdir(), "hsn-announce-"));
 const TEST_SEED = new Uint8Array(32).fill(7);
 
 afterAll(async () => {
