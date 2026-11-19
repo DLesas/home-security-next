@@ -60,4 +60,4 @@ Remake it whenever `firmware/core/src/device/update*.cpp` changes; `test/firmwar
 
 ## The desk page
 
-`http://127.0.0.1:8787/desk` in Chrome: type the board's code, choose the board, and it reads `proto-ver`, is to open security 2 (`pages/desk-security.ts`; the protocol package's `setupSessionOpener` is **not joined there yet**, so today the page stops after `proto-ver` and says so), sends Identify and, if pasted, a Provision from the hub. With no board, or no Web Bluetooth, it says so and sends nothing.
+`http://127.0.0.1:8787/desk` in Chrome: type the board's code, choose the board, and it reads `proto-ver`, opens Security 2 using the protocol package's `setupSessionOpener` through `pages/desk-security.ts`, sends Identify and, if pasted, a Provision from the hub. With no board, or no Web Bluetooth, it says so and sends nothing.

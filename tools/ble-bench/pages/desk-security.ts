@@ -1,16 +1,24 @@
-/**
- * The desk page's one join point with pairing's security layer. A real board speaks protocomm
- * security 2 only, so the page must open the session with P3's client (`OpenSetupSession` over a
- * `GattLink`, in `@hsn/protocol/pairing`); until P3 hands it in, this opener refuses cleanly and
- * the page says so after reading `proto-ver`. Joining it is this file alone: export P3's opener as
- * `openDeskSession`. The bench's stand-in is never used here: a real board would refuse it.
- */
-import type { OpenSetupSession } from "../../../app/src/platform/ble.ts";
-import { fault } from "../src/outcome.ts";
+/** The desk page's adapter to the protocol package's real protocomm Security 2 opener. */
+import {
+  type PairingAttempts,
+  type PairingLink,
+  setupSessionOpener,
+} from "../../../packages/protocol/src/pairing/setup-session.ts";
+import type { PairingCodeText } from "../../../packages/protocol/src/pairing/types.ts";
+import { realClock } from "../src/clock.ts";
 
-/** True once P3's security 2 client is joined here. */
-export function security2Joined(): boolean {
-  return false;
+/** Waits for a GATT operation's deadline on the page's clock. */
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-export const openDeskSession: OpenSetupSession = () => Promise.resolve(fault("protocol"));
+const clock = { now: () => realClock.now(), sleep: wait };
+
+/** Opens a setup session using the attempt count for the selected board. */
+export function openDeskSession(
+  link: PairingLink,
+  code: PairingCodeText,
+  attempts: PairingAttempts,
+) {
+  return setupSessionOpener({ clock, attempts })(link, code);
+}

@@ -1,9 +1,15 @@
 /** Replays the actual ESP-IDF peripheral scripts through the bench's GATT interface. */
 import { expect, test } from "bun:test";
 import { fromHex, toHex } from "../../../packages/protocol/src/bytes.ts";
-import { readPairingCode } from "../../../packages/protocol/src/pairing/code.ts";
-import { setupSessionOpener } from "../../../packages/protocol/src/pairing/setup-session.ts";
+import { makePairingCode, readPairingCode } from "../../../packages/protocol/src/pairing/code.ts";
+import { pairingAttempts } from "../../../packages/protocol/src/pairing/setup-session.ts";
 import { espIdfVectors } from "../../../packages/protocol/src/pairing/vectors/esp-idf-vectors.ts";
+import {
+  decodeSetupMessage,
+  encodeSetupMessage,
+  SetupType,
+} from "../../../packages/protocol/src/usb/setup.ts";
+import { openDeskSession } from "../pages/desk-security.ts";
 import { BleAir } from "../src/air/air.ts";
 import { ScriptedCentral } from "../src/air/central.ts";
 import { placeBoard, ScriptedBoard } from "../src/boards/board.ts";
@@ -89,7 +95,7 @@ for (const fixture of script.cases) {
   });
 }
 
-test("a scripted board uses the real handshake by default", async () => {
+test("the desk opener uses the real handshake and can Identify a scripted board", async () => {
   const clock = new ManualClock();
   const air = new BleAir(clock);
   const board = placeBoard(
@@ -99,16 +105,57 @@ test("a scripted board uses the real handshake by default", async () => {
   const connected = await settled(clock, new ScriptedCentral(air).connect(board.id, 23));
   expect(connected?.ok).toBe(true);
   if (!connected?.ok) return;
-  const open = setupSessionOpener({
-    clock: {
-      now: () => clock.now(),
-      sleep: (ms) =>
-        new Promise((resolve) => {
-          clock.after(ms, resolve);
-        }),
-    },
-  });
-  const result = await settled(clock, open(connected.value, board.code));
+  const result = await settled(
+    clock,
+    openDeskSession(connected.value, board.code, pairingAttempts()),
+  );
   expect(result?.ok).toBe(true);
-  if (result?.ok) result.value.close();
+  if (!result?.ok) return;
+  expect(result.value.version).toMatchObject({ chip: "010203040506", role: Role.Sensor, sec: 2 });
+  const identity = await settled(
+    clock,
+    result.value.exchange(encodeSetupMessage({ type: SetupType.Identify })),
+  );
+  expect(identity?.ok && decodeSetupMessage(identity.value)).toMatchObject({
+    ok: true,
+    value: { type: SetupType.Identity, chipId: board.chipId, role: Role.Sensor, paired: false },
+  });
+  result.value.close();
+});
+
+test("the desk opener closes a refused link and reports when five wrong codes stop setup", async () => {
+  const code = makePairingCode(42n);
+  const wrong = makePairingCode(43n);
+  expect(code !== undefined && wrong !== undefined).toBe(true);
+  if (code === undefined || wrong === undefined) return;
+  const clock = new ManualClock();
+  const air = new BleAir(clock);
+  const board = placeBoard(
+    air,
+    new ScriptedBoard(clock, { role: Role.Sensor, chipId: fromHex("010203040506"), code }),
+  );
+  const central = new ScriptedCentral(air);
+  const attempts = pairingAttempts();
+  for (const fault of [
+    "wrongCode",
+    "wrongCode",
+    "wrongCode",
+    "wrongCode",
+    "tooManyTries",
+  ] as const) {
+    const connected = await settled(clock, central.connect(board.id, 23));
+    expect(connected?.ok).toBe(true);
+    if (!connected?.ok) return;
+    const link = connected.value;
+    const closed = new Promise((resolve) => {
+      link.onClosed(resolve);
+    });
+    expect(await settled(clock, openDeskSession(link, wrong, attempts))).toEqual({
+      ok: false,
+      fault,
+    });
+    expect(await settled(clock, closed)).toBe(fault === "tooManyTries" ? "lost" : null);
+  }
+  expect(board.wrongCodes).toBe(5);
+  expect(board.window).toBe("closed");
 });

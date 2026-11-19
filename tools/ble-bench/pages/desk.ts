@@ -4,7 +4,7 @@
  * development board through Chrome's Web Bluetooth on this Mac, so the protocol can be tried
  * before any phone: the code read as the app reads it, Chrome's chooser for a board advertising
  * pairing's service, the connection, `proto-ver` read and checked against the frozen
- * `PairVersion`, the security 2 session (`desk-security.ts`, P3's client once joined), Identify, and a
+ * `PairVersion`, the security 2 session (`desk-security.ts`), Identify, and a
  * Provision pasted from the hub, with its result. It is a tool, never part of the web app (D93).
  *
  * With no board, or no Web Bluetooth, it loads and refuses cleanly: it says what is missing and
@@ -12,19 +12,21 @@
  */
 import { readPairingCode } from "../../../packages/protocol/src/pairing/code.ts";
 import { PROTOCOMM } from "../../../packages/protocol/src/pairing/constants.ts";
+import { pairingAttempts } from "../../../packages/protocol/src/pairing/setup-session.ts";
 import {
   decodeSetupMessage,
   encodeSetupMessage,
   SetupType,
 } from "../../../packages/protocol/src/usb/setup.ts";
 import { fromHex, toHex } from "../src/bridge/wire.ts";
+import { openDeskSession } from "./desk-security.ts";
 import { webBluetoothCentral } from "./safe/web-bluetooth.ts";
-import { readPairVersion } from "../src/stand-in-client.ts";
-import { openDeskSession, security2Joined } from "./desk-security.ts";
 
 const page = document.getElementById("page");
 const central = webBluetoothCentral(PROTOCOMM.serviceUuid);
+const boardAttempts = new Map<string, ReturnType<typeof pairingAttempts>>();
 
+/** Makes a page element with optional text. */
 function element<K extends keyof HTMLElementTagNameMap>(
   tag: K,
   text = "",
@@ -35,6 +37,7 @@ function element<K extends keyof HTMLElementTagNameMap>(
 }
 
 const steps = element("ol");
+/** Adds a result to the pairing log. */
 function say(text: string, good: boolean): void {
   const item = element("li", text);
   item.className = good ? "ok" : "no";
@@ -60,6 +63,7 @@ page?.append(
   provision,
   element("p"),
   go,
+  element("p", "If no board appears, hold its button for 5 seconds to open setup, then try again."),
   steps,
 );
 
@@ -73,29 +77,27 @@ if (state !== "on") {
   );
   go.disabled = true;
 }
-if (!security2Joined()) {
-  say(
-    "Security 2's client is not joined yet (P3): the page will read proto-ver and stop there.",
-    false,
-  );
-}
 
+let stopScan: (() => void) | undefined;
 go.addEventListener("click", () => {
   const typed = readPairingCode(code.value);
   if (typed === undefined) {
     say("That is not a pairing code: 8 characters, as on the board's display.", false);
     return;
   }
-  go.disabled = true;
-  // Chrome's chooser must open from the click itself.
-  const stop = central.scan(PROTOCOMM.serviceUuid, (advert) => {
-    stop();
+  // Chrome's chooser must open from the click itself and cancellation gives us no callback.
+  stopScan?.();
+  stopScan = central.scan(PROTOCOMM.serviceUuid, (advert) => {
+    stopScan?.();
+    stopScan = undefined;
+    go.disabled = true;
     void pair(advert.id, typed).finally(() => {
       go.disabled = false;
     });
   });
 });
 
+/** Connects to the chosen board and runs Identify and any pasted Provision. */
 async function pair(
   id: string,
   typed: NonNullable<ReturnType<typeof readPairingCode>>,
@@ -103,31 +105,34 @@ async function pair(
   const connected = await central.connect(id, 517);
   say(connected.ok ? "Connected." : `Could not connect: ${connected.fault}.`, connected.ok);
   if (!connected.ok) return;
-  const link = connected.value;
-  const version = await readPairVersion(link);
-  say(
-    version.ok
-      ? `proto-ver: ${version.value.v}, role ${String(version.value.role)}, chip ${version.value.chip}, firmware ${version.value.firmware}, security ${String(version.value.sec)}.`
-      : "proto-ver did not answer the pairing protocol's version.",
-    version.ok,
-  );
-  if (!version.ok) {
-    link.close();
-    return;
-  }
-  const session = await openDeskSession(link, typed);
+  const attempts = boardAttempts.get(id) ?? pairingAttempts();
+  boardAttempts.set(id, attempts);
+  const session = await openDeskSession(connected.value, typed, attempts);
   if (!session.ok) {
-    say(
-      session.fault === "wrongCode"
-        ? "That is not this board's code."
-        : security2Joined()
-          ? `The session did not open: ${session.fault}.`
-          : "Stopped: security 2's client is not joined yet.",
-      false,
-    );
-    link.close();
+    if (session.fault === "tooManyTries") {
+      // The board enforces the lockout, so allow a fresh count when it can be chosen again.
+      boardAttempts.delete(id);
+      say(
+        "The board stopped listening after five wrong codes. Hold its button for 5 seconds to open setup again.",
+        false,
+      );
+    } else {
+      say(
+        session.fault === "wrongCode"
+          ? "That is not this board's code."
+          : `The session did not open: ${session.fault}.`,
+        false,
+      );
+    }
     return;
   }
+  boardAttempts.delete(id);
+  const version = session.value.version;
+  say(
+    `proto-ver: ${version.v}, role ${String(version.role)}, chip ${version.chip}, firmware ${version.firmware}, security ${String(version.sec)}.`,
+    true,
+  );
+  say("Security 2 session opened.", true);
   const identity = await session.value.exchange(encodeSetupMessage({ type: SetupType.Identify }));
   const decoded = identity.ok ? decodeSetupMessage(identity.value) : undefined;
   say(
