@@ -18,6 +18,7 @@ import { mkdirSync, openSync, rmSync, writeSync, closeSync } from "node:fs";
 import { join } from "node:path";
 import { HUB_VERSION } from "../../src/shell/hub-facts.ts";
 import { makeRelease, platformOf } from "../../src/shell/update/release.ts";
+import { programName } from "../../src/shell/update/program-name.ts";
 import { createHash } from "node:crypto";
 import { writeFileSync } from "node:fs";
 import { endProcesses } from "../world/processes.ts";
@@ -58,7 +59,14 @@ function wronglySigned(folder: string, bytes: number): void {
       madeMs: 0,
       payloadBytes: data.length,
       payloadSha256: hash,
-      files: [{ path: "bin/hsn-hub", bytes: data.length, sha256: hash, executable: true }],
+      files: [
+        {
+          path: `bin/${programName(platform)}`,
+          bytes: data.length,
+          sha256: hash,
+          executable: true,
+        },
+      ],
     },
     data,
     new Uint8Array(32).fill(9),

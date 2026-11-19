@@ -10,6 +10,7 @@ import { join } from "node:path";
 import type { PushContent } from "@hsn/protocol/app";
 import { HUB_VERSION } from "../../src/shell/hub-facts.ts";
 import { makeRelease, platformOf } from "../../src/shell/update/release.ts";
+import { programName } from "../../src/shell/update/program-name.ts";
 import type { StandIns } from "../../../relay/test/push/helpers.ts";
 import type { AwayPhone } from "./phone.ts";
 
@@ -98,7 +99,14 @@ export function writeTestRelease(
       madeMs: 0,
       payloadBytes: data.length,
       payloadSha256: hash,
-      files: [{ path: "bin/hsn-hub", bytes: data.length, sha256: hash, executable: true }],
+      files: [
+        {
+          path: `bin/${programName(platform)}`,
+          bytes: data.length,
+          sha256: hash,
+          executable: true,
+        },
+      ],
     },
     data,
     TEST_SEED,
