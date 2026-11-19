@@ -37,7 +37,13 @@ import {
   pairingRoles,
 } from "./pair-device";
 import { BluetoothPermission } from "./permission";
-import { pairBackground, type PairPageName, retryAfter, searchFault } from "./pair-steps";
+import {
+  pairBackground,
+  type PairPageName,
+  retryAfter,
+  searchFault,
+  showsNoContact,
+} from "./pair-steps";
 import { radioClock } from "./radio";
 
 /** Maps the board's wire role into a locale key. */
@@ -476,11 +482,12 @@ export function PairPage({
     );
   }
 
+  const noContact = showsNoContact(timedOut, current?.state);
   if (page === "done")
     return (
       <Page
-        title={t(timedOut ? "pairing.noContact" : `pairing.added.${kind}`)}
-        intro={t(timedOut ? `pairing.noContactHint.${kind}` : "pairing.working")}
+        title={t(noContact ? "pairing.noContact" : `pairing.added.${kind}`)}
+        intro={t(noContact ? `pairing.noContactHint.${kind}` : "pairing.working")}
       >
         <Stack>
           {kind === "sensor" && mode !== undefined && mode.fixed !== "disarmed" ? (

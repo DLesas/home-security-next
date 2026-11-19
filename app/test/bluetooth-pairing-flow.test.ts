@@ -17,6 +17,7 @@ import {
   type PairPageName,
   retryAfter,
   searchFault,
+  showsNoContact,
 } from "../src/pairing/pair-steps";
 import type { BleCentral, BleFault, GattLink, PairFault } from "../src/platform/ble";
 import type { Outcome } from "../src/platform/split";
@@ -245,4 +246,9 @@ test("leaving the search while a board is connecting closes that link at once an
   expect(closes).toBe(1);
   // And nothing found after the person left is offered.
   expect(await settled(clock, search)).toEqual({ ok: false, fault: "lost" });
+});
+
+test("the timed-out pairing result shows success when the hub hears the device", () => {
+  expect(showsNoContact(true, "paired")).toBe(true);
+  expect(showsNoContact(true, "contacted")).toBe(false);
 });
