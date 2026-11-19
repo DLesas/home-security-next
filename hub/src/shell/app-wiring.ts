@@ -10,8 +10,8 @@
  * 2. The boot event, then `startupInputs` (the hub's facts and the time zone) before any listener
  *    opens, and again when an address changes, with the certificate renewed for the new names.
  * 3. The listeners, the channel given the loop's `enqueue` and a view of the core's state.
- * 4. The healthy mark (`healthy.json`) once a commit has held `update_healthy` and the app and
- *    control listeners are open (section 9, step 4).
+ * 4. The healthy mark (`healthy.json`) once a commit has held `update_healthy`, the app listeners
+ *    are open and the control socket's opening has ended (section 9, step 4).
  */
 import { hostname } from "node:os";
 import { dirname, join } from "node:path";
@@ -196,6 +196,7 @@ export class AppSide {
   #addresses: readonly string[];
   #healthy: string | undefined;
   #marked = false;
+  #controlOpeningEnded = false;
   /** The control socket, for a download asked for on it (`hsn backup export`). */
   #control: DownloadLines | undefined;
 
@@ -293,9 +294,10 @@ export class AppSide {
       enqueue(input);
   }
 
-  /** Attaches the open control socket for downloads and completes any waiting health mark. */
-  useControl(control: DownloadLines): void {
+  /** Records the end of control socket opening and attaches the socket if it opened. */
+  controlSettled(control?: DownloadLines): void {
     this.#control = control;
+    this.#controlOpeningEnded = true;
     this.#markIfHealthy();
   }
 
@@ -435,7 +437,7 @@ export class AppSide {
     return this.channel.download(conn, line);
   }
 
-  /** Each commit's records: a healthy trial is marked once all its listeners are open. */
+  /** Marks a healthy trial once app listeners are open and the control socket's opening has ended. */
   committed(records: readonly AuditRecord[]): void {
     const version = healthyIn(records, this.#options.env);
     if (version === undefined) return;
@@ -443,13 +445,13 @@ export class AppSide {
     this.#markIfHealthy();
   }
 
-  /** Waits for the control socket to finish checking the program tree before the launcher writes to it. */
+  /** The launcher may write to the program tree once the control socket's opening has ended. */
   #markIfHealthy(): void {
     if (
       this.#marked ||
       this.#healthy === undefined ||
       this.#listeners === undefined ||
-      this.#control === undefined
+      !this.#controlOpeningEnded
     )
       return;
     this.#marked = true;
