@@ -1020,6 +1020,8 @@
   },
   "bluetooth": {
     "title": "Allow Bluetooth",
+    "checking": "Checking Bluetooth…",
+    "checkFailed": "Could not check Bluetooth.",
     "allow": "Allow Bluetooth",
     "refused": "Bluetooth is blocked. Open settings to allow this phone to add and update devices.",
     "off": "Bluetooth is off. Turn it on and check again.",

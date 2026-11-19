@@ -7,7 +7,7 @@
  * context, given here as stand-ins.
  */
 import "./support/render";
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, mock, spyOn, test } from "bun:test";
 import { createElement, type ReactElement } from "react";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -17,7 +17,10 @@ import type { ScanState } from "../src/ui/scan";
 import type { VaultStatus } from "../src/platform/vault";
 import type { ReachState } from "../src/hub/phone-client";
 import { createStore } from "zustand/vanilla";
+import type { checkBluetooth as checkNativeBluetooth } from "../src/platform/ble.native";
 import { renderWith, textOf } from "./support/screens";
+import { clientScreen, screenAct } from "./support/client-screen";
+import { ManualClock } from "../../tools/ble-bench/src/clock";
 
 const { PhoneProvider } = await import("../src/ui/phone-parts");
 const { Doors } = await import("../src/ui/arming");
@@ -521,6 +524,76 @@ describe("the Bluetooth permission before pairing or an update", () => {
     expect(await show("unauthorized")).toContain("Open settings");
     expect(await show("unsupported")).toContain("Back to Devices");
     expect(await show("unsupported")).not.toContain("Open settings");
+  });
+});
+
+const ble = await import("../src/platform/ble");
+const { BluetoothEntry } = await import("../src/pairing/permission");
+const { TextLink } = await import("../src/ui/parts");
+const { radioClock } = await import("../src/pairing/radio");
+type BluetoothCheck = typeof checkNativeBluetooth;
+
+describe("starting Bluetooth on a mounted phone page", () => {
+  const originalBle = { ...ble };
+  let screen: ReturnType<typeof clientScreen> | undefined;
+
+  afterEach(async () => {
+    await screen?.close();
+    screen = undefined;
+    mock.restore();
+    await mock.module("../src/platform/ble", () => originalBle);
+  });
+
+  /** Mounts a phone page with a scripted Bluetooth check. */
+  async function mount(page: ReactElement, checkBluetooth: BluetoothCheck) {
+    await mock.module("../src/platform/ble", () => ({ ...originalBle, checkBluetooth }));
+    const view = clientScreen();
+    screen = view;
+    await view.render(onPhone(page));
+    return view;
+  }
+
+  /** Mounts the shared entry and records when the page is allowed to proceed. */
+  async function enter(checkBluetooth: BluetoothCheck) {
+    const onReady = mock(() => undefined);
+    const view = await mount(
+      createElement(BluetoothEntry, {
+        onReady,
+        exit: createElement(TextLink, { href: "/devices", label: "Back to Devices" }),
+      }),
+      checkBluetooth,
+    );
+    return { view, onReady };
+  }
+
+  test("a pending Bluetooth check keeps the page frame and exit visible", async () => {
+    const pending = Promise.withResolvers<Awaited<ReturnType<BluetoothCheck>>>();
+    const { view, onReady } = await enter(() => pending.promise);
+    expect(textOf(view.html())).toContain("Checking Bluetooth…");
+    expect(view.html()).toContain('role="main"');
+    expect(view.html()).toContain('href="/devices"');
+    expect(textOf(view.html())).not.toContain("Bluetooth adds devices");
+    expect(view.html()).not.toContain('role="button"');
+    expect(onReady).not.toHaveBeenCalled();
+  });
+
+  test("a Bluetooth check with no reply ends at the deadline", async () => {
+    const clock = new ManualClock();
+    spyOn(radioClock, "after").mockImplementation(clock.after.bind(clock));
+    const pending = Promise.withResolvers<Awaited<ReturnType<BluetoothCheck>>>();
+    const { view, onReady } = await enter(() => pending.promise);
+    expect(clock.pending).toBe(1);
+    await screenAct(() => clock.advance(2999));
+    expect(textOf(view.html())).toContain("Checking Bluetooth…");
+    await screenAct(() => clock.advance(1));
+    expect(clock.pending).toBe(0);
+    expect(textOf(view.html())).toContain("Could not check Bluetooth.");
+    expect(view.html()).toContain('href="/devices"');
+
+    await screenAct(() => {
+      pending.resolve("on");
+    });
+    expect(onReady).not.toHaveBeenCalled();
   });
 });
 

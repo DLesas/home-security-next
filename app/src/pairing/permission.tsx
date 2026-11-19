@@ -6,6 +6,35 @@ import type { BleState } from "../platform/ble";
 import { Body, Button, Actions, Page, Stack } from "../ui/parts";
 import { PermissionAsk, PermissionRefused } from "../ui/permission";
 import { usePhone } from "../ui/phone-parts";
+import { radioClock } from "./radio";
+
+type CheckAnswer = BleState | "checkFailed" | undefined;
+
+/** Bounds a native or bridge check, and discards replies after the deadline or cleanup. */
+function startBluetoothCheck(onAnswer: (answer: CheckAnswer) => void): () => void {
+  let pending = true;
+  const stop = radioClock.after(3000, () => {
+    finish("checkFailed");
+  });
+
+  /** Settles the page once, whichever response comes first. */
+  function finish(answer: CheckAnswer) {
+    if (!pending) return;
+    pending = false;
+    stop();
+    onAnswer(answer);
+  }
+
+  void Promise.resolve()
+    .then(checkBluetooth)
+    .then(finish, () => {
+      finish("checkFailed");
+    });
+  return () => {
+    pending = false;
+    stop();
+  };
+}
 
 /** Checks before showing a permission page when adding a device or updating firmware. */
 export function BluetoothEntry({
@@ -17,40 +46,41 @@ export function BluetoothEntry({
   readonly onReady: () => void;
   readonly exit: ReactNode;
 }) {
-  const [state, setState] = useState<BleState | "checking" | undefined>("checking");
+  const [state, setState] = useState<CheckAnswer | "checking">("checking");
 
   /** Advances only when Bluetooth is both allowed and on. */
-  const checked = useEffectEvent((answer: BleState | undefined) => {
-    if (answer === "on") onReady();
-    else setState(answer ?? (state === "checking" ? initial : state));
+  const checked = useEffectEvent((answer: CheckAnswer) => {
+    if (answer === "on") {
+      onReady();
+      return;
+    }
+    setState(answer ?? (state === "checking" ? initial : state));
   });
 
-  useEffect(() => {
-    let current = true;
-    void checkBluetooth().then((answer) => {
-      if (current) checked(answer);
-    });
-    return () => {
-      current = false;
-    };
-  }, []);
+  useEffect(
+    () =>
+      startBluetoothCheck((answer) => {
+        checked(answer);
+      }),
+    [],
+  );
   useEffect(() => {
     if (state !== "unauthorized") return;
-    let current = true;
+    let stop: (() => void) | undefined;
     const listener = AppState.addEventListener("change", (status) => {
       if (status === "active") {
-        void checkBluetooth().then((answer) => {
-          if (current) checked(answer);
+        stop?.();
+        stop = startBluetoothCheck((answer) => {
+          checked(answer);
         });
       }
     });
     return () => {
-      current = false;
+      stop?.();
       listener.remove();
     };
   }, [state]);
 
-  if (state === "checking") return null;
   return (
     <BluetoothPermission
       state={state}
@@ -69,7 +99,7 @@ export function BluetoothPermission({
   onAnswer,
   exit,
 }: {
-  readonly state: BleState | undefined;
+  readonly state: CheckAnswer | "checking";
   readonly onAnswer: (state: BleState) => void;
   readonly exit: ReactNode;
 }) {
@@ -79,9 +109,15 @@ export function BluetoothPermission({
   const ask = () => {
     void askBluetooth().then(onAnswer);
   };
+  const title =
+    state === "checking"
+      ? "bluetooth.checking"
+      : state === "checkFailed"
+        ? "bluetooth.checkFailed"
+        : "bluetooth.title";
   return (
-    <Page title={t("bluetooth.title")}>
-      {state === "unauthorized" ? (
+    <Page title={t(title)}>
+      {state === "checking" || state === "checkFailed" ? null : state === "unauthorized" ? (
         <PermissionRefused
           sentence={t("bluetooth.refused")}
           onOpenSettings={() => phone?.openSettings()}
