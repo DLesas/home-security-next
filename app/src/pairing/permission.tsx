@@ -1,10 +1,67 @@
-import type { ReactNode } from "react";
+import { type ReactNode, useEffect, useEffectEvent, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { askBluetooth } from "../platform/ble";
+import { AppState } from "react-native";
+import { askBluetooth, checkBluetooth } from "../platform/ble";
 import type { BleState } from "../platform/ble";
 import { Body, Button, Actions, Page, Stack } from "../ui/parts";
 import { PermissionAsk, PermissionRefused } from "../ui/permission";
 import { usePhone } from "../ui/phone-parts";
+
+/** Checks before showing a permission page when adding a device or updating firmware. */
+export function BluetoothEntry({
+  initial,
+  onReady,
+  exit,
+}: {
+  readonly initial?: BleState;
+  readonly onReady: () => void;
+  readonly exit: ReactNode;
+}) {
+  const [state, setState] = useState<BleState | "checking" | undefined>("checking");
+
+  /** Advances only when Bluetooth is both allowed and on. */
+  const checked = useEffectEvent((answer: BleState | undefined) => {
+    if (answer === "on") onReady();
+    else setState(answer ?? (state === "checking" ? initial : state));
+  });
+
+  useEffect(() => {
+    let current = true;
+    void checkBluetooth().then((answer) => {
+      if (current) checked(answer);
+    });
+    return () => {
+      current = false;
+    };
+  }, []);
+  useEffect(() => {
+    if (state !== "unauthorized") return;
+    let current = true;
+    const listener = AppState.addEventListener("change", (status) => {
+      if (status === "active") {
+        void checkBluetooth().then((answer) => {
+          if (current) checked(answer);
+        });
+      }
+    });
+    return () => {
+      current = false;
+      listener.remove();
+    };
+  }, [state]);
+
+  if (state === "checking") return null;
+  return (
+    <BluetoothPermission
+      state={state}
+      exit={exit}
+      onAnswer={(answer) => {
+        if (answer === "on") onReady();
+        else setState(answer);
+      }}
+    />
+  );
+}
 
 /** Explains Bluetooth before asking, then gives one recovery for each radio state. */
 export function BluetoothPermission({
@@ -18,7 +75,7 @@ export function BluetoothPermission({
 }) {
   const { t } = useTranslation();
   const phone = usePhone();
-  /** Begins the native permission check only after the button is pressed. */
+  /** Requests permission or rechecks the radio at the person’s request. */
   const ask = () => {
     void askBluetooth().then(onAnswer);
   };

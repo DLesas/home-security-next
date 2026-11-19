@@ -36,7 +36,7 @@ import {
   pairingFlow,
   pairingRoles,
 } from "./pair-device";
-import { BluetoothPermission } from "./permission";
+import { BluetoothEntry } from "./permission";
 import {
   pairBackground,
   type PairPageName,
@@ -68,7 +68,7 @@ export function PairPage({
     initialCode === undefined ? "choose" : "permission",
   );
   const [role, setRole] = useState<Role | undefined>();
-  const [radio, setRadio] = useState<BleState>();
+  const [retryRadio, setRetryRadio] = useState<BleState>();
   const qr = useRef(initialCode);
   const [candidates, setCandidates] = useState<readonly Candidate[]>([]);
   const [candidate, setCandidate] = useState<Candidate>();
@@ -182,28 +182,6 @@ export function PairPage({
     }
   }
 
-  /** Moves on after the radio is ready, including when returning from phone settings. */
-  function radioAnswered(state: BleState) {
-    setRadio(state);
-    if (state === "on") void find();
-  }
-
-  useEffect(() => {
-    if (page !== "permission" || radio !== "unauthorized") return;
-    const listener = AppState.addEventListener("change", (state) => {
-      if (state === "active")
-        void bleCentral.state().then((value) => {
-          if (value === "on") {
-            setRadio(value);
-            setPage("open");
-          }
-        });
-    });
-    return () => {
-      listener.remove();
-    };
-  }, [page, radio]);
-
   /** Validates a typed code locally without using a board's attempt. */
   function submitCode() {
     const code = readPairingCode(text);
@@ -246,7 +224,13 @@ export function PairPage({
     });
 
   if (page === "permission")
-    return <BluetoothPermission state={radio} onAnswer={radioAnswered} exit={exit} />;
+    return (
+      <BluetoothEntry
+        {...(retryRadio === undefined ? {} : { initial: retryRadio })}
+        onReady={() => void find()}
+        exit={exit}
+      />
+    );
   if (page === "scan" && phone !== undefined) {
     return (
       <ScanScreen
@@ -302,8 +286,8 @@ export function PairPage({
           <Button
             label={t("pairing.findAction")}
             onPress={() => {
-              if (radio === "on") void find();
-              else setPage("permission");
+              setRetryRadio(undefined);
+              setPage("permission");
             }}
           />
         </Actions>
@@ -465,7 +449,7 @@ export function PairPage({
                   if (retry.reopen !== undefined) flow.reopened(retry.reopen);
                   if (retry.page === "find") void find();
                   else if (retry.page === "permission") {
-                    setRadio(reason === "off" ? "off" : "unauthorized");
+                    setRetryRadio(reason === "off" ? "off" : "unauthorized");
                     setPage("permission");
                   } else {
                     setFailure(undefined);

@@ -1,2 +1,2 @@
 export type * from "./ble-types";
-export { bleCentral, askBluetooth } from "./ble.web";
+export { bleCentral, askBluetooth, checkBluetooth } from "./ble.web";

@@ -19,6 +19,7 @@
 // The local network permission cannot be read or asked for on iOS (Apple's TN3179): `permission`
 // says `unreadable`, and the system asks by itself at the first browse or connection.
 
+import CoreBluetooth
 import Darwin
 import ExpoModulesCore
 import Network
@@ -58,6 +59,16 @@ public final class HubNetModule: Module {
 
     AsyncFunction("ask") { () -> [String: Any] in
       return ["state": "unreadable", "canAskAgain": true]
+    }
+
+    // Read authorization without creating a central manager that could prompt.
+    AsyncFunction("bluetoothAuthorization") { () -> String in
+      switch CBManager.authorization {
+      case .allowedAlways: return "allowed"
+      case .denied, .restricted: return "denied"
+      case .notDetermined: return "undetermined"
+      @unknown default: return "undetermined"
+      }
     }
 
     OnDestroy {

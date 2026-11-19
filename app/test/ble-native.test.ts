@@ -38,6 +38,29 @@ beforeEach(() => {
   bleFake.reset();
 });
 
+test("already authorized Bluetooth is ready before asking again on a fresh iPhone launch", async () => {
+  const scope = globalThis as { expo?: object };
+  const original = scope.expo;
+  let authorization = "undetermined";
+  scope.expo = {
+    modules: { HubNet: { bluetoothAuthorization: () => Promise.resolve(authorization) } },
+  };
+  const managersBefore = bleFake.managers;
+  const unasked = await ble.checkBluetooth();
+  authorization = "denied";
+  const denied = await ble.checkBluetooth();
+  const prompted = bleFake.managers !== managersBefore;
+  authorization = "allowed";
+  const ready = await ble.checkBluetooth();
+  if (original === undefined) delete scope.expo;
+  else scope.expo = original;
+  expect(ready).toBe("on");
+  expect(unasked).toBeUndefined();
+  expect(denied).toBe("unauthorized");
+  expect(prompted).toBe(false);
+  expect(bleFake.requested).toEqual([]);
+});
+
 /** Opens the manager as the permission page does, then connects with `clock` bounding each step. */
 async function connected(clock = new ManualClock(), id = "board") {
   expect(await ble.askBluetooth()).toBe("on");
@@ -249,6 +272,16 @@ describe("Android's permissions", () => {
     bleFake.platform.OS = "ios";
     expect(await ble.askBluetooth()).toBe("on");
     expect(bleFake.requested).toHaveLength(2);
+  });
+
+  test("Android checks for allowed, powered-on Bluetooth without asking", async () => {
+    bleFake.platform.OS = "android";
+    expect(await ble.checkBluetooth()).toBe("on");
+    bleFake.state = "PoweredOff";
+    expect(await ble.checkBluetooth()).toBe("off");
+    bleFake.granted = false;
+    expect(await ble.checkBluetooth()).toBeUndefined();
+    expect(bleFake.requested).toEqual([]);
   });
 
   test("a permission refused is Bluetooth not allowed", async () => {

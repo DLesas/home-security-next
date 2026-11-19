@@ -32,10 +32,24 @@ function isHubNet(value: unknown): value is HubNetModule {
 /** A call into the module whose throw, if it throws at once, becomes a rejection. */
 const later = (call: () => Promise<unknown>): Promise<unknown> => Promise.resolve().then(call);
 
-export function nativeHubNet(): HubNetNative | null {
+/** Finds HubNet in Expo’s native module registry. */
+function hubNetModule(): unknown {
   const expo = (globalThis as { readonly expo?: { readonly modules?: object } }).expo;
-  const module: unknown =
-    expo?.modules === undefined ? undefined : Reflect.get(expo.modules, "HubNet");
+  return expo?.modules === undefined ? undefined : Reflect.get(expo.modules, "HubNet");
+}
+
+/** Reads iOS Bluetooth authorization without initializing its Bluetooth manager. */
+export function iosBluetoothAuthorization(): Promise<unknown> {
+  const module = hubNetModule();
+  if (typeof module !== "object" || module === null) return Promise.resolve(undefined);
+  const read: unknown = Reflect.get(module, "bluetoothAuthorization");
+  if (typeof read !== "function") return Promise.resolve(undefined);
+  const authorization = read as (this: object) => Promise<unknown>;
+  return later(() => authorization.call(module)).catch(() => undefined);
+}
+
+export function nativeHubNet(): HubNetNative | null {
+  const module = hubNetModule();
   if (!isHubNet(module)) return null;
   return {
     start: (type, session) => later(() => module.start(type, session)),
