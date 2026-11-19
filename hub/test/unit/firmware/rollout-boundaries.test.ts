@@ -51,9 +51,13 @@ test("two sensors on a same-version rebuild need a matching confirmation of thei
   runner.query(S2);
   runner.query(S2, {}, wifi(502));
   runner.status(S2, target.imageId, UpdateStage.Verified, 0, fileBytes(target));
-  runner.started(S2, OLD_VERSION, ON_TRIAL);
-  expect(decisions(runner.status(S1, target.imageId, UpdateStage.Confirmed))).toEqual([]);
   expect(rowOf(runner, S2)?.state).toBe(DeviceUpdateState.Installing);
+  const started = runner.started(S2, OLD_VERSION, ON_TRIAL);
+  expect(decisions(started).map(({ kind }) => kind)).not.toContain("firmware_confirmed");
+  const waiting = rowOf(runner, S2);
+  expect(waiting?.state).not.toBe(DeviceUpdateState.Confirmed);
+  expect(decisions(runner.status(S1, target.imageId, UpdateStage.Confirmed))).toEqual([]);
+  expect(rowOf(runner, S2)).toEqual(waiting);
   expect(openRow(runner)?.stage).toBe(RolloutStage.Rest);
 });
 

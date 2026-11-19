@@ -286,14 +286,15 @@ test("a same-version trial started before restart still needs matching confirmat
   ).toBe(true);
   runner.query(S1, {}, wifi(501));
   runner.status(S1, image.imageId, UpdateStage.Verified, 0, fileBytes(image));
+  expect(rowOf(runner, S1)?.state).toBe(DeviceUpdateState.Installing);
   runner.started(S1, OLD_VERSION, ON_TRIAL);
+  const waiting = rowOf(runner, S1);
+  expect(waiting?.state).not.toBe(DeviceUpdateState.Confirmed);
   commit(store, runner.all);
 
   const next = restart(store, dataDir);
-  expect(rowOf(next.runner, S1)).toMatchObject({
-    sameVersion: true,
-    state: DeviceUpdateState.Installing,
-  });
+  expect(rowOf(next.runner, S1)).toMatchObject({ sameVersion: true });
+  expect(rowOf(next.runner, S1)).toEqual(waiting);
   expect(decisions(next.runner.started(S1, OLD_VERSION, undefined))).toEqual([]);
   expect(
     decisions(next.runner.status(S1, imageRow(3, OLD_VERSION).imageId, UpdateStage.Confirmed)),
