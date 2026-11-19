@@ -131,6 +131,7 @@ describe("per relay key: 10,000 a day, more for the operator's own relay", () =>
   test("at the design's value: the 10,000th passes, the 10,001st is limited until midnight", () => {
     const limiter = new PushLimiter();
     const outcomes = spread(limiter, A, 10_000, NOON);
+    expect(outcomes).toHaveLength(10_000);
     expect(outcomes.filter((o) => o !== undefined)).toHaveLength(0);
     expect(limiter.admit({ ...A, hub: "another" }, NOON + DAY / 4)).toEqual({
       what: "relayKey",
@@ -141,7 +142,7 @@ describe("per relay key: 10,000 a day, more for the operator's own relay", () =>
 
   test("one below, at, one above, with a smaller value", () => {
     const limiter = new PushLimiter(small);
-    expect(spread(limiter, A, 99, NOON).every((o) => o === undefined)).toBe(true);
+    expect(spread(limiter, A, 99, NOON)).toEqual(Array<undefined>(99).fill(undefined));
     expect(limiter.admit({ ...A, hub: "x" }, NOON + 500)).toBeUndefined();
     expect(limiter.admit({ ...A, hub: "y" }, NOON + 501)?.what).toBe("relayKey");
   });
@@ -149,7 +150,7 @@ describe("per relay key: 10,000 a day, more for the operator's own relay", () =>
   test("the operator's relay has its own, larger share", () => {
     const limiter = new PushLimiter(small);
     const operator: PushSource = { relayKey: "operator", hub: "h", address: null, operator: true };
-    expect(spread(limiter, operator, 300, NOON).every((o) => o === undefined)).toBe(true);
+    expect(spread(limiter, operator, 300, NOON)).toEqual(Array<undefined>(300).fill(undefined));
     expect(limiter.admit({ ...operator, hub: "z" }, NOON + 1000)?.what).toBe("relayKey");
   });
 });
@@ -158,8 +159,8 @@ describe("per address", () => {
   test("two relay keys from one address share its 150: the 150th passes, the 151st is limited", () => {
     const limiter = new PushLimiter(small);
     const other: PushSource = { ...A, relayKey: "relayc" };
-    expect(spread(limiter, A, 100, NOON).every((o) => o === undefined)).toBe(true);
-    expect(spread(limiter, other, 49, NOON + 200).every((o) => o === undefined)).toBe(true);
+    expect(spread(limiter, A, 100, NOON)).toEqual(Array<undefined>(100).fill(undefined));
+    expect(spread(limiter, other, 49, NOON + 200)).toEqual(Array<undefined>(49).fill(undefined));
     expect(limiter.admit({ ...other, hub: "x" }, NOON + 300)).toBeUndefined();
     expect(limiter.admit({ ...other, hub: "y" }, NOON + 301)?.what).toBe("address");
     // Another address is untouched.
@@ -169,7 +170,7 @@ describe("per address", () => {
   test("the local socket has no address, so no address limit", () => {
     const limiter = new PushLimiter(small);
     const operator: PushSource = { relayKey: "operator", hub: "h", address: null, operator: true };
-    expect(spread(limiter, operator, 200, NOON).every((o) => o === undefined)).toBe(true);
+    expect(spread(limiter, operator, 200, NOON)).toEqual(Array<undefined>(200).fill(undefined));
   });
 });
 

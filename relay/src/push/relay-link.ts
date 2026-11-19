@@ -84,7 +84,7 @@ export interface LinkHost {
   push(link: RelayLinkServer, items: readonly RelayPushItem[]): Promise<PushAnswer>;
   /** The link closed; called once. */
   gone(link: RelayLinkServer): void;
-  /** The way to the releases role, opened at join; none when no releases socket is configured. */
+  /** The way to the releases role, opened at join and again after a disconnect. */
   readonly openReleases?: OpenReleaseRoute | undefined;
 }
 
@@ -108,6 +108,9 @@ export class RelayLinkServer {
   private relayIdentity: string | undefined;
   private cancelTimer: () => void;
   private releases: ReleaseRoute | undefined;
+  private invalidReleaseRoute = false;
+  /** Catalogue checks forwarded on this route and not yet answered, in wire order. */
+  private checksInHand = 0;
   /** `release.get` ids sent to the releases role and not yet answered. */
   private readonly piecesInHand = new Set<number>();
 
@@ -239,15 +242,7 @@ export class RelayLinkServer {
     this.host.log.write("info", "linkJoined", { peer: this.peer.local ? "local" : "remote" });
     this.send({ t: "joined", identity });
     this.heard();
-    this.releases = this.host.openReleases?.(
-      { identity, address: this.peer.address },
-      (answer) => {
-        this.releaseAnswer(answer);
-      },
-      () => {
-        this.releasesGone();
-      },
-    );
+    this.releaseRoute();
   }
 
   /** Any frame on a joined link: the silent-link clock starts again. */
@@ -288,15 +283,40 @@ export class RelayLinkServer {
     }
   }
 
+  /** Gets or reopens the forwarding socket for this authenticated relay. */
+  private releaseRoute(): ReleaseRoute | undefined {
+    if (this.releases !== undefined) return this.releases;
+    const identity = this.relayIdentity;
+    if (this.state !== "joined" || identity === undefined || this.invalidReleaseRoute)
+      return undefined;
+    const opened: { route?: ReleaseRoute | undefined; gone: boolean } = { gone: false };
+    opened.route = this.host.openReleases?.(
+      { identity, address: this.peer.address },
+      (answer) => {
+        const { route } = opened;
+        if (route !== undefined && this.releases === route) this.releaseAnswer(answer);
+      },
+      () => {
+        opened.gone = true;
+        const { route } = opened;
+        if (route !== undefined) this.releasesGone(route);
+      },
+    );
+    if (opened.gone) return undefined;
+    this.releases = opened.route;
+    return opened.route;
+  }
+
   /** `release.check`: to the releases role, or an empty offer when there is none to ask. */
   private releaseCheck(text: string): void {
-    const releases = this.releases;
+    const releases = this.releaseRoute();
     if (releases === undefined) {
       this.send({ t: "release.offer", releases: [] });
       return;
     }
+    this.checksInHand += 1;
     void releases.forward(text).then((sent) => {
-      if (!sent) this.send({ t: "release.offer", releases: [] });
+      if (!sent) this.releasesGone(releases, true);
     });
   }
 
@@ -306,7 +326,7 @@ export class RelayLinkServer {
    * releases role to ask or the id is already in hand.
    */
   private releaseGet(text: string, id: number): void {
-    const releases = this.releases;
+    const releases = this.releaseRoute();
     if (releases === undefined || this.piecesInHand.has(id)) {
       this.send({ t: "release.error", id, reason: "unavailable" });
       return;
@@ -317,8 +337,7 @@ export class RelayLinkServer {
     }
     this.piecesInHand.add(id);
     void releases.forward(text).then((sent) => {
-      if (sent || !this.piecesInHand.delete(id)) return;
-      this.send({ t: "release.error", id, reason: "unavailable" });
+      if (!sent) this.releasesGone(releases, true);
     });
   }
 
@@ -335,7 +354,12 @@ export class RelayLinkServer {
         this.badReleaseAnswer();
         return;
       }
-      if (frame.value.t === "release.error") this.piecesInHand.delete(frame.value.id);
+      if (frame.value.t === "release.error") {
+        if (!this.piecesInHand.delete(frame.value.id)) return;
+      } else {
+        if (this.checksInHand === 0) return;
+        this.checksInHand -= 1;
+      }
       this.sendOrClose(this.socket.sendText(answer));
       return;
     }
@@ -354,17 +378,23 @@ export class RelayLinkServer {
 
   private badReleaseAnswer(): void {
     this.host.log.write("warning", "releasesUnreachable", { why: "badRequest" });
-    this.releases?.close();
-    this.releasesGone();
+    this.invalidReleaseRoute = true;
+    if (this.releases !== undefined) this.releasesGone(this.releases, true);
   }
 
-  /** The way to the releases role closed: every piece in hand is answered `unavailable`. */
-  private releasesGone(): void {
+  /** Settles only this route's outstanding requests and lets the next frame reopen it. */
+  private releasesGone(route: ReleaseRoute, close = false): void {
+    if (this.releases !== route) return;
     this.releases = undefined;
+    if (close) route.close();
     const ids = [...this.piecesInHand];
+    const checks = this.checksInHand;
+    this.checksInHand = 0;
     this.piecesInHand.clear();
     if (this.state !== "joined") return;
     for (const id of ids) this.send({ t: "release.error", id, reason: "unavailable" });
+    for (let i = 0; i < checks && this.joined; i += 1)
+      this.send({ t: "release.offer", releases: [] });
   }
 
   private push(items: readonly RelayPushItem[]): void {
@@ -412,6 +442,7 @@ export class RelayLinkServer {
     this.queued = [];
     const releases = this.releases;
     this.releases = undefined;
+    this.checksInHand = 0;
     this.piecesInHand.clear();
     releases?.close();
     if (this.wasJoined) {

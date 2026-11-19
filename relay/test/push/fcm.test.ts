@@ -92,7 +92,7 @@ describe("the access token", () => {
   test("is fetched once for many pushes, even at once", async () => {
     const { s, send } = await setUp();
     const outcomes = await Promise.all([1, 2, 3, 4, 5].map((n) => send(n)));
-    expect(outcomes.every((o) => o.kind === "delivered")).toBe(true);
+    expect(outcomes.map((o) => o.kind)).toEqual(Array<"delivered">(5).fill("delivered"));
     await send(6);
     expect(s.fcm.tokenRequests).toHaveLength(1);
     expect(new Set(s.fcm.received.map((r) => r.authorization)).size).toBe(1);

@@ -107,6 +107,12 @@ export class PushLink implements PushSender {
       const text = encodeTextFrame("relayToPush", frame);
       return text.ok && clientSend(socket, text.value);
     },
+    reset: () => {
+      const socket = this.socket;
+      if (socket === undefined) return;
+      clientClose(socket, 1000);
+      if (this.socket === socket) this.closed(1000);
+    },
   };
 
   /** The cache release answers go to; it fills each time the link joins. */

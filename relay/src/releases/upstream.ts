@@ -9,7 +9,8 @@
  * pieces of `RELAY_LIMITS.maxReleasePieceBytes`, one at a time, into `.partial-<file>` in the
  * folder, so a fetch cut by a dropped link or a restart resumes at the partial file's length. A
  * whole file whose SHA-256 is the offer's is moved into place and indexed; one that is not is
- * thrown away. A `limit` stops the fill until its `retryAfterMs`. Signatures are not checked here,
+ * thrown away. A `limit` stops the fill until its `retryAfterMs`. An unanswered request times out
+ * after the silent-link interval and resets the channel before the next fill. Signatures are not checked here,
  * as the operated service does not: the hub checks them.
  *
  * `UpstreamChannel` is what carries the frames: the self-hosted relay's relay link to the push
@@ -54,6 +55,8 @@ export type UpstreamAnswer =
 export interface UpstreamChannel {
   /** Sends one frame; false when the channel is down. */
   send(frame: UpstreamRequest): boolean;
+  /** Drops the connection so late replies from a timed-out fill cannot reach the next one. */
+  reset(): void;
 }
 
 /** Reads one answer as the relay link carries it: a text frame or a binary piece. */
@@ -145,22 +148,34 @@ export class UpstreamCache {
   private ask(
     frame: UpstreamRequest,
   ): Promise<UpstreamAnswer | readonly ReleaseOffer[] | undefined> {
+    if (this.stopped) return Promise.resolve(undefined);
     return new Promise((resolve) => {
-      if (frame.t === "release.check") this.waiting.push({ kind: "offer", done: resolve });
-      else this.waiting.push({ kind: "piece", id: frame.id, done: resolve });
+      const cancel = this.options.clock.after(RELAY_LIMITS.silentLinkMs, () => {
+        this.linkDown();
+        this.options.channel.reset();
+      });
+      const done: typeof resolve = (answer) => {
+        cancel();
+        resolve(answer);
+      };
+      if (frame.t === "release.check") this.waiting.push({ kind: "offer", done });
+      else this.waiting.push({ kind: "piece", id: frame.id, done });
       if (!this.options.channel.send(frame)) this.linkDown();
     });
   }
 
   /** One fill: what was fetched, or nothing while a `limit` lasts or a fill runs. */
   async fill(): Promise<number> {
-    if (this.filling || this.options.clock.now() < this.holdUntilMs) return 0;
+    if (this.stopped || this.filling || this.options.clock.now() < this.holdUntilMs) return 0;
     this.filling = true;
     let fetched = 0;
     const offers = new Map<string, ReleaseOffer>();
     for (const platform of RELEASE_PLATFORMS) {
       const answer = await this.ask({ t: "release.check", platform, running: "0.0.0" });
-      if (answer === undefined || !Array.isArray(answer)) break;
+      if (answer === undefined || !Array.isArray(answer)) {
+        this.filling = false;
+        return 0;
+      }
       for (const offer of answer as readonly ReleaseOffer[]) offers.set(offer.file, offer);
     }
     for (const offer of offers.values()) {
@@ -245,30 +260,60 @@ export function socketChannel(
   identity: string,
 ): Result<SocketChannel, RelayError> {
   let cache: UpstreamCache | undefined;
-  return ReleaseForwarder.open(
-    socketPath,
-    { identity, address: null },
-    (data) => {
-      const answer = readUpstreamAnswer(data);
-      if (answer !== undefined) cache?.answer(answer);
-    },
-    () => {
-      cache?.linkDown();
-    },
-  ).map((forwarder) => ({
-    attach(to: UpstreamCache): void {
-      cache = to;
-    },
-    send(frame: UpstreamRequest): boolean {
-      const text = encodeTextFrame("relayToPush", frame);
-      if (!text.ok) return false;
-      void forwarder.forward(text.value).then((sent) => {
-        if (!sent) cache?.linkDown();
-      });
-      return true;
-    },
-    close() {
-      forwarder.close();
-    },
-  }));
+  let active: ReleaseForwarder | undefined;
+  let stopped = false;
+  /** Opens a connection whose callbacks belong only to that connection. */
+  const open = () => {
+    const opened = ReleaseForwarder.open(
+      socketPath,
+      { identity, address: null },
+      (data) => {
+        if (!opened.isOk() || active !== opened.value) return;
+        const answer = readUpstreamAnswer(data);
+        if (answer !== undefined) cache?.answer(answer);
+      },
+      () => {
+        if (opened.isOk() && active === opened.value) {
+          active = undefined;
+          cache?.linkDown();
+        }
+      },
+    );
+    return opened;
+  };
+  /** Drops this connection before its close or message callbacks can run. */
+  const reset = (): void => {
+    const old = active;
+    active = undefined;
+    old?.close();
+  };
+  return open().map((first): SocketChannel => {
+    active = first;
+    return {
+      attach(to) {
+        cache = to;
+      },
+      send(frame) {
+        const text = encodeTextFrame("relayToPush", frame);
+        if (stopped || !text.ok) return false;
+        if (active === undefined) {
+          const opened = open();
+          if (opened.isErr()) return false;
+          active = opened.value;
+        }
+        const forwarder = active;
+        void forwarder.forward(text.value).then((sent) => {
+          if (sent || active !== forwarder) return;
+          reset();
+          cache?.linkDown();
+        });
+        return true;
+      },
+      reset,
+      close() {
+        stopped = true;
+        reset();
+      },
+    };
+  });
 }

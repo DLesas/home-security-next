@@ -6,7 +6,7 @@
  * cut fetch. Release files are made here with the published layout; the relay checks no
  * signature, so theirs are zeros.
  */
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { createHash, randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -14,6 +14,7 @@ import {
   FIRMWARE_RELEASE,
   firmwareReleaseFileName,
   HUB_RELEASE,
+  RELEASE_PLATFORMS,
   hubReleaseFileName,
   type ReleasePlatform,
 } from "@hsn/protocol/release";
@@ -491,7 +492,9 @@ describe("relay links, through the forwarding socket", () => {
     const cache = new UpstreamCache({ index, clock, log: memoryLog(), channel });
     channel.attach(cache);
     expect(await cache.fill()).toBe(3);
-    for (const file of readdirNames(operated)) {
+    const files = readdirNames(operated);
+    expect(files).toHaveLength(3);
+    for (const file of files) {
       expect(readFileSync(join(selfHosted, file))).toEqual(readFileSync(join(operated, file)));
     }
     expect(index.entries()).toHaveLength(3);
@@ -500,6 +503,117 @@ describe("relay links, through the forwarding socket", () => {
     channel.close();
   });
 
+  test("a reset direct socket channel opens another connection for the next fill", async () => {
+    const index = new FolderReleaseIndex(selfHosted, memoryLog());
+    const channel = must(socketChannel(socketPath, relayIdentity));
+    const cache = new UpstreamCache({ index, clock, log: memoryLog(), channel });
+    channel.attach(cache);
+    channel.reset();
+    expect(await cache.fill()).toBe(3);
+    expect(index.entries()).toHaveLength(3);
+    cache.stop();
+    channel.close();
+  });
+
+  test("a late offer from a timed-out direct socket cannot answer the replacement fill", async () => {
+    const replies: (() => void)[] = [];
+    const open = ReleaseForwarder.open.bind(ReleaseForwarder);
+    using forwarder = spyOn(ReleaseForwarder, "open").mockImplementation(
+      (path, peer, answer, closed) =>
+        open(
+          path,
+          peer,
+          (data) => {
+            // Hold delivery past the timeout without depending on WebSocket close timing.
+            replies.push(() => {
+              answer(data);
+            });
+          },
+          closed,
+        ),
+    );
+    const timer = new ManualClock(T0);
+    const index = new FolderReleaseIndex(selfHosted, memoryLog());
+    const channel = must(socketChannel(socketPath, relayIdentity));
+    const cache = new UpstreamCache({ index, clock: timer, log: memoryLog(), channel });
+    channel.attach(cache);
+
+    const expired = cache.fill();
+    await until(() => replies.length === 1, "the first socket's offer");
+    timer.advance(RELAY_LIMITS.silentLinkMs);
+    expect(await expired).toBe(0);
+    const replacement = cache.fill();
+    await until(() => replies.length === 2, "the replacement socket's offer");
+    expect(forwarder).toHaveBeenCalledTimes(2);
+
+    using answer = spyOn(cache, "answer");
+    const [late, current] = replies;
+    late?.();
+    const afterLate = answer.mock.calls.length;
+    current?.();
+    const afterCurrent = answer.mock.calls.length;
+    cache.stop();
+    channel.close();
+    expect(await replacement).toBe(0);
+    expect(afterLate).toBe(0);
+    expect(afterCurrent).toBe(1);
+  });
+
+  test.each(["release.check", "release.get"] as const)(
+    "a silent %s times out at the silent-link bound and a fresh fill can finish",
+    async (silent) => {
+      const index = new FolderReleaseIndex(selfHosted, memoryLog());
+      const timer = new ManualClock(T0);
+      const asked: UpstreamRequest[] = [];
+      let resets = 0;
+      const cache = new UpstreamCache({
+        index,
+        clock: timer,
+        log: memoryLog(),
+        channel: {
+          send(frame) {
+            asked.push(frame);
+            return true;
+          },
+          reset() {
+            resets += 1;
+          },
+        },
+      });
+      const fill = cache.fill();
+      if (silent === "release.get") {
+        for (const platform of RELEASE_PLATFORMS) {
+          expect(asked.at(-1)).toMatchObject({ t: "release.check", platform });
+          const releases = service.check(
+            { kind: "relay", identity: relayIdentity, address: null },
+            { platform, running: "0.0.0" },
+          );
+          cache.answer({ kind: "offer", releases });
+          await Promise.resolve();
+        }
+      }
+      expect(asked.at(-1)?.t).toBe(silent);
+      expect(timer.pending).toBe(1);
+      timer.advance(RELAY_LIMITS.silentLinkMs - 1);
+      expect(resets).toBe(0);
+      expect(timer.pending).toBe(1);
+      timer.advance(1);
+      expect(await fill).toBe(0);
+      expect(resets).toBe(1);
+      expect(timer.pending).toBe(0);
+
+      const again = cache.fill();
+      for (const platform of RELEASE_PLATFORMS) {
+        expect(asked.at(-1)).toMatchObject({ t: "release.check", platform });
+        cache.answer({ kind: "offer", releases: [] });
+        await Promise.resolve();
+      }
+      expect(await again).toBe(0);
+      expect(timer.pending).toBe(0);
+      cache.stop();
+    },
+  );
+
   test("a fill cut half-way resumes at the partial file's length", async () => {
     const index = new FolderReleaseIndex(selfHosted, memoryLog());
     must(await index.refresh());
@@ -507,6 +621,9 @@ describe("relay links, through the forwarding socket", () => {
     const inner = must(socketChannel(socketPath, relayIdentity));
     let cutAfter = 2;
     const channel: UpstreamChannel = {
+      reset() {
+        inner.reset();
+      },
       send(frame) {
         if (frame.t === "release.get") {
           if (cutAfter === 0) return false;

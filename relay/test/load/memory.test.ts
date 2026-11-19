@@ -93,6 +93,7 @@ test("resident memory stays flat over repeated bursts of slow readers and oversi
       { length: 8 },
       (_, i) => new Client(`${url}/v1/phone/${hub.identity}/session`, `198.51.${round}.${i}`),
     );
+    expect(phones).toHaveLength(8);
     await Promise.all(phones.map((p) => p.open()));
     for (let left = phones.length; left > 0; left -= 1) await hub.next("open");
     for (const p of phones) p.send(new Uint8Array(200 * 1024));
@@ -106,6 +107,7 @@ test("resident memory stays flat over repeated bursts of slow readers and oversi
     );
     const streams: number[] = [];
     for (let left = slow.length; left > 0; left -= 1) streams.push((await hub.next("open")).stream);
+    expect(streams).toHaveLength(4);
     for (const stream of streams) for (let k = 0; k < 300; k++) hub.sendStream(stream, big);
     const closes: number[] = [];
     while (closes.length < streams.length) closes.push((await hub.next("close")).code);

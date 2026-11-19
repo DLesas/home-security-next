@@ -520,7 +520,7 @@ export class Relay implements HubLinkHost, StreamHost {
         const r = byRelayId.get(relayId);
         if (r?.hubId === null || r === undefined) continue;
         outcomes.set(r.hubId, outcome);
-        if (outcome === "badToken") this.dropTarget(identity, r.key);
+        if (outcome === "badToken") this.dropTarget(identity, r);
       }
       let accepted = 0;
       let failed = 0;
@@ -567,11 +567,15 @@ export class Relay implements HubLinkHost, StreamHost {
     return { outcomes, limitedForMs };
   }
 
-  private dropTarget(identity: string, key: string): void {
-    const roster = this.rosters.get(identity);
-    roster?.delete(key);
-    this.written(this.store.dropTarget(identity, key));
-    if (roster?.size === 0) {
+  /** A refusal removes only the destination used by that send, even if the roster has changed. */
+  private dropTarget(identity: string, sent: ResolvedItem): void {
+    const roster = this.targetsFor(identity);
+    const current = roster.get(sent.key);
+    const { token, platform, env } = sent.item;
+    if (current?.token !== token || current.platform !== platform || current.env !== env) return;
+    roster.delete(sent.key);
+    this.written(this.store.dropTarget(identity, sent.key));
+    if (roster.size === 0) {
       this.present({ kind: "roster", identity, hasTargets: false, atMs: this.clock.now() });
     }
   }
@@ -613,7 +617,7 @@ export class Relay implements HubLinkHost, StreamHost {
         const r = byRelayId.get(relayId);
         if (r === undefined) continue;
         if (outcome === "accepted") accepted += 1;
-        else if (outcome === "badToken") this.dropTarget(identity, r.key);
+        else if (outcome === "badToken") this.dropTarget(identity, r);
         else again.add(r.key);
       }
       this.log.write("info", "alertSent", {

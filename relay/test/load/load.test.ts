@@ -87,6 +87,7 @@ const established: { hub: StandInHub; phone: Client; stream: number }[] = [];
 
 /** Every established hub still answers, and its stream still carries both ways. */
 async function establishedStillWork(round: number): Promise<void> {
+  expect(established).toHaveLength(20);
   for (const { hub, phone, stream } of established) {
     hub.send({ t: "ping", n: round });
     await hub.next("pong");
@@ -197,6 +198,7 @@ describe("under load", () => {
   test("phone streams past their caps are 4429, oversized messages 1009, slow readers 4429", async () => {
     clock.advance(60_000);
     const { hub } = established[0] ?? { hub: undefined };
+    expect(hub).toBeDefined();
     if (hub === undefined) return;
     const phones: Client[] = [];
     // 15 more streams fill the hub's 16; then 10 more are refused.
@@ -225,6 +227,7 @@ describe("under load", () => {
     for (const s of slow) s.socket.pause();
     const streams: number[] = [];
     for (let left = slow.length; left > 0; left -= 1) streams.push((await hub.next("open")).stream);
+    expect(streams).toHaveLength(3);
     const big = new Uint8Array(RELAY_LIMITS.maxPhoneMessageBytes);
     for (const stream of streams) for (let k = 0; k < 300; k++) hub.sendStream(stream, big);
     let slowClosed = 0;

@@ -139,6 +139,7 @@ test("no identity, address, pseudonym or content reaches the log", async () => {
   // Only the fields the log's types allow: words, numbers and booleans, never free text.
   for (const line of log.lines) {
     const record = JSON.parse(line) as Record<string, unknown>;
+    expect(typeof record.event).toBe("string");
     for (const [field, value] of Object.entries(record)) {
       if (field === "error" || field === "at") continue;
       expect(["string", "number", "boolean"]).toContain(typeof value);

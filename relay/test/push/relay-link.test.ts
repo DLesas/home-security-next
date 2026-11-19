@@ -614,6 +614,37 @@ describe("release frames through a way to the releases role", () => {
     expect(relay.socket.binaries.at(-1)).toBe(bytes);
   });
 
+  test("an unasked release offer is ignored and the link stays joined", async () => {
+    const route = new FakeRoute();
+    const { relay } = await joined(route);
+    const sent = relay.socket.texts.length;
+    const offer = JSON.stringify({ t: "release.offer", releases: [] });
+    route.answer(offer);
+    expect(relay.socket.texts).toHaveLength(sent);
+    expect(relay.link.joined).toBe(true);
+
+    relay.link.receive(
+      JSON.stringify({ t: "release.check", platform: "linux-arm64", running: "1.0.0" }),
+    );
+    route.answer(offer);
+    expect(relay.socket.texts.slice(sent)).toEqual([offer]);
+  });
+
+  test("a release error for an unknown id is ignored and the link stays joined", async () => {
+    const route = new FakeRoute();
+    const { relay } = await joined(route);
+    relay.link.receive(get(4));
+    expect(route.forwarded).toEqual([get(4)]);
+    const sent = relay.socket.texts.length;
+    route.answer(JSON.stringify({ t: "release.error", id: 7, reason: "notFound" }));
+    expect(relay.socket.texts).toHaveLength(sent);
+    expect(relay.link.joined).toBe(true);
+
+    const error = JSON.stringify({ t: "release.error", id: 4, reason: "notFound" });
+    route.answer(error);
+    expect(relay.socket.texts.slice(sent)).toEqual([error]);
+  });
+
   test("four pieces in hand at once; a fifth is limit; an answer frees a place; an id twice is unavailable", async () => {
     const route = new FakeRoute();
     const { relay } = await joined(route);
@@ -705,6 +736,35 @@ describe("release frames through a way to the releases role", () => {
     route.answer(piece(1));
     expect(relay.socket.closedWith).toBe(4429);
     expect(route.closes).toBe(1);
+  });
+
+  test("a closed route settles each unanswered check once and cannot settle its replacement's requests", async () => {
+    const route = new FakeRoute();
+    const { relay } = await joined(route);
+    const check = JSON.stringify({ t: "release.check", platform: "linux-arm64", running: "1.0.0" });
+    const offer = { t: "release.offer", releases: [] } as const;
+    const oldAnswer = route.answer;
+    const oldGone = route.gone;
+    relay.link.receive(check);
+    relay.link.receive(check);
+    relay.link.receive(get(7));
+    await settle();
+    oldAnswer(JSON.stringify(offer));
+    oldGone();
+    expect(relay.socket.frames().slice(-3)).toEqual([
+      offer,
+      { t: "release.error", id: 7, reason: "unavailable" },
+      offer,
+    ]);
+    const answered = relay.socket.frames().length;
+    relay.link.receive(check);
+    expect(route.forwarded).toEqual([check, check, get(7), check]);
+    oldGone();
+    oldAnswer(JSON.stringify(offer));
+    expect(relay.socket.frames()).toHaveLength(answered);
+    route.answer(JSON.stringify(offer));
+    expect(relay.socket.frames().slice(answered)).toEqual([offer]);
+    expect(relay.link.joined).toBe(true);
   });
 
   test("closed with the link, once; never opened for a link that did not join", async () => {

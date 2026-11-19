@@ -172,6 +172,7 @@ describe("authenticated hub links", () => {
     });
     expect(await ninth.client.closed()).toBe(RELAY_CLOSE.overLimit);
     expect(ninth.joined).toBe(false);
+    expect(joined).toHaveLength(L.hubLinks.perAddress);
     for (const hub of joined) {
       hub.send({ t: "ping", n: 1 });
       await hub.next("pong");

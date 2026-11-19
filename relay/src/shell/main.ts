@@ -83,8 +83,6 @@ const push = new PushLink({
   log: pushLog,
   ...(ca?.isOk() === true ? { ca: ca.value } : {}),
 });
-push.start();
-
 const stops: (() => Promise<void> | void)[] = [
   () => {
     push.stop();
@@ -115,19 +113,32 @@ if (settings.roles.length === 2 && releasesSettings !== undefined) {
     stops.push(() => forwarding.value.stop());
   }
   const upstream = releasesSettings.upstream;
-  const identity = relayIdentity(key.value.publicKey);
-  if (upstream !== undefined && identity !== undefined) {
-    const channel = socketChannel(upstream.socket, identity);
-    if (channel.isErr()) exitConfig(channel.error);
-    const cache = new UpstreamCache({ index, clock: SYSTEM_CLOCK, log, channel: channel.value });
-    channel.value.attach(cache);
-    cache.start();
-    stops.push(() => {
-      cache.stop();
-      channel.value.close();
-    });
+  if (upstream !== undefined) {
+    const identity = relayIdentity(key.value.publicKey);
+    const socket =
+      "socket" in upstream && identity !== undefined
+        ? socketChannel(upstream.socket, identity)
+        : undefined;
+    if (socket?.isErr() === true) exitConfig(socket.error);
+    const channel = socket?.isOk() === true ? socket.value : undefined;
+    if (channel !== undefined || "link" in upstream) {
+      const cache = new UpstreamCache({
+        index,
+        clock: SYSTEM_CLOCK,
+        log,
+        channel: channel ?? push.releaseChannel,
+      });
+      if (channel === undefined) push.attachReleases(cache);
+      else channel.attach(cache);
+      cache.start();
+      stops.push(() => {
+        cache.stop();
+        channel?.close();
+      });
+    }
   }
 }
+push.start();
 
 const relay = Relay.start({
   clock: SYSTEM_CLOCK,

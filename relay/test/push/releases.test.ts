@@ -10,7 +10,12 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { createHash, randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { hubReleaseFileName, HUB_RELEASE, type ReleasePlatform } from "@hsn/protocol/release";
+import {
+  hubReleaseFileName,
+  HUB_RELEASE,
+  RELEASE_PLATFORMS,
+  type ReleasePlatform,
+} from "@hsn/protocol/release";
 import { RELAY_LIMITS, relayIdentity } from "@hsn/protocol/relay";
 import type { Result } from "neverthrow";
 import { ReleaseBudget } from "../../src/core/release-budget.ts";
@@ -104,6 +109,10 @@ interface World {
   cut(): Promise<void>;
   /** Starts them again on the same socket and port. */
   restore(): void;
+  /** Stops just the releases listener, leaving the push role and relay link up. */
+  cutReleases(): Promise<void>;
+  /** Restarts the releases listener on the same socket. */
+  restoreReleases(): void;
   readonly identity: string;
   /** The push service's relay link URL and certificate, for more relays. */
   readonly url: string;
@@ -138,22 +147,25 @@ async function world(
   );
   const seen: Seen[] = [];
   const releasesSocket = join(root, "releases.sock");
-  const forwarding: ForwardingListener = unwrap(
-    listenForwarding(
-      {
-        check: (peer, check) => service.check(peer, check),
-        async get(peer, request): Promise<PieceAnswer> {
-          const entry = { peer, request };
-          seen.push(entry);
-          await options.hold?.(entry);
-          return service.get(peer, request);
+  /** Listens with the same release files and budgets on each start. */
+  const serveReleases = (): ForwardingListener =>
+    unwrap(
+      listenForwarding(
+        {
+          check: (peer, check) => service.check(peer, check),
+          async get(peer, request): Promise<PieceAnswer> {
+            const entry = { peer, request };
+            seen.push(entry);
+            await options.hold?.(entry);
+            return service.get(peer, request);
+          },
         },
-      },
-      releasesSocket,
-      SILENT_LOG,
-    ),
-  );
-  stops.push(() => forwarding.stop());
+        releasesSocket,
+        SILENT_LOG,
+      ),
+    );
+  let forwarding: ForwardingListener | undefined = serveReleases();
+  stops.push(() => forwarding?.stop());
 
   const tls = must(loopbackTls(Date.now()));
   const routes = forwardedRoutes(releasesSocket, memoryLog());
@@ -229,6 +241,13 @@ async function world(
       await listeners?.stop();
     },
     restore: serve,
+    async cutReleases() {
+      await forwarding?.stop();
+      forwarding = undefined;
+    },
+    restoreReleases() {
+      forwarding = serveReleases();
+    },
   };
 }
 
@@ -243,6 +262,7 @@ describe("a self-hosted relay's release cache over its relay link", () => {
     expect(await until(() => same(w, w.big) && same(w, w.small))).toBe(true);
     const bigPieces = w.seen.filter((s) => s.request.file === w.big).map((s) => s.request.offset);
     expect(bigPieces).toEqual([0, PIECE, 2 * PIECE]);
+    expect(w.seen).toHaveLength(4);
     expect(w.seen.every((s) => s.request.length <= PIECE)).toBe(true);
     expect(w.seen[0]?.peer).toEqual({ kind: "relay", identity: w.identity, address: "127.0.0.1" });
     expect(w.answers.filter((a) => a.kind === "piece")).toHaveLength(4);
@@ -292,12 +312,8 @@ describe("a self-hosted relay's release cache over its relay link", () => {
     const w = await world({ releases: false });
     w.link.start();
     expect(await until(() => w.link.up)).toBe(true);
-    expect(await w.cache.fill()).toBe(0);
-    expect(
-      w.answers
-        .filter((a) => a.kind === "offer")
-        .every((a) => "releases" in a && a.releases.length === 0),
-    ).toBe(true);
+    expect(await until(() => w.answers.length >= RELEASE_PLATFORMS.length, 1000)).toBe(true);
+    expect(w.answers).toEqual(RELEASE_PLATFORMS.map(() => ({ kind: "offer", releases: [] })));
     expect(
       w.link.releaseChannel.send({ t: "release.get", id: 9, file: w.big, offset: 0, length: 10 }),
     ).toBe(true);
@@ -309,6 +325,34 @@ describe("a self-hosted relay's release cache over its relay link", () => {
     });
     expect(w.seen).toHaveLength(0);
     expect(w.live()).toBe(0);
+  });
+
+  test("a releases socket can restart while the relay link stays joined", async () => {
+    const w = await world();
+    w.link.start();
+    expect(await until(() => same(w, w.big) && same(w, w.small))).toBe(true);
+    w.answers.length = 0;
+    await w.cutReleases();
+    expect(await until(() => w.live() === 0)).toBe(true);
+    expect(w.link.up).toBe(true);
+    const check = { t: "release.check", platform: "linux-x64", running: "0.0.0" } as const;
+    expect(w.link.releaseChannel.send(check)).toBe(true);
+    expect(await until(() => w.answers.length === 1)).toBe(true);
+    expect(w.answers[0]).toEqual({ kind: "offer", releases: [] });
+    w.restoreReleases();
+    expect(w.link.releaseChannel.send(check)).toBe(true);
+    expect(await until(() => w.answers.length === 2)).toBe(true);
+    const offer = w.answers[1];
+    expect(offer?.kind === "offer" ? offer.releases.map((entry) => entry.file) : []).toEqual([
+      w.big,
+    ]);
+    expect(
+      w.link.releaseChannel.send({ t: "release.get", id: 999, file: w.big, offset: 0, length: 10 }),
+    ).toBe(true);
+    expect(await until(() => w.answers.length === 3)).toBe(true);
+    const piece = w.answers[2];
+    expect(piece?.kind === "piece" ? [piece.id, piece.bytes.length] : []).toEqual([999, 10]);
+    expect(w.link.up).toBe(true);
   });
 
   test("the link's own cap: a fifth piece in hand is limit, from the push service itself", async () => {
@@ -355,6 +399,7 @@ describe("a self-hosted relay's release cache over its relay link", () => {
       other.start();
       links.push(other);
     }
+    expect(links).toHaveLength(5);
     expect(await until(() => links.every((l) => l.up))).toBe(true);
     expect(await until(() => w.live() === 5)).toBe(true);
     for (const l of links.slice(0, 3)) l.stop();

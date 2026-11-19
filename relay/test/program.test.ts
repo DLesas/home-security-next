@@ -59,6 +59,36 @@ describe("the configuration", () => {
     writeFileSync(path, `# refused\n${a}\n\n  ${a}  # again\n`);
     expect([...must(readRefusedHubs(path))]).toEqual([a]);
   });
+
+  test("accepts exactly one upstream source and requires push.url for a link", () => {
+    const socket = join(folder, "upstream.sock");
+    const { push, ...config } = { ...base(folder), roles: ["relay", "releases"] };
+    const link = { link: true } as const;
+    for (const upstream of [{ socket }, link]) {
+      const path = configFile({ ...config, push, releases: { folder, upstream } });
+      expect(must(readConfig(["--config", path])).releases?.upstream).toEqual(upstream);
+    }
+    const both = configFile({
+      ...config,
+      push,
+      releases: { folder, upstream: { socket, ...link } },
+    });
+    expect(readConfig(["--config", both]).isErr()).toBe(true);
+    const noPush = configFile({ ...config, releases: { folder, upstream: link } });
+    expect(readConfig(["--config", noPush])._unsafeUnwrapErr().message).toContain("push.url");
+  });
+
+  test("defaults to the relay link only for a configured TLS push service without a forwarding socket", () => {
+    const config = { ...base(folder), roles: ["relay", "releases"] };
+    const push = { url: "wss://127.0.0.1:8481/v1/relay" };
+    const remote = configFile({ ...config, push, releases: { folder } });
+    expect(must(readConfig(["--config", remote])).releases?.upstream).toEqual({ link: true });
+    const socket = join(folder, "releases.sock");
+    const operated = configFile({ ...config, push, releases: { folder, socket } });
+    expect(must(readConfig(["--config", operated])).releases?.upstream).toBeUndefined();
+    const local = configFile({ ...config, releases: { folder } });
+    expect(must(readConfig(["--config", local])).releases?.upstream).toBeUndefined();
+  });
 });
 
 describe("the relay's own key", () => {

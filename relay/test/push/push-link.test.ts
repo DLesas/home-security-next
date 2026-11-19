@@ -269,6 +269,7 @@ describe("a relay link over real sockets (the real XN)", () => {
     stops.push(() => {
       for (const socket of sockets) socket.close();
     });
+    expect(sockets).toHaveLength(4);
     expect(await until(() => sockets.every((socket) => socket.readyState === WebSocket.OPEN))).toBe(
       true,
     );

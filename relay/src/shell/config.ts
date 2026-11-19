@@ -22,7 +22,9 @@
  *   `push` is left out). `names` is not built.
  * - `releases.folder`: the signed files served. `releases.socket`: on the operated host, the local
  *   socket on which the push process hands over the release frames of its relay links
- *   (`releases/forwarding.ts`). `releases.upstream`: a self-hosted relay's source for its cache.
+ *   (`releases/forwarding.ts`). `releases.upstream`: cache from a same-host `{socket}` or
+ *   `{link: true}` over `push.url`. With a TLS push URL and no forwarding socket, use the link
+ *   by default.
  * - `refusedHubs`: a file of hub identities the operator refuses (4403), one per line; read again
  *   on SIGHUP.
  */
@@ -56,7 +58,9 @@ export const relayConfigSchema = z.strictObject({
       folder: path,
       socket: path.optional(),
       socketMode: z.int().min(0).max(0o777).optional(),
-      upstream: z.strictObject({ socket: path }).optional(),
+      upstream: z
+        .union([z.strictObject({ socket: path }), z.strictObject({ link: z.literal(true) })])
+        .optional(),
     })
     .optional(),
   refusedHubs: path.optional(),
@@ -84,10 +88,30 @@ export function readConfig(args: readonly string[]): Result<RelayConfig, RelayEr
         const where = parsed.error.issues[0]?.path.join(".") ?? "";
         return err(relayError("config", ORIGIN, "the configuration is not valid", { where }));
       }
-      if (parsed.data.roles.length === 2 && parsed.data.releases === undefined) {
+      const config = parsed.data;
+      const releases = config.releases;
+      if (config.roles.length === 2 && releases === undefined) {
         return err(relayError("config", ORIGIN, "the releases role needs releases.folder"));
       }
-      return ok(parsed.data);
+      if (
+        releases?.upstream !== undefined &&
+        "link" in releases.upstream &&
+        config.push === undefined
+      ) {
+        return err(relayError("config", ORIGIN, "releases.upstream.link needs push.url"));
+      }
+      if (
+        releases !== undefined &&
+        releases.upstream === undefined &&
+        releases.socket === undefined &&
+        config.push?.url.startsWith("wss://") === true
+      ) {
+        return ok<RelayConfig, RelayError>({
+          ...config,
+          releases: { ...releases, upstream: { link: true } },
+        });
+      }
+      return ok(config);
     });
 }
 
