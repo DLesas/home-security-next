@@ -7,6 +7,8 @@ import { Body, Heading, Section, TextLink } from "../ui/parts";
 import { currentPhoneHub } from "./phone-hub";
 import { UpdateResult } from "./update-page";
 
+type UpdateEvent = AppEventBodyV2<"deviceUpdate">;
+
 /** Accepts the version 2 device extension retained by the shared live store. */
 function updateOf(device: DeviceObject) {
   if (!("update" in device)) return undefined;
@@ -14,10 +16,9 @@ function updateOf(device: DeviceObject) {
   return checked.success ? checked.data : undefined;
 }
 
-/** Shows the phone action only while the hub holds the sensor for a phone. */
-export function DeviceUpdateSection({ device }: { readonly device: DeviceObject }) {
-  const { t } = useTranslation();
-  const [event, setEvent] = useState<AppEventBodyV2<"deviceUpdate">>();
+/** Listens for the detailed update events that can explain a sensor's result. */
+export function LiveDeviceUpdateSection({ device }: { readonly device: DeviceObject }) {
+  const [event, setEvent] = useState<UpdateEvent>();
   const hub = currentPhoneHub();
   useEffect(() => {
     setEvent(undefined);
@@ -25,6 +26,20 @@ export function DeviceUpdateSection({ device }: { readonly device: DeviceObject 
       if (change.ev === "deviceUpdate" && change.body.device === device.id) setEvent(change.body);
     });
   }, [hub, device.id]);
+  return <DeviceUpdateSection device={device} event={event} hasPhoneChannel={hub !== undefined} />;
+}
+
+/** Shows the current update summary and any result detail that still matches it. */
+export function DeviceUpdateSection({
+  device,
+  event,
+  hasPhoneChannel,
+}: {
+  readonly device: DeviceObject;
+  readonly event: UpdateEvent | undefined;
+  readonly hasPhoneChannel: boolean;
+}) {
+  const { t } = useTranslation();
   const update = updateOf(device);
   if (update === undefined || update.state === "none") return null;
   return (
@@ -35,12 +50,12 @@ export function DeviceUpdateSection({ device }: { readonly device: DeviceObject 
           <Body>
             {t(Platform.OS === "web" ? "bluetoothUpdate.usePhone" : "bluetoothUpdate.needsPhone")}
           </Body>
-          {hub === undefined ? null : (
+          {hasPhoneChannel ? (
             <TextLink
               href={`/device/update?device=${device.id}`}
               label={t("bluetoothUpdate.action")}
             />
-          )}
+          ) : null}
         </>
       ) : update.held === null ? (
         <UpdateResult

@@ -9,7 +9,7 @@
  * version they make.
  */
 import { Platform } from "react-native";
-import { DeviceUpdateSection } from "../pairing/device-update-section";
+import { LiveDeviceUpdateSection } from "../pairing/device-update-section";
 import { APP_OPS, deviceNameValue, type DeviceObject } from "@hsn/protocol/app";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -296,7 +296,7 @@ export function DeviceDetail({ id }: { readonly id: number }) {
       <RenameRemove device={device} />
       {device.role === "sensor" ? (
         <>
-          {stored === undefined ? null : <DeviceUpdateSection device={stored} />}
+          {stored === undefined ? null : <LiveDeviceUpdateSection device={stored} />}
           <SettingsForm
             op="sensor.settings"
             current={current}

@@ -7,6 +7,7 @@
 import { describe, expect, test } from "bun:test";
 import { createElement } from "react";
 import {
+  type AppEventBodyV2,
   type DeviceObject,
   type DeviceObjectV2,
   parseEvent,
@@ -22,6 +23,7 @@ const devicesUi = await import("../src/ui/devices");
 const gate = await import("../src/ui/link-gate");
 const parts = await import("../src/ui/parts");
 const { DeviceDetail } = await import("../src/ui/device-detail");
+const { DeviceUpdateSection } = await import("../src/pairing/device-update-section");
 const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
 
 function device(
@@ -46,6 +48,38 @@ function device(
 }
 const FRONT = device(4, "front-door", "sensor");
 const SIREN = device(9, "hall-siren", "siren");
+
+test("the sensor update section shows its current state after an earlier result", async () => {
+  const earlier: AppEventBodyV2<"deviceUpdate"> = {
+    device: FRONT.id,
+    image: 1,
+    state: "refused",
+    held: null,
+    method: "bluetooth",
+    bytes: 0,
+    of: 1024,
+    reason: "noWifi",
+  };
+  const confirmed: DeviceObjectV2 = {
+    ...FRONT,
+    firmware: "1.4.0",
+    update: { state: "confirmed", held: null, method: "bluetooth" },
+  };
+  /** Renders the real update section with the current device and the last detailed event. */
+  const show = async (device: DeviceObjectV2) =>
+    textOf(
+      await renderWith(
+        createElement(DeviceUpdateSection, { device, event: earlier, hasPhoneChannel: true }),
+        {},
+      ),
+    );
+  const now = await show(confirmed);
+  expect(now).toContain("Updated to 1.4.0.");
+  expect(now).not.toContain("couldn't join Wi-Fi");
+  expect(
+    await show({ ...confirmed, update: { state: "refused", held: null, method: "bluetooth" } }),
+  ).toContain("couldn't join Wi-Fi");
+});
 
 test.each([
   ["sensor", 1],

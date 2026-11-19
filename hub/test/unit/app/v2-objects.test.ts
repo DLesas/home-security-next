@@ -27,6 +27,7 @@ import {
 } from "../../../src/core/model/rows.ts";
 import { bootId, deviceId, type DeviceId, linkId, seq } from "../../../src/core/model/ids.ts";
 import { EMPTY_M3M4_SNAPSHOT } from "../../../src/core/model/events.ts";
+import type { DeviceEntry } from "../../../src/core/firmware/state.ts";
 import type { Internal } from "../../../src/core/model/messages.ts";
 import { MODULES } from "../../../src/core/step.ts";
 import { deviceToV2 } from "../../../src/core/app/versions.ts";
@@ -71,6 +72,48 @@ function strictEvent(event: unknown): AppEventV2 {
   const parsed = parseEventV2(event);
   expect(parsed.ok ? "ok" : parsed.issues.join("; ")).toBe("ok");
   return parsed.ok ? parsed.value : expect.unreachable();
+}
+
+/** Supplies an immutable firmware update entry without changing the device's registry row. */
+function withUpdate(
+  hub: PhoneHub,
+  device: DeviceId,
+  state: DeviceUpdateState,
+  held: UpdateHeld,
+  method: UpdateMethod,
+): void {
+  const entry: DeviceEntry = {
+    row: {
+      deviceId: device,
+      rolloutId: null,
+      state,
+      method,
+      held,
+      bytes: 0,
+      attempts: 0,
+      sameVersion: false,
+      lastReason: null,
+      sinceMs: 0,
+      bleNonce: null,
+      bleExpiresMs: null,
+      remindedMs: null,
+    },
+    told: undefined,
+    event: undefined,
+    eventAt: undefined,
+    busyHolds: 0,
+    armedSince: undefined,
+    forced: false,
+    discard: false,
+    deviceHeld: undefined,
+  };
+  hub.state = {
+    ...hub.state,
+    firmware: {
+      ...hub.state.firmware,
+      updates: new Map(hub.state.firmware.updates).set(device, entry),
+    },
+  };
 }
 
 describe("hub.info and the snapshot in version 2", () => {
@@ -167,41 +210,6 @@ describe("device objects in version 2, in every state", () => {
   ];
   const UPDATES = Object.values(DeviceUpdateState);
 
-  function withUpdate(
-    hub: PhoneHub,
-    device: DeviceId,
-    state: number,
-    held: number,
-    method: number,
-  ) {
-    const entry = {
-      row: {
-        deviceId: device,
-        rolloutId: null,
-        state,
-        method,
-        held,
-        bytes: 0,
-        attempts: 0,
-        lastReason: null,
-        sinceMs: 0,
-        bleNonce: null,
-        bleExpiresMs: null,
-        remindedMs: null,
-      },
-      told: undefined,
-      event: undefined,
-      eventAt: undefined,
-      busyHolds: 0,
-      armedSince: undefined,
-      forced: false,
-    } as never;
-    hub.state = {
-      ...hub.state,
-      firmware: { ...hub.state.firmware, updates: new Map([[device, entry]]) },
-    };
-  }
-
   test.each(STATES)("state %d, with no update and with each update", (state) => {
     const hub = new PhoneHub().boot();
     const front = deviceId(11);
@@ -219,6 +227,56 @@ describe("device objects in version 2, in every state", () => {
           expect(parsed.success).toBe(true);
           expect(v2.update === null).toBe(update === DeviceUpdateState.None);
         }
+  });
+});
+
+describe("update-only changes to version 2 device objects", () => {
+  /** A subscribed client with a planned update already in its device snapshot. */
+  function plannedUpdate() {
+    const hub = new PhoneHub().boot();
+    withUpdate(hub, FRONT, DeviceUpdateState.Planned, UpdateHeld.No, UpdateMethod.OwnLink);
+    const conn = subscribed(hub, ANNA_PHONE, 2);
+    const snapshot = hub.request(conn, ANNA_PHONE, { op: "snapshot", body: {} });
+    const parsed = snapshotObjectV2.safeParse(okBody(replyTo(snapshot.effects, conn)));
+    const body = parsed.success ? parsed.data : expect.unreachable();
+    expect(body.devices.find((row) => row.id === FRONT)?.update).toEqual({
+      state: "planned",
+      held: null,
+      method: "ownLink",
+    });
+    /** Runs the normal app dispatcher and gives the events for this sensor's device object. */
+    const changes = () =>
+      eventsOn(hub.advance(1), conn).flatMap((event) =>
+        event.ev === "device" && event.body.device.id === FRONT ? [event.body] : [],
+      );
+    return { hub, changes };
+  }
+
+  test("holding and releasing an update each refresh the device object", () => {
+    const { hub, changes } = plannedUpdate();
+    withUpdate(hub, FRONT, DeviceUpdateState.Planned, UpdateHeld.Battery, UpdateMethod.OwnLink);
+    const held = changes();
+    withUpdate(hub, FRONT, DeviceUpdateState.Planned, UpdateHeld.No, UpdateMethod.OwnLink);
+    expect([held, changes()].map((events) => events.map(({ device }) => device.update))).toEqual([
+      [{ state: "planned", held: "battery", method: "ownLink" }],
+      [{ state: "planned", held: null, method: "ownLink" }],
+    ]);
+  });
+
+  test("switching the update method to Bluetooth refreshes the device object", () => {
+    const { hub, changes } = plannedUpdate();
+    withUpdate(hub, FRONT, DeviceUpdateState.Planned, UpdateHeld.No, UpdateMethod.Bluetooth);
+    expect(changes().map(({ device }) => device.update)).toEqual([
+      { state: "planned", held: null, method: "bluetooth" },
+    ]);
+  });
+
+  test("a later update entry change cannot announce a removed device again", () => {
+    const { hub, changes } = plannedUpdate();
+    hub.command({ kind: "deviceRemove", name: "front" });
+    expect(hub.device(FRONT)?.state).toBe(DeviceState.Removed);
+    withUpdate(hub, FRONT, DeviceUpdateState.Confirmed, UpdateHeld.No, UpdateMethod.OwnLink);
+    expect(changes().map(({ what, device }) => [what, device.state])).toEqual([]);
   });
 });
 

@@ -141,6 +141,19 @@ export function updateObject(entry: DeviceEntry | undefined) {
   };
 }
 
+/** Compares the fields emitted in a device's update summary. */
+export function sameUpdateObject(
+  a: ReturnType<typeof updateObject>,
+  b: ReturnType<typeof updateObject>,
+): boolean {
+  if (a === null || b === null) return a === b;
+  const keys = Object.keys(a) as (keyof typeof a)[];
+  return (
+    keys.length === Object.keys(b).length &&
+    keys.every((key) => Object.hasOwn(b, key) && a[key] === b[key])
+  );
+}
+
 /** States in which a device has not yet got the image: a Bluetooth session can bring it. */
 const FETCHABLE: ReadonlySet<DeviceUpdateState> = new Set([
   DeviceUpdateState.Planned,

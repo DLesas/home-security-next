@@ -21,7 +21,7 @@ import type { Now } from "../model/time.ts";
 import { INSTALLING_STATES, type SessionGranted, sessionGrantedOf } from "./codes.ts";
 import { decide, sessionOf, workingRole } from "./decide.ts";
 import { actionOf, alreadyTold } from "./deliver.ts";
-import { updateObject } from "./ops.ts";
+import { sameUpdateObject, updateObject } from "./ops.ts";
 import type { FirmwareSlice } from "./state.ts";
 
 /** The slice itself, for tests. */
@@ -54,13 +54,7 @@ export function deviceUpdateChanged(
 ): boolean {
   const previous = seen.get(device);
   if (previous === view.firmware.updates.get(device)) return false;
-  const before = updateObject(previous);
-  const after = deviceUpdateOf(view, device);
-  return (
-    before?.state !== after?.state ||
-    before?.held !== after?.held ||
-    before?.method !== after?.method
-  );
+  return !sameUpdateObject(updateObject(previous), deviceUpdateOf(view, device));
 }
 
 /** Whether any device is installing or on trial. */
