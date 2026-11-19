@@ -137,7 +137,9 @@ async function pushService(): Promise<{
     ),
   );
   const log = pushLog();
-  const role = need(startPushRole(config, { log }));
+  const started = startPushRole(config, { log });
+  if (started.isErr()) await s.close();
+  const role = need(started);
   const link = new PushLink({
     url: `ws+unix://${socket}:/v1/relay`,
     staticKey: relayKey(),
@@ -147,7 +149,6 @@ async function pushService(): Promise<{
     random: () => 0.5,
   });
   link.start();
-  await until(() => link.up, "the relay's link to the push service");
   return {
     s,
     role,
@@ -162,10 +163,16 @@ async function pushService(): Promise<{
 }
 
 let service: Awaited<ReturnType<typeof pushService>> | undefined;
-let run: RelayRun;
+let run: RelayRun | undefined;
+
+/** The relay made by the successful setup of this test. */
+function runningRelay(): RelayRun {
+  return run ?? expect.unreachable("the relay has not started");
+}
 
 beforeEach(async () => {
   service = await pushService();
+  await until(() => service?.link.up === true, "the relay's link to the push service");
   run = startRelayRun({ sender: service.link });
 });
 
@@ -173,7 +180,8 @@ beforeEach(async () => {
 const logs: string[] = [];
 
 afterEach(async () => {
-  logs.push(...run.log.lines, ...(service?.log.lines ?? []));
+  logs.push(...(run?.log.lines ?? []), ...(service?.log.lines ?? []));
+  run = undefined;
   await stopAll();
   await service?.stop();
   service = undefined;
@@ -188,7 +196,7 @@ function client() {
 }
 
 async function joined(side: ReturnType<typeof client>): Promise<void> {
-  side.client.perform({ kind: "relayConnect", url: run.url });
+  side.client.perform({ kind: "relayConnect", url: runningRelay().url });
   await until(() => side.client.state.kind === "up", "the link up");
 }
 
@@ -338,7 +346,7 @@ describe("the roster", () => {
       ],
     });
     await until(() => side.client.push.unackedRev === undefined, "the roster stored");
-    const stored = run.targets(IDENTITY);
+    const stored = runningRelay().targets(IDENTITY);
     expect(stored.map((t) => [t.key, t.platform, t.token])).toEqual([
       ["0102030405060708", "fcm", fcmToken(1)],
       ["0807060504030201", "apns", apnsToken(2)],
@@ -371,8 +379,8 @@ describe("the roster", () => {
     });
     await until(() => side.client.push.unackedRev === undefined, "the roster stored");
     side.client.stop();
-    await until(() => run.joined === 0, "the link closed");
-    run.clock.advance(180_000);
+    await until(() => runningRelay().joined === 0, "the link closed");
+    runningRelay().clock.advance(180_000);
     await until(() => (service?.s.fcm.received.length ?? 0) === 1, "the alert");
     const h = (service?.s.fcm.received[0]?.json as { message: { data: { h: string } } }).message
       .data.h;
@@ -411,7 +419,7 @@ describe("the roster", () => {
   });
 
   test("on B2's relay, a roster it could not store is not acknowledged, and is sent again", async () => {
-    await run.stop();
+    await runningRelay().stop();
     let failures = 1;
     run = startRelayRun({
       ...(service === undefined ? {} : { sender: service.link }),
@@ -443,7 +451,7 @@ describe("the roster", () => {
     expect(side.client.push.unackedRev).toBe(1);
     side.timers.advance(ROSTER_RESEND_MS);
     await until(() => side.client.push.unackedRev === undefined, "the second roster stored");
-    expect(run.targets(IDENTITY)).toHaveLength(1);
+    expect(runningRelay().targets(IDENTITY)).toHaveLength(1);
   });
 
   test("a target with no key is left out, recorded; a roster over its bound is never sent", async () => {
