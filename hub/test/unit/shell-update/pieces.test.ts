@@ -35,6 +35,13 @@ import {
   Staging,
 } from "../../../src/shell/update/stage.ts";
 
+import {
+  HOSTED_TIMING,
+  retryHostedTiming,
+  timePiece,
+  type TimingMiss,
+} from "../../world/hosted-timing.ts";
+
 /** Section 3's limit for one piece ‡: asserted only by the opt-in timing test. */
 const PIECE_BOUND_MS = 20;
 /** A bound for a loaded machine (the whole suite at once): a piece reading far more than its bytes. */
@@ -132,10 +139,12 @@ function staging(p: string, wanted: () => boolean = () => true): Staging {
 }
 
 describe("staging a 112 MB program in pieces", () => {
-  test("each piece reads at most its bytes and makes at most its files; both passes in pieces; byte for byte", () => {
-    const p = prefix("bytes");
+  /** Stages a fresh release and checks its work, leaving wall timing to the hosted policy. */
+  function boundedPieces(attempt: number) {
+    const p = prefix(`bytes-${attempt}`);
     const job = staging(p);
     const fileCalls = process.platform === "win32" || TIMING ? timeFileCalls() : undefined;
+    const misses: TimingMiss[] = [];
     let read = 0;
     let longest: {
       phase: Staging["phase"];
@@ -155,19 +164,22 @@ describe("staging a 112 MB program in pieces", () => {
     let outcome;
     for (;;) {
       const phase = job.phase;
-      const cpuStart = fileCalls === undefined ? undefined : process.threadCpuUsage();
-      const s = performance.now();
-      outcome = job.next();
-      const ms = performance.now() - s;
+      const {
+        value,
+        wallMs: ms,
+        cpuMs,
+      } = timePiece(() => job.next(), HOSTED_TIMING || fileCalls !== undefined);
+      outcome = value;
+      if (ms >= LOADED_BOUND_MS)
+        misses.push({ label: phase, wallMs: ms, cpuMs, limitMs: LOADED_BOUND_MS });
       const calls = fileCalls?.();
       if (ms > longest.ms) {
-        const cpu = cpuStart === undefined ? undefined : process.threadCpuUsage(cpuStart);
         longest = {
           phase,
           ms,
           bytes: job.bytesRead - read,
           read,
-          ...(cpu === undefined ? {} : { cpuMs: (cpu.user + cpu.system) / 1000 }),
+          ...(Number.isFinite(cpuMs) ? { cpuMs } : {}),
           ...(calls === undefined ? {} : { calls }),
         };
       }
@@ -196,71 +208,94 @@ describe("staging a 112 MB program in pieces", () => {
           readFileSync(join(source, path)),
         ),
       ).toBe(true);
-    expect(longest.ms, diagnostics).toBeLessThan(LOADED_BOUND_MS);
-  }, 60_000);
+    restoreFileCalls?.();
+    restoreFileCalls = undefined;
+    return {
+      misses,
+      assertTiming: () => {
+        expect(longest.ms, diagnostics).toBeLessThan(LOADED_BOUND_MS);
+      },
+    };
+  }
+
+  test(
+    "each piece reads at most its bytes and makes at most its files; both passes in pieces; byte for byte",
+    () => retryHostedTiming(boundedPieces),
+    60_000,
+  );
+
+  /** Stages between simulated door reports to measure the opt-in timing budget. */
+  async function reportsBetweenPieces(attempt: number) {
+    const p = prefix(`loop-${attempt}`);
+    const job = staging(p);
+    const latencies: number[] = [];
+    // Door reports, one every 10 ms from the start, by the clock: one that arrives while a piece
+    // runs waits for it, which is what is measured (a timer firing late would hide it).
+    const start = performance.now();
+    let nextReport = start;
+    const pieces: number[] = [];
+    const misses: TimingMiss[] = [];
+    const byPhase = new Map<string, number[]>();
+    let madeBefore = 0;
+    let outcome;
+    for (;;) {
+      // A turn: what arrived is taken first...
+      await new Promise((resolve) => setImmediate(resolve));
+      const now = performance.now();
+      for (; nextReport <= now; nextReport += 10) latencies.push(now - nextReport);
+      // ...then one piece.
+      const phase = job.phase;
+      const { value, wallMs: took, cpuMs } = timePiece(() => job.next());
+      outcome = value;
+      if (took >= PIECE_BOUND_MS)
+        misses.push({ label: phase, wallMs: took, cpuMs, limitMs: PIECE_BOUND_MS });
+      pieces.push(took);
+      byPhase.set(phase, [...(byPhase.get(phase) ?? []), took]);
+      // Pass 2 makes at most so many files a piece (a card pays for each).
+      if (phase === "copy" && job.phase === "copy") {
+        const made = readdirSync(join(p, "staged", ".staging-9.0.0"), {
+          recursive: true,
+        }).length;
+        expect(made - madeBefore).toBeLessThanOrEqual(STAGING_FILES_PER_PIECE + 3);
+        madeBefore = made;
+      }
+      if (outcome !== undefined) break;
+    }
+    expect(outcome).toEqual({ kind: "updateStaged", version: "9.0.0" });
+    const longest = Math.max(...pieces);
+    const sorted = pieces.toSorted((a, b) => a - b);
+    const phases = [...byPhase].map(([phase, t]) => {
+      const o = t.toSorted((a, b) => a - b);
+      return `${phase}: ${t.length} pieces, longest ${o.at(-1)?.toFixed(2)} ms, p99 ${o[Math.floor(o.length * 0.99)]?.toFixed(2)} ms`;
+    });
+    console.log(
+      `staging: ${pieces.length} pieces, longest ${longest.toFixed(2)} ms, p99 ${sorted[Math.floor(sorted.length * 0.99)]?.toFixed(2)} ms; ${phases.join("; ")}; ` +
+        `door reports ${latencies.length}, longest wait ${Math.max(...latencies).toFixed(2)} ms`,
+    );
+    expect(latencies.length).toBeGreaterThan(10);
+
+    // Byte for byte the version's folder.
+    for (const path of [programPath, "web/f0.js", "web/f199.js", "drizzle/0000.sql"])
+      expect(
+        Buffer.from(readFileSync(join(p, "staged", "9.0.0", path))).equals(
+          readFileSync(join(source, path)),
+        ),
+      ).toBe(true);
+    expect(readdirSync(join(p, "staged", "9.0.0", "web"))).toHaveLength(200);
+    expect(readdirSync(join(p, "staged")).toSorted()).toEqual(["0.1.0", "9.0.0"]);
+    return {
+      misses,
+      /** A report waits at most one piece and the turn around it. */
+      assertTiming: () => {
+        expect(longest).toBeLessThan(PIECE_BOUND_MS);
+        expect(Math.max(...latencies)).toBeLessThan(PIECE_BOUND_MS + 20);
+      },
+    };
+  }
 
   test.if(TIMING)(
     "timing, opt-in (HSN_TIMING=1, alone): no piece past 20 ms ‡; door reports are taken within a piece and a turn; byte for byte",
-    async () => {
-      const p = prefix("loop");
-      const job = staging(p);
-      const latencies: number[] = [];
-      // Door reports, one every 10 ms from the start, by the clock: one that arrives while a piece
-      // runs waits for it, which is what is measured (a timer firing late would hide it).
-      const start = performance.now();
-      let nextReport = start;
-      const pieces: number[] = [];
-      const byPhase = new Map<string, number[]>();
-      let madeBefore = 0;
-      let outcome;
-      for (;;) {
-        // A turn: what arrived is taken first...
-        await new Promise((resolve) => setImmediate(resolve));
-        const now = performance.now();
-        for (; nextReport <= now; nextReport += 10) latencies.push(now - nextReport);
-        // ...then one piece.
-        const phase = job.phase;
-        const s = performance.now();
-        outcome = job.next();
-        const took = performance.now() - s;
-        pieces.push(took);
-        byPhase.set(phase, [...(byPhase.get(phase) ?? []), took]);
-        // Pass 2 makes at most so many files a piece (a card pays for each).
-        if (phase === "copy" && job.phase === "copy") {
-          const made = readdirSync(join(p, "staged", ".staging-9.0.0"), {
-            recursive: true,
-          }).length;
-          expect(made - madeBefore).toBeLessThanOrEqual(STAGING_FILES_PER_PIECE + 3);
-          madeBefore = made;
-        }
-        if (outcome !== undefined) break;
-      }
-      expect(outcome).toEqual({ kind: "updateStaged", version: "9.0.0" });
-      const longest = Math.max(...pieces);
-      const sorted = pieces.toSorted((a, b) => a - b);
-      const phases = [...byPhase].map(([phase, t]) => {
-        const o = t.toSorted((a, b) => a - b);
-        return `${phase}: ${t.length} pieces, longest ${o.at(-1)?.toFixed(2)} ms, p99 ${o[Math.floor(o.length * 0.99)]?.toFixed(2)} ms`;
-      });
-      console.log(
-        `staging: ${pieces.length} pieces, longest ${longest.toFixed(2)} ms, p99 ${sorted[Math.floor(sorted.length * 0.99)]?.toFixed(2)} ms; ${phases.join("; ")}; ` +
-          `door reports ${latencies.length}, longest wait ${Math.max(...latencies).toFixed(2)} ms`,
-      );
-      expect(longest).toBeLessThan(PIECE_BOUND_MS);
-      expect(latencies.length).toBeGreaterThan(10);
-      // A report waits at most one piece and the turn around it (the timer's own lateness aside).
-      expect(Math.max(...latencies)).toBeLessThan(PIECE_BOUND_MS + 20);
-
-      // Byte for byte the version's folder.
-      for (const path of [programPath, "web/f0.js", "web/f199.js", "drizzle/0000.sql"])
-        expect(
-          Buffer.from(readFileSync(join(p, "staged", "9.0.0", path))).equals(
-            readFileSync(join(source, path)),
-          ),
-        ).toBe(true);
-      expect(readdirSync(join(p, "staged", "9.0.0", "web"))).toHaveLength(200);
-      expect(readdirSync(join(p, "staged")).toSorted()).toEqual(["0.1.0", "9.0.0"]);
-    },
+    () => retryHostedTiming(reportsBetweenPieces),
     60_000,
   );
 

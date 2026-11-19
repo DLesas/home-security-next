@@ -30,9 +30,17 @@ import { SEAL_PIECE_BYTES } from "../../../src/shell/backup/sealing.ts";
 import { BackupPieces, type ExportChunk } from "../../../src/shell/backup/write.ts";
 import { type OpenedStore, openStore } from "../../../src/shell/storage/store.ts";
 
+import {
+  HOSTED_TIMING,
+  retryHostedTiming,
+  timePiece,
+  type TimingMiss,
+} from "../../world/hosted-timing.ts";
+
 const MIGRATIONS = join(import.meta.dir, "..", "..", "..", "drizzle");
 const TIMING = process.env.HSN_TIMING === "1";
 const PIECE_LIMIT_MS = 20;
+const MEASURE_CPU = TIMING && HOSTED_TIMING;
 const KEY = new Uint8Array(32).fill(0x31);
 /**
  * A sealed piece: its plaintext and the one chunk the sealer may hold over from the piece before
@@ -76,17 +84,23 @@ function hub(people: number): { store: OpenedStore; root: string } {
 const deps = { nowMs: () => Date.UTC(2026, 10, 16), salt: () => ok(new Uint8Array(8)) };
 
 /** Each piece's phase and time, until the job ends. */
-function pieces(job: { next(): unknown; readonly phase: string }): {
+function pieces(
+  job: { next(): unknown; readonly phase: string },
+  bounded: readonly string[],
+): {
   readonly outcome: unknown;
   readonly times: Map<string, number[]>;
+  readonly misses: TimingMiss[];
 } {
   const times = new Map<string, number[]>();
+  const misses: TimingMiss[] = [];
   for (;;) {
     const phase = job.phase;
-    const start = performance.now();
-    const outcome = job.next();
-    times.set(phase, [...(times.get(phase) ?? []), performance.now() - start]);
-    if (outcome !== undefined) return { outcome, times };
+    const { value: outcome, wallMs, cpuMs } = timePiece(() => job.next(), MEASURE_CPU);
+    times.set(phase, [...(times.get(phase) ?? []), wallMs]);
+    if (TIMING && bounded.includes(phase) && wallMs >= PIECE_LIMIT_MS)
+      misses.push({ label: phase, wallMs, cpuMs, limitMs: PIECE_LIMIT_MS });
+    if (outcome !== undefined) return { outcome, times, misses };
   }
 }
 
@@ -100,23 +114,32 @@ describe("a piece's work does not grow with the data", () => {
     store.db.close(true);
     rmSync(root, { recursive: true, force: true });
   });
-  const folder = join(root, "backups");
-  mkdirSync(folder);
-
-  test("a backup: each seal piece writes at most a piece's sealed bytes; the last sync has none left", () => {
+  /** Writes and measures one backup using an empty destination. */
+  function sealBackup(attempt: number) {
+    const folder = join(root, `backups-${attempt}`);
+    mkdirSync(folder);
     const job = new BackupPieces(store.db, { folder, keep: 20, key: KEY, epoch: 1 }, deps);
-    const { outcome, times } = pieces(job);
+    const bounded = ["seal", "sync", "place", "prune"];
+    const { outcome, times, misses } = pieces(job, bounded);
     expect(outcome).toMatchObject({ kind: "backupWritten" });
     expect(job.sealedPieces.length).toBeGreaterThan(20);
     for (const bytes of job.sealedPieces) expect(bytes).toBeLessThanOrEqual(SEALED_PIECE_MAX);
     console.log(
       `backup of ${String(Math.round((outcome as { bytes: number }).bytes / 1e6))} MB: first piece ${longest(times, ["start"]).toFixed(1)} ms, seal ≤ ${longest(times, ["seal"]).toFixed(1)} ms, sync ${longest(times, ["sync"]).toFixed(1)} ms`,
     );
-    if (TIMING)
-      expect(longest(times, ["seal", "sync", "place", "prune"])).toBeLessThan(PIECE_LIMIT_MS);
-  });
+    return {
+      misses,
+      assertTiming: () => {
+        if (TIMING) expect(longest(times, bounded)).toBeLessThan(PIECE_LIMIT_MS);
+      },
+    };
+  }
 
-  test("a configuration export: each send piece sends at most a seal piece's chunks", () => {
+  test("a backup: each seal piece writes at most a piece's sealed bytes; the last sync has none left", () =>
+    retryHostedTiming(sealBackup));
+
+  /** Exports the same configuration into a fresh sink and checks the work of each send. */
+  function sendConfiguration() {
     const sent: ExportChunk[][] = [];
     let current: ExportChunk[] = [];
     const job = new ExportPieces(
@@ -132,13 +155,16 @@ describe("a piece's work does not grow with the data", () => {
       deps,
     );
     const times = new Map<string, number[]>();
+    const misses: TimingMiss[] = [];
     let outcome: unknown;
     for (;;) {
       const phase = job.phase;
       current = [];
-      const start = performance.now();
-      outcome = job.next();
-      times.set(phase, [...(times.get(phase) ?? []), performance.now() - start]);
+      const { value, wallMs, cpuMs } = timePiece(() => job.next(), MEASURE_CPU);
+      outcome = value;
+      times.set(phase, [...(times.get(phase) ?? []), wallMs]);
+      if (TIMING && phase === "send" && wallMs >= PIECE_LIMIT_MS)
+        misses.push({ label: phase, wallMs, cpuMs, limitMs: PIECE_LIMIT_MS });
       sent.push(current);
       if (outcome !== undefined) break;
     }
@@ -149,8 +175,16 @@ describe("a piece's work does not grow with the data", () => {
     console.log(
       `configuration export: first piece ${longest(times, ["start"]).toFixed(1)} ms, send ≤ ${longest(times, ["send"]).toFixed(1)} ms`,
     );
-    if (TIMING) expect(longest(times, ["send"])).toBeLessThan(PIECE_LIMIT_MS);
-  });
+    return {
+      misses,
+      assertTiming: () => {
+        if (TIMING) expect(longest(times, ["send"])).toBeLessThan(PIECE_LIMIT_MS);
+      },
+    };
+  }
+
+  test("a configuration export: each send piece sends at most a seal piece's chunks", () =>
+    retryHostedTiming(sendConfiguration));
 
   test("a history export: at most a piece's bytes of lines, however large a row", () => {
     // Rows of 20 KB: a page of 500 is 10 MB, which no piece may write at once.
@@ -161,25 +195,38 @@ describe("a piece's work does not grow with the data", () => {
     store.db.run("BEGIN");
     for (let n = 1; n <= 600; n++) insert.run(n, n, message);
     store.db.run("COMMIT");
-    const job = new HistoryExport(
-      store.db,
-      8,
-      { conn: connId(4) },
-      { send: () => ok(undefined) },
-      deps,
-    );
-    let before = 0;
-    let longestPiece = 0;
-    for (;;) {
-      const start = performance.now();
-      const outcome = job.next();
-      longestPiece = Math.max(longestPiece, performance.now() - start);
-      expect(job.lineBytes - before).toBeLessThanOrEqual(HISTORY_PIECE_BYTES + 21_000);
-      before = job.lineBytes;
-      if (outcome !== undefined) break;
+    /** Checks one export of the seeded history, with a fresh job on each attempt. */
+    function sendHistory() {
+      const job = new HistoryExport(
+        store.db,
+        8,
+        { conn: connId(4) },
+        { send: () => ok(undefined) },
+        deps,
+      );
+      let before = 0;
+      let longestPiece = 0;
+      const misses: TimingMiss[] = [];
+      for (;;) {
+        const { value: outcome, wallMs, cpuMs } = timePiece(() => job.next(), MEASURE_CPU);
+        longestPiece = Math.max(longestPiece, wallMs);
+        if (TIMING && wallMs >= PIECE_LIMIT_MS)
+          misses.push({ label: "history piece", wallMs, cpuMs, limitMs: PIECE_LIMIT_MS });
+        expect(job.lineBytes - before).toBeLessThanOrEqual(HISTORY_PIECE_BYTES + 21_000);
+        before = job.lineBytes;
+        if (outcome !== undefined) break;
+      }
+      expect(job.lines).toBeGreaterThan(600);
+      console.log(
+        `history export of 600 rows of 20 KB: longest piece ${longestPiece.toFixed(1)} ms`,
+      );
+      return {
+        misses,
+        assertTiming: () => {
+          if (TIMING) expect(longestPiece).toBeLessThan(PIECE_LIMIT_MS);
+        },
+      };
     }
-    expect(job.lines).toBeGreaterThan(600);
-    console.log(`history export of 600 rows of 20 KB: longest piece ${longestPiece.toFixed(1)} ms`);
-    if (TIMING) expect(longestPiece).toBeLessThan(PIECE_LIMIT_MS);
+    return retryHostedTiming(sendHistory);
   });
 });

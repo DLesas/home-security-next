@@ -32,6 +32,7 @@
  * release before its pieces: `PUBLISHER_KEYS` is empty, and no option admits the test key), and
  * restore's read and rebuild (it waits for a phone's key over Noise on the apps' listener).
  */
+import { retryHostedTiming, type TimingMiss } from "../world/hosted-timing.ts";
 import { shortTempFolder } from "../world/temp-folder.ts";
 import { afterAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, rmSync, statSync } from "node:fs";
@@ -105,6 +106,7 @@ const LARGE_DETAIL_BYTES = 4096;
 const LONGEST_TURN_BOUND_MS = 250;
 /** Section 3's limit a turn ‡, asserted only with `HSN_TIMING=1`. */
 const TURN_LIMIT_MS = 20;
+const RETRY_LIMIT_MS = TIMING ? TURN_LIMIT_MS : LONGEST_TURN_BOUND_MS;
 /** How often the bench lets the gateway deliver its due transmit results. */
 const PUMP_MS = 5;
 const START_TIMEOUT_MS = 20_000;
@@ -244,6 +246,7 @@ class Bench {
   #socket: WebSocket | undefined;
   #pump: ReturnType<typeof setInterval> | undefined;
   #hub: ReturnType<typeof spawnTestHub<"pipe">> | undefined;
+  #log: Promise<string> | undefined;
   readonly #gateway: ScriptedGateway;
   readonly #started = performance.now();
 
@@ -266,6 +269,7 @@ class Bench {
         "0,0",
       ],
       "pipe",
+      { ...process.env, HSN_TEST_TURN_LIMIT_MS: String(RETRY_LIMIT_MS) },
     );
     const random = new SeededBytes(5);
     const bench = new Bench(
@@ -275,6 +279,7 @@ class Bench {
         nextRandom: () => random.bytes(8),
       }),
     );
+    bench.#log = new Response(hub.stderr).text();
     let welcomed = false;
     const opened = await until(() => {
       if (bench.#socket === undefined || bench.#socket.readyState === WebSocket.CLOSED) {
@@ -308,7 +313,7 @@ class Bench {
     if (!opened) {
       hub.kill(9);
       await hub.exited;
-      return `the hub never welcomed the gateway: ${await new Response(hub.stderr).text()}`;
+      return `the hub never welcomed the gateway: ${await bench.#log}`;
     }
     return bench;
   }
@@ -370,16 +375,31 @@ class Bench {
     this.sent++;
   }
 
-  /** The hub stopped cleanly, as a service stop does (its writer commits what is staged). */
-  async stop(): Promise<void> {
+  /** Stops the hub cleanly and collects the child thread timings for over-limit turns. */
+  async stop(): Promise<(TimingMiss & { endedAt: number })[]> {
     clearInterval(this.#pump);
     this.#socket?.close();
     const hub = this.#hub;
-    if (hub === undefined) return;
+    if (hub === undefined) return [];
     stopTestHub(hub);
     await hub.exited;
-    const log = await new Response(hub.stderr).text();
-    for (const line of log.split("\n")) if (line.startsWith("Slow hub turn: ")) console.log(line);
+    const log = (await this.#log) ?? "";
+    return log.split("\n").flatMap((line) => {
+      const sample =
+        /^Slow hub turn: at (\d+) ms, ([\d.]+) ms elapsed, ([\d.]+) ms thread CPU,/u.exec(line);
+      if (sample === null) return [];
+      console.log(line);
+      const [, endedAt, wallMs, cpuMs] = sample;
+      return [
+        {
+          endedAt: Number(endedAt),
+          label: "hub turn",
+          wallMs: Number(wallMs),
+          cpuMs: Number(cpuMs),
+          limitMs: RETRY_LIMIT_MS,
+        },
+      ];
+    });
   }
 }
 
@@ -398,7 +418,8 @@ async function during(bench: Bench, work: () => Promise<void>): Promise<void> {
 }
 
 describe("door reports while the hub writes whole files (section 3, the loop's time)", () => {
-  test("a backup and two exports run in pieces: the reports are taken between them, every one recorded", async () => {
+  /** Starts a fresh hub, sends door reports during each job, and checks every reply and record. */
+  async function runDoorReportAttempt() {
     const dataDir = shortTempFolder("hsn-ll-");
     folders.push(dataDir);
     const backups = join(dataDir, "..", `${basename(dataDir)}-backups`);
@@ -407,8 +428,7 @@ describe("door reports while the hub writes whole files (section 3, the loop's t
     seed(dataDir, backups);
     const port = await freePort();
     const bench = await Bench.start(port, dataDir);
-    expect(typeof bench === "string" ? bench : "started").toBe("started");
-    if (typeof bench === "string") return;
+    if (typeof bench === "string") expect.unreachable(bench);
     // A connection a request, as `hsn` makes them (the socket closes idle connections).
     const sessions: Session[] = [];
     const op = async (
@@ -440,7 +460,12 @@ describe("door reports while the hub writes whole files (section 3, the loop's t
     };
     /** When each job ran, on this computer's clock, to place a reply that was not sent. */
     const windows: { job: string; fromMs: number; toMs: number }[] = [];
-    const turns: Record<string, number> = { start: await longestTurn() };
+    const turns = {
+      start: await longestTurn(),
+      backup: 0,
+      configurationExport: 0,
+      historyExport: 0,
+    };
     // 1. A backup, now (the request's `commands` record, then `backup_written`).
     // The reply `{job}` comes first; the reports go on until the backup is written.
     const backupFrom = Date.now();
@@ -491,11 +516,12 @@ describe("door reports while the hub writes whole files (section 3, the loop's t
     const history = await exportOf(true);
     windows.push({ job: "history export", fromMs: historyFrom, toMs: Date.now() });
     turns.historyExport = await longestTurn();
+    const measuredUntil = Date.now();
     // Every transmit result delivered, then a moment for the hub to record it.
     expect(await until(() => bench.settled, 10_000)).toBe(true);
     await Bun.sleep(1000);
     for (const session of sessions) session.close();
-    await bench.stop();
+    const slowTurns = await bench.stop();
     await endProcesses();
 
     const s = store(dataDir);
@@ -538,31 +564,56 @@ describe("door reports while the hub writes whole files (section 3, the loop's t
         `(${cpus()[0]?.model ?? "unknown"}); jobs: ${JSON.stringify(windows)}; ` +
         `replies not sent: ${JSON.stringify(notSent)}`,
     );
-    // Every report is recorded (each is a new door change) and answered: its reply was sent.
+    // Every report was recorded. Radio busy and too late may be timing misses; other outcomes
+    // and absent replies are ordinary failures even when the runner also paused the hub.
     expect(doors).toBe(bench.sent);
-    expect(replies).toEqual([{ outcome: TxOutcome.Sent, n: bench.sent }]);
+    if (
+      replies.some(
+        ({ outcome }) =>
+          outcome !== TxOutcome.Sent &&
+          outcome !== TxOutcome.RadioBusy &&
+          outcome !== TxOutcome.TooLate,
+      ) ||
+      replies.reduce((count, reply) => count + reply.n, 0) !== bench.sent
+    ) {
+      expect(replies).toEqual([{ outcome: TxOutcome.Sent, n: bench.sent }]);
+    }
     // The exports ran: the configuration's (of a home's size), and the history's, which spans
     // hundreds of chunks of 48 KB ‡ and so many pieces.
     expect(configuration).toBeGreaterThan(48 * 1024);
     expect(history).toBeGreaterThan(300 * 48 * 1024);
-    // No turn of the hub held the loop long during any job, by its own measure.
-    const held = (["backup", "configurationExport", "historyExport"] as const).filter(
-      (job) => !((turns[job] ?? Number.POSITIVE_INFINITY) <= LONGEST_TURN_BOUND_MS),
+    const jobs = ["backup", "configurationExport", "historyExport"] as const;
+    const misses: TimingMiss[] = slowTurns.filter(
+      ({ endedAt }) => endedAt >= backupFrom && endedAt <= measuredUntil,
     );
-    expect(held).toEqual([]);
-    if (TIMING) {
-      // From a report leaving the gateway to the hub's own record of taking it (`at_ms`, on the
-      // same computer's clock): section 3's "within about 50 ms" behind a piece and a commit.
-      const waits = taken.map((r) => r.at_ms - (bench.sentAt.get(r.counter) ?? r.at_ms));
-      const longest = Math.max(...waits);
-      console.log(`longest wait for a report to be taken: ${longest} ms`);
-      expect(longest).toBeLessThanOrEqual(TAKEN_WITHIN_MS);
-      // Section 3's 20 ms ‡ a turn, during every job.
-      expect(
-        (["backup", "configurationExport", "historyExport"] as const).filter(
-          (job) => !((turns[job] ?? Number.POSITIVE_INFINITY) <= TURN_LIMIT_MS),
-        ),
-      ).toEqual([]);
+    for (const job of jobs) {
+      const wallMs = turns[job];
+      // A status maximum without its corresponding thread measurement cannot justify a retry.
+      if (!(wallMs <= RETRY_LIMIT_MS) && !misses.some((miss) => miss.wallMs === wallMs)) {
+        misses.push({ label: job, wallMs, cpuMs: Number.NaN, limitMs: RETRY_LIMIT_MS });
+      }
     }
-  }, 180_000);
+    return {
+      misses,
+      /** Asserts the replies and turn limits of the attempt that actually counts. */
+      assertTiming: () => {
+        expect(replies).toEqual([{ outcome: TxOutcome.Sent, n: bench.sent }]);
+        expect(jobs.filter((job) => !(turns[job] <= LONGEST_TURN_BOUND_MS))).toEqual([]);
+        if (TIMING) {
+          // Section 3's "within about 50 ms" behind a piece and a commit, on one clock.
+          const waits = taken.map((r) => r.at_ms - (bench.sentAt.get(r.counter) ?? r.at_ms));
+          const longest = Math.max(...waits);
+          console.log(`longest wait for a report to be taken: ${longest} ms`);
+          expect(longest).toBeLessThanOrEqual(TAKEN_WITHIN_MS);
+          expect(jobs.filter((job) => !(turns[job] <= TURN_LIMIT_MS))).toEqual([]);
+        }
+      },
+    };
+  }
+
+  test(
+    "a backup and two exports run in pieces: the reports are taken between them, every one recorded",
+    () => retryHostedTiming(runDoorReportAttempt),
+    180_000,
+  );
 });
