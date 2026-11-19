@@ -588,6 +588,7 @@ The hub sends a siren a command only when what that siren should do changes. A s
 4. From then on the gateway sends forwarded packets, a status every 30 seconds and transmit results, and the hub sends transmit requests. The first packet bound to the session proves it, whatever its type: a forwarded packet counts, and the hub acts on what it carries.
 5. The hub reports a gateway offline after 60 seconds with nothing from it (D97).
 6. A gateway that loses its connection retries after 1, 2, 4, 8, 15 and then every 30 seconds.
+7. When a gateway receives Identify over USB while it has an established USB session, it answers with Identity, ends that session, and sends a new hello with a fresh random value over USB. A hub sends Identify when its process starts, so this is how a gateway learns that the hub behind the cable is a new process that does not hold the old session. A session over Wi-Fi is not affected.
 
 ### Reply timing and a busy gateway
 
@@ -742,7 +743,7 @@ Who accepts what:
 - **Release builds:** a gateway accepts Provision only while unpaired, which is how a gateway plugged into the hub computer is added automatically (D100). Sensors and sirens refuse it.
 - **Development builds:** every role accepts Provision and Erase at any time (PR5). That is how the first milestone sets keys.
 - **Set role (D103):** a release build accepts it only while no role is stored, which is how a board is given its role when it is made. A development build accepts it at any time, and forgets its pairing when the role changes. A role outside the listed values is refused, and the identity that comes back shows the role unchanged.
-- **Over Bluetooth:** Identify at any time in a session. Provision only while unpaired, in a release build; at any time in a development build. Never Erase or Set role, which stay USB only.
+- **Over Bluetooth:** Identify at any time in a session. Provision only while the board has a role and is unpaired, in every build: the pairing window does not open on a paired board, so a development build has no wider rule here. Never Erase or Set role, which stay USB only.
 - **A sensor on USB power** never sleeps more deeply than light sleep, so its USB port stays up for these messages.
 
 ### Pairing over Bluetooth

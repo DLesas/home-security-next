@@ -80,6 +80,31 @@ The step 0 owner with each owner, as each design's integration section lists; th
 | A product name and a domain | The app identifiers, Apple's critical-alert request, the operated relay's address, and per-hub names, which are built last |
 | A host for the relay | The operated relay, to the requirement in m4-design section 3, "Layer 2" |
 
+## Rulings made after the first hand-ins (2026-11-19)
+
+These settle points the designs left open or got wrong, found when the pieces were built. Where a design or `protocol.md` says otherwise, this section wins until that text is corrected.
+
+**Bluetooth advertising (pairing and updates).** The design's advertisement (a 128-bit service UUID, service data with the role and chip id, and the name) needs 62 bytes and does not fit Bluetooth's legacy advertising, and ESP-IDF's protocomm transport cannot carry service data at all: it advertises the flags and the 128-bit service UUID, with the name in the scan response. So the advertisement carries no service data:
+
+| State | Advertisement | Scan response |
+| --- | --- | --- |
+| Pairing window open | flags, protocomm's 128-bit service UUID | the name `hsn-pair-` and 4 lower-case hex digits, the last two bytes of the chip id |
+| Update window open | flags, the update service's 128-bit UUID | the name `hsn-` and the device address as 8 lower-case hex digits |
+
+A phone finds boards by the service UUID. It learns a board's role, chip id and firmware version after connecting, from protocomm's `proto-ver` answer, before any code is asked for. A scanned pairing QR carries the chip id, so the phone picks the board whose name ends in that chip id's last four hex digits; with two such boards in range it connects to each and checks the chip id. No manufacturer data is used, so no Bluetooth company identifier is needed. The frozen `Advert` type and `protocol.md` section 10 change to this.
+
+**The smallest Bluetooth packet for an update.** An update session needs an agreed MTU of at least 185 bytes ‡ (what an iPhone gives; an Android phone is asked for 517). The first message the board sends cannot fit the smallest MTU (23), and a piece of the image with its framing needs 149. Below 185 the board refuses the session before any transfer, with a reason of its own that the hub and the app can word ("This phone cannot update this sensor over Bluetooth"), and no request the board makes may ask for more than the agreed size carries. Pairing is not affected: protocomm uses long reads and writes and works at the smallest MTU.
+
+**A wrong pairing code.** The board never sends its proof for a wrong code: it refuses the write, which the phone sees as an ATT error. The phone treats that, and a board proof that does not verify, as a wrong code.
+
+**A pairing code that can never pair.** ESP-IDF v6.1.1's `esp_srp_gen_salt_verifier` shortens a salt whose first byte is zero and computes the verifier over 15 bytes, so about one code in 256 could never pair. The board makes its salt again until its first byte is not zero.
+
+**A gateway on USB after a hub restart.** The hub's Identify on the USB link is the sign of a new hub process: a gateway that believes it has a session on that link ends it and says hello again with a new random.
+
+**Push registrations and backups.** A backup does not hold phones' push targets or push keys (the relay design said it would). After a restore each phone registers again at its next session.
+
+**Late alarms.** A notification raised late (at a restart, or for a late door report) carries the time the event happened (D102): `happenedAtMs` on the notification in channel version 2, `endedAtMs` or `openedAtMs` in a push's detail.
+
 ## Decided by the product owner for this work
 
 - The relay and the phone work start now, beside what is left of M2 (2026-11-18).

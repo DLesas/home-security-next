@@ -70,7 +70,7 @@ One family: **Atkinson Hyperlegible Next**. It was drawn so that letters and fig
 | Body, buttons, inputs | 17 / 26 | 400 (buttons 600) |
 | Secondary text | 15 / 22 | 400 |
 
-Text is sentence case everywhere. No capitals-only labels. A line of body text is at most about 65 characters wide.
+On a phone, text follows the phone's own text size up to 200%, except the state sentence, which grows to 150% at most: at 200% its one or two words break mid-word on a narrow screen. Text is sentence case everywhere. No capitals-only labels. A line of body text is at most about 65 characters wide.
 
 ## Spacing and shape
 
@@ -135,6 +135,8 @@ Below 768 px wide the four sit in a bar at the bottom of the screen. From 768 px
 **The alarm sentence** is the one word "Alarm", and while the entry countdown runs it is "Countdown", with the time left beneath it in `lamp`. The time left is shown once, in the state field, not repeated in the door's row. What set it off and which sirens are sounding follow as lines of detail. A name the household typed never goes into the state sentence, where a long one would break across lines.
 
 **A tick box** is drawn: a 24 px square with a `stone` border, filled `spruce` with a `limewash` tick when on, inside a 48 px target with its label. Its label says what being on means ("Run this entry"), not "On".
+
+**Which sirens sound** (D144). A group's page always says, in one sentence under its name, which sirens sound for it: "Every siren sounds for this group", or the sirens by name. When none of a group's chosen sirens is left, the sentence is "None of this group's sirens is left, so every siren sounds for it", as an ochre notice with the action "Choose sirens". Removing a siren that is the last of any group asks first, in a dialog that names each group affected and says that every siren will then sound for it; the confirming button says what happens ("Remove the siren"), never "OK", and is a destructive button. Only the person removing it is told; nothing else announces it. In a group's editor, a chosen siren that is reset says so beside its name.
 
 **An introduction** under a page title sits 16 px below it, as part of the title, not as a section of its own.
 

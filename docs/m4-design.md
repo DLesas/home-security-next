@@ -337,7 +337,7 @@ A switch the hub itself makes, an update's (`switchUpdate`) or a restore's (`swi
 | `push_keys` | `client_id`, `key` blob(32). Kept apart as `link_secrets` is | `client_id` | now |
 | `push_outbox` (`relay`) | `id`, `notification_seq`, `client_id`, `created_ms`, `attempts` | `id` | its notification's class; deletes routine |
 
-Removing a client deletes its target, key and outbox rows in the same commit and sends a new roster. Backups (M2 section 9) gain `relay_settings`, `push_targets` and `push_keys`, so a restored hub can push to its phones at once.
+Removing a client deletes its target, key and outbox rows in the same commit and sends a new roster. Backups (M2 section 9) gain `relay_settings` only. They do not hold `push_targets` or `push_keys`: a push target is a phone's address at Apple or Google and a push key is a secret shared with one phone, and neither belongs in a file that leaves the hub. After a restore each phone registers again at its next session, and until then that phone gets no pushes (ruling of 2026-11-19, `m3-m4-plan.md`).
 
 Names add, in a later migration when they are built (section 12): `hub_keys` (the shell's) gains `hub_name`, `acme_account_private`, `name_tls_private` and `name_tls_certificate` (section 7), and backups then carry `hub_name`, so a restored hub keeps its name.
 
