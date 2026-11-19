@@ -29,6 +29,7 @@ on:
       - "hub/test/unit/cli/**"
       - "hub/test/world/processes.ts"
       - "hub/test/world/console-stop.ts"
+      - "hub/test/world/checkout-cli.ts"
       - "hub/test/unit/safe/control-socket*.ts"
       - "hub/test/windows/serial-probe.ts"
       - "hub/cli/**"
