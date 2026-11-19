@@ -1,6 +1,11 @@
 # Pairing and firmware updates on a simulator
 
-Use an unsigned development build and a separate Metro port. Select the simulator in T3 Code and use its bound agent-device command for app actions and screenshots. The fixture runs a real hub with temporary data and listens for the Bluetooth bridge on loopback. Treat the printed codes as the scripted devices' displays. As on a real board, no scripted board's pairing window is open until its button is held: `hold <role>` holds it for 5 seconds, `hold <role> 15000` resets it.
+Use an unsigned development build and a separate Metro port. Select the simulator in T3 Code and use its bound agent-device command for app actions and screenshots. The fixture runs a real hub with temporary data and listens for the Bluetooth bridge on loopback. The fixture never prints a board's code: with the code field focused, `type <role>` types that board's code and `wrong <role>` types a wrong code of valid format, through the bound device command and without printing either.
+
+- `holdoff <role>` holds back that board's first contact with the hub after it is paired, until `release <role>`, so the page waiting for it can be left and come back to.
+- `dropearly` drops the update's connection just after the board's first Hello reaches the phone, before the board accepts Open (`drop` drops after Data frame 30).
+- `slow <ms>` delays each crossing by that many milliseconds each way (`slow` alone: 20), to watch the transfer's progress or cancel it while it is sending.
+- No command ends a pairing window early: the scripted board has no public way to, so wait its two minutes with no phone connected. As on a real board, no scripted board's pairing window is open until its button is held: `hold <role>` holds it for 5 seconds, `hold <role> 15000` resets it.
 
 ## Start
 
@@ -14,7 +19,7 @@ Use an unsigned development build and a separate Metro port. Select the simulato
 | --------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Enter `hold siren`, then open Devices → Add a device → Siren.                           | The instruction says to hold the button under the cover for about 5 seconds until the light shows. The code stays on the display. `hold siren` is that 5-second hold: without it no board is found.                 |
 | Find the device, allow Bluetooth, and select the siren if several boards are listed.    | The app shows the role and firmware from the board before offering to scan or type its code.                                                                                                                        |
-| Type the siren's code and check it. Name the siren and add it.                          | The code check and the name page appear. The app waits for contact. The fixture authenticates to the hub as the scripted siren. The app shows “Siren added” and the device appears in Devices.                      |
+| Focus the code field, enter `type siren`, and check it. Name the siren and add it.      | The code check and the name page appear. The app waits for contact. The fixture authenticates to the hub as the scripted siren. The app shows “Siren added” and the device appears in Devices.                      |
 | Enter `hold sensor`, then `qr sensor` from outside the pairing flow.                    | Opens the pairing route and finds the sensor by the QR's chip ID. Check its code and add it. Its first sensor packet goes through the fixture gateway to the hub.                                                   |
 | On the camera page, check the explanation or the device's permission state.             | The iOS simulator shows “No camera”. On a phone with a camera, permission is explained before Apple's or Android's prompt, and the view has a quiet typing alternative.                                             |
 | On an unpaired board, type a valid-format wrong code five times.                        | The first four refusals say how many tries are left. The fifth says to hold the button for about 5 seconds until the light shows. Enter `hold <role>`, tap “The light is showing”, and use the same displayed code. |

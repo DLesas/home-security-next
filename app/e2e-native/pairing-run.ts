@@ -3,6 +3,7 @@ import { spawnSync } from "node:child_process";
 import { z } from "../../packages/protocol/node_modules/zod";
 import { Role } from "../../packages/protocol/src/messages/common";
 import { fromHex } from "../../packages/protocol/src/bytes";
+import { formatPairingCode, makePairingCode } from "../../packages/protocol/src/pairing/code";
 import { nthFrame, TransferKind } from "../../tools/ble-bench/src/air/faults";
 import { BleAir } from "../../tools/ble-bench/src/air/air";
 import { PAIRING_HOLD_MS, placeBoard, ScriptedBoard } from "../../tools/ble-bench/src/boards/board";
@@ -26,6 +27,18 @@ await hub.control({
   name: "Test network",
   password: "test-only-password",
 });
+/** Roles whose first contact with the hub after pairing is held back (`holdoff <role>`). */
+const heldBack = new Set<string>();
+const pendingContact = new Map<string, Parameters<typeof radio.paired>>();
+
+/** A paired board's first contact with the hub, unless `holdoff` holds it until `release`. */
+function contact(role: string, ...args: Parameters<typeof radio.paired>) {
+  if (heldBack.has(role)) {
+    pendingContact.set(role, args);
+    say(`${role}: first contact held back until release ${role}`);
+  } else radio.paired(...args);
+}
+
 const air = new BleAir(realClock, { advertIntervalMs: 100, connectTimeoutMs: 5000 });
 const boards = new Map([
   [
@@ -37,7 +50,7 @@ const boards = new Map([
         { role: Role.Sensor, chipId: fromHex("54881234ab10") },
         {
           provisioned: (pairing, board) => {
-            radio.paired(pairing, board);
+            contact("sensor", pairing, board);
             say("Sensor paired");
           },
           updateStatus: (status) => {
@@ -56,7 +69,7 @@ const boards = new Map([
         { role: Role.Siren, chipId: fromHex("54881234ab11") },
         {
           provisioned: (pairing, board) => {
-            radio.paired(pairing, board);
+            contact("siren", pairing, board);
             say("Siren paired");
           },
         },
@@ -87,7 +100,8 @@ if (!bridge.ok) {
 }
 
 say(`Fixture ready at ${bridge.value.url}`);
-for (const [role, board] of boards) say(`${role} test display: ${board.shownCode}`);
+// A board's code is a secret: it is never printed. `type <role>` enters it where a person would.
+say(`Boards placed: ${[...boards.keys()].join(", ")}; codes not printed, use type <role>`);
 
 /** The length of a `hold` command, in milliseconds: the five-second hold when none is given. */
 function holdMs(text: string | undefined): number {
@@ -108,6 +122,27 @@ function openCode(code: string) {
   }
   const opened = spawnSync(deviceCommand, ["open", "invalid.hsn.app", code], { stdio: "ignore" });
   say(opened.status === 0 ? "Code opened" : "Could not open the code");
+}
+
+/** Types text into the app's focused field through the bound device command, output suppressed. */
+function typeText(text: string, what: string) {
+  if (deviceCommand === undefined) {
+    say("No bound device command");
+    return;
+  }
+  const typed = spawnSync(deviceCommand, ["type", text, "--no-record"], { stdio: "ignore" });
+  say(typed.status === 0 ? `Typed ${what}` : `Could not type ${what}`);
+}
+
+/** A code of valid format (its check character holds) that is not this board's. */
+function wrongCode(board: ScriptedBoard): string {
+  for (;;) {
+    const bytes = crypto.getRandomValues(new Uint8Array(5));
+    let secret = 0n;
+    for (const byte of bytes) secret = (secret << 8n) | BigInt(byte);
+    const code = makePairingCode(secret & ((1n << 35n) - 1n));
+    if (code !== undefined && code !== board.code) return formatPairingCode(code);
+  }
 }
 
 /** Generates a fresh simulator-only link without printing it. */
@@ -141,12 +176,33 @@ for await (const line of console) {
   if (command === "quit") await stop();
   else if (command === "link") await link();
   else if (command === "qr" && board !== undefined) openCode(board.qr);
+  else if (command === "type" && board !== undefined)
+    typeText(board.shownCode, `the ${role}'s code`);
+  else if (command === "wrong" && board !== undefined) typeText(wrongCode(board), "a wrong code");
   else if (command === "plan") await radio.plan();
   else if (command === "wake") radio.wake();
-  else if (command === "slow") air.faults = { latencyMs: 20, boardDelayMs: 20 };
-  else if (command === "drop")
+  // `slow` adds 20 ms each way; `slow <ms>` another delay, to watch or cancel a transfer.
+  else if (command === "slow") {
+    const ms = role === undefined || !Number.isFinite(Number(role)) ? 20 : Number(role);
+    air.faults = { latencyMs: ms, boardDelayMs: ms };
+  } else if (command === "drop")
     air.faults = { latencyMs: 20, dropAfter: nthFrame(TransferKind.Data, 30) };
+  // Drops the link just after the board's first Hello reaches the phone: before Open is accepted.
+  else if (command === "dropearly")
+    air.faults = { latencyMs: 20, dropAfter: nthFrame(TransferKind.Hello, 1) };
   else if (command === "normal") air.faults = {};
+  else if (command === "holdoff" && board !== undefined) {
+    heldBack.add(role ?? "");
+    say(`${role ?? "?"}: first contact will be held back`);
+  } else if (command === "release" && board !== undefined) {
+    heldBack.delete(role ?? "");
+    const pending = pendingContact.get(role ?? "");
+    pendingContact.delete(role ?? "");
+    if (pending !== undefined) radio.paired(...pending);
+    say(
+      `${role ?? "?"}: ${pending === undefined ? "nothing held back" : "first contact released"}`,
+    );
+  }
   // No board's pairing window is open until its button is held: 5000 ms opens it, 15000 resets.
   else if (command === "hold")
     say(`${role ?? "?"}: ${board?.holdButton(holdMs(length)) ?? "no such board"}`);
