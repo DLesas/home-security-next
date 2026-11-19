@@ -24,6 +24,7 @@ import { provision, SEED, wallAt } from "./sessions.ts";
 const folders: TempFolder[] = [];
 
 afterEach(() => {
+  InProcessEnd.closeAll();
   for (const folder of folders.splice(0)) folder.remove();
 });
 

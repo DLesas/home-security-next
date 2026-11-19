@@ -120,7 +120,7 @@ describe("the index", () => {
     const backup = backupDatabase(store.db)._unsafeUnwrap();
     expect(Buffer.from(backup).includes(Buffer.from("firmware_images"))).toBe(false);
     expect(Buffer.from(backup).includes(Buffer.from(a))).toBe(false);
-    store.db.close();
+    store.db.close(true);
   });
 });
 

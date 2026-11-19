@@ -157,7 +157,7 @@ describe("stageFirmware", () => {
     if (outcome.kind !== "firmwareStaged") return;
     expect(verifyImageHeader(outcome.image.header, keys.publicKey)).toBe(true);
     expect(readdirSync(storeFolder(hub.dataDir))).toEqual([outcome.image.file]);
-    hub.store.db.close();
+    hub.store.db.close(true);
   });
 
   test("an own build with no signing key yet: failed, nothing stored", () => {
@@ -176,7 +176,7 @@ describe("stageFirmware", () => {
       message: "the hub has no signing key yet",
     });
     expect(existsSync(storeFolder(hub.dataDir))).toBe(false);
-    hub.store.db.close();
+    hub.store.db.close(true);
   });
 
   test("an upload that is not there: noUpload, at once", () => {
@@ -190,7 +190,7 @@ describe("stageFirmware", () => {
       kind: "ready",
       outcome: { kind: "failed", reason: "noUpload", message: "no upload 8 on connection 1" },
     });
-    hub.store.db.close();
+    hub.store.db.close(true);
   });
 });
 
@@ -209,7 +209,7 @@ describe("removeFirmware", () => {
       firmwareJob(JOB, { kind: "removeFirmware", image: imageId(0), file: b }, hub.deps()),
     ).toEqual({ kind: "ready", outcome: { kind: "firmwareRemoved", image: imageId(0) } });
     expect(readdirSync(storeFolder(hub.dataDir))).toEqual([]);
-    hub.store.db.close();
+    hub.store.db.close(true);
   });
 
   test("a name that is not the store's: refused, and nothing outside the store touched", () => {
@@ -224,7 +224,7 @@ describe("removeFirmware", () => {
       outcome: { kind: "failed", reason: "badFile" },
     });
     expect(existsSync(join(hub.dataDir, "hub.db"))).toBe(true);
-    hub.store.db.close();
+    hub.store.db.close(true);
   });
 });
 
@@ -273,7 +273,7 @@ describe("sendFirmware", () => {
       chunks: hub.chunks.length,
       sha256: createHash("sha256").update(whole).digest("hex"),
     });
-    hub.store.db.close();
+    hub.store.db.close(true);
   });
 
   test("a small image: one chunk", async () => {
@@ -286,7 +286,7 @@ describe("sendFirmware", () => {
       bytes: 128 + image.length,
     });
     expect(hub.chunks).toHaveLength(1);
-    hub.store.db.close();
+    hub.store.db.close(true);
   });
 
   for (const [name, damage, message] of [
@@ -316,7 +316,7 @@ describe("sendFirmware", () => {
       expect(outcome.kind).toBe("failed");
       expect(outcome.kind === "failed" ? outcome.message : "").toContain(message);
       expect(hub.chunks.some(({ chunk }) => chunk.end !== undefined)).toBe(false);
-      hub.store.db.close();
+      hub.store.db.close(true);
     });
   }
 
@@ -340,7 +340,7 @@ describe("sendFirmware", () => {
     );
     expect(outside).toMatchObject({ kind: "failed" });
     expect(hub.chunks).toHaveLength(0);
-    hub.store.db.close();
+    hub.store.db.close(true);
   });
 
   test("the session gone part way: failed; a stop: failed, nothing more sent", async () => {
@@ -372,6 +372,6 @@ describe("sendFirmware", () => {
     expect(started.pieces.abort("the hub is stopping")).toMatchObject({ kind: "failed" });
     expect(started.pieces.next()).toMatchObject({ kind: "failed" });
     expect(hub.chunks.length).toBe(before);
-    hub.store.db.close();
+    hub.store.db.close(true);
   });
 });

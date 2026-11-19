@@ -42,7 +42,7 @@ function m2Database(): string {
     `INSERT INTO devices VALUES (10, ${String(0x5e00000a)}, 1, 'door-10', x'00', 65536, 0, 2, 1, NULL)`,
   );
   db.run(`INSERT INTO device_keys VALUES (10, x'000102030405060708090a0b0c0d0e0f')`);
-  db.close();
+  db.close(true);
   return dir.path;
 }
 
@@ -65,7 +65,7 @@ describe("migration 3 on an M2 database (the joint step 0)", () => {
     expect(M3).toBe(3);
     const store = openTestStore(m2Database(), new TestClock());
     expect(store.migrations.ran).toEqual([M3]);
-    store.db.close();
+    store.db.close(true);
   });
 
   test("keeps the device key, with no key change pending", () => {
@@ -75,7 +75,7 @@ describe("migration 3 on an M2 database (the joint step 0)", () => {
     ).toEqual([
       { device_id: 10, key: "000102030405060708090A0B0C0D0E0F", next_key: null, rekey: 0 },
     ]);
-    store.db.close();
+    store.db.close(true);
   });
 
   test("makes relay_settings' one row: the default relay, revision 0", () => {
@@ -83,7 +83,7 @@ describe("migration 3 on an M2 database (the joint step 0)", () => {
     expect(store.db.query("SELECT url, revision FROM relay_settings").all()).toEqual([
       { url: null, revision: 0 },
     ]);
-    store.db.close();
+    store.db.close(true);
   });
 
   test("the new tables start empty", () => {
@@ -100,7 +100,7 @@ describe("migration 3 on an M2 database (the joint step 0)", () => {
         table,
         { n: 0 },
       ]);
-    store.db.close();
+    store.db.close(true);
   });
 
   test("a device update defaults to a different-version rollout", () => {
@@ -112,7 +112,7 @@ describe("migration 3 on an M2 database (the joint step 0)", () => {
       same_version: 0,
       attempts: 2,
     });
-    store.db.close();
+    store.db.close(true);
   });
 
   test("an outbox row keeps whether a sensor was armed and the decision facts, or none", () => {
@@ -131,7 +131,7 @@ describe("migration 3 on an M2 database (the joint step 0)", () => {
       { id: 2, armed: 0, facts: null },
       { id: 3, armed: 0, facts: null },
     ]);
-    db.close();
+    db.close(true);
   });
 
   test("an image id is unique among images not removed", () => {
@@ -141,7 +141,7 @@ describe("migration 3 on an M2 database (the joint step 0)", () => {
     db.run(image(2, "0102030405060708", null));
     expect(() => db.run(image(3, "0102030405060708", null))).toThrow(/UNIQUE/u);
     db.run(image(4, "0102030405060709", null));
-    db.close();
+    db.close(true);
   });
 
   test("at most one rollout is not ended", () => {
@@ -152,7 +152,7 @@ describe("migration 3 on an M2 database (the joint step 0)", () => {
     db.run(rollout(3, null));
     expect(() => db.run(rollout(4, null))).toThrow(/UNIQUE/u);
     db.run(rollout(5, 30));
-    db.close();
+    db.close(true);
   });
 
   test("a key row needs rekey; the key change's columns take a key and the required mark", () => {
@@ -168,6 +168,6 @@ describe("migration 3 on an M2 database (the joint step 0)", () => {
       next: "11".repeat(16),
       rekey: 1,
     });
-    db.close();
+    db.close(true);
   });
 });

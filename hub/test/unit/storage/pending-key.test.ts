@@ -45,7 +45,7 @@ beforeEach(() => {
   told = [];
 });
 afterEach(() => {
-  store.db.close();
+  store.db.close(true);
   dir.remove();
 });
 

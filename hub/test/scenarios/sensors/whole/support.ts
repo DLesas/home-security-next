@@ -522,7 +522,7 @@ export class RekeyHub {
       store.writer.flush("now")._unsafeUnwrap();
     }
     store.writer.stop()._unsafeUnwrap();
-    store.db.close();
+    store.db.close(true);
     hub.start();
     return hub;
   }
@@ -782,7 +782,7 @@ export class RekeyHub {
   #restartFromCut(): void {
     const copy = this.#cutCopy;
     if (copy === undefined) return;
-    this.#store?.db.close();
+    this.#store?.db.close(true);
     this.#store = undefined;
     this.#loop = undefined;
     this.#dir = copy;
@@ -936,7 +936,7 @@ export class RekeyHub {
    */
   restore(file: string, gateway = true): void {
     this.store.writer.stop()._unsafeUnwrap();
-    this.store.db.close();
+    this.store.db.close(true);
     this.#store = undefined;
     this.#loop = undefined;
     const pieces = new RestorePieces({
@@ -958,7 +958,7 @@ export class RekeyHub {
   /** The hub stops cleanly and starts again from its disk. */
   restart(): void {
     this.store.writer.stop()._unsafeUnwrap();
-    this.store.db.close();
+    this.store.db.close(true);
     this.#store = undefined;
     this.#loop = undefined;
     this.clock.trueUs += 5 * SECOND;
