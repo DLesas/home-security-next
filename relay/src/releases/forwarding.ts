@@ -40,6 +40,7 @@ import type { RelayLog } from "../shell/log.ts";
 import { attempt } from "../shell/safe/attempt.ts";
 import { serve, upgrade } from "../shell/safe/serve.ts";
 import { type RelaySocket, serverSocket } from "../shell/safe/websocket.ts";
+import { localSocketUrl } from "../shell/safe/unix-websocket.ts";
 import { remove } from "./safe/fs.ts";
 import { checkOf, type ReleaseAnswers, requestOf } from "./service.ts";
 
@@ -252,9 +253,12 @@ export class ReleaseForwarder {
     onClose: () => void = () => undefined,
   ): Result<ReleaseForwarder, RelayError> {
     const url = `ws+unix://${socketPath}:${forwardingPath(peer.identity, peer.address)}`;
-    return attempt("link", ORIGIN, "open the releases socket", () => new WebSocket(url)).map(
-      (socket) => new ReleaseForwarder(socket, onAnswer, onClose),
-    );
+    return attempt(
+      "link",
+      ORIGIN,
+      "open the releases socket",
+      () => new WebSocket(localSocketUrl(url)),
+    ).map((socket) => new ReleaseForwarder(socket, onAnswer, onClose));
   }
 
   /** Passes one release frame through; false when the socket is not open. */

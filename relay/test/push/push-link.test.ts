@@ -133,9 +133,14 @@ const local = (s: Served) => `ws+unix://${s.socketPath}:/v1/relay`;
 const remote = (s: Served) => `wss://127.0.0.1:${s.listeners.port ?? 0}/v1/relay`;
 
 describe("a relay link over real sockets (the real XN)", () => {
-  test("over the local socket: up, 40 items in two frames, every result back; the socket is 0600", async () => {
+  // Windows socket access is controlled by NTFS ACLs, without POSIX mode bits.
+  test.skipIf(process.platform === "win32")("the local socket is 0600", () => {
     const s = serve();
     expect(statSync(s.socketPath).mode & 0o777).toBe(0o600);
+  });
+
+  test("over the local socket: up, 40 items in two frames, every result back", async () => {
+    const s = serve();
     const pushLink = link(local(s));
     pushLink.start();
     expect(await until(() => pushLink.up)).toBe(true);

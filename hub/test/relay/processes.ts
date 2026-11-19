@@ -18,20 +18,22 @@ import type { Subprocess } from "bun";
 import { exchange } from "../../cli/client.ts";
 import { HUB_VERSION } from "../../src/shell/hub-facts.ts";
 import { installPaths } from "../../launcher/src/layout.ts";
-import { spawnTracked } from "../world/processes.ts";
+import { spawnTestHub, spawnTracked, stopTestHub, testCli } from "../world/processes.ts";
+import { isWindows, shapeFolder } from "../unit/shell-control/windows-folders.ts";
 import type { StandIns } from "../../../relay/test/push/helpers.ts";
+import { tempFolder } from "../../../relay/test/helpers.ts";
 
 export const REPO = join(import.meta.dir, "..", "..", "..");
 export const HUB_DIR = join(REPO, "hub");
 /** The hub's own `runHub`, trusting the tests' publisher key, the clock taken as synchronised. */
 export const HUB_TEST_ENTRY = join(HUB_DIR, "test", "unit", "shell-main", "hub-with-test-key.ts");
-export const HSN = join(HUB_DIR, "cli", "hsn.ts");
+export const HSN = testCli;
 const RELAY_MAIN = join(REPO, "relay", "src", "shell", "main.ts");
 const PUSH_MAIN = join(REPO, "relay", "src", "push", "main.ts");
 
-/** A short folder under /tmp: Unix sockets' paths are limited to about 100 bytes. */
+/** A short temporary path for Unix sockets, which are limited to about 100 bytes. */
 export function shortFolder(prefix: string): string {
-  return mkdtempSync(`/tmp/${prefix}`);
+  return process.platform === "win32" ? tempFolder(prefix) : mkdtempSync(join("/tmp", prefix));
 }
 
 /** Waits until `ready()` holds; false after `ms`. */
@@ -95,17 +97,12 @@ export class Output {
 /** Every output any process here wrote, for the leak search at the end of a run. */
 export const ALL_OUTPUT: Output[] = [];
 
+/** Runs a Bun entry with tracked output and the Windows test signal channel. */
 function spawnWithOutput(
   cmd: string[],
   options: { readonly cwd?: string; readonly env?: Record<string, string | undefined> } = {},
 ): { readonly proc: Subprocess<"ignore", "ignore", "pipe">; readonly out: Output } {
-  const proc = spawnTracked(cmd, {
-    stdin: "ignore",
-    stdout: "ignore",
-    stderr: "pipe",
-    cwd: options.cwd ?? REPO,
-    ...(options.env === undefined ? {} : { env: options.env }),
-  });
+  const proc = spawnTestHub(cmd.slice(1), "pipe", options.env, options.cwd ?? REPO);
   const out = new Output(proc.stderr);
   ALL_OUTPUT.push(out);
   return { proc, out };
@@ -191,7 +188,7 @@ export class PushRole {
   async stop(): Promise<number> {
     const proc = this.#proc;
     if (proc === undefined) return -1;
-    proc.kill("SIGTERM");
+    stopTestHub(proc);
     this.#proc = undefined;
     return await proc.exited;
   }
@@ -292,13 +289,14 @@ export class RelayProgram {
     const proc = this.#proc;
     if (proc === undefined) return -1;
     this.#proc = undefined;
-    proc.kill("SIGTERM");
+    stopTestHub(proc);
     return await proc.exited;
   }
 
   /** The operator reads the refused hubs again. */
   hangUp(): void {
-    this.#proc?.kill("SIGHUP");
+    if (isWindows) this.#proc?.send("reload-config");
+    else this.#proc?.kill("SIGHUP");
   }
 
   get pid(): number | undefined {
@@ -346,6 +344,7 @@ export class HubProcess {
     readonly options: HubOptions = {},
   ) {
     this.dataDir = mkdtempSync(join(root, "hub-"));
+    if (isWindows) shapeFolder(this.dataDir);
     this.sock = join(this.dataDir, "control.sock");
     this.prefix = options.programTree === true ? programTree(root) : undefined;
   }
@@ -408,7 +407,7 @@ export class HubProcess {
     const proc = this.#proc;
     if (proc === undefined) return -1;
     this.#proc = undefined;
-    proc.kill("SIGTERM");
+    stopTestHub(proc);
     const code = await Promise.race([proc.exited, Bun.sleep(15_000).then(() => -2)]);
     if (code === -2) {
       proc.kill(9);

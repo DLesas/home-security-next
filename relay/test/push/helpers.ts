@@ -3,9 +3,8 @@
  * as the role expects them (0600, outside the repository), a log that keeps its lines, a clock
  * the test drives, and relay keys for `@hsn/protocol`'s XN.
  */
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { rmSync } from "node:fs";
+import { resolve } from "node:path";
 import { type StaticKey, x25519StaticKey } from "@hsn/protocol/app";
 import { expect } from "bun:test";
 import { createHash, randomBytes } from "node:crypto";
@@ -29,6 +28,7 @@ import {
 } from "../../../tools/push-standins/src/index.ts";
 import type { LinkClock } from "../../src/push/clock.ts";
 import { jsonLineLog, type PushLog } from "../../src/push/log.ts";
+import { tempFolder as relayTempFolder } from "../helpers.ts";
 
 export const REPO = resolve(import.meta.dir, "..", "..", "..");
 export const TOPIC = "invalid.hsn.app";
@@ -44,7 +44,7 @@ export function must<T>(
 
 /** A fresh folder outside the repository, removed by `cleanup`. */
 export function tempFolder(): string {
-  return mkdtempSync(join(tmpdir(), "hsn-push-test-"));
+  return relayTempFolder("hsn-push-test-");
 }
 
 export function cleanup(folder: string): void {
