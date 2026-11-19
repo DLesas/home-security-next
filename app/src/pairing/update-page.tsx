@@ -14,7 +14,7 @@ import { phoneRequest, refusal, type PhoneHub } from "./hub";
 import { BluetoothPermission } from "./permission";
 import { isAborted, radioClock } from "./radio";
 import { imageCache } from "./safe/cache";
-import { updateGrant, updateTransfer } from "./update-flow";
+import { updateGrant, updateSecondsLeft, updateTransfer } from "./update-flow";
 import {
   type ActiveUpdate,
   afterFailedSend,
@@ -59,7 +59,7 @@ export function UpdatePage({ hub, device }: { readonly hub: PhoneHub; readonly d
   const [left, setLeft] = useState<number>();
   const [latest, setLatest] = useState<UpdateNotice>();
   const [version, setVersion] = useState<string>();
-  const startedSending = useRef(0);
+  const reachedSensor = useRef(false);
   const resumeDeadline = useRef(0);
   const starting = useRef<AbortController | undefined>(undefined);
   const active = useRef<ActiveUpdate | undefined>(undefined);
@@ -107,7 +107,7 @@ export function UpdatePage({ hub, device }: { readonly hub: PhoneHub; readonly d
         // A board can finish even if its Done notification is lost on the way back.
         if (
           watchedImage.current === event.body.image &&
-          startedSending.current > 0 &&
+          reachedSensor.current &&
           event.body.state === "confirmed"
         ) {
           release();
@@ -222,7 +222,7 @@ export function UpdatePage({ hub, device }: { readonly hub: PhoneHub; readonly d
     active.current = { ...running, image };
     watchedImage.current = image;
     setVersion(grant.version);
-    startedSending.current = 0;
+    reachedSensor.current = false;
     await download();
   }
 
@@ -235,21 +235,21 @@ export function UpdatePage({ hub, device }: { readonly hub: PhoneHub; readonly d
       return;
     }
     setPage("finding");
+    setLeft(undefined);
+    let first: { offset: number; at: number } | undefined;
     const result = await running.transfer.run(
       running.cache,
       running.abort.signal,
       !resume && running.grant.needsWake ? heartbeatSeconds * 1000 : 0,
       () => {
-        startedSending.current ||= radioClock.now();
+        reachedSensor.current = true;
         setPage("sending");
       },
-      (offset) => {
-        setServed(offset);
-        const elapsed = radioClock.now() - startedSending.current;
-        const remaining = running.grant.fileBytes - offset;
-        if (remaining === 0) setLeft(undefined);
-        else if (offset > 0 && elapsed > 1000)
-          setLeft(Math.ceil((remaining * elapsed) / offset / 1000));
+      (highestOffset, connectionOffset) => {
+        setServed(highestOffset);
+        const current = { offset: connectionOffset, at: radioClock.now() };
+        first ??= current;
+        setLeft(updateSecondsLeft(running.grant.fileBytes, first, current));
       },
     );
     if (isAborted(running.abort.signal)) return;
@@ -265,13 +265,8 @@ export function UpdatePage({ hub, device }: { readonly hub: PhoneHub; readonly d
     }
     const deadline = running.transfer.resumeUntil();
     if (
-      afterFailedSend(
-        result.fault,
-        radioClock.now(),
-        deadline,
-        resume,
-        startedSending.current > 0,
-      ) === "resume"
+      afterFailedSend(result.fault, radioClock.now(), deadline, resume, reachedSensor.current) ===
+      "resume"
     ) {
       resumeDeadline.current = deadline;
       setError(result.fault);
