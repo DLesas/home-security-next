@@ -21,6 +21,7 @@ import { OWN_BUILD_QUESTION, OWN_BUILD_WARNING } from "../../../cli/firmware.ts"
 import { HELP, type CliIo, runCli } from "../../../cli/main.ts";
 import { rootPlan } from "../../../cli/root-plan.ts";
 import { type TestFolder, testFolder } from "../shell-control/support.ts";
+import { ownSid } from "../shell-control/windows-folders.ts";
 import { ok as okResult } from "neverthrow";
 import { UnixControlServer } from "../../../src/shell/control/server.ts";
 
@@ -176,12 +177,14 @@ interface Run {
   readonly err: readonly string[];
 }
 
+/** Runs the command against the fixture's real control socket. */
 async function hsn(args: string): Promise<Run> {
   const out: string[] = [];
   const err: string[] = [];
   const io: CliIo = {
     out: (line) => out.push(line),
     err: (line) => err.push(line),
+    ...(process.platform === "win32" ? { hubAccount: ownSid() } : {}),
     env: { HSN_DATA_DIR: where.folder, USER: "dimitri" },
     stdin: () => Promise.resolve(""),
     nowMs: () => Date.UTC(2026, 10, 18, 12),
