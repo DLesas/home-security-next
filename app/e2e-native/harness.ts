@@ -6,9 +6,8 @@
  * bridge on 127.0.0.1:8787) in this process. It prints one JSON line per event, the bench's lines
  * among them, and takes commands on standard input, one per line:
  *
- *   link ios | link android   a one-time link code for a new person, opened in the booted simulator
- *                             as a deep link (`xcrun simctl openurl`, `adb shell am start`); the
- *                             code itself is never printed
+ *   link ios | link android   a one-time link code for a new person, opened through the bound
+ *                             `HSN_P4_DEVICE` command; the code itself is never printed
  *   {"cmd": …}                a bench command (`tools/ble-bench/src/bench.ts`): hold (5000 ms
  *                             opens a board's pairing window, 15000 resets it), power, offer,
  *                             faults, state
@@ -29,6 +28,8 @@ import { parseJson } from "../../tools/ble-bench/src/safe/json.ts";
 const REPO = join(import.meta.dirname, "..", "..");
 const HUB_MAIN = join(REPO, "hub", "test", "world", "hub-entry.ts");
 const STOP_MS = 10_000;
+const port = Number(process.env.HSN_P4_BRIDGE_PORT ?? 8787);
+const deviceCommand = process.env.HSN_P4_DEVICE;
 
 type HarnessLine =
   | BenchLine
@@ -85,6 +86,10 @@ function control(dataDir: string, command: object): Promise<string> {
 
 /** A link code as a deep link, opened in the booted simulator; only whether it opened is said. */
 async function openLink(dataDir: string, platform: "ios" | "android"): Promise<void> {
+  if (deviceCommand === undefined) {
+    say({ kind: "linkOpened", platform, opened: false });
+    return;
+  }
   const reply = await control(dataDir, {
     kind: "op",
     op: "link.create",
@@ -99,10 +104,7 @@ async function openLink(dataDir: string, platform: "ios" | "android"): Promise<v
     say({ kind: "linkOpened", platform, opened: false });
     return;
   }
-  const run =
-    platform === "ios"
-      ? spawnSync("xcrun", ["simctl", "openurl", "booted", qr])
-      : spawnSync("adb", ["shell", "am", "start", "-a", "android.intent.action.VIEW", "-d", qr]);
+  const run = spawnSync(deviceCommand, ["open", "invalid.hsn.app", qr], { stdio: "ignore" });
   say({ kind: "linkOpened", platform, opened: run.status === 0 });
 }
 
@@ -138,7 +140,7 @@ say({
   dataDir,
 });
 
-const started = await startBench({ port: 8787, smoke: process.argv.includes("--smoke") }, say);
+const started = await startBench({ port, smoke: process.argv.includes("--smoke") }, say);
 if (!started.ok) say({ kind: "problem", message: started.fault });
 
 let stopping = false;
