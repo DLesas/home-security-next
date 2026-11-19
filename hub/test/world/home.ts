@@ -530,7 +530,7 @@ export class Home {
     (await ensureHubKeys(store.snapshot.hubKeys, store.writer))._unsafeUnwrap();
     prepare?.(store);
     store.writer.stop()._unsafeUnwrap();
-    store.db.close();
+    store.db.close(true);
   }
 
   #openStore(): Result<OpenedStore, { message: string }> {
@@ -1137,7 +1137,7 @@ export class Home {
 
   #off(offUs: number): void {
     this.restarts++;
-    this.#store?.db.close();
+    this.#store?.db.close(true);
     this.#store = undefined;
     this.#loop = undefined;
     for (const g of this.gateways) g.link = undefined;
@@ -1170,7 +1170,7 @@ export class Home {
   }
 
   close(): void {
-    this.#store?.db.close();
+    this.#store?.db.close(true);
     this.#store = undefined;
     this.#dir.remove();
     this.#nextDir?.remove();

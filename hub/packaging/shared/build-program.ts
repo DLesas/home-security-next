@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 /**
- * `bun hub/packaging/shared/build-program.ts --target <bun target> --out <folder>`: one version's
+ * `bun hub/packaging/shared/build-program.ts --target <bun target> --out <folder> [--version <v>]`: one version's
  * program and the two executables beside it, which every package puts in its root-owned tree
  * (m2-design.md section 9, "The privilege boundary"):
  *
@@ -57,7 +57,12 @@ function exe(target: Target, name: string): string {
 }
 
 function compile(target: Target, entry: string, outfile: string): string | undefined {
-  return compileExecutable(target, entry, outfile, REPO);
+  const windowsHub =
+    target === "bun-windows-x64" && entry === join(HUB, "packaging", "shared", "program.ts");
+  const worker = windowsHub
+    ? { root: HUB, entry: join(HUB, "src", "shell", "safe", "worker-windows-serial.ts") }
+    : undefined;
+  return compileExecutable(target, entry, outfile, REPO, worker);
 }
 
 /** Builds into `out`; the version, or why not. */
@@ -65,8 +70,8 @@ export function buildProgram(
   target: Target,
   out: string,
   web: string = join(REPO, "app", "dist"),
+  version = hubVersion(),
 ): Result<string, string> {
-  const version = hubVersion();
   // The keys this program will trust for its updates: never the tests' key (section 9).
   const keys = releaseKeysProblem(PUBLISHER_KEYS);
   if (keys !== undefined) return err(`refused: ${keys}`);
@@ -109,13 +114,19 @@ if (import.meta.main) {
   const args = process.argv.slice(2);
   const target = args[args.indexOf("--target") + 1] ?? "";
   const out = args[args.indexOf("--out") + 1];
+  const versionAt = args.indexOf("--version");
+  const version = versionAt === -1 ? undefined : (args[versionAt + 1] ?? "");
+  if (version !== undefined && !/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/u.test(version)) {
+    process.stderr.write("build-program: --version needs a numeric major.minor.patch\n");
+    process.exit(2);
+  }
   if (!isTarget(target) || out === undefined) {
     process.stderr.write(
-      `usage: build-program.ts --target <${TARGETS.join("|")}> --out <folder>\n`,
+      `usage: build-program.ts --target <${TARGETS.join("|")}> --out <folder> [--version <v>]\n`,
     );
     process.exit(2);
   }
-  const built = buildProgram(target, out);
+  const built = buildProgram(target, out, undefined, version);
   if (built.isErr()) {
     process.stderr.write(`build-program: ${built.error}\n`);
     process.exit(1);

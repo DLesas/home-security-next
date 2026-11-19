@@ -6,8 +6,10 @@
  *
  * `consoleCode()` is what `hsn open` does: a one-time console token over the control socket.
  */
+import { spawnTestHub, stopTestHub } from "../../../hub/test/world/processes.ts";
+import { shortTempFolder } from "../../../hub/test/world/temp-folder.ts";
 import { type Subprocess } from "bun";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, rmSync } from "node:fs";
 import { connect as connectSocket, createServer } from "node:net";
 import { networkInterfaces } from "node:os";
 import { join } from "node:path";
@@ -95,7 +97,7 @@ function portOpen(port: number): Promise<boolean> {
 
 export async function startRealHub(prepare?: (dataDir: string) => void): Promise<RealHub> {
   // Short, so the control socket's path stays under 104 bytes (HD 9).
-  const dataDir = mkdtempSync("/tmp/hsn-a7-");
+  const dataDir = shortTempFolder("hsn-a7-");
   folders.add(dataDir);
   prepare?.(dataDir);
   const consolePort = await freePort();
@@ -138,9 +140,8 @@ export async function startRealHub(prepare?: (dataDir: string) => void): Promise
       return url.replace(/^http:\/\/127\.0\.0\.1:\d+/u, `http://127.0.0.1:${String(consolePort)}`);
     },
     start: async () => {
-      const started = Bun.spawn(
+      const started = spawnTestHub(
         [
-          "bun",
           MAIN,
           "--data",
           dataDir,
@@ -150,7 +151,7 @@ export async function startRealHub(prepare?: (dataDir: string) => void): Promise
           "--app-ports",
           `${String(lanPort)},${String(consolePort)}`,
         ],
-        { stdout: "ignore", stderr: process.env.HSN_A7_HUB_LOG === "1" ? "inherit" : "ignore" },
+        process.env.HSN_A7_HUB_LOG === "1" ? "inherit" : "ignore",
       );
       live.add(started);
       void started.exited.then(() => live.delete(started));
@@ -164,7 +165,7 @@ export async function startRealHub(prepare?: (dataDir: string) => void): Promise
       const running = child;
       child = undefined;
       if (running === undefined) return;
-      running.kill("SIGTERM");
+      stopTestHub(running);
       const ended = await Promise.race([
         running.exited.then(() => true),
         Bun.sleep(5000).then(() => false),

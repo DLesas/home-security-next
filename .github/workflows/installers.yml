@@ -757,6 +757,24 @@ jobs:
             Write-Info "The .msi's tables could not be read" $_.Exception.Message
           }
 
+      - name: Build the newer .msi from the same checkout
+        if: ${{ !cancelled() && env.HSN_STOPPED == '' }}
+        shell: pwsh
+        run: |
+          . .github/workflows/installer-checks.ps1
+          $old = [version]$env:VERSION
+          $newer = "$($old.Major).$($old.Minor).$($old.Build + 1)"
+          $out = Join-Path $env:RUNNER_TEMP "upgrade"
+          $log = Join-Path $env:RUNNER_TEMP "build-upgrade-msi.txt"
+          & pwsh -NoProfile -File hub/packaging/windows/build-msi.ps1 -Out $out -Version $newer *> $log
+          $code = $LASTEXITCODE
+          Save-Log "build-upgrade-msi.txt" $log
+          $msi = Join-Path $out "HSN-Hub-$newer.msi"
+          if ($code -ne 0 -or !(Test-Path -LiteralPath $msi)) { Stop-Job "newer MSI build failed (exit $code)" }
+          "UPGRADE_MSI=$msi" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "UPGRADE_VERSION=$newer" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Write-Output "Built the upgrade from $env:VERSION to $newer"
+
       - name: Install with msiexec
         if: ${{ !cancelled() && env.HSN_STOPPED == '' }}
         shell: pwsh
@@ -843,6 +861,30 @@ jobs:
           # Result; a step that must stop the job says so with Stop-Job.
           exit 0
 
+      - name: The installed Windows serial watcher
+        if: ${{ !cancelled() && env.HSN_STOPPED == '' }}
+        shell: pwsh
+        run: |
+          . .github/workflows/installer-checks.ps1
+          $log = Join-Path $env:ProgramData "HSN Hub\logs\HSNHub.err.log"
+          Test-Check "The installed hub registered the Windows serial watcher" {
+            if (Wait-Until 30 {
+              (Test-Path -LiteralPath $log) -and
+              (Select-String -LiteralPath $log -SimpleMatch "watching Windows serial ports" -Quiet)
+            }) {
+              Write-Host "The installed hub registered the Windows serial watcher"
+              $true
+            } else { "no ready message in the service log" }
+          }
+          Test-Check "The installed Windows hub does not watch /dev" {
+            if ((Test-Path -LiteralPath $log) -and (Select-String -LiteralPath $log -SimpleMatch "watch /dev" -Quiet)) {
+              "the service log still contains watch /dev"
+            } else {
+              Write-Host "The installed service log has no watch /dev error"
+              $true
+            }
+          }
+
       - name: hsn status, and the console
         if: ${{ !cancelled() && env.HSN_STOPPED == '' }}
         shell: pwsh
@@ -860,7 +902,6 @@ jobs:
           $code = $LASTEXITCODE
           Test-Check "hsn --data <the data folder> status answers (as the Start menu and check.ps1 call it)" { if ($code -eq 0) { $true } else { "exit $code" } }
           Write-Summary (@("", '```') + @((Hide-Secrets $status) -split "`n" | Select-Object -First 40) + @('```'))
-          Write-Info "An ordinary account is not tried here" "windows-control-socket.yml (A11) makes one and checks the refusal"
           Test-Check "The console (127.0.0.1:8445) serves the web app within 60 s" {
             $ok = Wait-Until 60 {
               try { $r = Invoke-WebRequest -Uri http://127.0.0.1:8445/ -UseBasicParsing -TimeoutSec 10; $r.StatusCode -eq 200 -and $r.Content -match '<html' } catch { $false }
@@ -871,6 +912,220 @@ jobs:
           # A probe expected to fail (sc.exe query of a removed service, netsh of a removed rule)
           # leaves its exit code behind: the checks above are this step's result, counted by
           # Result; a step that must stop the job says so with Stop-Job.
+          exit 0
+
+      - name: The installed hub from an ordinary local account
+        if: ${{ !cancelled() && env.HSN_STOPPED == '' }}
+        shell: pwsh
+        run: |
+          . .github/workflows/installer-checks.ps1
+          Write-Heading "Ordinary local account"
+          $ErrorActionPreference = 'Stop'
+          $account = "hsn-msi-test"
+          $folder = Join-Path $env:PUBLIC "hsn-msi-test-$([guid]::NewGuid().ToString('N'))"
+          # A local Users account, as in the checkout probe. The fixture alone is writable to it.
+          $created = $false
+          try {
+            $password = "Hs1!" + [Convert]::ToHexString([System.Security.Cryptography.RandomNumberGenerator]::GetBytes(5))
+            & net.exe user $account $password /add /expires:never /passwordchg:no *> $null
+            if ($LASTEXITCODE -ne 0) { throw "could not create the ordinary test account" }
+            $created = $true
+            $sid = (Get-LocalUser -Name $account).SID
+            $member = @(Get-LocalGroupMember -SID 'S-1-5-32-544' | Where-Object { $_.SID -eq $sid })
+            Test-Check "The second account is outside the local Administrators group" { $member.Count -eq 0 }
+            $credential = [pscredential]::new(".\$account", (ConvertTo-SecureString $password -AsPlainText -Force))
+            New-Item -ItemType Directory -Path $folder | Out-Null
+            & icacls.exe $folder /grant "*${sid}:(OI)(CI)M" /Q *> $null
+            if ($LASTEXITCODE -ne 0) { throw "could not give the test account its result folder" }
+            $script = Join-Path $folder "probe.ps1"
+            @'
+          $ErrorActionPreference = 'Stop'
+          $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent()
+          $principal = [System.Security.Principal.WindowsPrincipal]::new($identity)
+          $env:Path = "$([Environment]::GetEnvironmentVariable('Path', 'Machine'));$([Environment]::GetEnvironmentVariable('Path', 'User'))"
+          $exe = Get-Command hsn -CommandType Application -ErrorAction SilentlyContinue
+          $result = [ordered]@{
+            identity = $identity.Name
+            administrator = $principal.IsInRole([System.Security.Principal.WindowsBuiltInRole]::Administrator)
+            cli = if ($exe) { $exe.Source } else { '' }
+            exitCode = $null
+            cliMessage = ''
+            database = 'unchecked'
+            console = $false
+          }
+          if ($exe) {
+            # The native stderr line is the expected result, including its exit code.
+            $ErrorActionPreference = 'Continue'
+            $result.cliMessage = ((& hsn status 2>&1) -join "`n").Trim()
+            $result.exitCode = $LASTEXITCODE
+            $ErrorActionPreference = 'Stop'
+          }
+          try {
+            [System.IO.File]::OpenRead((Join-Path $env:ProgramData 'HSN Hub\hub.db')).Dispose()
+            $result.database = 'readable'
+          } catch {
+            $cause = $_.Exception.GetBaseException()
+            $result.database = if ($cause -is [UnauthorizedAccessException]) { 'denied' } else { 'other failure' }
+          }
+          try {
+            $page = Invoke-WebRequest -Uri http://127.0.0.1:8445/ -UseBasicParsing -TimeoutSec 10
+            $result.console = $page.StatusCode -eq 200 -and $page.Content -match '<html'
+          } catch { $result.console = $false }
+          $result | ConvertTo-Json -Compress | Set-Content -LiteralPath (Join-Path $PSScriptRoot 'result.json')
+          '@ | Set-Content -LiteralPath $script
+            $shell = Join-Path $PSHOME 'pwsh.exe'
+            $probe = Start-Process $shell -Credential $credential -LoadUserProfile -WorkingDirectory $folder -ArgumentList @('-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', "`"$script`"") -Wait -PassThru
+            if ($probe.ExitCode -ne 0) { throw "the ordinary-account probe exited $($probe.ExitCode)" }
+            $seen = Get-Content -LiteralPath (Join-Path $folder 'result.json') -Raw | ConvertFrom-Json
+            $expected = 'hsn: this account may not use the hub: run hsn from an administrator prompt (Run as administrator).'
+            Write-Output "Ordinary hsn status exit $($seen.exitCode): $(Hide-Secrets $seen.cliMessage)"
+            Write-Output "Database read: $($seen.database). Web console HTML with HTTP 200: $($seen.console)."
+            Test-Check "The probe used the ordinary account's token" {
+              if ($seen.identity -eq "$env:COMPUTERNAME\$account" -and !$seen.administrator) { $true } else { "wrong account or elevated token" }
+            }
+            Test-Check "The machine PATH resolves hsn to the installed executable for that account" {
+              if ($seen.cli -eq (Join-Path $env:ProgramFiles 'HSN Hub\bin\hsn.exe')) { $true } else { "the installed hsn was not found by name" }
+            }
+            Test-Check "Ordinary hsn status exits 77 and gives one administrator prompt instruction" {
+              if ($seen.exitCode -eq 77 -and $seen.cliMessage -ceq $expected) { $true } else { "exit $($seen.exitCode); wording: $(Hide-Secrets $seen.cliMessage)" }
+            }
+            Test-Check "That account cannot read the installed hub's database" {
+              if ((Test-Path (Join-Path $env:ProgramData 'HSN Hub\hub.db')) -and $seen.database -eq 'denied') { $true } else { "read denial was not observed" }
+            }
+            Test-Check "The web console serves the app to that ordinary account" { $seen.console -eq $true }
+          } catch {
+            Write-Fail "The ordinary-account check ran" $_.Exception.Message
+          } finally {
+            if ($created) {
+              & net.exe user $account /delete *> $null
+              $removed = $null -eq (Get-LocalUser -Name $account -ErrorAction SilentlyContinue)
+              Write-Output "Ordinary test account removed: $removed"
+              Test-Check "The ordinary test account was removed" { $removed }
+            }
+            Remove-Item -LiteralPath $folder -Force -Recurse -ErrorAction SilentlyContinue
+          }
+          exit 0
+
+      - name: Upgrade the running hub and check the two versions
+        if: ${{ !cancelled() && env.HSN_STOPPED == '' }}
+        shell: pwsh
+        run: |
+          . .github/workflows/installer-checks.ps1
+          Write-Heading "Upgrade $env:VERSION to $env:UPGRADE_VERSION"
+          $package = Join-Path $env:ProgramFiles "HSN Hub"
+          $hsn = Join-Path $package "bin\hsn.exe"
+          $data = Join-Path $env:ProgramData "HSN Hub"
+          $packaged = Join-Path $package 'packaged'
+          $previous = Join-Path $packaged $env:VERSION
+          $setting = (& $hsn --data $data site set countdown=37 2>&1) -join "`n"
+          if ($LASTEXITCODE -ne 0 -or $setting -notmatch '(?m)^entry countdown: 37 s\s*$') { Stop-Job "could not save the site's entry countdown before upgrading" }
+          Write-Output "The older hub saved the 37 s entry countdown through hsn"
+
+          # The previous package must be intact for a launcher rollback.
+          function Get-PackagedFiles([string]$Tree) {
+            Get-ChildItem -LiteralPath $Tree -Recurse -File |
+              Sort-Object FullName | ForEach-Object {
+                "$([System.IO.Path]::GetRelativePath($Tree, $_.FullName)) $((Get-FileHash -LiteralPath $_.FullName).Hash)"
+              }
+          }
+          $before = @(Get-PackagedFiles $previous)
+
+          # The verbose logs expose MSI actions (including the exact reason for a downgrade refusal).
+          function Invoke-MsiProbe([string]$Msi, [string]$Label) {
+            $log = Join-Path $env:RUNNER_TEMP "$Label.log"
+            $process = Start-Process msiexec.exe -ArgumentList @("/i", "`"$Msi`"", "/qn", "/l*v", "`"$log`"") -Wait -PassThru
+            Save-Log "$Label.log" $log 40
+            Write-Host "$Label exited $($process.ExitCode)"
+            return $process.ExitCode
+          }
+          $upgraded = Invoke-MsiProbe $env:UPGRADE_MSI "msi-upgrade"
+          Test-Check "Installing the newer MSI over the running older service exits 0" {
+            if ($upgraded -eq 0) { $true } else { "exit $upgraded" }
+          }
+          if ($upgraded -ne 0) { exit 0 }
+
+          # The following uninstall and removal checks should use the registered, upgraded product.
+          "MSI=$env:UPGRADE_MSI" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "VERSION=$env:UPGRADE_VERSION" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+          # Check the running process, since a service can run the previous version after rollback.
+          $expectedExe = Join-Path $package "packaged\$env:UPGRADE_VERSION\bin\hsn-hub.exe"
+          $launcherState = Join-Path $env:ProgramData 'HSN Hub Program\state\launcher.json'
+          function Test-UpgradedHub {
+            $services = @(Get-Service -Name HSNHub -ErrorAction SilentlyContinue)
+            $processes = @(Get-CimInstance Win32_Process -Filter "Name = 'hsn-hub.exe'")
+            if ($services.Count -ne 1 -or $services[0].Status -ne 'Running' -or $processes.Count -ne 1 -or $processes[0].ExecutablePath -ne $expectedExe) { return $false }
+            # A process may answer during its trial and still roll back when the trial expires.
+            $state = Get-Content -LiteralPath $launcherState -Raw -ErrorAction SilentlyContinue | ConvertFrom-Json
+            if ($state.current -ne $env:UPGRADE_VERSION -or $state.previous -ne $env:VERSION -or $null -ne $state.trial) { return $false }
+            & $hsn --data $data status *> $null
+            $LASTEXITCODE -eq 0
+          }
+          Test-Check "One service answers from the new packaged executable after its trial" {
+            if (Wait-Until 90 { Test-UpgradedHub }) {
+              Write-Host "One running service and one hub process answer from version $env:UPGRADE_VERSION after its trial"
+              $true
+            } else { "the expected version did not answer" }
+          }
+          Test-Check "The older hub's 37 s entry countdown survives the upgrade" {
+            $site = (& $hsn --data $data site show 2>&1) -join "`n"
+            if ($LASTEXITCODE -eq 0 -and $site -match '(?m)^entry countdown: 37 s\s*$') {
+              Write-Host "The upgraded hub still reports a 37 s entry countdown"
+              $true
+            } else { "the saved site setting was not returned" }
+          }
+          $same = Invoke-MsiProbe $env:UPGRADE_MSI "msi-same-version"
+          $lower = Invoke-MsiProbe $env:MSI "msi-downgrade"
+          $downgradeLog = Join-Path $env:RUNNER_TEMP "msi-downgrade.log"
+          $message = Select-String -LiteralPath $downgradeLog -SimpleMatch 'A newer HSN Hub is already installed.' -Quiet
+          Write-Info "Reinstall the same MSI" "exit $same"
+          Write-Info "Install the older MSI over the newer one" "exit $lower; WiX downgrade message: $message"
+          Write-Output "Same MSI exit $same; older MSI exit $lower; WiX downgrade message: $message"
+          Test-Check "After the same-version and downgrade probes, the new service still answers" {
+            if (Wait-Until 90 { Test-UpgradedHub }) { $true } else { "the expected version did not answer" }
+          }
+
+          $products = @(
+            Get-ItemProperty -Path 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*', 'HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*' -ErrorAction SilentlyContinue |
+              Where-Object { $_.DisplayName -eq 'HSN Hub' }
+          )
+          Test-Check "Installed Programs has exactly one HSN Hub entry, for the new version" {
+            if ($products.Count -eq 1 -and $products[0].DisplayVersion -eq $env:UPGRADE_VERSION) { $true } else { "$($products.Count) entries: $($products.DisplayVersion -join ', ')" }
+          }
+          Write-Output "Installed Programs: $($products.Count) HSN Hub entries ($($products.DisplayVersion -join ', '))"
+          Test-Check "The package version marker names the new version" {
+            $marker = Get-Content -LiteralPath (Join-Path $package 'version') -ErrorAction SilentlyContinue
+            if ($marker -eq $env:UPGRADE_VERSION) { $true } else { "version marker: $marker" }
+          }
+          $versions = @(Get-ChildItem -LiteralPath $packaged -Directory | Sort-Object Name | ForEach-Object { $_.Name })
+          Test-Check "The package keeps exactly the current and previous version with their files" {
+            $expected = @($env:VERSION, $env:UPGRADE_VERSION) | Sort-Object
+            $files = @('bin\hsn-hub.exe', 'drizzle', 'web\index.html')
+            $missing = @(foreach ($versionName in $expected) {
+              foreach ($file in $files) {
+                if (!(Test-Path -LiteralPath (Join-Path $packaged "$versionName\$file"))) { "$versionName\$file" }
+              }
+            })
+            if (($versions -join ',') -eq ($expected -join ',') -and $missing.Count -eq 0 -and !(Test-Path -LiteralPath (Join-Path $package 'kept'))) { $true } else { "versions: $($versions -join ', '); missing: $($missing -join ', ')" }
+          }
+          Write-Output "Program Files packaged versions: $($versions -join ', ')"
+          Test-Check "Every file of the previous package is kept byte-for-byte" {
+            $after = @(Get-PackagedFiles $previous)
+            if ($before.Count -gt 0 -and ($before -join "`n") -ceq ($after -join "`n")) {
+              Write-Host "All $($before.Count) files of the previous version survived byte-for-byte"
+              $true
+            } else { "the previous version's files differ" }
+          }
+          Test-Check "The installed marker remains after upgrade" {
+            if ((Get-ItemProperty -Path 'HKLM:\Software\HSN Hub' -Name Installed -ErrorAction SilentlyContinue).Installed -eq 1) { $true } else { "no marker" }
+          }
+          foreach ($display in @('HSN Hub devices', 'HSN Hub apps', 'HSN Hub mDNS')) {
+            $rules = @(Get-NetFirewallRule -DisplayName $display -ErrorAction SilentlyContinue)
+            Test-Check "Exactly one firewall rule remains for $display" {
+              if ($rules.Count -eq 1) { $true } else { "$($rules.Count) rules" }
+            }
+            Write-Output "Firewall rules for $display = $($rules.Count)"
+          }
           exit 0
 
       - name: The hub's trees
@@ -1002,14 +1257,22 @@ jobs:
           . .github/workflows/installer-checks.ps1
           Write-Heading "Removal with data: installed again, then msiexec /x … REMOVEDATA=1 (what the Start menu's entry runs after its confirmation)"
           if (-not $env:MSI) { Write-Fail "msiexec /x … REMOVEDATA=1" "no package was built"; exit 0 }
-          $log = Join-Path $env:RUNNER_TEMP "msi-reinstall.log"
-          $p = Start-Process msiexec.exe -ArgumentList @("/i", "`"$env:MSI`"", "/qn", "/l*v", "`"$log`"") -Wait -PassThru
-          Test-Check "Installed again over the kept data" { if ($p.ExitCode -eq 0) { $true } else { "exit $($p.ExitCode)" } }
+          # Wait for the installer PID and keep its own log even if it has not returned.
+          function Invoke-RemovalMsi([string]$Label, [string[]]$Arguments) {
+            $log = Join-Path $env:RUNNER_TEMP "$Label.log"
+            Write-Host "Starting $Label for $env:VERSION"
+            $p = Start-Process msiexec.exe -ArgumentList ($Arguments + @("/l*v", "`"$log`"")) -PassThru
+            $exited = $p.WaitForExit(180000)
+            Save-Log "$Label.log" $log 30
+            if (!$exited) { Stop-Job "$Label installer PID $($p.Id) did not exit in 180 s" }
+            Write-Host "$Label exited $($p.ExitCode)"
+            return $p.ExitCode
+          }
+          $reinstalled = Invoke-RemovalMsi "msi-reinstall" @("/i", "`"$env:MSI`"", "/qn")
+          Test-Check "Installed again over the kept data" { if ($reinstalled -eq 0) { $true } else { "exit $reinstalled" } }
           Test-Check "The service runs again within 60 s" { if (Wait-Until 60 { (Get-Service HSNHub -ErrorAction SilentlyContinue).Status -eq "Running" }) { $true } else { "not running" } }
-          $log = Join-Path $env:RUNNER_TEMP "msi-remove-data.log"
-          $p = Start-Process msiexec.exe -ArgumentList @("/x", "`"$env:MSI`"", "/qn", "REMOVEDATA=1", "/l*v", "`"$log`"") -Wait -PassThru
-          Test-Check "msiexec /x $(Split-Path -Leaf $env:MSI) /qn REMOVEDATA=1" { if ($p.ExitCode -eq 0) { $true } else { "exit $($p.ExitCode)" } }
-          Save-Log "msi-remove-data.log" $log 30
+          $removed = Invoke-RemovalMsi "msi-remove-data" @("/x", "`"$env:MSI`"", "/qn", "REMOVEDATA=1")
+          Test-Check "msiexec /x $(Split-Path -Leaf $env:MSI) /qn REMOVEDATA=1" { if ($removed -eq 0) { $true } else { "exit $removed" } }
           Test-Check "The data folder is gone" { if (-not (Test-Path (Join-Path $env:ProgramData "HSN Hub"))) { $true } else { "still there" } }
           Test-Check "The hub's program tree is gone" { if (-not (Test-Path (Join-Path $env:ProgramData "HSN Hub Program"))) { $true } else { "still there" } }
           Test-Check "The package's tree is gone" { if (-not (Test-Path (Join-Path $env:ProgramFiles "HSN Hub"))) { $true } else { "still there" } }

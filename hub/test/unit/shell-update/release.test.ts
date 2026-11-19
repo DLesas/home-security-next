@@ -46,6 +46,8 @@ import {
   Staging,
 } from "../../../src/shell/update/stage.ts";
 
+const fixturePlatform = process.platform === "win32" ? "windows-x64" : "darwin-arm64";
+const programPath = process.platform === "win32" ? "bin/hsn-hub.exe" : "bin/hsn-hub";
 const SEED = new Uint8Array(32).fill(7);
 const OTHER_SEED = new Uint8Array(32).fill(8);
 const folders: string[] = [];
@@ -72,7 +74,7 @@ beforeEach(() => {
   mkdirSync(join(source, "bin"), { recursive: true });
   mkdirSync(join(source, "web"), { recursive: true });
   mkdirSync(join(source, "drizzle"), { recursive: true });
-  writeFileSync(join(source, "bin", "hsn-hub"), "#!/bin/sh\necho hub\n", { mode: 0o755 });
+  writeFileSync(join(source, programPath), "#!/bin/sh\necho hub\n", { mode: 0o755 });
   writeFileSync(join(source, "web", "index.html"), "<html></html>");
   writeFileSync(join(source, "drizzle", "0000.sql"), "CREATE TABLE x (a);");
   upload = join(root, "upload.hsnr");
@@ -80,7 +82,7 @@ beforeEach(() => {
 
 function release(
   version = "1.0.0",
-  platform: ReleasePlatform = "darwin-arm64",
+  platform: ReleasePlatform = fixturePlatform,
   seed = SEED,
 ): Uint8Array {
   const made = releaseOf(source, version, platform, seed, 0);
@@ -98,7 +100,7 @@ function signed(
   return makeRelease(
     {
       version: "1.0.0",
-      platform: "darwin-arm64",
+      platform: fixturePlatform,
       madeMs: 0,
       payloadBytes: payload.length + (options.extraBytes ?? 0),
       payloadSha256: hex(payload),
@@ -138,7 +140,7 @@ function stage(
     path: upload,
     prefix,
     runningVersion: "0.1.0",
-    platform: "darwin-arm64",
+    platform: fixturePlatform,
     keys,
   });
 }
@@ -151,8 +153,10 @@ describe("a release", () => {
   test("checked and unpacked beside the running version; at most two versions kept", () => {
     expect(stage(release())).toEqual({ kind: "updateStaged", version: "1.0.0" });
     expect(versions()).toEqual(["0.1.0", "1.0.0"]);
-    const program = join(prefix, "staged", "1.0.0", "bin", "hsn-hub");
-    expect(statSync(program).mode & 0o111).not.toBe(0);
+    const program = join(prefix, "staged", "1.0.0", programPath);
+    expect(existsSync(program)).toBe(true);
+    // Windows executables have an .exe suffix, without POSIX execute bits.
+    if (process.platform !== "win32") expect(statSync(program).mode & 0o111).not.toBe(0);
     expect(readFileSync(join(prefix, "staged", "1.0.0", "web", "index.html"), "utf8")).toBe(
       "<html></html>",
     );
@@ -172,11 +176,11 @@ describe("a release", () => {
 
   test("a file whose own hash is wrong, the payload's right: badFile in pass 2, nothing left behind", () => {
     const data = new TextEncoder().encode("#!/bin/sh\n");
-    const file = signed([{ path: "bin/hsn-hub", data, executable: true, sha256: "0".repeat(64) }]);
+    const file = signed([{ path: programPath, data, executable: true, sha256: "0".repeat(64) }]);
     expect(stage(file)).toMatchObject({
       kind: "failed",
       reason: "badFile",
-      message: containing("bin/hsn-hub"),
+      message: containing(programPath),
     });
     expect(versions()).toEqual(["0.0.9", "0.1.0"]);
   });
@@ -184,25 +188,25 @@ describe("a release", () => {
   test("a manifest whose sizes do not add up to payloadBytes: badFile", () => {
     const data = new TextEncoder().encode("#!/bin/sh\n");
     expect(
-      stage(signed([{ path: "bin/hsn-hub", data, executable: true }], { extraBytes: 1 })),
+      stage(signed([{ path: programPath, data, executable: true }], { extraBytes: 1 })),
     ).toMatchObject({ reason: "badFile", message: containing("add up") });
   });
 
   test.each([
-    ["a path twice", ["bin/hsn-hub", "web/a", "web/a"]],
-    ["a path that climbs out", ["bin/hsn-hub", "../escape"]],
-    ["an absolute path", ["bin/hsn-hub", "/etc/x"]],
-    ["an empty part", ["bin/hsn-hub", "web//a"]],
-    ["a dot", ["bin/hsn-hub", "web/./a"]],
-    ["a backslash", ["bin/hsn-hub", "web\\a"]],
-    ["a part too long", ["bin/hsn-hub", `web/${"a".repeat(65)}`]],
-    ["a file where a folder must be", ["bin/hsn-hub", "web", "web/a"]],
+    ["a path twice", [programPath, "web/a", "web/a"]],
+    ["a path that climbs out", [programPath, "../escape"]],
+    ["an absolute path", [programPath, "/etc/x"]],
+    ["an empty part", [programPath, "web//a"]],
+    ["a dot", [programPath, "web/./a"]],
+    ["a backslash", [programPath, "web\\a"]],
+    ["a part too long", [programPath, `web/${"a".repeat(65)}`]],
+    ["a file where a folder must be", [programPath, "web", "web/a"]],
   ])("%s: badFile, and nothing written outside", (_what, paths) => {
     const file = signed(
       paths.map((path) => ({
         path,
         data: new Uint8Array([1]),
-        executable: path === "bin/hsn-hub",
+        executable: path === programPath,
       })),
     );
     expect(stage(file)).toMatchObject({ kind: "failed", reason: "badFile" });
@@ -213,7 +217,7 @@ describe("a release", () => {
   test("a release without its program: badFile", () => {
     expect(
       stage(signed([{ path: "web/index.html", data: new Uint8Array([1]), executable: false }])),
-    ).toMatchObject({ reason: "badFile", message: containing("bin/hsn-hub") });
+    ).toMatchObject({ reason: "badFile", message: containing(programPath) });
   });
 
   test("a file that is not a release is badFile even on a hub the launcher did not start; a good one there is io", () => {
@@ -222,7 +226,7 @@ describe("a release", () => {
       path: upload,
       prefix: undefined,
       runningVersion: "0.1.0",
-      platform: "darwin-arm64",
+      platform: fixturePlatform,
       keys: [TEST_PUBLISHER_KEY],
     });
     expect(junk).toMatchObject({ kind: "failed", reason: "badFile" });
@@ -231,7 +235,7 @@ describe("a release", () => {
       path: upload,
       prefix: undefined,
       runningVersion: "0.1.0",
-      platform: "darwin-arm64",
+      platform: fixturePlatform,
       keys: [TEST_PUBLISHER_KEY],
     });
     expect(good).toMatchObject({ kind: "failed", reason: "io" });
@@ -248,7 +252,7 @@ describe("a release", () => {
 
   test("pass 2 makes at most STAGING_FILES_PER_PIECE files a piece, however small they are", () => {
     const files = [
-      { path: "bin/hsn-hub", data: new Uint8Array([1]), executable: true },
+      { path: programPath, data: new Uint8Array([1]), executable: true },
       ...Array.from({ length: 100 }, (_, i) => ({
         path: `web/f${String(i).padStart(3, "0")}`,
         data: new Uint8Array([i]),
@@ -260,7 +264,7 @@ describe("a release", () => {
       path: upload,
       prefix,
       runningVersion: "0.1.0",
-      platform: "darwin-arm64",
+      platform: fixturePlatform,
       keys: [TEST_PUBLISHER_KEY],
     });
     const folder = join(prefix, "staged", ".staging-1.0.0");
@@ -277,9 +281,10 @@ describe("a release", () => {
     expect(outcome).toEqual({ kind: "updateStaged", version: "1.0.0" });
   });
 
-  test("the program is executable, the rest not", () => {
+  // Windows does not represent POSIX executable mode bits.
+  test.skipIf(process.platform === "win32")("the program is executable, the rest not", () => {
     stage(release());
-    expect(statSync(join(prefix, "staged", "1.0.0", "bin", "hsn-hub")).mode & 0o777).toBe(0o755);
+    expect(statSync(join(prefix, "staged", "1.0.0", programPath)).mode & 0o777).toBe(0o755);
     expect(statSync(join(prefix, "staged", "1.0.0", "web", "index.html")).mode & 0o777).toBe(0o644);
   });
 
@@ -304,7 +309,7 @@ describe("a release", () => {
   });
 
   test("signed by a key this hub does not trust, or with no key compiled in: badSignature", () => {
-    expect(stage(release("1.0.0", "darwin-arm64", OTHER_SEED))).toMatchObject({
+    expect(stage(release("1.0.0", fixturePlatform, OTHER_SEED))).toMatchObject({
       reason: "badSignature",
     });
     expect(stage(release(), PUBLISHER_KEYS)).toMatchObject({ reason: "badSignature" });
@@ -332,7 +337,7 @@ describe("a release", () => {
     const file = release();
     file[5] = 1;
     expect(stage(file)).toMatchObject({ reason: "badFile" });
-    expect(releaseOf(source, "01.0.0", "darwin-arm64", SEED, 0).isErr()).toBe(true);
+    expect(releaseOf(source, "01.0.0", fixturePlatform, SEED, 0).isErr()).toBe(true);
   });
 
   test("the file's layout: HSNR, format 2, three zero bytes, the manifest's length, the files uncompressed", () => {
@@ -344,9 +349,9 @@ describe("a release", () => {
       files: { path: string; bytes: number }[];
       payloadBytes: number;
     };
-    expect(manifest).toMatchObject({ version: "1.0.0", platform: "darwin-arm64" });
+    expect(manifest).toMatchObject({ version: "1.0.0", platform: fixturePlatform });
     expect(manifest.files.map((f) => f.path)).toEqual([
-      "bin/hsn-hub",
+      programPath,
       "drizzle/0000.sql",
       "web/index.html",
     ]);

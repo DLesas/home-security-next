@@ -4,8 +4,9 @@
  * `idle.closed`: the session replaced by a newer one proven, and an unproven one while another
  * is live. So the controller's view of a close and a real device's agree.
  */
+import { shortTempFolder } from "../../world/temp-folder.ts";
 import { afterAll, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { rmSync } from "node:fs";
 import { join } from "node:path";
 import { cobsDecode, encodeUsbFrame, ResumeStep } from "@hsn/protocol";
 import { deviceId } from "../../../src/core/model/ids.ts";
@@ -17,7 +18,7 @@ import { DEVICE_PATH } from "../../../src/shell/links/websocket.ts";
 import { openStore } from "../../../src/shell/storage/store.ts";
 import { siteRowAt } from "../../scenarios/sensors/bench.ts";
 import { SeededBytes } from "../../world/entropy.ts";
-import { endProcesses, spawnTracked } from "../../world/processes.ts";
+import { endProcesses, spawnTestHub, stopTestHub, spawnTracked } from "../../world/processes.ts";
 import { ScriptedGateway } from "../../world/scripted-gateway.ts";
 
 const MAIN = join(import.meta.dir, "..", "..", "..", "src", "shell", "main.ts");
@@ -28,7 +29,7 @@ const ADDRESS = 0x6a000001;
 const KEY = new Uint8Array(16).map((_, i) => 0x40 + i);
 const ptys = process.platform !== "win32";
 
-const root = mkdtempSync("/tmp/hsn-c-");
+const root = shortTempFolder("hsn-c-");
 afterAll(async () => {
   await endProcesses();
   rmSync(root, { recursive: true, force: true });
@@ -103,7 +104,7 @@ function seeded(): string {
   store.writer.stage(ops.map((op) => ({ kind: "write", durability: "now", op })));
   store.writer.flush("now")._unsafeUnwrap();
   store.writer.stop()._unsafeUnwrap();
-  store.db.close();
+  store.db.close(true);
   return dataDir;
 }
 
@@ -132,9 +133,8 @@ function connect(port: number, g: ScriptedGateway): { socket: WebSocket; closed:
 }
 
 function hub(dataDir: string, port: number, serial: readonly string[] = []) {
-  return spawnTracked(
+  return spawnTestHub(
     [
-      "bun",
       MAIN,
       "--data",
       dataDir,
@@ -145,7 +145,7 @@ function hub(dataDir: string, port: number, serial: readonly string[] = []) {
       "0,0",
       ...serial.flatMap((p) => ["--serial", p]),
     ],
-    { stdout: "ignore", stderr: "ignore" },
+    "ignore",
   );
 }
 
@@ -169,7 +169,7 @@ describe("the hub's own closes on a real WebSocket", () => {
     await Bun.sleep(200);
     expect(second.closed).toEqual([]);
     second.socket.close();
-    process.kill("SIGTERM");
+    stopTestHub(process);
     expect(await process.exited).toBe(0);
   }, 30_000);
 
@@ -191,7 +191,7 @@ describe("the hub's own closes on a real WebSocket", () => {
     expect(second.closed).toEqual([1000]);
     expect(Date.now() - opened).toBeGreaterThan(10_000);
     first.socket.close();
-    process.kill("SIGTERM");
+    stopTestHub(process);
     expect(await process.exited).toBe(0);
   }, 40_000);
 });
@@ -286,7 +286,7 @@ describe.skipIf(!ptys)("the hub's own closes on a real serial port", () => {
     expect(await until(() => t.states.includes("closed"), 5000)).toBe(true);
     expect(wifi.closed).toEqual([]);
     wifi.socket.close();
-    process.kill("SIGTERM");
+    stopTestHub(process);
     expect(await process.exited).toBe(0);
   }, 40_000);
 });

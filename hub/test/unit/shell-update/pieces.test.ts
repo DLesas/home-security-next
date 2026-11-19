@@ -13,7 +13,8 @@
  * than its bytes, never a busy neighbour. The tight figures, the 20 ms ‡ of section 3 and a door
  * report's wait, are measured and asserted by the opt-in timing test (`HSN_TIMING=1`), run alone.
  */
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, describe, expect, spyOn, test } from "bun:test";
+import * as fs from "node:fs";
 import {
   existsSync,
   mkdirSync,
@@ -39,11 +40,14 @@ const PIECE_BOUND_MS = 20;
 /** A bound for a loaded machine (the whole suite at once): a piece reading far more than its bytes. */
 const LOADED_BOUND_MS = 250;
 const TIMING = process.env.HSN_TIMING === "1";
+const fixturePlatform = process.platform === "win32" ? "windows-x64" : "darwin-arm64";
+const programPath = process.platform === "win32" ? "bin/hsn-hub.exe" : "bin/hsn-hub";
 const SEED = new Uint8Array(32).fill(7);
 const folders: string[] = [];
 let root: string;
 let upload: string;
 let source: string;
+let restoreFileCalls: (() => void) | undefined;
 
 beforeAll(() => {
   root = mkdtempSync(join(tmpdir(), "hsn-pieces-"));
@@ -55,7 +59,7 @@ beforeAll(() => {
   const bun = readFileSync(process.execPath);
   // A 112 MB program: the Bun runtime and a mirrored copy of its first 48 MB, as compressible.
   writeFileSync(
-    join(source, "bin", "hsn-hub"),
+    join(source, programPath),
     Buffer.concat([bun, Buffer.from(bun.subarray(0, 48 * 1024 * 1024)).reverse()]),
     { mode: 0o755 },
   );
@@ -63,12 +67,46 @@ beforeAll(() => {
     writeFileSync(join(source, "web", `f${i}.js`), `export const x${i} = 1;\n`.repeat(1250));
   writeFileSync(join(source, "drizzle", "0000.sql"), "CREATE TABLE x (a);");
   upload = join(root, "upload.hsnr");
-  writeFileSync(upload, releaseOf(source, "9.0.0", "darwin-arm64", SEED, 0)._unsafeUnwrap());
+  writeFileSync(upload, releaseOf(source, "9.0.0", fixturePlatform, SEED, 0)._unsafeUnwrap());
 }, 60_000);
 
 afterAll(() => {
   for (const f of folders) rmSync(f, { recursive: true, force: true });
 });
+
+afterEach(() => {
+  restoreFileCalls?.();
+  restoreFileCalls = undefined;
+});
+
+/** Times the real filesystem calls so a slow piece can be traced to an individual operation. */
+function timeFileCalls() {
+  const names = ["openSync", "readSync", "writeSync", "closeSync", "mkdirSync"] as const;
+  interface Call {
+    name: (typeof names)[number];
+    ms: number;
+  }
+  let calls: Call[] = [];
+  const spies = names.map((name) => {
+    const original = fs[name];
+    return spyOn(fs, name).mockImplementation((...args: Parameters<typeof original>) => {
+      const start = performance.now();
+      const value = Reflect.apply(original, fs, args) as ReturnType<typeof original>;
+      calls.push({ name, ms: performance.now() - start });
+      return value;
+    });
+  });
+  restoreFileCalls = () => {
+    for (const spy of spies) spy.mockRestore();
+  };
+  /** Collects one piece's timings and drops the spies' references to its buffers. */
+  return () => {
+    const piece = calls;
+    calls = [];
+    for (const spy of spies) spy.mockClear();
+    return piece;
+  };
+}
 
 function prefix(name: string): string {
   const p = join(root, name);
@@ -87,7 +125,7 @@ function staging(p: string, wanted: () => boolean = () => true): Staging {
     path: upload,
     prefix: p,
     runningVersion: "0.1.0",
-    platform: "darwin-arm64",
+    platform: fixturePlatform,
     keys: [TEST_PUBLISHER_KEY],
     wanted,
   });
@@ -97,16 +135,42 @@ describe("staging a 112 MB program in pieces", () => {
   test("each piece reads at most its bytes and makes at most its files; both passes in pieces; byte for byte", () => {
     const p = prefix("bytes");
     const job = staging(p);
+    const fileCalls = process.platform === "win32" || TIMING ? timeFileCalls() : undefined;
     let read = 0;
-    let longest = 0;
+    let longest: {
+      phase: Staging["phase"];
+      ms: number;
+      bytes: number;
+      read: number;
+      cpuMs?: number;
+      calls?: ReturnType<ReturnType<typeof timeFileCalls>>;
+    } = {
+      phase: job.phase,
+      ms: 0,
+      bytes: 0,
+      read: 0,
+    };
     let pieces = 0;
     let madeBefore = 0;
     let outcome;
     for (;;) {
       const phase = job.phase;
+      const cpuStart = fileCalls === undefined ? undefined : process.threadCpuUsage();
       const s = performance.now();
       outcome = job.next();
-      longest = Math.max(longest, performance.now() - s);
+      const ms = performance.now() - s;
+      const calls = fileCalls?.();
+      if (ms > longest.ms) {
+        const cpu = cpuStart === undefined ? undefined : process.threadCpuUsage(cpuStart);
+        longest = {
+          phase,
+          ms,
+          bytes: job.bytesRead - read,
+          read,
+          ...(cpu === undefined ? {} : { cpuMs: (cpu.user + cpu.system) / 1000 }),
+          ...(calls === undefined ? {} : { calls }),
+        };
+      }
       pieces += 1;
       expect(job.bytesRead - read).toBeLessThanOrEqual(STAGING_PIECE_BYTES);
       read = job.bytesRead;
@@ -124,13 +188,15 @@ describe("staging a 112 MB program in pieces", () => {
     expect(pieces).toBeGreaterThanOrEqual(
       2 * Math.floor((payload - 1024 * 1024) / STAGING_PIECE_BYTES),
     );
-    expect(longest).toBeLessThan(LOADED_BOUND_MS);
-    for (const path of ["bin/hsn-hub", "web/f0.js", "web/f199.js", "drizzle/0000.sql"])
+    const diagnostics = `longest piece: ${JSON.stringify({ ...longest, payloadBytes: read / 2 })}`;
+    if (fileCalls !== undefined) console.log(diagnostics);
+    for (const path of [programPath, "web/f0.js", "web/f199.js", "drizzle/0000.sql"])
       expect(
         Buffer.from(readFileSync(join(p, "staged", "9.0.0", path))).equals(
           readFileSync(join(source, path)),
         ),
       ).toBe(true);
+    expect(longest.ms, diagnostics).toBeLessThan(LOADED_BOUND_MS);
   }, 60_000);
 
   test.if(TIMING)(
@@ -186,7 +252,7 @@ describe("staging a 112 MB program in pieces", () => {
       expect(Math.max(...latencies)).toBeLessThan(PIECE_BOUND_MS + 20);
 
       // Byte for byte the version's folder.
-      for (const path of ["bin/hsn-hub", "web/f0.js", "web/f199.js", "drizzle/0000.sql"])
+      for (const path of [programPath, "web/f0.js", "web/f199.js", "drizzle/0000.sql"])
         expect(
           Buffer.from(readFileSync(join(p, "staged", "9.0.0", path))).equals(
             readFileSync(join(source, path)),

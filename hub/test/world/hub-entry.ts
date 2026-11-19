@@ -7,6 +7,7 @@
  */
 import { hubUmask, parseMainArgs, runHub } from "../../src/shell/main.ts";
 import { PUBLISHER_KEYS } from "../../src/shell/update/publisher-keys.ts";
+import { serialSocketFixture } from "./serial-socket.ts";
 
 const options = parseMainArgs(process.argv.slice(2), process.env);
 if (typeof options === "string") {
@@ -14,4 +15,8 @@ if (typeof options === "string") {
   process.exit(2);
 }
 hubUmask();
-process.exit(await runHub(options, { publisherKeys: PUBLISHER_KEYS, clockSynchronised: true }));
+const serial =
+  process.env.HSN_E2E_SOCKET_BOARDS === "1" ? serialSocketFixture(options.serial) : undefined;
+process.exit(
+  await runHub(options, { publisherKeys: PUBLISHER_KEYS, clockSynchronised: true }, serial),
+);

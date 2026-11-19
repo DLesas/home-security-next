@@ -21,9 +21,9 @@ import {
   closeTty,
   layoutFor,
   listedPorts,
-  openTty,
+  openUnixTty,
   terminalSettings,
-  type TtyPort,
+  type UnixTtyPort,
   writeTty,
 } from "../../../src/shell/safe/serial.ts";
 
@@ -96,8 +96,8 @@ async function until(condition: () => boolean, what: string, ms = 3000): Promise
   if (!condition()) expect(`timed out waiting for ${what}`).toBe("");
 }
 
-function opened(path: string): { port: TtyPort; received: number[] } {
-  const result = openTty(path);
+function opened(path: string): { port: UnixTtyPort; received: number[] } {
+  const result = openUnixTty(path);
   expect(result.isOk() ? "opened" : result.error.message).toBe("opened");
   const port = result._unsafeUnwrap();
   const received: number[] = [];
@@ -275,7 +275,7 @@ describe.skipIf(!ptys)("opening and closing a terminal", () => {
 
   test("closed by the hub, the far end sees the hang-up at once, though no byte came", async () => {
     const t = await watchedTerminal();
-    const port = openTty(t.path)._unsafeUnwrap();
+    const port = openUnixTty(t.path)._unsafeUnwrap();
     port.stream.on("data", () => undefined);
     // A first byte tells the far end the hub is there; the relay then lets go of its own copy.
     (await writeTty(port, new Uint8Array([0x55])))._unsafeUnwrap();

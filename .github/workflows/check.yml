@@ -2,7 +2,8 @@
 # the root package.json's `check` script at run time, so this runs exactly what `bun run check`
 # runs; each stage runs even when one before it failed, so a first run shows every problem, and
 # the job fails if any stage failed. Each stage's result, time and last lines go to the job
-# summary. If `check` is ever not a plain `bun run a && bun run b …` chain, the job runs
+# summary. On Windows the counts are also printed in the log. If `check` is ever not a
+# plain `bun run a && bun run b …` chain, the job runs
 # `bun run check` itself instead. A second job runs the root-only tests (hub/test/root/) under
 # sudo on Linux and macOS.
 name: Check (bun run check)
@@ -16,9 +17,18 @@ permissions:
 
 jobs:
   check:
-    runs-on: ubuntu-latest
+    name: ${{ matrix.os == 'ubuntu-latest' && 'check' || 'check (windows-latest)' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     steps:
+      - name: Keep the repository's line endings
+        if: runner.os == 'Windows'
+        run: git config --global core.autocrlf false
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -30,10 +40,12 @@ jobs:
       - name: Tools
         shell: bash
         run: |
+          if [ "$RUNNER_OS" = Windows ]; then system=$(cmd.exe //d //c ver | tr -d '\r' | grep -v '^$')
+          else system=$(. /etc/os-release && echo "$PRETTY_NAME"); fi
           {
             echo "# bun run check"
             echo
-            echo "Commit \`${GITHUB_SHA}\` on \`${GITHUB_REF_NAME}\`, $(. /etc/os-release && echo "$PRETTY_NAME") $(uname -m)"
+            echo "Commit \`${GITHUB_SHA}\` on \`${GITHUB_REF_NAME}\`, $system $(uname -m)"
             echo
             echo "| Tool | Version | From |"
             echo "| --- | --- | --- |"
@@ -43,6 +55,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Install dependencies
+        id: dependencies
         shell: bash
         run: |
           set +e
@@ -74,6 +87,7 @@ jobs:
           mkdir -p "$out"
           # The stages of `check`, from package.json: `bun run <name>` joined by `&&`.
           chain=$(bun -e 'console.log(JSON.parse(require("fs").readFileSync("package.json","utf8")).scripts.check ?? "")')
+          chain=${chain%$'\r'}
           echo "check is: $chain"
           stages=$(printf '%s\n' "$chain" | awk -F' && ' '{ for (i = 1; i <= NF; i++) print $i }')
           plain=yes
@@ -103,11 +117,34 @@ jobs:
             log="$out/$n-$name.txt"
             echo "::group::$stage"
             start=$SECONDS
-            bash -c "$stage" > "$log" 2>&1 < /dev/null
-            code=$?
-            cat "$log"
+            if [ "$RUNNER_OS" = Windows ]; then
+              # Keep the last test in the log even if a runner times out mid-stage.
+              bash -c "$stage" 2>&1 < /dev/null | tee "$log"
+              code=${PIPESTATUS[0]}
+            else
+              bash -c "$stage" > "$log" 2>&1 < /dev/null
+              code=$?
+              cat "$log"
+            fi
             echo "::endgroup::"
             if [ "$code" -eq 0 ]; then mark="✅"; else mark="❌ exit $code"; failed=$((failed + 1)); fi
+            if [ "$RUNNER_OS" = Windows ]; then
+              result=pass
+              if [ "$code" -ne 0 ]; then result=fail; fi
+              case "$name" in
+                test)
+                  counts=$(awk '{ sub(/\r$/, "") }
+                    /^[[:space:]]*[0-9]+ (pass|fail|skip|todo)[[:space:]]*$/ { n[$2] = $1; found = 1 }
+                    END { if (found) printf "%d pass, %d fail, %d skip, %d todo", n["pass"], n["fail"], n["skip"], n["todo"]; else print "no test counts reported" }' "$log")
+                  ;;
+                typecheck) counts="$(grep -cE 'error TS[0-9]+' "$log") TypeScript errors" ;;
+                lint) counts=$(grep -E '[0-9]+ problems? \(' "$log" | tail -n 1 | tr -d '\r'); counts=${counts:-"no problems reported"} ;;
+                format:check) counts="$(grep -cE '^\[warn\] ' "$log") warnings, $(grep -cE '^\[error\] ' "$log") errors" ;;
+                verify:vectors) counts=$(grep -E '^[0-9]+ checks, [0-9]+ mismatches' "$log" | tail -n 1 | tr -d '\r'); counts=${counts:-"no vector counts reported"} ;;
+                *) counts="no counts reported" ;;
+              esac
+              echo "Stage $name: $result (exit $code, $counts)"
+            fi
             echo "| \`$stage\` | $mark | $((SECONDS - start)) s |" >> "$GITHUB_STEP_SUMMARY"
             {
               echo
@@ -159,6 +196,68 @@ jobs:
             if [ "$failed" -eq 0 ]; then echo "**Every stage passed.**"; else echo "**$failed stage(s) failed.**"; fi
           } >> "$GITHUB_STEP_SUMMARY"
           [ "$failed" -eq 0 ]
+
+      - name: Probe native serial ports from Bun
+        if: ${{ !cancelled() && runner.os == 'Windows' && steps.dependencies.outcome == 'success' }}
+        working-directory: hub
+        run: |
+          Add-Type -AssemblyName System.IO.Ports
+          $ports = @([System.IO.Ports.SerialPort]::GetPortNames() | Sort-Object)
+          if ($ports.Count -eq 0) {
+            Write-Output "Windows serial ports: none"
+          } else {
+            Write-Output "Windows serial ports: $($ports -join ', ')"
+          }
+          bun -e 'import { SerialPort } from "serialport"; const ports = (await SerialPort.list()).map(port => port.path).sort(); console.log("Bun serial ports: " + (ports.join(", ") || "none"));'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if ($ports.Count -eq 0) {
+            Write-Output "No native COM port is present. The open, settings and reopen probe did not run."
+          }
+          foreach ($port in $ports) {
+            bun test/windows/serial-probe.ts $port
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            # mode can inspect the same device now because the adapter released its exclusive handle.
+            $settings = (& mode.com ("${port}:") 2>&1) -join "`n"
+            if ($LASTEXITCODE -ne 0) { throw "mode failed for $port" }
+            Write-Output $settings
+            foreach ($setting in @(
+              'Parity:\s+None', 'Data Bits:\s+8', 'Stop Bits:\s+1', 'XON/XOFF:\s+OFF',
+              'CTS handshaking:\s+OFF', 'DSR handshaking:\s+OFF', 'DSR sensitivity:\s+OFF',
+              'DTR circuit:\s+OFF', 'RTS circuit:\s+OFF'
+            )) {
+              if ($settings -notmatch "(?m)^\s*${setting}\s*$") { throw "mode $port did not show $setting" }
+            }
+            Write-Output "$port agrees with the requested DCB settings in mode.exe"
+          }
+
+  edge:
+    name: Browser tests (Windows Edge)
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.2
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Export the web app and test in the runner's installed Edge
+        shell: pwsh
+        env:
+          HSN_E2E_CHANNEL: msedge
+          PLAYWRIGHT_FORCE_TTY: "0"
+        run: |
+          . .github/workflows/installer-checks.ps1
+          # Failed navigations can show a console/link URL. Redact before printing any output.
+          & bun run app:e2e 2>&1 | ForEach-Object {
+            Hide-Secrets ($_.ToString() -creplace '\b[0-9A-Z]{4}-[0-9A-Z]{4}-[0-9A-Z]{3}[0-9A-Z*~$=]', '[redacted code]')
+          }
+          exit $LASTEXITCODE
 
   # hsn's drop of root (m2-design.md section 9, "Dropping privileges in Bun"), proved where it
   # runs: hub/test/root/ as root through sudo, with the system's own `daemon` account as the one to

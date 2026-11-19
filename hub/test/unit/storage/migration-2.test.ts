@@ -55,7 +55,7 @@ function m1aDatabase(arms: readonly number[], removedArmed = false): string {
       `INSERT INTO sensor_config VALUES (${id}, ${arm}, NULL, NULL, 30, 12, 5, 5, 5, 0, 0, 0, 255, 255, 0, 0, 1, x'')`,
     );
   });
-  db.close();
+  db.close(true);
   return dir.path;
 }
 
@@ -89,7 +89,7 @@ describe("migration 2 on an M1a database (section 4)", () => {
     expect(store.snapshot.m2.peopleSettings).toEqual({ userManagement: false });
     expect(store.snapshot.m2.scheduleState).toEqual({ timeZone: null });
     expect(store.snapshot.m2.backupState).toEqual(BACKUP_STATE_DEFAULTS);
-    store.db.close();
+    store.db.close(true);
   });
 
   test.each([
@@ -100,13 +100,13 @@ describe("migration 2 on an M1a database (section 4)", () => {
   ] as const)("%s", (_, arms, mode, modified) => {
     const store = openTestStore(m1aDatabase(arms), new TestClock());
     expect(store.snapshot.m2.modeState).toEqual({ currentModeId: mode, modeModified: modified });
-    store.db.close();
+    store.db.close(true);
   });
 
   test("a removed sensor's arming does not count", () => {
     const store = openTestStore(m1aDatabase([0, 0], true), new TestClock());
     expect(store.snapshot.m2.modeState?.currentModeId).toBe(DISARMED_MODE);
-    store.db.close();
+    store.db.close(true);
   });
 
   test("a new installation's single rows: Disarmed, user management off, no zone, nothing due", () => {
@@ -120,6 +120,6 @@ describe("migration 2 on an M1a database (section 4)", () => {
       modeModified: false,
     });
     expect(store.snapshot.m2.backupState).toEqual(BACKUP_STATE_DEFAULTS);
-    store.db.close();
+    store.db.close(true);
   });
 });

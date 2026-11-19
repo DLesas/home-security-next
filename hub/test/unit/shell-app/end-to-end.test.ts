@@ -12,6 +12,7 @@
  * its first chunk and by the hub killed under `hsn` after its first chunk, with nothing saved and
  * the hub (restarted, after the kill) exporting whole again.
  */
+import { shortTempFolder } from "../../world/temp-folder.ts";
 import { afterAll, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
@@ -39,12 +40,17 @@ import { ok } from "neverthrow";
 import { exchange } from "../../../cli/client.ts";
 import { writeBackup } from "../../../src/shell/backup/write.ts";
 import { homeAddresses } from "../../../src/shell/hub-facts.ts";
-import { endProcesses, spawnTracked } from "../../world/processes.ts";
+import {
+  endProcesses,
+  spawnTestHub,
+  stopTestHub,
+  spawnTracked,
+  testCli,
+} from "../../world/processes.ts";
 
 // The tests' entry: `main.ts`'s, with the clock synchronised on any Linux (`test/world`).
 const MAIN = join(import.meta.dir, "..", "..", "world", "hub-entry.ts");
-const HSN = join(import.meta.dir, "..", "..", "..", "cli", "hsn.ts");
-const root = mkdtempSync("/tmp/hsn-e2e-");
+const root = shortTempFolder("hsn-e2e-");
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
@@ -299,9 +305,8 @@ function startHub(
   lanPort: number,
   consolePort: number,
 ): ReturnType<typeof Bun.spawn> {
-  return spawnTracked(
+  return spawnTestHub(
     [
-      "bun",
       MAIN,
       "--data",
       dataDir,
@@ -311,7 +316,7 @@ function startHub(
       "--app-ports",
       `${lanPort},${consolePort}`,
     ],
-    { stdout: "ignore", stderr: "inherit" },
+    "inherit",
   );
 }
 
@@ -335,7 +340,7 @@ async function answering(sock: string): Promise<void> {
 async function hsn(
   args: readonly string[],
 ): Promise<{ readonly code: number; readonly out: string; readonly err: string }> {
-  const run = spawnTracked(["bun", HSN, ...args], { stdout: "pipe", stderr: "pipe" });
+  const run = spawnTracked(["bun", testCli, ...args], { stdout: "pipe", stderr: "pipe" });
   const [out, errText, code] = await Promise.all([
     new Response(run.stdout).text(),
     new Response(run.stderr).text(),
@@ -363,7 +368,7 @@ function fileTheHubWouldWrite(dataDir: string, exported: Uint8Array): Uint8Array
     { folder, keep: 1, key: new Uint8Array(key?.key ?? []), epoch: key?.epoch ?? 0 },
     { nowMs: () => header.value.madeMs, salt: () => ok(header.value.salt) },
   );
-  db.close();
+  db.close(true);
   expect(written.kind).toBe("backupWritten");
   return written.kind === "backupWritten"
     ? new Uint8Array(readFileSync(join(folder, written.name)))
@@ -412,7 +417,7 @@ function expectWholeHistory(dataDir: string, file: Uint8Array): void {
   ).toSorted((a, b) => a - b);
   const rejects = db.query<{ n: number }, []>(`SELECT count(*) AS n FROM rejects`).get()?.n ?? 0;
   const losses = db.query<{ n: number }, []>(`SELECT count(*) AS n FROM loss_daily`).get()?.n ?? 0;
-  db.close();
+  db.close(true);
   expect(held.length).toBeGreaterThan(0);
   expect(seqs).toEqual(held);
   expect(lines.filter((line) => line.kind === "reject")).toHaveLength(rejects);
@@ -499,9 +504,8 @@ describe("the channel end to end on the real hub (m2-design.md section 11)", () 
     const dataDir = mkdtempSync(join(root, "d"));
     const lanPort = await freePort();
     const consolePort = await freePort();
-    spawnTracked(
+    spawnTestHub(
       [
-        "bun",
         MAIN,
         "--data",
         dataDir,
@@ -511,7 +515,7 @@ describe("the channel end to end on the real hub (m2-design.md section 11)", () 
         "--app-ports",
         `${lanPort},${consolePort}`,
       ],
-      { stdout: "ignore", stderr: "inherit" },
+      "inherit",
     );
     const sock = join(dataDir, "control.sock");
     for (let i = 0; i < 200 && !existsSync(sock); i++) await Bun.sleep(50);
@@ -663,9 +667,18 @@ describe("the channel end to end on the real hub (m2-design.md section 11)", () 
     // nothing was saved, and neither the file nor its temporary one is there.
     const slowPath = join(root, "slow.sock");
     let killedAt = "";
+    let windowsKill: number | undefined;
     const slow = await slowControlLink(sock, slowPath, async () => {
       killedAt = "after its first chunk";
-      hub.kill(9);
+      if (process.platform === "win32") {
+        // Windows has no SIGKILL status. Assert the native force-termination tool succeeded.
+        const command = spawnTracked(["taskkill.exe", "/F", "/PID", String(hub.pid)], {
+          stdout: "ignore",
+          stderr: "ignore",
+        });
+        windowsKill = await command.exited;
+        if (windowsKill !== 0) return;
+      } else hub.kill(9);
       await hub.exited;
     });
     const viaKilled = join(root, "killed.hsnb");
@@ -675,7 +688,8 @@ describe("the channel end to end on the real hub (m2-design.md section 11)", () 
       `end to end: hsn when the hub was killed half-way: exit ${String(killed.code)}, ${killed.err.trim()}; out: ${killed.out.trim()}`,
     );
     expect(killedAt).toBe("after its first chunk");
-    expect(hub.signalCode).toBe("SIGKILL");
+    if (process.platform === "win32") expect(windowsKill).toBe(0);
+    else expect(hub.signalCode).toBe("SIGKILL");
     expect(killed.code).not.toBe(0);
     expect(existsSync(viaKilled)).toBe(false);
     expect(existsSync(`${viaKilled}.part`)).toBe(false);
@@ -695,7 +709,7 @@ describe("the channel end to end on the real hub (m2-design.md section 11)", () 
     const stopped = await (
       await session()
     ).export(undefined, () => {
-      second.kill("SIGTERM");
+      stopTestHub(second);
     });
     console.log(
       `end to end: an export when the hub stopped: ${stopped.failed === undefined ? `whole, ${String(stopped.chunks)} chunks` : `fileFailed ${stopped.failed} after ${String(stopped.chunks)} chunks`}`,

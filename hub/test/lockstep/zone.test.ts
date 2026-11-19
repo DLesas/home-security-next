@@ -4,6 +4,7 @@
  * runs when the clock reaches it; left out, as before, no entry has one; a zone the calendar does
  * not know is refused before anything starts (no database is opened).
  */
+import { shortTempFolder } from "../world/temp-folder.ts";
 import { afterAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
@@ -11,8 +12,9 @@ import type { LockstepFromHub, LockstepToHub } from "../../src/control-protocol/
 import { InProcessEnd } from "./ends.ts";
 import { SEED, WALL_AT_ZERO } from "./sessions.ts";
 
-const work = mkdtempSync("/tmp/hsn-zone-");
+const work = shortTempFolder("hsn-zone-");
 afterAll(() => {
+  InProcessEnd.closeAll();
   rmSync(work, { recursive: true, force: true });
 });
 let folders = 0;

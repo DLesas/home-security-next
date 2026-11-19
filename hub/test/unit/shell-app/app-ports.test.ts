@@ -6,6 +6,7 @@
  * The listeners open first and the facts the core is given carry their real ports, the console's
  * too (`hubFacts.consolePort`), so each address leads to its listener as written.
  */
+import { shortTempFolder } from "../../world/temp-folder.ts";
 import { afterAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { createServer } from "node:net";
@@ -34,7 +35,7 @@ import { endProcesses, spawnTracked } from "../../world/processes.ts";
 import { openHub, stopHubs } from "./support.ts";
 
 const MAIN = join(import.meta.dir, "..", "..", "..", "src", "shell", "main.ts");
-const root = mkdtempSync("/tmp/hsn-a2-ports-");
+const root = shortTempFolder("hsn-a2-ports-");
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 

@@ -43,7 +43,7 @@ let side: AppSide | undefined;
 
 afterEach(() => {
   side?.stop();
-  store?.db.close();
+  store?.db.close(true);
   dir?.remove();
 });
 

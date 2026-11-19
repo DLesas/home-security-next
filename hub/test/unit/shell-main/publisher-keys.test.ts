@@ -5,19 +5,26 @@
  * A release signed with the tests' key is refused by the product's `main.ts` however it is
  * started, and staged by a test's own entry (`hub-with-test-key.ts`), the same hub with that key.
  */
+import { shortTempFolder } from "../../world/temp-folder.ts";
 import { afterAll, describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseMainArgs } from "../../../src/shell/main.ts";
+import { programName } from "../../../src/shell/update/program-name.ts";
 import { makeRelease, platformOf } from "../../../src/shell/update/release.ts";
-import { endProcesses, spawnTracked } from "../../world/processes.ts";
+import {
+  endProcesses,
+  spawnTestHub,
+  stopTestHub,
+  spawnTracked,
+  testCli,
+} from "../../world/processes.ts";
 
 const HUB = join(import.meta.dir, "..", "..", "..");
 const MAIN = join(HUB, "src", "shell", "main.ts");
 const TEST_ENTRY = join(import.meta.dir, "hub-with-test-key.ts");
-const HSN = join(HUB, "cli", "hsn.ts");
-const root = mkdtempSync("/tmp/hsn-keys-");
+const root = shortTempFolder("hsn-keys-");
 afterAll(async () => {
   await endProcesses();
   rmSync(root, { recursive: true, force: true });
@@ -41,7 +48,7 @@ function testRelease(): string {
       payloadSha256: createHash("sha256").update(data).digest("hex"),
       files: [
         {
-          path: "bin/hsn-hub",
+          path: `bin/${programName(platform ?? "darwin-arm64")}`,
           bytes: data.length,
           sha256: createHash("sha256").update(data).digest("hex"),
           executable: true,
@@ -74,14 +81,15 @@ async function install(
 ): Promise<{ readonly code: number; readonly out: string; readonly err: string }> {
   const data = mkdtempSync(join(root, "d"));
   const prefix = mkdtempSync(join(root, "p"));
-  const hub = spawnTracked(
-    ["bun", entry, "--data", data, "--port", "0", "--no-usb-watch", "--app-ports", "0,0", ...args],
-    { stdout: "ignore", stderr: "ignore", env: { ...process.env, ...env, HSN_PROGRAM: prefix } },
+  const hub = spawnTestHub(
+    [entry, "--data", data, "--port", "0", "--no-usb-watch", "--app-ports", "0,0", ...args],
+    "ignore",
+    { ...process.env, ...env, HSN_PROGRAM: prefix },
   );
   const sock = join(data, "control.sock");
   for (let i = 0; i < 200 && !existsSync(sock); i++) await Bun.sleep(50);
   await Bun.sleep(300);
-  const run = spawnTracked(["bun", HSN, "--data", data, "update", "install", testRelease()], {
+  const run = spawnTracked(["bun", testCli, "--data", data, "update", "install", testRelease()], {
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -90,7 +98,7 @@ async function install(
     new Response(run.stderr).text(),
     run.exited,
   ]);
-  hub.kill("SIGTERM");
+  stopTestHub(hub);
   await hub.exited;
   return { code, out, err };
 }

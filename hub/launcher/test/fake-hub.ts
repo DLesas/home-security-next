@@ -15,8 +15,15 @@
  *   under its temporary name `hub.db.copying` (`shell/storage/migrations.ts`) and `hub.db` not
  *   migrated.
  */
-import { appendFileSync, copyFileSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import {
+  appendFileSync,
+  existsSync,
+  unlinkSync,
+  copyFileSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
+import { basename, dirname, join } from "node:path";
 
 interface Plan {
   readonly exit?: number;
@@ -29,7 +36,7 @@ interface Plan {
   readonly leftover?: boolean;
 }
 
-const version = process.argv[2] ?? "?";
+const version = basename(dirname(dirname(process.execPath)));
 const dataIndex = process.argv.indexOf("--data");
 const data = process.argv[dataIndex + 1] ?? ".";
 const prefix = process.env.HSN_PROGRAM ?? ".";
@@ -50,12 +57,19 @@ if (plan.migrate !== undefined) {
 if (plan.leftover === true) writeFileSync(join(data, "hub.db.copying"), "half a cop");
 
 function hang(): void {
-  process.on("SIGTERM", () => {
+  const stop = () => {
     if (plan.ignoreTerm === true) return;
     appendFileSync(log, `${version} clean\n`);
     process.exit(0);
-  });
-  setInterval(() => undefined, 1000);
+  };
+  process.on("SIGTERM", stop);
+  const marker = join(data, "service-stop");
+  setInterval(() => {
+    if (process.platform === "win32" && existsSync(marker)) {
+      unlinkSync(marker);
+      stop();
+    }
+  }, 20);
 }
 
 if (plan.switchTo !== undefined) {

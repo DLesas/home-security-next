@@ -14,7 +14,7 @@
  * `rejects` and `loss_daily` at the most their retention holds); by default a smaller one, as a
  * piece's work does not grow with the database.
  */
-import { afterAll, beforeEach, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -64,6 +64,10 @@ const PIECE_LIMIT_MS = 20;
 const LOADED_BOUND_MS = 250;
 const TIMING = process.env.HSN_TIMING === "1";
 const folders: string[] = [];
+const stores: OpenedStore[] = [];
+afterEach(() => {
+  for (const opened of stores.splice(0)) opened.db.close(true);
+});
 
 afterAll(() => {
   for (const f of folders) rmSync(f, { recursive: true, force: true });
@@ -284,6 +288,7 @@ function hub(dataDir: string, records: number): OpenedStore {
     store.writer.stage(batch);
     expect(store.writer.flush("now").isOk()).toBe(true);
   }
+  stores.push(store);
   return store;
 }
 

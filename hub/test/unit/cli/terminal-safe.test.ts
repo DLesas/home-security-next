@@ -8,6 +8,7 @@
  * body and refusal, the file commands' header lines, the question they ask, and the QR code, which
  * is drawn only in the block characters `qr.ts` chooses.
  */
+import { ownSid } from "../shell-control/windows-folders.ts";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { controlReply } from "../../../src/control-protocol/index.ts";
 import type {
@@ -86,6 +87,7 @@ async function hsn(
   const io: CliIo = {
     out: (l) => out.push(l),
     err: (l) => err.push(l),
+    ...(process.platform === "win32" ? { hubAccount: ownSid() } : {}),
     env: { HSN_DATA_DIR: where.folder, USER: "anna" },
     stdin: () => Promise.resolve(""),
     nowMs: () => Date.UTC(2026, 10, 13),

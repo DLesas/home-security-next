@@ -7,8 +7,9 @@
  * After every run: the database opens and passes SQLite's integrity check; each run was a boot
  * of its own; and no counter the hub sealed for the gateway was ever used by two runs (§4).
  */
+import { shortTempFolder } from "../world/temp-folder.ts";
 import { afterAll, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { rmSync } from "node:fs";
 import { join } from "node:path";
 import { MaxPacketLength, readPacketHeader, ResumeStep } from "@hsn/protocol";
 import { deviceId } from "../../src/core/model/ids.ts";
@@ -34,7 +35,7 @@ const START_TIMEOUT_MS = 10_000;
 const POLL_MS = 20;
 
 // Short, so the control socket's path stays under 104 bytes (section 9).
-const dataDir = mkdtempSync("/tmp/hsn-k9-");
+const dataDir = shortTempFolder("hsn-k9-");
 afterAll(async () => {
   await endProcesses();
   rmSync(dataDir, { recursive: true, force: true });

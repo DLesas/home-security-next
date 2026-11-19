@@ -5,6 +5,7 @@
  * input; text from the hub printed with its control characters escaped; and the real process's
  * exit code. The fake hub is the real socket server with a sink that answers by command.
  */
+import { ownSid } from "../shell-control/windows-folders.ts";
 import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { err as errResult, ok as okResult, type Result } from "neverthrow";
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -94,6 +95,7 @@ function io(stdin = "", onInterrupt: CliIo["onInterrupt"] = () => undefined) {
       noteOutput(line);
       err.push(line);
     },
+    ...(process.platform === "win32" ? { hubAccount: ownSid() } : {}),
     env: { HSN_DATA_DIR: where.folder, USER: "dimitri" },
     stdin: () => Promise.resolve(stdin),
     nowMs: () => Date.UTC(2026, 10, 13, 12),
@@ -245,13 +247,17 @@ describe("exit codes and errors", () => {
   });
 
   const root = typeof process.getuid === "function" && process.getuid() === 0;
-  test.skipIf(root)("a socket this account may not open: run as the hub's account", async () => {
-    chmodSync(where.socket, 0o000);
-    const run = await hsn("status");
-    chmodSync(where.socket, 0o600);
-    expect(run.code).toBe(ExitCode.NoPermission);
-    expect(run.err[0]).toContain("run hsn as the account the hub runs as");
-  });
+  // Only Unix refuses via chmod(000); windows-hub.test.ts checks the real second-account refusal.
+  test.skipIf(root || process.platform === "win32")(
+    "a socket this account may not open: run as the hub's account",
+    async () => {
+      chmodSync(where.socket, 0o000);
+      const run = await hsn("status");
+      chmodSync(where.socket, 0o600);
+      expect(run.code).toBe(ExitCode.NoPermission);
+      expect(run.err[0]).toContain("run hsn as the account the hub runs as");
+    },
+  );
 
   test("a refusal prints the hub's reason and the names, and exits 1", async () => {
     answer = () => ({
@@ -591,19 +597,21 @@ describe("hsn open (m2-design.md section 5, the console)", () => {
     answer = () => ok(TOKEN);
     const run = await hsn("open");
     expect(received).toEqual([{ kind: "consoleToken" }]);
-    expect(browsed).toEqual([SECRET_URL]);
+    expect(browsed.length).toBe(1);
+    expect(browsed[0] === SECRET_URL).toBe(true);
     expect(run.code).toBe(ExitCode.Ok);
-    expect([...run.out, ...run.err].join("\n")).not.toContain(SECRET);
+    expect([...run.out, ...run.err].some((line) => line.includes(SECRET))).toBe(false);
   });
 
   test("with --json, nor then", async () => {
     answer = () => ok(TOKEN);
     const run = await hsn("--json open");
-    expect(browsed).toEqual([SECRET_URL]);
+    expect(browsed.length).toBe(1);
+    expect(browsed[0] === SECRET_URL).toBe(true);
     expect(run.out.map((l) => JSON.parse(l) as unknown)).toEqual([
       { opened: true, expiresInMs: 120_000 },
     ]);
-    expect([...run.out, ...run.err].join("\n")).not.toContain(SECRET);
+    expect([...run.out, ...run.err].some((line) => line.includes(SECRET))).toBe(false);
   });
 
   test("when no browser opens, it says so, exits 1, and still prints no address", async () => {
@@ -614,7 +622,7 @@ describe("hsn open (m2-design.md section 5, the console)", () => {
     expect(run.err[0]).toContain(
       "the console could not be opened: the browser could not be opened for anna",
     );
-    expect([...run.out, ...run.err].join("\n")).not.toContain(SECRET);
+    expect([...run.out, ...run.err].some((line) => line.includes(SECRET))).toBe(false);
   });
 
   test("a refused token opens nothing", async () => {
@@ -623,7 +631,7 @@ describe("hsn open (m2-design.md section 5, the console)", () => {
       error: { code: "failed", message: "the hub has not started yet" },
     });
     const run = await hsn("open");
-    expect(browsed).toEqual([]);
+    expect(browsed.length).toBe(0);
     expect(run.code).toBe(ExitCode.Refused);
   });
 
@@ -633,6 +641,6 @@ describe("hsn open (m2-design.md section 5, the console)", () => {
     const run = await hsn("open");
     expect(run.code).toBe(ExitCode.NoAnswer);
     expect(run.err[0]).toContain("did not open the console within 120 s");
-    expect([...run.out, ...run.err].join("\n")).not.toContain(SECRET);
+    expect([...run.out, ...run.err].some((line) => line.includes(SECRET))).toBe(false);
   });
 });

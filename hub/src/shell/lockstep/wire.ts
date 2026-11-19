@@ -65,7 +65,11 @@ export function runLockstep(options: LockstepWireOptions): Promise<number> {
     const finish = (socket: Socket | undefined, code: number): void => {
       if (done) return;
       done = true;
-      hub?.close();
+      const closed = hub?.close();
+      if (closed?.isErr()) {
+        options.say(`lockstep: ${closed.error.message}`);
+        code = EXIT_BAD_LINE;
+      }
       hub = undefined;
       if (socket === undefined || queued.length === 0) {
         end(socket, code);

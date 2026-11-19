@@ -181,8 +181,10 @@ describe("Windows: the service and the .msi", () => {
   });
 
   test("the .msi: an upgrade keeps the version before; the folder's quote; the Start menu; silent means UILevel", () => {
-    expect(wxs).toContain('Schedule="afterInstallInitialize"');
-    expect(wxs).toContain('<Custom Action="PrepareUpgrade" Before="RemoveExistingProducts"');
+    expect(wxs).toContain('Schedule="afterInstallExecute"');
+    expect(wxs).toContain('<Custom Action="PrepareUpgrade" Before="InstallFiles"');
+    expect(wxs).toContain('<Custom Action="InstallService" After="RemoveExistingProducts"');
+    expect(wxs).toMatch(/Id="REINSTALLMODE" Value="amus"[^>]+Condition="WIX_UPGRADE_DETECTED"/u);
     expect(wxs).toContain("-LocalAppData &quot;[LocalAppDataFolder].&quot;");
     expect(wxs).toContain("-UILevel [UILevel]");
     expect(wxs).toContain('Name="HSN Hub setup"');
@@ -294,10 +296,14 @@ describe("the installers' scripts", () => {
     "shared/prune-packaged.sh",
   ];
 
-  test.each(scripts)("%s parses and is executable", (script) => {
-    expect(run(["/bin/sh", "-n", join(HERE, script)]).code).toBe(0);
-    expect(statSync(join(HERE, script)).mode & 0o111).not.toBe(0);
-  });
+  // These installers run in /bin/sh and require POSIX executable bits.
+  test.skipIf(process.platform === "win32").each(scripts)(
+    "%s parses and is executable",
+    (script) => {
+      expect(run(["/bin/sh", "-n", join(HERE, script)]).code).toBe(0);
+      expect(statSync(join(HERE, script)).mode & 0o111).not.toBe(0);
+    },
+  );
 
   test.each(elevated)(
     "%s: no recursion into a hub tree, no version chosen, no hub program run, no freshness from hub.db",
@@ -356,10 +362,11 @@ describe("the installers' scripts", () => {
   });
 });
 
-describe("prepare-hub-folder.sh: the top folder only", () => {
+// These shell scripts install on Unix and rely on POSIX accounts and file modes.
+describe.skipIf(process.platform === "win32")("prepare-hub-folder.sh: the top folder only", () => {
   const script = join(HERE, "shared/prepare-hub-folder.sh");
-  const user = run(["id", "-un"]).out.trim();
-  const group = run(["id", "-gn"]).out.trim();
+  const user = process.platform === "win32" ? "" : run(["id", "-un"]).out.trim();
+  const group = process.platform === "win32" ? "" : run(["id", "-gn"]).out.trim();
   function parent(): string {
     const dir = join(scratch(), "parent");
     mkdirSync(dir, { mode: 0o755 });
@@ -409,7 +416,8 @@ describe("prepare-hub-folder.sh: the top folder only", () => {
   });
 });
 
-describe("prune-packaged.sh and open-setup-page.sh", () => {
+// These shell scripts install on Unix and rely on POSIX accounts and file modes.
+describe.skipIf(process.platform === "win32")("prune-packaged.sh and open-setup-page.sh", () => {
   test("the package's version and the newest other kept, every other removed", () => {
     const packaged = join(scratch(), "packaged");
     for (const v of ["1.2.0", "1.10.0", "1.9.3", "2.0.0"])

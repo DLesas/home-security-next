@@ -39,12 +39,6 @@ const KEY = new Uint8Array(32).fill(0x31);
  * (it seals a chunk once the next byte comes, or at the end), a tag per 64 KiB chunk, the header.
  */
 const SEALED_PIECE_MAX = SEAL_PIECE_BYTES + 65_536 + (SEAL_PIECE_BYTES / 65_536 + 2) * 16 + 64;
-const folders: string[] = [];
-
-afterAll(() => {
-  for (const f of folders) rmSync(f, { recursive: true, force: true });
-});
-
 class FixedClock implements Clock {
   now(): Now {
     return { mono: mono(1), wall: Date.UTC(2026, 10, 16), wallTrusted: true };
@@ -54,7 +48,6 @@ class FixedClock implements Clock {
 /** A hub with `people` people of 1 KB names: a configuration of about `people` KB. */
 function hub(people: number): { store: OpenedStore; root: string } {
   const root = mkdtempSync(join(tmpdir(), "hsn-pieces-"));
-  folders.push(root);
   const store = openStore({
     dataDir: join(root, "data"),
     migrationsFolder: MIGRATIONS,
@@ -103,6 +96,10 @@ function longest(times: Map<string, number[]>, phases: readonly string[]): numbe
 
 describe("a piece's work does not grow with the data", () => {
   const { store, root } = hub(8_000);
+  afterAll(() => {
+    store.db.close(true);
+    rmSync(root, { recursive: true, force: true });
+  });
   const folder = join(root, "backups");
   mkdirSync(folder);
 

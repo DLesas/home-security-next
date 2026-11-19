@@ -89,6 +89,8 @@ describe("listing a folder, on this computer", () => {
     folders.push(dir);
     expect(listFolder(dir)).toBe("listed");
     expect(listFolder(join(dir, "none"))).toBe("missing");
+    // POSIX mode bits cannot deny Windows access; windows-hub.test.ts probes the real second account.
+    if (process.platform === "win32") return;
     const shut = join(dir, "shut");
     mkdirSync(shut);
     chmodSync(shut, 0o000);
@@ -150,7 +152,7 @@ describe("hsn's answer", () => {
     );
     expect(code).toBe(ExitCode.NoPermission);
     expect(run.err[0]).toBe(
-      `hsn: this account may not use the hub at ${SOCKET}: run hsn from an administrator prompt (Run as administrator).`,
+      "hsn: this account may not use the hub: run hsn from an administrator prompt (Run as administrator).",
     );
     expect(run.err[0]).toContain("administrator prompt");
   });

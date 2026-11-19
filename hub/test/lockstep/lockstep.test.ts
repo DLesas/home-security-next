@@ -5,8 +5,9 @@
  * an untrusted clock; refused lines. Run with `HSN_LOCKSTEP_RECORD=1` to write the sessions again
  * from the scripts in `sessions.ts` (then review the diff: the C++ side is tested against them).
  */
+import { shortTempFolder } from "../world/temp-folder.ts";
 import { afterAll, describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Database } from "bun:sqlite";
 import { fromHex, MessageType, Role, SirenAction, toHex } from "@hsn/protocol";
@@ -21,9 +22,10 @@ import { InProcessEnd, ProcessEnd } from "./ends.ts";
 import { armedDoor, gatewayReplaced, provision, SEED, SESSIONS, wallAt } from "./sessions.ts";
 
 const RECORD = process.env.HSN_LOCKSTEP_RECORD === "1";
-const work = mkdtempSync("/tmp/hsn-ls-");
+const work = shortTempFolder("hsn-ls-");
 afterAll(async () => {
   await endProcesses();
+  InProcessEnd.closeAll();
   rmSync(work, { recursive: true, force: true });
 });
 let folders = 0;
@@ -86,7 +88,7 @@ function dump(dataDir: string): Record<string, unknown[]> {
     const columns = db.query(`SELECT 1 FROM pragma_table_info('${table}')`).all().length;
     out[table] = db.query(`SELECT * FROM "${table}" ORDER BY 1${columns > 1 ? ", 2" : ""}`).all();
   }
-  db.close();
+  db.close(true);
   return out;
 }
 
@@ -309,7 +311,7 @@ describe("a stop or a kill inside a countdown (section 11, the restart tests)", 
         "SELECT boot, last_seen_mono FROM device_state WHERE device_id = 0",
       )
       .get();
-    db.close();
+    db.close(true);
     expect(mark?.boot).toBe(2);
     expect(mark?.last_seen_mono ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(
       c.now - restartedAt,

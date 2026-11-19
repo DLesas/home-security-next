@@ -152,7 +152,7 @@ export function clientFailure(error: ClientError, io: CliIo): ExitCode {
       // Windows lets only administrators and the hub's own account in (m2-design.md section 9).
       io.err(
         (io.platform ?? process.platform) === "win32"
-          ? `hsn: ${error.message}: run hsn from an administrator prompt (Run as administrator).`
+          ? "hsn: this account may not use the hub: run hsn from an administrator prompt (Run as administrator)."
           : `hsn: ${error.message}: run hsn as the account the hub runs as.`,
       );
       return ExitCode.NoPermission;

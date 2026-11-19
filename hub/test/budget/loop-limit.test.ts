@@ -32,10 +32,11 @@
  * release before its pieces: `PUBLISHER_KEYS` is empty, and no option admits the test key), and
  * restore's read and rebuild (it waits for a phone's key over Noise on the apps' listener).
  */
+import { shortTempFolder } from "../world/temp-folder.ts";
 import { afterAll, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync, statSync } from "node:fs";
 import { availableParallelism, cpus } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import {
   Direction,
   type Message,
@@ -57,14 +58,20 @@ import { DEVICE_PATH } from "../../src/shell/links/websocket.ts";
 import { openStore } from "../../src/shell/storage/store.ts";
 import { sensorRow, siteRowAt } from "../scenarios/sensors/bench.ts";
 import { SeededBytes } from "../world/entropy.ts";
-import { endProcesses, spawnTracked } from "../world/processes.ts";
+import {
+  endProcesses,
+  spawnTestHub,
+  stopTestHub,
+  spawnTracked,
+  testCli,
+} from "../world/processes.ts";
 import { ScriptedGateway } from "../world/scripted-gateway.ts";
 import { writeOlderRows } from "./run.ts";
 
 /** The hub's own entry with the clock taken as synchronised (a Linux runner may not say it is). */
 const MAIN = join(import.meta.dir, "..", "world", "hub-entry.ts");
+const SLOW_TURNS = join(import.meta.dir, "slow-turns.ts");
 const MIGRATIONS = join(import.meta.dir, "..", "..", "drizzle");
-const HSN = join(import.meta.dir, "..", "..", "cli", "hsn.ts");
 const TIMING = process.env.HSN_TIMING === "1";
 /** A report behind a piece and a commit is taken within about 50 ms (section 3), asserted opt-in. */
 const TAKEN_WITHIN_MS = 50;
@@ -236,7 +243,7 @@ class Bench {
   #open = false;
   #socket: WebSocket | undefined;
   #pump: ReturnType<typeof setInterval> | undefined;
-  #hub: ReturnType<typeof spawnTracked> | undefined;
+  #hub: ReturnType<typeof spawnTestHub<"pipe">> | undefined;
   readonly #gateway: ScriptedGateway;
   readonly #started = performance.now();
 
@@ -245,9 +252,10 @@ class Bench {
   }
 
   static async start(port: number, dataDir: string): Promise<Bench | string> {
-    const hub = spawnTracked(
+    const hub = spawnTestHub(
       [
-        "bun",
+        "--preload",
+        SLOW_TURNS,
         MAIN,
         "--data",
         dataDir,
@@ -257,7 +265,7 @@ class Bench {
         "--app-ports",
         "0,0",
       ],
-      { stdout: "ignore", stderr: "pipe" },
+      "pipe",
     );
     const random = new SeededBytes(5);
     const bench = new Bench(
@@ -366,8 +374,12 @@ class Bench {
   async stop(): Promise<void> {
     clearInterval(this.#pump);
     this.#socket?.close();
-    this.#hub?.kill("SIGTERM");
-    await this.#hub?.exited;
+    const hub = this.#hub;
+    if (hub === undefined) return;
+    stopTestHub(hub);
+    await hub.exited;
+    const log = await new Response(hub.stderr).text();
+    for (const line of log.split("\n")) if (line.startsWith("Slow hub turn: ")) console.log(line);
   }
 }
 
@@ -387,9 +399,9 @@ async function during(bench: Bench, work: () => Promise<void>): Promise<void> {
 
 describe("door reports while the hub writes whole files (section 3, the loop's time)", () => {
   test("a backup and two exports run in pieces: the reports are taken between them, every one recorded", async () => {
-    const dataDir = mkdtempSync("/tmp/hsn-ll-");
+    const dataDir = shortTempFolder("hsn-ll-");
     folders.push(dataDir);
-    const backups = join(dataDir, "..", `${dataDir.split("/").at(-1)}-backups`);
+    const backups = join(dataDir, "..", `${basename(dataDir)}-backups`);
     mkdirSync(backups);
     folders.push(backups);
     seed(dataDir, backups);
@@ -446,7 +458,7 @@ describe("door reports while the hub writes whole files (section 3, the loop's t
       const file = join(
         dataDir,
         "..",
-        `${dataDir.split("/").at(-1)}-${history ? "history" : "configuration"}.export`,
+        `${basename(dataDir)}-${history ? "history" : "configuration"}.export`,
       );
       folders.push(file);
       const done = { code: -1 };
@@ -454,7 +466,7 @@ describe("door reports while the hub writes whole files (section 3, the loop's t
         const hsn = spawnTracked(
           [
             "bun",
-            HSN,
+            testCli,
             "--data",
             dataDir,
             "backup",

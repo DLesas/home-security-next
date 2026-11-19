@@ -1,4 +1,4 @@
-# build-msi.ps1 -Out <folder>
+# build-msi.ps1 -Out <folder> [-Version <major.minor.patch>]
 #
 # Builds HSN-Hub-<version>.msi (m2-design.md section 9, Windows) on a Windows x64 machine (the
 # hosted runner), from a checkout with the web app exported (`bun run app:export`). Needs Bun and
@@ -12,7 +12,7 @@
 # Every stage says itself ("build-msi: <stage>"), every command's whole output is printed, and a
 # failure ends with one line, "build-msi: FAILED at <stage> (exit <n>): <the command>", so a hosted
 # run's log names the step, the command, its exit code and the tool's own words.
-param([Parameter(Mandatory = $true)][string]$Out)
+param([Parameter(Mandatory = $true)][string]$Out, [string]$Version = "")
 $ErrorActionPreference = "Stop"
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repo = (Resolve-Path (Join-Path $here "..\..\..")).Path
@@ -47,8 +47,10 @@ try {
     if (-not (Test-Path (Join-Path $here $f))) { throw "FAILED at ${stage}: $f is missing" }
   }
   $buildProgram = Join-Path $repo "hub\packaging\shared\build-program.ts"
-  Invoke-Native "build-program.ts (the hub, the launcher, hsn)" "bun $buildProgram --target bun-windows-x64 --out $work\program" {
-    & bun $buildProgram --target bun-windows-x64 --out "$work\program"
+  $override = @()
+  if ($Version -ne "") { $override = @("--version", $Version) }
+  Invoke-Native "build-program.ts (the hub, the launcher, hsn)" "bun $buildProgram --target bun-windows-x64 --out $work\program $($override -join ' ')" {
+    & bun $buildProgram --target bun-windows-x64 --out "$work\program" @override
   }
   $version = (Get-Content "$work\program\version").Trim()
   Write-Output "build-msi: version $version"

@@ -55,7 +55,7 @@ const BODY = new Uint8Array(1900).fill(0x5a);
 
 let open: { dir: ReturnType<typeof tempDir>; store: OpenedStore } | undefined;
 afterEach(() => {
-  open?.store.db.close();
+  open?.store.db.close(true);
   open?.dir.remove();
   open = undefined;
 });

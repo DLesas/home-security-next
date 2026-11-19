@@ -99,37 +99,44 @@ function prepared(closed: boolean): { data: string; old: OpenedStore } {
 describe("restore's swap, cut off after each of its steps", () => {
   for (const closed of [false, true]) {
     const how = closed ? "the hub's connection closed" : "the hub's connection still open";
-    test(`${how}: the next start finds the old database before the rename, the restored one after`, async () => {
-      const steps = swapSteps("/");
-      const rename = steps.findIndex((s) => s.name.includes("renamed over hub.db"));
-      expect(rename).toBeGreaterThan(0);
-      for (let done = 0; done <= steps.length; done++) {
-        const { data, old } = prepared(closed);
-        for (const step of swapSteps(data).slice(0, done)) expect(step.run().isOk()).toBe(true);
-        if (!closed)
-          closeDatabase(old.db, "test").match(
-            () => undefined,
-            () => undefined,
-          );
-        // After the log is checkpointed, the kept copy is the old database, whole on its own.
-        if (done >= 2) {
-          // A database in WAL mode needs its index made to open: read-write, on the copy alone.
-          const kept = new Database(join(data, BEFORE_RESTORE_FILE));
-          expect(kept.query("SELECT name FROM people WHERE id = 1").get()).toEqual({ name: "old" });
-          kept.close(true);
+    // Windows retains an open database by name. Its installed hub closes before the swap.
+    test.skipIf(!closed && process.platform === "win32")(
+      `${how}: the next start finds the old database before the rename, the restored one after`,
+      async () => {
+        const steps = swapSteps("/");
+        const rename = steps.findIndex((s) => s.name.includes("renamed over hub.db"));
+        expect(rename).toBeGreaterThan(0);
+        for (let done = 0; done <= steps.length; done++) {
+          const { data, old } = prepared(closed);
+          for (const step of swapSteps(data).slice(0, done)) expect(step.run().isOk()).toBe(true);
+          if (!closed)
+            closeDatabase(old.db, "test").match(
+              () => undefined,
+              () => undefined,
+            );
+          // After the log is checkpointed, the kept copy is the old database, whole on its own.
+          if (done >= 2) {
+            // A database in WAL mode needs its index made to open: read-write, on the copy alone.
+            const kept = new Database(join(data, BEFORE_RESTORE_FILE));
+            expect(kept.query("SELECT name FROM people WHERE id = 1").get()).toEqual({
+              name: "old",
+            });
+            kept.close(true);
+          }
+          // From the index's and log's removal on, neither is beside hub.db.
+          if (done >= 3) {
+            expect(existsSync(join(data, "hub.db-wal"))).toBe(false);
+            expect(existsSync(join(data, "hub.db-shm"))).toBe(false);
+          }
+          expect(await nextStart(data)).toBe(done > rename ? "restored" : "old");
         }
-        // From the index's and log's removal on, neither is beside hub.db.
-        if (done >= 3) {
-          expect(existsSync(join(data, "hub.db-wal"))).toBe(false);
-          expect(existsSync(join(data, "hub.db-shm"))).toBe(false);
-        }
-        expect(await nextStart(data)).toBe(done > rename ? "restored" : "old");
-      }
-    }, 60_000);
+      },
+      60_000,
+    );
   }
 
   test("the whole swap: the restored database runs, the old one kept as hub.db.before-restore", async () => {
-    const { data, old } = prepared(false);
+    const { data, old } = prepared(process.platform === "win32");
     expect(swapRestored(data).isOk()).toBe(true);
     closeDatabase(old.db, "test").match(
       () => undefined,
@@ -198,7 +205,7 @@ describe("a swap that did not happen: retried at the next start, before the data
     const steps = swapSteps("/");
     const rename = steps.findIndex((s) => s.name.includes("renamed over hub.db"));
     for (let done = 0; done <= rename; done++) {
-      const { data, old } = prepared(false);
+      const { data, old } = prepared(process.platform === "win32");
       for (const step of swapSteps(data).slice(0, done)) expect(step.run().isOk()).toBe(true);
       closeDatabase(old.db, "test").match(
         () => undefined,

@@ -7,7 +7,7 @@
  * leaves the running hub as it was until the switch, raises every client's `seq` and every send
  * counter, keeps the clients as the file has them, restores no token, and boots.
  */
-import { afterAll, beforeEach, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import {
   existsSync,
@@ -67,6 +67,10 @@ const DEVICE_KEY = new Uint8Array(16).fill(0xd1);
 const PSK = new Uint8Array(32).fill(0xee);
 const NAME = "Anna-the-unique-name";
 const folders: string[] = [];
+const stores: OpenedStore[] = [];
+afterEach(() => {
+  for (const opened of stores.splice(0)) opened.db.close(true);
+});
 
 afterAll(() => {
   for (const f of folders) rmSync(f, { recursive: true, force: true });
@@ -184,6 +188,7 @@ function hub(dataDir: string, clock: FixedClock): OpenedStore {
     }),
   ]);
   expect(store.writer.flush("now").isOk()).toBe(true);
+  stores.push(store);
   return store;
 }
 
@@ -481,6 +486,7 @@ describe("restore", () => {
       platform: process.platform,
     });
     const newStore = opened._unsafeUnwrap();
+    stores.push(newStore);
     store = newStore;
     return { path: upload, newStore, newData };
   }
@@ -528,6 +534,7 @@ describe("restore", () => {
       rules: DEFAULT_RULES,
       platform: process.platform,
     })._unsafeUnwrap();
+    stores.push(newStore);
     store = newStore;
     return { path, newData, newStore };
   }
@@ -551,7 +558,9 @@ describe("restore", () => {
     while ((outcome = pieces.next()) === undefined) {
       const now = readdirSync(newData).toSorted();
       expect(now.filter((f) => !before.includes(f))).toEqual(["hub.db.restore.new.plain"]);
-      expect(statSync(join(newData, "hub.db.restore.new.plain")).mode & 0o077).toBe(0);
+      // POSIX mode bits describe the plaintext file only on Unix.
+      if (process.platform !== "win32")
+        expect(statSync(join(newData, "hub.db.restore.new.plain")).mode & 0o077).toBe(0);
     }
     expect(outcome).toMatchObject({ kind: "failed", reason: "badFile" });
     expect(readdirSync(newData).toSorted()).toEqual(before);
@@ -594,7 +603,7 @@ describe("restore", () => {
     expect(rowPieces).toBeGreaterThanOrEqual(Math.ceil(8001 / RESTORE_ROWS_PER_PIECE) + 20);
     const restored = new Database(join(newData, RESTORE_FILE), { readonly: true });
     expect(restored.query("SELECT count(*) AS n FROM devices").get()).toEqual({ n: 8001 });
-    restored.close();
+    restored.close(true);
   });
 
   test("a stop half-way through the rows: nothing left behind", () => {
@@ -669,11 +678,11 @@ describe("restore", () => {
     expect(
       restored.query<{ k: Uint8Array }, []>("SELECT app_static_public AS k FROM hub_keys").get()?.k,
     ).toEqual(APP_PUBLIC);
-    restored.close();
+    restored.close(true);
 
     // The switch, after the clean stop: the old file kept, the restored one in place, and it opens.
     expect(newStore.writer.stop().isOk()).toBe(true);
-    newStore.db.close();
+    newStore.db.close(true);
     const swapped = swapRestored(newData);
     expect(swapped.isOk() ? "" : swapped.error).toBe("");
     expect(existsSync(join(newData, BEFORE_RESTORE_FILE))).toBe(true);
@@ -685,6 +694,7 @@ describe("restore", () => {
       platform: process.platform,
     });
     expect(reopened.isOk()).toBe(true);
+    stores.push(reopened._unsafeUnwrap());
     const snapshot = reopened._unsafeUnwrap().snapshot;
     expect(snapshot.m2.backupState?.restoredFromMs).toBe(WALL);
     expect(snapshot.m2.backupKey?.epoch).toBe(3);
