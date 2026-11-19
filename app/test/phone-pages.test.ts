@@ -412,6 +412,16 @@ describe("the shared screens on a phone", () => {
 describe("a link's secret is never on screen (+native-intent, +not-found, the error screen)", () => {
   const SECRET = "BQUFBQUFBQUFBQUFBQUFBQ";
 
+  test("link and restore codes received during startup or in use do not dispatch navigation", async () => {
+    const { redirectSystemPath } = await import("../src/app/+native-intent");
+    for (const purpose of ["link", "restore"] as const) {
+      const path = linkQr(purpose);
+      expect(redirectSystemPath({ path, initial: true })).toBe("/");
+      expect(redirectSystemPath({ path, initial: false })).toBeNull();
+    }
+    expect(redirectSystemPath({ path: "hsn:///devices", initial: false })).toBe("/devices");
+  });
+
   test("a code link becomes Home; any other link keeps only its path", () => {
     for (const purpose of ["link", "restore"] as const) {
       expect(systemPath(linkQr(purpose))).toBe("/");
