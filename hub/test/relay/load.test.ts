@@ -23,6 +23,7 @@ import { connect, type Socket } from "node:net";
 import { join } from "node:path";
 import { PROTECTION_LIMITS as L } from "../../../relay/src/core/rules.ts";
 import { StandInHub } from "../../../relay/test/helpers.ts";
+import { residentBytes } from "../../../relay/test/safe/process-memory.ts";
 import { endProcesses } from "../world/processes.ts";
 import { AwayPhone, relayConnect } from "./phone.ts";
 import { Seen } from "./leaks.ts";
@@ -50,18 +51,6 @@ afterAll(async () => {
   await endProcesses();
   for (const root of roots) rmSync(root, { recursive: true, force: true });
 });
-
-/** The process's resident memory, in bytes. */
-function rss(pid: number | undefined): number {
-  if (pid === undefined) return Number.NaN;
-  return (
-    Number(
-      Bun.spawnSync(["ps", "-o", "rss=", "-p", String(pid)])
-        .stdout.toString()
-        .trim(),
-    ) * 1024
-  );
-}
 
 /** A raw WebSocket upgrade naming `address`: its status, the socket kept open when asked. */
 function rawUpgrade(
@@ -151,13 +140,13 @@ describe("layer 1 under load, with the real hub on the relay program", () => {
     check(await phone.open(), "the phone's session");
     const joinedBefore = relay.events("hubJoined").length;
     const hubConnections = hubLine.connections;
-    const before = rss(relay.pid);
+    const before = residentBytes(relay.pid);
     let peak = before;
     const asked = { n: 0, failed: [] as unknown[], up: true };
     const household = { running: true };
     const watching = (async () => {
       while (household.running) {
-        peak = Math.max(peak, rss(relay.pid));
+        peak = Math.max(peak, residentBytes(relay.pid));
         const info = await phone.request("hub.info", {});
         asked.n += 1;
         if (!info.ok) asked.failed.push(info);
@@ -208,7 +197,7 @@ describe("layer 1 under load, with the real hub on the relay program", () => {
         ["101", "429", "503"].includes(s),
       ),
     ).toBe(true);
-    peak = Math.max(peak, rss(relay.pid));
+    peak = Math.max(peak, residentBytes(relay.pid));
     // The unfinished handshakes are closed by the relay at 10 s (4408): nothing left of them.
     check(
       await waitFor(
@@ -233,7 +222,7 @@ describe("layer 1 under load, with the real hub on the relay program", () => {
 
     // Memory: bounded under the flood, and back near where it was.
     await Bun.sleep(1 * SECOND);
-    const after = rss(relay.pid);
+    const after = residentBytes(relay.pid);
     console.log(
       `relay resident memory: ${(before / MB).toFixed(1)} MB before, ${(peak / MB).toFixed(1)} MB at the peak, ${(after / MB).toFixed(1)} MB after`,
     );

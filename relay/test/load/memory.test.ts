@@ -11,22 +11,11 @@ import { connect, type Socket } from "node:net";
 import { join } from "node:path";
 import { PHONE_CLOSE, RELAY_LIMITS } from "@hsn/protocol/relay";
 import { cleanup, Client, StandInHub, tempFolder, until } from "../helpers.ts";
+import { residentBytes } from "../safe/process-memory.ts";
 
 let folder: string;
 let program: ReturnType<typeof Bun.spawn>;
 let port = 0;
-
-/** The program's resident memory, in bytes. */
-function rss(): number {
-  const pid = program.pid;
-  return (
-    Number(
-      Bun.spawnSync(["ps", "-o", "rss=", "-p", String(pid)])
-        .stdout.toString()
-        .trim(),
-    ) * 1024
-  );
-}
 
 function rawPhone(path: string, address: string): Promise<Socket> {
   const socket = connect(port, "127.0.0.1");
@@ -115,7 +104,7 @@ test("resident memory stays flat over repeated bursts of slow readers and oversi
     for (const s of slow) s.destroy();
     hub.send({ t: "ping", n: round });
     await hub.next("pong");
-    after.push(rss());
+    after.push(residentBytes(program.pid));
   }
   const [first = 0, , third = 0] = after;
   expect(first).toBeGreaterThan(0);
