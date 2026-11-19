@@ -29,7 +29,7 @@ await clock.advance(120_000);               // a pairing window's end, at once
 
 ## The bridge, for the simulators
 
-`bun tools/ble-bench/src/bridge/main.ts [--port 8787] [--smoke]` serves the boards, with security 2, on `ws://127.0.0.1:8787` only (the iOS simulator shares the Mac's loopback; the Android emulator reaches it with `adb reverse tcp:8787 tcp:8787`). It prints one JSON line per event and takes commands on standard input (`src/bench.ts`). `app/e2e-native/` has the harness, the run scripts and the checklist.
+`bun tools/ble-bench/src/bridge/main.ts [--port 8787] [--smoke]` serves the boards, with security 2, on `ws://127.0.0.1:8787` only (the iOS simulator shares the Mac's loopback; the Android emulator reaches it with `adb reverse tcp:8787 tcp:8787`). It prints one JSON line per event and takes commands on standard input (`src/bench.ts`). `app/e2e-native/` has the harness, the run scripts and the checklist. The app fixtures use the same 8787 default. Set `HSN_P4_BRIDGE_PORT` and the matching Metro bridge URL to run another fixture on a different port.
 
 **Choosing it in the app (P4's selector).** Only like this, so a release bundle never collects it (`test/release.test.ts` enforces the form; `app/e2e-native/release-check.ts` searches the release bundles):
 

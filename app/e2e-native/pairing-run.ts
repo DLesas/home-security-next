@@ -16,7 +16,7 @@ import { seedPairingSite } from "../test/support/pairing-site";
 const linkReply = z.object({
   reply: z.object({ result: z.object({ body: z.object({ qr: z.string() }) }) }),
 });
-const port = Number(process.env.HSN_P4_BRIDGE_PORT ?? 8878);
+const port = Number(process.env.HSN_P4_BRIDGE_PORT ?? 8787);
 const deviceCommand = process.env.HSN_P4_DEVICE;
 const hub = await startRealHub((dir) => {
   seedPairingSite(dir, SIMULATOR_GATEWAY);
