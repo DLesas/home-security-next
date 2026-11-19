@@ -1,0 +1,70 @@
+{
+  "schemaVersion": 1,
+  "description": "The session counter at its top, as ESP-IDF's security2.c handles it, after the handshake of srpCase (key is the first 32 bytes of its session key; sessionId the board's 8 bytes from response 1's nonce). The harness sets the board's counter to startCounter (security2.c's own session state; it takes 4 billion messages to get there otherwise) and the phone's to the same. Each message gives its counter, nonce, plaintext and sealed bytes; refused means the board refused that write. security2.c steps the counter after every message, wrapping from 0xffffffff to 0, and refuses to open or seal at 0; a request at 0xffffffff is opened and acted on but its answer cannot be sealed. So a phone seals no request at 0xffffffff, and the last answer it can receive is at 0xffffffff.",
+  "source": "ESP-IDF v6.1.1 (commit 051e4c4eb20346e043cdd47bc388fde75ff8af63): components/protocomm/src/security/security2.c, src/common/protocomm.c, src/crypto/srp6a/esp_srp.c and esp_srp_mpi.c, proto-c/*.pb-c.c; protobuf-c 1.4.1 (commit abc67a11c6db271bedbb9f58be85d6f4e2ea8389); Mbed TLS 4.1.1 with TF-PSA-Crypto (commit ce3f3485a121c100f58f36d700cb35b060f6e866). Compiled for the host and run by packages/protocol/src/pairing/esp-idf/make-vectors.sh",
+  "srpCase": "a siren's code",
+  "key": "d25ab8145f15c2ae8dee5b8069651e0f388d06f6f5340f3748a7c36c272f17dd",
+  "sessionId": "b66ecc740e733b2e",
+  "cases": [
+    {
+      "name": "from 0xfffffffd: a request at fffffffd and its answer at fffffffe; the next request, at ffffffff, is opened and acted on by the board, which then cannot seal its answer and refuses the write",
+      "startCounter": 4294967293,
+      "messages": [
+        {
+          "direction": "toBoard",
+          "counter": 4294967293,
+          "nonce": "b66ecc740e733b2efffffffd",
+          "plaintext": "f101",
+          "sealed": "2ce081b5148079c5189191a1b574df01fe10",
+          "refused": false
+        },
+        {
+          "direction": "toPhone",
+          "counter": 4294967294,
+          "nonce": "b66ecc740e733b2efffffffe",
+          "plaintext": "f1020262d78072c36b01000000000000000000000000",
+          "sealed": "725350ba018e4971349cf65d52ad154a1ed4e8d5a8619a5d209949621b6426b46392343c6216",
+          "refused": false
+        },
+        {
+          "direction": "toBoard",
+          "counter": 4294967295,
+          "nonce": "b66ecc740e733b2effffffff",
+          "plaintext": "f101",
+          "sealed": "bea8281f391b7dbf3f26a6b7a4eb35f6f81f",
+          "refused": true
+        }
+      ]
+    },
+    {
+      "name": "from 0xfffffffe: a request at fffffffe and its answer at ffffffff; the counter is then 0, and a request sealed at 0 is refused before it is opened",
+      "startCounter": 4294967294,
+      "messages": [
+        {
+          "direction": "toBoard",
+          "counter": 4294967294,
+          "nonce": "b66ecc740e733b2efffffffe",
+          "plaintext": "f101",
+          "sealed": "7250d139bce8380569685bbf606866167cd0",
+          "refused": false
+        },
+        {
+          "direction": "toPhone",
+          "counter": 4294967295,
+          "nonce": "b66ecc740e733b2effffffff",
+          "plaintext": "f1020262d78072c36b01000000000000000000000000",
+          "sealed": "beab491456a1e9003f0963c41afa06f7624f3a139cd70b9c39c30d0d4ac10923e6916eebcf51",
+          "refused": false
+        },
+        {
+          "direction": "toBoard",
+          "counter": 0,
+          "nonce": "b66ecc740e733b2e00000000",
+          "plaintext": "f101",
+          "sealed": "8de5a08ba1a5d8b671916f19ebec14dad7e5",
+          "refused": true
+        }
+      ]
+    }
+  ]
+}

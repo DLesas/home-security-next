@@ -1,14 +1,15 @@
 /** Pairing data (section 9): what a device receives when it is added. */
 import { ByteReader, ByteWriter } from "./bytes.ts";
+import { HUB_IDENTITY_LENGTH, SIGNING_KEY_LENGTH } from "./crypto/signing-sizes.ts";
 import { nodeSha256, type Sha256 } from "./crypto/sha256.ts";
 import { fixedBytes, lengthPrefixedBytes, u32, u8, type FieldCodec } from "./codec/field.ts";
 import { type CodecValue, layout, struct } from "./codec/layout.ts";
 import { isValidAddress, KEY_LENGTH } from "./packet/header.ts";
 import { fail, type Result } from "./result.ts";
 
+export { HUB_IDENTITY_LENGTH, SIGNING_KEY_LENGTH } from "./crypto/signing-sizes.ts";
+
 export const PAIRING_FORMAT_VERSION = 1;
-export const HUB_IDENTITY_LENGTH = 8;
-export const SIGNING_KEY_LENGTH = 64;
 export const MAX_WIFI_NAME_BYTES = 32;
 export const MAX_WIFI_PASSWORD_BYTES = 64;
 

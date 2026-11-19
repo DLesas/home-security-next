@@ -19,6 +19,8 @@ import { VECTOR_DIRECTORY } from "../scripts/generate-vectors.ts";
 import { errorJson, fieldsJson, type Json } from "../scripts/vectors/json.ts";
 import { DEVICE_VECTOR_FILES, vectorFiles } from "../scripts/vectors/files.ts";
 import { APP_VECTOR_FILES } from "../src/app/vector-formats.ts";
+import { PAIRING_RULE_VECTOR_FILES } from "../src/pairing/vectors/pairing-vectors.ts";
+import { ESP_IDF_VECTOR_FILES } from "../src/pairing/vectors/esp-idf-vectors.ts";
 import { RELAY_VECTOR_FILES } from "../src/relay/vector-formats.ts";
 
 const generated = vectorFiles();
@@ -26,17 +28,23 @@ const read = (name: string): unknown =>
   JSON.parse(readFileSync(join(VECTOR_DIRECTORY, name), "utf8"));
 
 describe("committed vectors", () => {
-  test("the generator makes exactly its list, and every file beside them is the app's or the relay's", () => {
+  test("the generator makes exactly its list, and other vectors belong to an exact registered set", () => {
     expect([...generated.keys()].sort()).toEqual([...DEVICE_VECTOR_FILES].sort());
     const committed = readdirSync(VECTOR_DIRECTORY).filter((name) => name.endsWith(".json"));
     const device: ReadonlySet<string> = new Set(DEVICE_VECTOR_FILES);
     const app: ReadonlySet<string> = new Set(Object.keys(APP_VECTOR_FILES));
     // The relay's (m4-design.md section 11): their own generator and test in src/relay/vectors/.
     const relay: ReadonlySet<string> = new Set(Object.values(RELAY_VECTOR_FILES));
+    const pairing: ReadonlySet<string> = new Set([
+      ...Object.values(PAIRING_RULE_VECTOR_FILES),
+      ...Object.values(ESP_IDF_VECTOR_FILES),
+    ]);
     for (const name of DEVICE_VECTOR_FILES)
       expect([name, committed.includes(name)]).toEqual([name, true]);
     expect(
-      committed.filter((name) => !device.has(name) && !app.has(name) && !relay.has(name)),
+      committed.filter(
+        (name) => !device.has(name) && !app.has(name) && !relay.has(name) && !pairing.has(name),
+      ),
     ).toEqual([]);
   });
 

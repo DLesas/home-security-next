@@ -1,0 +1,223 @@
+{
+  "schemaVersion": 1,
+  "description": "Pairing codes as people type them (m3-design.md section 5): 8 characters of Crockford base32, shown XXXX-XXXX, 7 of secret (35 bits, the first character most significant) and a check character, the secret mod 37 written with Crockford's alphabet (0123456789ABCDEFGHJKMNPQRSTVWXYZ) then *~$=U for 32 to 36. Reading: whitespace and dashes (-, U+2010 to U+2014, U+2212) are ignored; then any character outside printable ASCII is refused; then the text is upper-cased and I and L read as 1, O as 0. The first 7 must be in Crockford's alphabet, the 8th in it or a check symbol, and the 8th must be the 7's check. code is the 8 canonical characters (the SRP password), shown the display's form, secret the 35-bit value in decimal; all null when the text is not a code.",
+  "cases": [
+    {
+      "name": "as the display shows it",
+      "text": "PSXT-K1B3",
+      "code": "PSXTK1B3",
+      "shown": "PSXT-K1B3",
+      "secret": "24492461099"
+    },
+    {
+      "name": "without the dash",
+      "text": "PSXTK1B3",
+      "code": "PSXTK1B3",
+      "shown": "PSXT-K1B3",
+      "secret": "24492461099"
+    },
+    {
+      "name": "lower case",
+      "text": "psxt-k1b3",
+      "code": "PSXTK1B3",
+      "shown": "PSXT-K1B3",
+      "secret": "24492461099"
+    },
+    {
+      "name": "spaces and dashes anywhere",
+      "text": " PS XT--K1B3 ",
+      "code": "PSXTK1B3",
+      "shown": "PSXT-K1B3",
+      "secret": "24492461099"
+    },
+    {
+      "name": "an en dash from a phone's keyboard",
+      "text": "PSXT–K1B3",
+      "code": "PSXTK1B3",
+      "shown": "PSXT-K1B3",
+      "secret": "24492461099"
+    },
+    {
+      "name": "a non-breaking space in place of the dash",
+      "text": "PSXT K1B3",
+      "code": "PSXTK1B3",
+      "shown": "PSXT-K1B3",
+      "secret": "24492461099"
+    },
+    {
+      "name": "a tab and a new line",
+      "text": "\tPSXT\nK1B3",
+      "code": "PSXTK1B3",
+      "shown": "PSXT-K1B3",
+      "secret": "24492461099"
+    },
+    {
+      "name": "the smallest secret, all zeros",
+      "text": "0000-0000",
+      "code": "00000000",
+      "shown": "0000-0000",
+      "secret": "0"
+    },
+    {
+      "name": "the largest secret",
+      "text": "ZZZZ-ZZZJ",
+      "code": "ZZZZZZZJ",
+      "shown": "ZZZZ-ZZZJ",
+      "secret": "34359738367"
+    },
+    {
+      "name": "check character 32, *",
+      "text": "0000-010*",
+      "code": "0000010*",
+      "shown": "0000-010*",
+      "secret": "32"
+    },
+    {
+      "name": "check character 33, ~",
+      "text": "0000-011~",
+      "code": "0000011~",
+      "shown": "0000-011~",
+      "secret": "33"
+    },
+    {
+      "name": "check character 34, $",
+      "text": "0000-012$",
+      "code": "0000012$",
+      "shown": "0000-012$",
+      "secret": "34"
+    },
+    {
+      "name": "check character 35, =",
+      "text": "0000-013=",
+      "code": "0000013=",
+      "shown": "0000-013=",
+      "secret": "35"
+    },
+    {
+      "name": "check character 36, U",
+      "text": "0000-014U",
+      "code": "0000014U",
+      "shown": "0000-014U",
+      "secret": "36"
+    },
+    {
+      "name": "check character 36 typed as a lower-case u",
+      "text": "0000-014u",
+      "code": "0000014U",
+      "shown": "0000-014U",
+      "secret": "36"
+    },
+    {
+      "name": "I and L read as 1, O as 0",
+      "text": "IOLoiOl~",
+      "code": "1010101~",
+      "shown": "1010-101~",
+      "secret": "1074791425"
+    },
+    {
+      "name": "only Os",
+      "text": "OOOO-OOOO",
+      "code": "00000000",
+      "shown": "0000-0000",
+      "secret": "0"
+    },
+    {
+      "name": "empty",
+      "text": "",
+      "code": null,
+      "shown": null,
+      "secret": null
+    },
+    {
+      "name": "only spaces and dashes",
+      "text": " - -- ",
+      "code": null,
+      "shown": null,
+      "secret": null
+    },
+    {
+      "name": "seven characters",
+      "text": "PSXTK1B",
+      "code": null,
+      "shown": null,
+      "secret": null
+    },
+    {
+      "name": "nine characters",
+      "text": "PSXTK1B30",
+      "code": null,
+      "shown": null,
+      "secret": null
+    },
+    {
+      "name": "twelve characters, a linking code",
+      "text": "ABCD-EFGH-JKMN",
+      "code": null,
+      "shown": null,
+      "secret": null
+    },
+    {
+      "name": "U among the secret characters",
+      "text": "USXTK1B3",
+      "code": null,
+      "shown": null,
+      "secret": null
+    },
+    {
+      "name": "a check symbol among the secret characters",
+      "text": "*SXTK1B3",
+      "code": null,
+      "shown": null,
+      "secret": null
+    },
+    {
+      "name": "a character outside the alphabet",
+      "text": "PSX#K1B3",
+      "code": null,
+      "shown": null,
+      "secret": null
+    },
+    {
+      "name": "a dotless i, which upper-cases to I",
+      "text": "ıSXTK1B3",
+      "code": null,
+      "shown": null,
+      "secret": null
+    },
+    {
+      "name": "full-width digits",
+      "text": "００００００００",
+      "code": null,
+      "shown": null,
+      "secret": null
+    },
+    {
+      "name": "the wrong check character",
+      "text": "PSXTK1B0",
+      "code": null,
+      "shown": null,
+      "secret": null
+    },
+    {
+      "name": "two characters swapped",
+      "text": "SPXTK1B3",
+      "code": null,
+      "shown": null,
+      "secret": null
+    },
+    {
+      "name": "one character changed",
+      "text": "PS7TK1B3",
+      "code": null,
+      "shown": null,
+      "secret": null
+    },
+    {
+      "name": "an underscore as the separator",
+      "text": "PSXT_K1B3",
+      "code": null,
+      "shown": null,
+      "secret": null
+    }
+  ]
+}

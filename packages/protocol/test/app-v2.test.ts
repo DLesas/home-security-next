@@ -36,6 +36,8 @@ import {
   parseRequestIn,
   RELAY_SET_REFUSALS,
   relayStatusObject,
+  notificationObject,
+  notificationObjectV2,
   replyErrorV2,
   ROLLOUT_PAUSE_REASONS,
   rolloutObject,
@@ -72,6 +74,8 @@ describe("version 1 stays as it was", () => {
       "usb.add",
       "site.wifi",
       "backup.key",
+      // D102: version 2's notification carries `happenedAtMs`.
+      "notifications.list",
     ];
     for (const name of APP_OP_NAMES)
       if (!changed.includes(name)) expect(APP_OPS_V2[name]).toBe(APP_OPS[name]);
@@ -562,5 +566,55 @@ describe("the body fields a commands row never keeps", () => {
     expect(accepts("push.register", { ...register, key: undefined })).toBe(false);
     expect(accepts("site.wifi", { name: "home" })).toBe(false);
     expect(accepts("site.wifi", { name: "home", password: "pw" })).toBe(true);
+  });
+});
+
+describe("version 2's notification (D102)", () => {
+  const notification = {
+    seq: 4294967310,
+    atMs: 1_794_528_060_000,
+    clockOk: true,
+    kind: "countdown",
+    category: "countdown",
+    critical: true,
+    device: 3,
+    cause: 4294967309,
+    read: false,
+    delayed: true,
+  };
+
+  test("says when its event happened, or null when raised as it happened; version 1's does not", () => {
+    const late = { ...notification, happenedAtMs: 1_794_528_000_000 };
+    const onTime = { ...notification, delayed: false, happenedAtMs: null };
+    expect(notificationObjectV2.safeParse(late).success).toBe(true);
+    expect(notificationObjectV2.safeParse(onTime).success).toBe(true);
+    // Required in version 2, a wall time or null.
+    expect(notificationObjectV2.safeParse(notification).success).toBe(false);
+    expect(notificationObjectV2.safeParse({ ...notification, happenedAtMs: -1 }).success).toBe(
+      false,
+    );
+    expect(notificationObjectV2.safeParse({ ...notification, happenedAtMs: 1.5 }).success).toBe(
+      false,
+    );
+    // Version 1's object is as it was: the field is refused there.
+    expect(notificationObject.safeParse(notification).success).toBe(true);
+    expect(notificationObject.safeParse(late).success).toBe(false);
+  });
+
+  test("is what version 2's snapshot, notifications.list and notification event carry", () => {
+    const late = { ...notification, happenedAtMs: 1_794_528_000_000 };
+    expect(APP_EVENTS_V2.notification.safeParse(late).success).toBe(true);
+    expect(APP_EVENTS_V2.notification.safeParse(notification).success).toBe(false);
+    expect(APP_EVENTS.notification.safeParse(late).success).toBe(false);
+    const list = APP_OPS_V2["notifications.list"].reply;
+    expect(list.safeParse({ notifications: [late] }).success).toBe(true);
+    expect(list.safeParse({ notifications: [notification] }).success).toBe(false);
+    expect(APP_OPS["notifications.list"].reply.safeParse({ notifications: [late] }).success).toBe(
+      false,
+    );
+    expect(APP_OPS_V2["notifications.list"].body).toBe(APP_OPS["notifications.list"].body);
+    const shape = snapshotObjectV2.unwrap().shape;
+    expect(shape.notifications.safeParse([late]).success).toBe(true);
+    expect(shape.notifications.safeParse([notification]).success).toBe(false);
   });
 });

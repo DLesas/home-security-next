@@ -445,6 +445,21 @@ export const M3M4_DECISION_KINDS = [
   "key_change_sent",
   /** A device's first packet under its new key: it switched. */
   "key_changed",
+  // docs/m3-design.md section 6 (presence, M5; the hub's rule is `app`'s, H1). Each is a
+  // notification of the same kind, pushed with its one action (`armAway`, `disarm`), to the people
+  // its detail names; nothing changes without a tap (D25).
+  /** Every opted-in person's phones are away and nothing is armed. detail: those people, u32 LE each. */
+  "presence_offer_away",
+  /** A person arrived while armed. value: that person; detail: that person, u32 LE. */
+  "presence_offer_disarm",
+  // D144 (layout): a group's chosen sirens all gone sounds every siren, and is never silent.
+  /**
+   * A siren removed or reset by its owner left groups that had chosen sirens with none of their
+   * own in use, so each sounds every siren; once per occurrence, also at a start that finds it so
+   * unrecorded. device: the siren; value: the client that asked for it, null when none did (its
+   * own button, a start); detail: the groups, u32 LE each.
+   */
+  "group_sirens_gone",
   // The firmware bench's `HubAction`s that come from packet records, as `reply`, `transmit_result`
   // and `too_late` do (hub-design section 11, `benchActions`): never written as decision rows.
   /** From a sent Update offer's `tx` row (0x83). */

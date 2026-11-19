@@ -7,6 +7,7 @@
  *   `backup.key`'s new rule and `backup.keyHeld`; `site.wifi` from any client; `presence.set`.
  * - docs/m4-design.md section 9: `push.*`, `relay.*`, `update.offers`, `update.fetch`.
  * - docs/m3-updates-design.md section 4: `firmware.*`, `rollout.*`.
+ * - D102: `snapshot` and `notifications.list` give version 2's notification, with `happenedAtMs`.
  *
  * Frozen by the joint step 0; open to additions until the first release (D119, QR11).
  */
@@ -23,6 +24,7 @@ import {
   hubReleaseOfferObject,
   imageRef,
   key32Base64url,
+  notificationObjectV2,
   relayStatusObject,
   relayUrl,
   rolloutDeviceObject,
@@ -118,6 +120,12 @@ export const APP_OPS_V2 = {
 
   "hub.info": op(APP_OPS["hub.info"], empty, hubInfoV2),
   snapshot: op(APP_OPS.snapshot, APP_OPS.snapshot.body, snapshotObjectV2),
+  // D102: a notification says when its event happened.
+  "notifications.list": op(
+    APP_OPS["notifications.list"],
+    APP_OPS["notifications.list"].body,
+    z.strictObject({ notifications: z.array(notificationObjectV2).readonly() }).readonly(),
+  ),
   "device.list": op(
     APP_OPS["device.list"],
     empty,

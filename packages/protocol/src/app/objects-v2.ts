@@ -11,7 +11,7 @@
  * until the first release (D119, QR11), so names add to it without a new version.
  */
 import { z } from "zod";
-import { deviceObject, hubInfo, snapshotObject } from "./objects.ts";
+import { deviceObject, hubInfo, notificationObject, snapshotObject } from "./objects.ts";
 import { relayRole } from "../relay/frames.ts";
 import { deviceRef, objectId, sha256Hex, wallMs } from "./values.ts";
 
@@ -280,6 +280,18 @@ export const bluetoothSessionObject = z
   })
   .readonly();
 
+// ----- Notifications in version 2 (D102) -----
+
+/**
+ * A notification in version 2: version 1's, with when the event it tells of happened
+ * (`happenedAtMs`, wall time), so a late one says so (D102); null for one raised as it happened.
+ * Version 1's object, which a version 1 client parses strictly, has no such field.
+ */
+export const notificationObjectV2 = notificationObject
+  .unwrap()
+  .extend({ happenedAtMs: wallMs.nullable() })
+  .readonly();
+
 // ----- `hub.info` and the snapshot in version 2 -----
 
 /** `hub.info` in version 2: version 1's, with the home addresses, the apps' port and the relay. */
@@ -301,6 +313,7 @@ export const snapshotObjectV2 = snapshotObject
   .extend({
     hub: hubInfoV2,
     devices: z.array(deviceObjectV2).readonly(),
+    notifications: z.array(notificationObjectV2).readonly(),
     /** For a phone: whether the hub holds a valid push target for it (RD 9); null for other clients. */
     push: pushTargetState.nullable(),
     /** For a phone: the backup key's current epoch (m3-design section 4); null for other clients. */
@@ -312,6 +325,7 @@ export type VersionText = z.infer<typeof versionText>;
 export type RelayStatusObject = z.infer<typeof relayStatusObject>;
 export type DeviceUpdateObject = z.infer<typeof deviceUpdateObject>;
 export type DeviceObjectV2 = z.infer<typeof deviceObjectV2>;
+export type NotificationObjectV2 = z.infer<typeof notificationObjectV2>;
 export type FirmwareImageObject = z.infer<typeof firmwareImageObject>;
 export type RolloutObject = z.infer<typeof rolloutObject>;
 export type RolloutDeviceObject = z.infer<typeof rolloutDeviceObject>;

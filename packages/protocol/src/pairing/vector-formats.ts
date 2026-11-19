@@ -45,17 +45,15 @@ export const pairingBoardQrVectorFile = z.strictObject({
     .min(1),
 });
 
-/** `pairing-advert.json`: service data and what it reads as. */
+/** `pairing-advert.json`: the scan response local name and what it reads as. */
 export const pairingAdvertVectorFile = z.strictObject({
   ...header,
   cases: z
     .array(
       z.strictObject({
         name: z.string(),
-        serviceData: hex,
-        advert: z
-          .strictObject({ format: z.literal(1), role: z.int().min(0).max(255), chipId: hex })
-          .nullable(),
+        localName: z.string().nullable(),
+        advert: z.strictObject({ chipSuffix: z.string().regex(/^[0-9a-f]{4}$/u) }).nullable(),
       }),
     )
     .min(1),

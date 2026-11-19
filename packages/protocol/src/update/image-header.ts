@@ -27,9 +27,9 @@ import { sha256 } from "@noble/hashes/sha2.js";
 import { ByteReader, ByteWriter, concatBytes, isU32 } from "../bytes.ts";
 import { flagsByte, fixedBytes, u32, u8 } from "../codec/field.ts";
 import { type CodecValue, layout, struct } from "../codec/layout.ts";
+import { HUB_IDENTITY_LENGTH, SIGNING_KEY_LENGTH } from "../crypto/signing-sizes.ts";
 import { firmwareVersion, Role } from "../messages/common.ts";
 import { IMAGE_ID_LENGTH, UpdateReason } from "../messages/update.ts";
-import { HUB_IDENTITY_LENGTH, SIGNING_KEY_LENGTH } from "../pairing.ts";
 import { fail, ok, type Result } from "../result.ts";
 
 /** The header's fixed values. */

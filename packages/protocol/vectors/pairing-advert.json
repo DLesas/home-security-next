@@ -1,0 +1,76 @@
+{
+  "schemaVersion": 1,
+  "description": "The pairing advertisement carries only flags and the protocomm service UUID. The scan response carries hsn-pair- followed by the last four lowercase hex digits of the chip id. Invalid or missing names read as null.",
+  "cases": [
+    {
+      "name": "a board",
+      "localName": "hsn-pair-4f2a",
+      "advert": {
+        "chipSuffix": "4f2a"
+      }
+    },
+    {
+      "name": "leading zeros",
+      "localName": "hsn-pair-0001",
+      "advert": {
+        "chipSuffix": "0001"
+      }
+    },
+    {
+      "name": "all zero",
+      "localName": "hsn-pair-0000",
+      "advert": {
+        "chipSuffix": "0000"
+      }
+    },
+    {
+      "name": "all high",
+      "localName": "hsn-pair-ffff",
+      "advert": {
+        "chipSuffix": "ffff"
+      }
+    },
+    {
+      "name": "another board",
+      "localName": "hsn-pair-abcd",
+      "advert": {
+        "chipSuffix": "abcd"
+      }
+    },
+    {
+      "name": "uppercase hex",
+      "localName": "hsn-pair-4F2A",
+      "advert": null
+    },
+    {
+      "name": "too few digits",
+      "localName": "hsn-pair-4f2",
+      "advert": null
+    },
+    {
+      "name": "extra digits",
+      "localName": "hsn-pair-14f2a",
+      "advert": null
+    },
+    {
+      "name": "invalid hex",
+      "localName": "hsn-pair-4g2a",
+      "advert": null
+    },
+    {
+      "name": "update service's local name",
+      "localName": "hsn-00004f2a",
+      "advert": null
+    },
+    {
+      "name": "scan response has not arrived",
+      "localName": null,
+      "advert": null
+    },
+    {
+      "name": "empty",
+      "localName": "",
+      "advert": null
+    }
+  ]
+}

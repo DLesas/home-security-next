@@ -1,6 +1,7 @@
 /**
  * Channel version 2's events: version 1's (`APP_EVENTS`, unchanged for a version 1 session), with
- * the `device` event carrying the version 2 device object, the `hub` event's two new `what` values
+ * the `device` event carrying the version 2 device object, the `notification` event version 2's
+ * notification (with `happenedAtMs`, D102), the `hub` event's two new `what` values
  * (docs/m4-design.md section 9) and the new `deviceUpdate` event (docs/m3-updates-design.md
  * section 4). Frozen by the joint step 0; open to additions until the first release (D119).
  */
@@ -10,6 +11,7 @@ import {
   deviceObjectV2,
   deviceUpdateState,
   imageRef,
+  notificationObjectV2,
   updateHold,
   updateMethod,
   updateReason,
@@ -28,6 +30,8 @@ export const HUB_EVENT_WHATS_V2 = [
 export const APP_EVENTS_V2 = {
   ...APP_EVENTS,
   device: APP_EVENTS.device.unwrap().extend({ device: deviceObjectV2 }).readonly(),
+  /** A notification, with when its event happened (D102). */
+  notification: notificationObjectV2,
   hub: APP_EVENTS.hub
     .unwrap()
     .extend({ what: z.enum(HUB_EVENT_WHATS_V2) })

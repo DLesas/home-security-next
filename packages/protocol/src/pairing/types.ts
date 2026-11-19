@@ -25,14 +25,11 @@ export interface BoardQr {
 export type ReadBoardQr = (text: string) => BoardQr | undefined;
 export type FormatBoardQr = (qr: BoardQr) => string;
 
-/** A board's pairing advertisement's service data (format 1), as the phone reads it. */
+/** The only chip information carried in a pairing scan response. */
 export interface PairAdvert {
-  readonly format: 1;
-  /** §6's Role value, as read (unlisted values pass through). */
-  readonly role: number;
-  readonly chipId: Uint8Array;
+  readonly chipSuffix: string;
 }
-export type ReadPairAdvert = (serviceData: Uint8Array) => PairAdvert | undefined;
+export type ReadPairAdvert = (name: string | null) => PairAdvert | undefined;
 
 /**
  * `proto-ver`'s answer, UTF-8 JSON, read in the clear before the session: the protocol's label,

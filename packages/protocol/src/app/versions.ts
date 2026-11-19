@@ -9,12 +9,17 @@
  * version 1's are parsed strictly by version 1 clients.
  */
 import { APP_EVENTS, type AppEventName } from "./events.ts";
-import { APP_EVENTS_V2, type AppEventNameV2 } from "./events-v2.ts";
+import {
+  APP_EVENT_NAMES_V2,
+  APP_EVENTS_V2,
+  type AppEventNameV2,
+  type AppEventV2,
+} from "./events-v2.ts";
 import { z as zod } from "zod";
-import { replyOk, requestFrame } from "./envelope.ts";
+import { type AppHandshakeMessage, replyOk, requestFrame } from "./envelope.ts";
 import { type AppError, appError } from "./errors.ts";
 import { type AppErrorV2, appErrorV2 } from "./errors-v2.ts";
-import { requestIdValue } from "./values.ts";
+import { liveRevision, requestIdValue } from "./values.ts";
 import { APP_OPS, type AppOpName } from "./ops.ts";
 import { APP_OPS_V2, type AppOpNameV2, type AppOpV2 } from "./ops-v2.ts";
 
@@ -154,6 +159,42 @@ export const replyErrorV2 = zod
 /** A reply on a version 2 session. */
 export const appReplyV2 = zod.discriminatedUnion("ok", [replyOk, replyErrorV2]);
 export type AppReplyV2 = zod.infer<typeof appReplyV2>;
+
+/**
+ * What the hub sends a client inside the channel on a session of version 2, or on a link or
+ * restore connection (the handshake's payload, which no version changes): version 2's replies,
+ * with version 2's errors as they are, and version 2's events. A version 1 session is sent
+ * `AppMessage` only (`envelope.ts`).
+ */
+export type AppMessageV2 = AppReplyV2 | AppEventV2 | AppHandshakeMessage;
+
+/**
+ * Checks an event's frame and body against version 2's schemas, as a strict version 2 client
+ * does. Never throws.
+ */
+export function parseEventV2(
+  json: unknown,
+):
+  | { readonly ok: true; readonly value: AppEventV2 }
+  | { readonly ok: false; readonly issues: readonly string[] } {
+  const frame = zod
+    .strictObject({
+      t: zod.literal("evt"),
+      rev: liveRevision,
+      ev: zod.enum(APP_EVENT_NAMES_V2 as [AppEventNameV2, ...AppEventNameV2[]]),
+      body: zod.unknown(),
+    })
+    .safeParse(json);
+  if (!frame.success) return { ok: false, issues: frame.error.issues.map((i) => i.message) };
+  const body = APP_EVENTS_V2[frame.data.ev].safeParse(frame.data.body);
+  if (!body.success)
+    return {
+      ok: false,
+      issues: body.error.issues.map((i) => `body.${i.path.join(".")}: ${i.message}`),
+    };
+  // The schema of `ev` checked `body`, so the frame is that variant of `AppEventV2`.
+  return { ok: true, value: { ...frame.data, body: body.data } as AppEventV2 };
+}
 
 /**
  * Whether an error is one of version 1's: its code, and every value of its detail, in version 1's

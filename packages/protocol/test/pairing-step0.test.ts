@@ -67,14 +67,11 @@ describe("pairing's constants", () => {
     expect(PAIRING_SECURITY.sessionIdBytes + 4).toBe(PAIRING_SECURITY.nonceBytes);
   });
 
-  test("the advertisement: a name apart from an update window's, 8 bytes of service data", () => {
+  test("the advertisement: a distinct scan response name without service data", () => {
     expect(PAIR_ADVERT).toEqual({
       namePrefix: "hsn-pair-",
       nameHexDigits: 4,
-      serviceDataFormat: 1,
-      serviceDataBytes: 8,
     });
-    expect(1 + 1 + 6).toBe(PAIR_ADVERT.serviceDataBytes);
   });
 
   test("proto-ver's answer", () => {
@@ -120,7 +117,7 @@ describe("pairing's vector file formats", () => {
     expect(
       pairingAdvertVectorFile.safeParse({
         ...header,
-        cases: [{ name: "a", serviceData: "0101a1b2c3d4e5f6", advert: null }],
+        cases: [{ name: "a", localName: "hsn-pair-e5f6", advert: { chipSuffix: "e5f6" } }],
       }).success,
     ).toBe(true);
     expect(
@@ -208,6 +205,9 @@ describe("the joint step 0's record kinds", () => {
       "firmware_reminder",
       "key_change_sent",
       "key_changed",
+      "presence_offer_away",
+      "presence_offer_disarm",
+      "group_sirens_gone",
       // The bench's names for packet records (hub-design section 11), never decision rows.
       "firmware_offer",
       "firmware_query",

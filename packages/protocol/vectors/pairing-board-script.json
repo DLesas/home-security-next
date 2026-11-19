@@ -1,0 +1,424 @@
+{
+  "schemaVersion": 1,
+  "description": "What a board running ESP-IDF's protocomm with security 2 does with each write, in order, on one connection: a script for a scripted board and a check for the real one. Each step is one write to an endpoint's characteristic (request) and what a read of it then returns (answer), or null when protocomm refused the write: protocomm_nimble.c then answers the write with ATT error 0x04 and keeps the characteristic's earlier answer, so a read after a refused write returns a stale answer and must not be made. event is the protocomm security event the board posted (credentialsMismatch is how a board counts wrong codes), boardLog the first error ESP-IDF logged, and setupHandlerRan whether the hsn-setup handler was called. srpCase names the board's salt and verifier in pairing-srp.json, and the code; a script with wrongPassword runs its first attempt with that password. boardDraws are the random values the board drew, in order: b (32 bytes) for each command 0 that reaches esp_srp (so not one refused for its length, its user name or its version), the session id (8 bytes) for each command 1 it accepts. clientPrivates are the phone's a, in order, for each command 0 made from one (A = 0 and A = N are made without).",
+  "source": "ESP-IDF v6.1.1 (commit 051e4c4eb20346e043cdd47bc388fde75ff8af63): components/protocomm/src/security/security2.c, src/common/protocomm.c, src/crypto/srp6a/esp_srp.c and esp_srp_mpi.c, proto-c/*.pb-c.c; protobuf-c 1.4.1 (commit abc67a11c6db271bedbb9f58be85d6f4e2ea8389); Mbed TLS 4.1.1 with TF-PSA-Crypto (commit ce3f3485a121c100f58f36d700cb35b060f6e866). Compiled for the host and run by packages/protocol/src/pairing/esp-idf/make-vectors.sh",
+  "cases": [
+    {
+      "name": "a whole pairing: proto-ver, the handshake, Identify, Provision",
+      "srpCase": "a siren's code",
+      "wrongPassword": null,
+      "boardDraws": [
+        "ba9f992077ed47adcbb2f1ab0dc8ac920d1c5eb71e1e3d039db6d62b628b8549",
+        "b66ecc740e733b2e"
+      ],
+      "clientPrivates": [
+        "82337d23b92695b0edd7e940c3809c2765e70561fa6cf8a65de2656754269722"
+      ],
+      "steps": [
+        {
+          "endpoint": "proto-ver",
+          "request": "68736e2d706169722f31",
+          "answer": "7b2276223a2268736e2d706169722f31222c22726f6c65223a322c2263686970223a22363264373830373263333662222c226669726d77617265223a22312e302e30222c22736563223a327d",
+          "event": null,
+          "boardLog": null,
+          "setupHandlerRan": false,
+          "note": "proto-ver answers its fixed text whatever is written; the phone writes the label"
+        },
+        {
+          "endpoint": "prov-session",
+          "request": "1002628c03a20188030a0368736e1280032395f0e3cabb906f94615a853bab9402a7cb3aa7f000e1f8ae2ed00d73c737a476ac6fd7355265efefd1aba42c4590fb921a630b8d3668cdf3d3932198d8870df2681eef393c8354006d2ea43957d5415e69f7564339a5f26b56bc20914046c920e4d3807083e1e6f2cc801bff8428e95ec84497459f9b633c108882553700e4099918a85d8f57c89c8d86a0659d7fcfa3add5b63f645fe3148e3eae6986d89bb55b06b006bb60507bc6afd3622e1f3f71f123e452e7551ba872c55b54fb5ea6dae2904b128ef3917297483fd327096c5272c3aa47735e492470e16b9795279b755279100c5d0f2be3df9a2b6a0a57760e7437cd2b3b14e141ee3816386054b9e7d88015fc40e0950e94682ab4f1e71de6351870fcf09a6561822461390862c29eb6eca8e95b9fc3be528a05142146fa1bbbb2b803ed12fe641d7e3d86d7a675d1ec6aaaff99fe9fb9a8114c4d62a8e6521799b5091b5f2f5473bd0aa9f7f67f71a27da4576ee050c3a43f06af91753187a98d5c4b2bd52c0a000087bcf7f725",
+          "answer": "1002629b030801aa0195031280031af4370e3ca0facbb3feb723bf026aa460f9e888ee05bcb1ff93fea4e4088ab1e161ec7f6035d4a161fa473145725eedf25806a8271dc56adc516d06e24702138901ac11adfd570487a52cf508ae1b05e1b78949f2e7f9cf271e3ccc7ead25dfd054a6a690425b949345e607c779b7b033107f5367946a71e1b4499b833375e7ab8d0a78dff8569c7fc879ea4617db7bbd7f60bd21bc7608e47c1fb4ab2c78f1135035764083cbbb446efe1966c2fcd95caf4f65acb030da566d3825a13f00f6c5f406abcbedd448a29957113dc605f219e7d2c805b8cab8fdc34a0cef1bd1e87a161891401822b32c0891ee641e61dca79a4d12586aa42780b89943b4e219eb997879098fe90290d56217961d7fdb1dae86930ebde5607a277de3b162247da9e7cd12af2de9848145ed18ceeda4e7d4287e7a500b93d70bec2a887a943c4387577d61257e85c9f6485b1a0b4d625af9a89a46952c10cb9685c6ed6e31ca5cae8aa9fd66c47701c206994566f2d11c3af0988b09aced5cb44e4ee04d48b3bf191a10092e0e489745e2c1003dda55594d420a",
+          "event": null,
+          "boardLog": null,
+          "setupHandlerRan": false
+        },
+        {
+          "endpoint": "prov-session",
+          "request": "100262470802b201420a40149df75aadb909c3a92947e382e4e7705e5f01be707b145254af67b17f640eb709b881f0fa21823015b736e6e67b74dee65ffac177040185b11ec9ebbaa9c9bf",
+          "answer": "100262550803ba015012400be364355bf7b3c41e552123792544dcf47a83aa1dcd1203a1a863d93923881724dc8f30f30f9179218b5637978aae3202eebf5bdeede0aa3625e3c293df107f1a0cb66ecc740e733b2e00000001",
+          "event": "setupOk",
+          "boardLog": null,
+          "setupHandlerRan": false
+        },
+        {
+          "endpoint": "hsn-setup",
+          "request": "5cd60bb83a15ac0013e69044958478affe8a",
+          "answer": "1b2b5d96064efc15ec86a80068577813b4f581ab0238b5773cccdc3d8bd132601b5f23266b75",
+          "event": null,
+          "boardLog": null,
+          "setupHandlerRan": true
+        },
+        {
+          "endpoint": "hsn-setup",
+          "request": "369b39b35e94ffa599f9008580d3f4d4cb08fcc0291efd66ca567138e22bfcd7dd094ab73b2ba1a2fde36067f423d559966da4593f64e7d492281d393b29c64040cff257c243397da6007c861f61fc370b3116d73e17c14da8716e1846a2f80bc58f51975753ba5750cdcf967486fa0ffaa3fefe8d00387d17b7b0b9fe0142b09959bc411a99bd62c64ec3ba",
+          "answer": "9681875517ef67b788789fff4034b9d35e4e8f",
+          "event": null,
+          "boardLog": null,
+          "setupHandlerRan": true
+        }
+      ]
+    },
+    {
+      "name": "a wrong code: command 1 is refused; command 0 again on the same connection starts over, and the right code opens the session",
+      "srpCase": "a siren's code",
+      "wrongPassword": "X42SA94W",
+      "boardDraws": [
+        "ba9f992077ed47adcbb2f1ab0dc8ac920d1c5eb71e1e3d039db6d62b628b8549",
+        "20ab4d64fd4fb7391b329bf78fc6c69c316ad2bfe8df118eedd11abb491ff085",
+        "b66ecc740e733b2e"
+      ],
+      "clientPrivates": [
+        "82337d23b92695b0edd7e940c3809c2765e70561fa6cf8a65de2656754269722",
+        "7c20dc13e421c5bc57693c19176fbf745c66f461bb1d160be73d92700bf229c1"
+      ],
+      "steps": [
+        {
+          "endpoint": "prov-session",
+          "request": "1002628c03a20188030a0368736e1280032395f0e3cabb906f94615a853bab9402a7cb3aa7f000e1f8ae2ed00d73c737a476ac6fd7355265efefd1aba42c4590fb921a630b8d3668cdf3d3932198d8870df2681eef393c8354006d2ea43957d5415e69f7564339a5f26b56bc20914046c920e4d3807083e1e6f2cc801bff8428e95ec84497459f9b633c108882553700e4099918a85d8f57c89c8d86a0659d7fcfa3add5b63f645fe3148e3eae6986d89bb55b06b006bb60507bc6afd3622e1f3f71f123e452e7551ba872c55b54fb5ea6dae2904b128ef3917297483fd327096c5272c3aa47735e492470e16b9795279b755279100c5d0f2be3df9a2b6a0a57760e7437cd2b3b14e141ee3816386054b9e7d88015fc40e0950e94682ab4f1e71de6351870fcf09a6561822461390862c29eb6eca8e95b9fc3be528a05142146fa1bbbb2b803ed12fe641d7e3d86d7a675d1ec6aaaff99fe9fb9a8114c4d62a8e6521799b5091b5f2f5473bd0aa9f7f67f71a27da4576ee050c3a43f06af91753187a98d5c4b2bd52c0a000087bcf7f725",
+          "answer": "1002629b030801aa0195031280031af4370e3ca0facbb3feb723bf026aa460f9e888ee05bcb1ff93fea4e4088ab1e161ec7f6035d4a161fa473145725eedf25806a8271dc56adc516d06e24702138901ac11adfd570487a52cf508ae1b05e1b78949f2e7f9cf271e3ccc7ead25dfd054a6a690425b949345e607c779b7b033107f5367946a71e1b4499b833375e7ab8d0a78dff8569c7fc879ea4617db7bbd7f60bd21bc7608e47c1fb4ab2c78f1135035764083cbbb446efe1966c2fcd95caf4f65acb030da566d3825a13f00f6c5f406abcbedd448a29957113dc605f219e7d2c805b8cab8fdc34a0cef1bd1e87a161891401822b32c0891ee641e61dca79a4d12586aa42780b89943b4e219eb997879098fe90290d56217961d7fdb1dae86930ebde5607a277de3b162247da9e7cd12af2de9848145ed18ceeda4e7d4287e7a500b93d70bec2a887a943c4387577d61257e85c9f6485b1a0b4d625af9a89a46952c10cb9685c6ed6e31ca5cae8aa9fd66c47701c206994566f2d11c3af0988b09aced5cb44e4ee04d48b3bf191a10092e0e489745e2c1003dda55594d420a",
+          "event": null,
+          "boardLog": null,
+          "setupHandlerRan": false
+        },
+        {
+          "endpoint": "prov-session",
+          "request": "100262470802b201420a40c63e8ef01e594f74880b3bce568ed667f2982d5366a4871a86ecfe5663b32cb084486b6e3e6f2fa25a2b2351205f122b88091f17d000a2c1f96ace0c7089a686",
+          "answer": null,
+          "event": "credentialsMismatch",
+          "boardLog": "Failed to validate user proof",
+          "setupHandlerRan": false,
+          "note": "the wrong code's proof: refused, and nothing more happens on this attempt"
+        },
+        {
+          "endpoint": "prov-session",
+          "request": "1002628c03a20188030a0368736e128003374333c605b596fa94384fd2a63ec286fed962dc7a61c020c05cd452665e3b7237cc02cd9682a79544ea625af8a4122c4f7c8297bea7ca0ef4773ba2a70a5214d1ff1c620f4e394b11d86f9f7e3f8485e6621d951be7fba1eb84377c22afd0eb739ee3abedecc81824e1acabd8401dec664df62fb34fafa6b08bebf51b37fafbc260d85e46a4508cfd1b556be9d659203db6a362d995698b09a411cbccdb63ab81291ca82cf111620d6235806b827289cbca27c32e613153a403fc6c1ce2c34fe32922ad45126e2659cecaee554cca755eb3fd9a39e9f8b546de9d1bb46df365445a4faf3f1805029dadc144bc37bcd08d8fe9e719d7b278c13df725937043d25ef23030790b3773e0dea9633c9d31e0d2d843f41b7a42bf0e4eb83309949b42935689c92d935a07c6b84c6bef85c55b9250277cf56824482fbc0fff2a71c11b16af4943dea310a03d9ca3cedc4e91066a4d0b2a09c50d40fca9459fa24619e19daecf84b6bccaa2577d5f3718e60e1555cd31fa344cd8b7f8c8fcf7bb876f98",
+          "answer": "1002629b030801aa0195031280033ba35894127a9db6bc97283d102e4d0a218fb3a0eb280bfcd3752b29b49bcc0ab77665e170ca138b690afee48fefad11be28154e92232e1a8f4d2aa21e0872c64c0d2dbfd1663c251c4da54c3600c1873ebcb24bd6c15795deb54f37741af25503a7f51a7d8471d44b029e204c0117652bf8918061ee4271b852c2fa611a416b03b9cf476dbaf173b5eae4482a79b8fa71cc331b7d1d6006d54914d907137a884407901a650e34b7c743e29b088f4987455a46dca3ee7339685e061d486a435e77892217b50ebe92e082f27c608990a8e1a8aec5da696a680087dc2ce8ce874019f9716563891062ffb38ae272b6c085cebb1c515f85ab4cb11684a686430963880c1c6c3665373bd3c993760b01b618b7b67d7181db78ff730a454b1ecf118323484ef5c60ba4c1ed1726a5e939f213c71621ea5cedaf44e8cd9080737ebe2849a6d4379c62831ea8373d434c41e6f6e42eb432309a70f7b9d3753bc9ef35219e2cf0700c2781d6325de3e892a60939c8bffb61c93c6f3986ecb5dc6613e5e11a10092e0e489745e2c1003dda55594d420a",
+          "event": null,
+          "boardLog": null,
+          "setupHandlerRan": false,
+          "note": "command 0 again: the board restarts the session"
+        },
+        {
+          "endpoint": "prov-session",
+          "request": "100262470802b201420a404a5e2e165825048524991ad57b0cef3c6cefe54a91a3c8889c0a53c6acaebbb4f775aec82cbb33e19905bb8a942a909f2d3afc6584e61b5eafd0f0ad9e38cd32",
+          "answer": "100262550803ba01501240090ca1e80f4ae2473cfcfffc94567ce14e086112038455ebbecdb862554d85d66eec0550fcbb4e79e58a968feddb8f9e4f633d6e0f0915368dde80dea8c2cedb1a0cb66ecc740e733b2e00000001",
+          "event": "setupOk",
+          "boardLog": null,
+          "setupHandlerRan": false
+        },
+        {
+          "endpoint": "hsn-setup",
+          "request": "baf9561e0f436621566480c9d1d31f4c7424",
+          "answer": "47d9d59f93407c190ad5719965c864a687c57a640d75a8a1d2fa8d854e7112c8a3f1b7d3030d",
+          "event": null,
+          "boardLog": null,
+          "setupHandlerRan": true
+        }
+      ]
+    },
+    {
+      "name": "A = 0 (384 zero bytes): refused, RFC 5054 2.5.4",
+      "srpCase": "a siren's code",
+      "wrongPassword": null,
+      "boardDraws": [
+        "ba9f992077ed47adcbb2f1ab0dc8ac920d1c5eb71e1e3d039db6d62b628b8549"
+      ],
+      "clientPrivates": [],
+      "steps": [
+        {
+          "endpoint": "prov-session",
+          "request": "1002628c03a20188030a0368736e128003000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+          "answer": null,
+          "event": null,
+          "boardLog": "Rejected client public key: A mod N == 0 (RFC 5054 Section 2.5.4)",
+          "setupHandlerRan": false
+        }
+      ]
+    },
+    {
+      "name": "A = N: refused, A mod N is 0",
+      "srpCase": "a siren's code",
+      "wrongPassword": null,
+      "boardDraws": [
+        "ba9f992077ed47adcbb2f1ab0dc8ac920d1c5eb71e1e3d039db6d62b628b8549"
+      ],
+      "clientPrivates": [],
+      "steps": [
+        {
+          "endpoint": "prov-session",
+          "request": "1002628c03a20188030a0368736e128003ffffffffffffffffc90fdaa22168c234c4c6628b80dc1cd129024e088a67cc74020bbea63b139b22514a08798e3404ddef9519b3cd3a431b302b0a6df25f14374fe1356d6d51c245e485b576625e7ec6f44c42e9a637ed6b0bff5cb6f406b7edee386bfb5a899fa5ae9f24117c4b1fe649286651ece45b3dc2007cb8a163bf0598da48361c55d39a69163fa8fd24cf5f83655d23dca3ad961c62f356208552bb9ed529077096966d670c354e4abc9804f1746c08ca18217c32905e462e36ce3be39e772c180e86039b2783a2ec07a28fb5c55df06f4c52c9de2bcbf6955817183995497cea956ae515d2261898fa051015728e5a8aaac42dad33170d04507a33a85521abdf1cba64ecfb850458dbef0a8aea71575d060c7db3970f85a6e1e4c7abf5ae8cdb0933d71e8c94e04a25619dcee3d2261ad2ee6bf12ffa06d98a0864d87602733ec86a64521f2b18177b200cbbe117577a615d6c770988c0bad946e208e24fa074e5ab3143db5bfce0fd108e4b82d120a93ad2caffffffffffffffff",
+          "answer": null,
+          "event": null,
+          "boardLog": "Rejected client public key: A mod N == 0 (RFC 5054 Section 2.5.4)",
+          "setupHandlerRan": false
+        }
+      ]
+    },
+    {
+      "name": "A of 383 bytes: refused, security 2 takes exactly 384",
+      "srpCase": "a siren's code",
+      "wrongPassword": null,
+      "boardDraws": [],
+      "clientPrivates": [
+        "82337d23b92695b0edd7e940c3809c2765e70561fa6cf8a65de2656754269722"
+      ],
+      "steps": [
+        {
+          "endpoint": "prov-session",
+          "request": "1002628b03a20187030a0368736e12ff022395f0e3cabb906f94615a853bab9402a7cb3aa7f000e1f8ae2ed00d73c737a476ac6fd7355265efefd1aba42c4590fb921a630b8d3668cdf3d3932198d8870df2681eef393c8354006d2ea43957d5415e69f7564339a5f26b56bc20914046c920e4d3807083e1e6f2cc801bff8428e95ec84497459f9b633c108882553700e4099918a85d8f57c89c8d86a0659d7fcfa3add5b63f645fe3148e3eae6986d89bb55b06b006bb60507bc6afd3622e1f3f71f123e452e7551ba872c55b54fb5ea6dae2904b128ef3917297483fd327096c5272c3aa47735e492470e16b9795279b755279100c5d0f2be3df9a2b6a0a57760e7437cd2b3b14e141ee3816386054b9e7d88015fc40e0950e94682ab4f1e71de6351870fcf09a6561822461390862c29eb6eca8e95b9fc3be528a05142146fa1bbbb2b803ed12fe641d7e3d86d7a675d1ec6aaaff99fe9fb9a8114c4d62a8e6521799b5091b5f2f5473bd0aa9f7f67f71a27da4576ee050c3a43f06af91753187a98d5c4b2bd52c0a000087bcf7f7",
+          "answer": null,
+          "event": "invalidSecurityParams",
+          "boardLog": "Invalid public key length",
+          "setupHandlerRan": false
+        }
+      ]
+    },
+    {
+      "name": "an empty user name: refused",
+      "srpCase": "a siren's code",
+      "wrongPassword": null,
+      "boardDraws": [],
+      "clientPrivates": [
+        "82337d23b92695b0edd7e940c3809c2765e70561fa6cf8a65de2656754269722"
+      ],
+      "steps": [
+        {
+          "endpoint": "prov-session",
+          "request": "1002628703a20183031280032395f0e3cabb906f94615a853bab9402a7cb3aa7f000e1f8ae2ed00d73c737a476ac6fd7355265efefd1aba42c4590fb921a630b8d3668cdf3d3932198d8870df2681eef393c8354006d2ea43957d5415e69f7564339a5f26b56bc20914046c920e4d3807083e1e6f2cc801bff8428e95ec84497459f9b633c108882553700e4099918a85d8f57c89c8d86a0659d7fcfa3add5b63f645fe3148e3eae6986d89bb55b06b006bb60507bc6afd3622e1f3f71f123e452e7551ba872c55b54fb5ea6dae2904b128ef3917297483fd327096c5272c3aa47735e492470e16b9795279b755279100c5d0f2be3df9a2b6a0a57760e7437cd2b3b14e141ee3816386054b9e7d88015fc40e0950e94682ab4f1e71de6351870fcf09a6561822461390862c29eb6eca8e95b9fc3be528a05142146fa1bbbb2b803ed12fe641d7e3d86d7a675d1ec6aaaff99fe9fb9a8114c4d62a8e6521799b5091b5f2f5473bd0aa9f7f67f71a27da4576ee050c3a43f06af91753187a98d5c4b2bd52c0a000087bcf7f725",
+          "answer": null,
+          "event": "invalidSecurityParams",
+          "boardLog": "Invalid username length (0)",
+          "setupHandlerRan": false
+        }
+      ]
+    },
+    {
+      "name": "security version 1 in SessionData: refused",
+      "srpCase": "a siren's code",
+      "wrongPassword": null,
+      "boardDraws": [],
+      "clientPrivates": [
+        "82337d23b92695b0edd7e940c3809c2765e70561fa6cf8a65de2656754269722"
+      ],
+      "steps": [
+        {
+          "endpoint": "prov-session",
+          "request": "1001628c03a20188030a0368736e1280032395f0e3cabb906f94615a853bab9402a7cb3aa7f000e1f8ae2ed00d73c737a476ac6fd7355265efefd1aba42c4590fb921a630b8d3668cdf3d3932198d8870df2681eef393c8354006d2ea43957d5415e69f7564339a5f26b56bc20914046c920e4d3807083e1e6f2cc801bff8428e95ec84497459f9b633c108882553700e4099918a85d8f57c89c8d86a0659d7fcfa3add5b63f645fe3148e3eae6986d89bb55b06b006bb60507bc6afd3622e1f3f71f123e452e7551ba872c55b54fb5ea6dae2904b128ef3917297483fd327096c5272c3aa47735e492470e16b9795279b755279100c5d0f2be3df9a2b6a0a57760e7437cd2b3b14e141ee3816386054b9e7d88015fc40e0950e94682ab4f1e71de6351870fcf09a6561822461390862c29eb6eca8e95b9fc3be528a05142146fa1bbbb2b803ed12fe641d7e3d86d7a675d1ec6aaaff99fe9fb9a8114c4d62a8e6521799b5091b5f2f5473bd0aa9f7f67f71a27da4576ee050c3a43f06af91753187a98d5c4b2bd52c0a000087bcf7f725",
+          "answer": null,
+          "event": null,
+          "boardLog": "Security version mismatch. Closing connection",
+          "setupHandlerRan": false
+        }
+      ]
+    },
+    {
+      "name": "command 1 before command 0: refused",
+      "srpCase": "a siren's code",
+      "wrongPassword": null,
+      "boardDraws": [],
+      "clientPrivates": [],
+      "steps": [
+        {
+          "endpoint": "prov-session",
+          "request": "100262470802b201420a405a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a",
+          "answer": null,
+          "event": null,
+          "boardLog": "Invalid state of session 1 (expected 0)",
+          "setupHandlerRan": false
+        }
+      ]
+    },
+    {
+      "name": "a client proof of 63 bytes: refused",
+      "srpCase": "a siren's code",
+      "wrongPassword": null,
+      "boardDraws": [
+        "ba9f992077ed47adcbb2f1ab0dc8ac920d1c5eb71e1e3d039db6d62b628b8549"
+      ],
+      "clientPrivates": [
+        "82337d23b92695b0edd7e940c3809c2765e70561fa6cf8a65de2656754269722"
+      ],
+      "steps": [
+        {
+          "endpoint": "prov-session",
+          "request": "1002628c03a20188030a0368736e1280032395f0e3cabb906f94615a853bab9402a7cb3aa7f000e1f8ae2ed00d73c737a476ac6fd7355265efefd1aba42c4590fb921a630b8d3668cdf3d3932198d8870df2681eef393c8354006d2ea43957d5415e69f7564339a5f26b56bc20914046c920e4d3807083e1e6f2cc801bff8428e95ec84497459f9b633c108882553700e4099918a85d8f57c89c8d86a0659d7fcfa3add5b63f645fe3148e3eae6986d89bb55b06b006bb60507bc6afd3622e1f3f71f123e452e7551ba872c55b54fb5ea6dae2904b128ef3917297483fd327096c5272c3aa47735e492470e16b9795279b755279100c5d0f2be3df9a2b6a0a57760e7437cd2b3b14e141ee3816386054b9e7d88015fc40e0950e94682ab4f1e71de6351870fcf09a6561822461390862c29eb6eca8e95b9fc3be528a05142146fa1bbbb2b803ed12fe641d7e3d86d7a675d1ec6aaaff99fe9fb9a8114c4d62a8e6521799b5091b5f2f5473bd0aa9f7f67f71a27da4576ee050c3a43f06af91753187a98d5c4b2bd52c0a000087bcf7f725",
+          "answer": "1002629b030801aa0195031280031af4370e3ca0facbb3feb723bf026aa460f9e888ee05bcb1ff93fea4e4088ab1e161ec7f6035d4a161fa473145725eedf25806a8271dc56adc516d06e24702138901ac11adfd570487a52cf508ae1b05e1b78949f2e7f9cf271e3ccc7ead25dfd054a6a690425b949345e607c779b7b033107f5367946a71e1b4499b833375e7ab8d0a78dff8569c7fc879ea4617db7bbd7f60bd21bc7608e47c1fb4ab2c78f1135035764083cbbb446efe1966c2fcd95caf4f65acb030da566d3825a13f00f6c5f406abcbedd448a29957113dc605f219e7d2c805b8cab8fdc34a0cef1bd1e87a161891401822b32c0891ee641e61dca79a4d12586aa42780b89943b4e219eb997879098fe90290d56217961d7fdb1dae86930ebde5607a277de3b162247da9e7cd12af2de9848145ed18ceeda4e7d4287e7a500b93d70bec2a887a943c4387577d61257e85c9f6485b1a0b4d625af9a89a46952c10cb9685c6ed6e31ca5cae8aa9fd66c47701c206994566f2d11c3af0988b09aced5cb44e4ee04d48b3bf191a10092e0e489745e2c1003dda55594d420a",
+          "event": null,
+          "boardLog": null,
+          "setupHandlerRan": false
+        },
+        {
+          "endpoint": "prov-session",
+          "request": "100262460802b201410a3f149df75aadb909c3a92947e382e4e7705e5f01be707b145254af67b17f640eb709b881f0fa21823015b736e6e67b74dee65ffac177040185b11ec9ebbaa9c9",
+          "answer": null,
+          "event": null,
+          "boardLog": "The client proof length does not match",
+          "setupHandlerRan": false
+        }
+      ]
+    },
+    {
+      "name": "a setup message before the session is open: refused",
+      "srpCase": "a siren's code",
+      "wrongPassword": null,
+      "boardDraws": [],
+      "clientPrivates": [],
+      "steps": [
+        {
+          "endpoint": "hsn-setup",
+          "request": "f101",
+          "answer": null,
+          "event": null,
+          "boardLog": "Secure session not established",
+          "setupHandlerRan": false
+        }
+      ]
+    },
+    {
+      "name": "a sealed request with one bit changed: refused, the counter does not move, and the request intact is then accepted",
+      "srpCase": "a siren's code",
+      "wrongPassword": null,
+      "boardDraws": [
+        "ba9f992077ed47adcbb2f1ab0dc8ac920d1c5eb71e1e3d039db6d62b628b8549",
+        "b66ecc740e733b2e"
+      ],
+      "clientPrivates": [
+        "82337d23b92695b0edd7e940c3809c2765e70561fa6cf8a65de2656754269722"
+      ],
+      "steps": [
+        {
+          "endpoint": "prov-session",
+          "request": "1002628c03a20188030a0368736e1280032395f0e3cabb906f94615a853bab9402a7cb3aa7f000e1f8ae2ed00d73c737a476ac6fd7355265efefd1aba42c4590fb921a630b8d3668cdf3d3932198d8870df2681eef393c8354006d2ea43957d5415e69f7564339a5f26b56bc20914046c920e4d3807083e1e6f2cc801bff8428e95ec84497459f9b633c108882553700e4099918a85d8f57c89c8d86a0659d7fcfa3add5b63f645fe3148e3eae6986d89bb55b06b006bb60507bc6afd3622e1f3f71f123e452e7551ba872c55b54fb5ea6dae2904b128ef3917297483fd327096c5272c3aa47735e492470e16b9795279b755279100c5d0f2be3df9a2b6a0a57760e7437cd2b3b14e141ee3816386054b9e7d88015fc40e0950e94682ab4f1e71de6351870fcf09a6561822461390862c29eb6eca8e95b9fc3be528a05142146fa1bbbb2b803ed12fe641d7e3d86d7a675d1ec6aaaff99fe9fb9a8114c4d62a8e6521799b5091b5f2f5473bd0aa9f7f67f71a27da4576ee050c3a43f06af91753187a98d5c4b2bd52c0a000087bcf7f725",
+          "answer": "1002629b030801aa0195031280031af4370e3ca0facbb3feb723bf026aa460f9e888ee05bcb1ff93fea4e4088ab1e161ec7f6035d4a161fa473145725eedf25806a8271dc56adc516d06e24702138901ac11adfd570487a52cf508ae1b05e1b78949f2e7f9cf271e3ccc7ead25dfd054a6a690425b949345e607c779b7b033107f5367946a71e1b4499b833375e7ab8d0a78dff8569c7fc879ea4617db7bbd7f60bd21bc7608e47c1fb4ab2c78f1135035764083cbbb446efe1966c2fcd95caf4f65acb030da566d3825a13f00f6c5f406abcbedd448a29957113dc605f219e7d2c805b8cab8fdc34a0cef1bd1e87a161891401822b32c0891ee641e61dca79a4d12586aa42780b89943b4e219eb997879098fe90290d56217961d7fdb1dae86930ebde5607a277de3b162247da9e7cd12af2de9848145ed18ceeda4e7d4287e7a500b93d70bec2a887a943c4387577d61257e85c9f6485b1a0b4d625af9a89a46952c10cb9685c6ed6e31ca5cae8aa9fd66c47701c206994566f2d11c3af0988b09aced5cb44e4ee04d48b3bf191a10092e0e489745e2c1003dda55594d420a",
+          "event": null,
+          "boardLog": null,
+          "setupHandlerRan": false
+        },
+        {
+          "endpoint": "prov-session",
+          "request": "100262470802b201420a40149df75aadb909c3a92947e382e4e7705e5f01be707b145254af67b17f640eb709b881f0fa21823015b736e6e67b74dee65ffac177040185b11ec9ebbaa9c9bf",
+          "answer": "100262550803ba015012400be364355bf7b3c41e552123792544dcf47a83aa1dcd1203a1a863d93923881724dc8f30f30f9179218b5637978aae3202eebf5bdeede0aa3625e3c293df107f1a0cb66ecc740e733b2e00000001",
+          "event": "setupOk",
+          "boardLog": null,
+          "setupHandlerRan": false
+        },
+        {
+          "endpoint": "hsn-setup",
+          "request": "5dd60bb83a15ac0013e69044958478affe8a",
+          "answer": null,
+          "event": null,
+          "boardLog": "psa_aead_decrypt failed with status=-149",
+          "setupHandlerRan": false
+        },
+        {
+          "endpoint": "hsn-setup",
+          "request": "5cd60bb83a15ac0013e69044958478affe8a",
+          "answer": "1b2b5d96064efc15ec86a80068577813b4f581ab0238b5773cccdc3d8bd132601b5f23266b75",
+          "event": null,
+          "boardLog": null,
+          "setupHandlerRan": true
+        }
+      ]
+    },
+    {
+      "name": "a sealed request sent again after its answer: refused, its counter is past",
+      "srpCase": "a siren's code",
+      "wrongPassword": null,
+      "boardDraws": [
+        "ba9f992077ed47adcbb2f1ab0dc8ac920d1c5eb71e1e3d039db6d62b628b8549",
+        "b66ecc740e733b2e"
+      ],
+      "clientPrivates": [
+        "82337d23b92695b0edd7e940c3809c2765e70561fa6cf8a65de2656754269722"
+      ],
+      "steps": [
+        {
+          "endpoint": "prov-session",
+          "request": "1002628c03a20188030a0368736e1280032395f0e3cabb906f94615a853bab9402a7cb3aa7f000e1f8ae2ed00d73c737a476ac6fd7355265efefd1aba42c4590fb921a630b8d3668cdf3d3932198d8870df2681eef393c8354006d2ea43957d5415e69f7564339a5f26b56bc20914046c920e4d3807083e1e6f2cc801bff8428e95ec84497459f9b633c108882553700e4099918a85d8f57c89c8d86a0659d7fcfa3add5b63f645fe3148e3eae6986d89bb55b06b006bb60507bc6afd3622e1f3f71f123e452e7551ba872c55b54fb5ea6dae2904b128ef3917297483fd327096c5272c3aa47735e492470e16b9795279b755279100c5d0f2be3df9a2b6a0a57760e7437cd2b3b14e141ee3816386054b9e7d88015fc40e0950e94682ab4f1e71de6351870fcf09a6561822461390862c29eb6eca8e95b9fc3be528a05142146fa1bbbb2b803ed12fe641d7e3d86d7a675d1ec6aaaff99fe9fb9a8114c4d62a8e6521799b5091b5f2f5473bd0aa9f7f67f71a27da4576ee050c3a43f06af91753187a98d5c4b2bd52c0a000087bcf7f725",
+          "answer": "1002629b030801aa0195031280031af4370e3ca0facbb3feb723bf026aa460f9e888ee05bcb1ff93fea4e4088ab1e161ec7f6035d4a161fa473145725eedf25806a8271dc56adc516d06e24702138901ac11adfd570487a52cf508ae1b05e1b78949f2e7f9cf271e3ccc7ead25dfd054a6a690425b949345e607c779b7b033107f5367946a71e1b4499b833375e7ab8d0a78dff8569c7fc879ea4617db7bbd7f60bd21bc7608e47c1fb4ab2c78f1135035764083cbbb446efe1966c2fcd95caf4f65acb030da566d3825a13f00f6c5f406abcbedd448a29957113dc605f219e7d2c805b8cab8fdc34a0cef1bd1e87a161891401822b32c0891ee641e61dca79a4d12586aa42780b89943b4e219eb997879098fe90290d56217961d7fdb1dae86930ebde5607a277de3b162247da9e7cd12af2de9848145ed18ceeda4e7d4287e7a500b93d70bec2a887a943c4387577d61257e85c9f6485b1a0b4d625af9a89a46952c10cb9685c6ed6e31ca5cae8aa9fd66c47701c206994566f2d11c3af0988b09aced5cb44e4ee04d48b3bf191a10092e0e489745e2c1003dda55594d420a",
+          "event": null,
+          "boardLog": null,
+          "setupHandlerRan": false
+        },
+        {
+          "endpoint": "prov-session",
+          "request": "100262470802b201420a40149df75aadb909c3a92947e382e4e7705e5f01be707b145254af67b17f640eb709b881f0fa21823015b736e6e67b74dee65ffac177040185b11ec9ebbaa9c9bf",
+          "answer": "100262550803ba015012400be364355bf7b3c41e552123792544dcf47a83aa1dcd1203a1a863d93923881724dc8f30f30f9179218b5637978aae3202eebf5bdeede0aa3625e3c293df107f1a0cb66ecc740e733b2e00000001",
+          "event": "setupOk",
+          "boardLog": null,
+          "setupHandlerRan": false
+        },
+        {
+          "endpoint": "hsn-setup",
+          "request": "5cd60bb83a15ac0013e69044958478affe8a",
+          "answer": "1b2b5d96064efc15ec86a80068577813b4f581ab0238b5773cccdc3d8bd132601b5f23266b75",
+          "event": null,
+          "boardLog": null,
+          "setupHandlerRan": true
+        },
+        {
+          "endpoint": "hsn-setup",
+          "request": "5cd60bb83a15ac0013e69044958478affe8a",
+          "answer": null,
+          "event": null,
+          "boardLog": "psa_aead_decrypt failed with status=-149",
+          "setupHandlerRan": false
+        }
+      ]
+    },
+    {
+      "name": "two sealed requests sent in the wrong order: the later one is refused, then both are accepted in order",
+      "srpCase": "a siren's code",
+      "wrongPassword": null,
+      "boardDraws": [
+        "ba9f992077ed47adcbb2f1ab0dc8ac920d1c5eb71e1e3d039db6d62b628b8549",
+        "b66ecc740e733b2e"
+      ],
+      "clientPrivates": [
+        "82337d23b92695b0edd7e940c3809c2765e70561fa6cf8a65de2656754269722"
+      ],
+      "steps": [
+        {
+          "endpoint": "prov-session",
+          "request": "1002628c03a20188030a0368736e1280032395f0e3cabb906f94615a853bab9402a7cb3aa7f000e1f8ae2ed00d73c737a476ac6fd7355265efefd1aba42c4590fb921a630b8d3668cdf3d3932198d8870df2681eef393c8354006d2ea43957d5415e69f7564339a5f26b56bc20914046c920e4d3807083e1e6f2cc801bff8428e95ec84497459f9b633c108882553700e4099918a85d8f57c89c8d86a0659d7fcfa3add5b63f645fe3148e3eae6986d89bb55b06b006bb60507bc6afd3622e1f3f71f123e452e7551ba872c55b54fb5ea6dae2904b128ef3917297483fd327096c5272c3aa47735e492470e16b9795279b755279100c5d0f2be3df9a2b6a0a57760e7437cd2b3b14e141ee3816386054b9e7d88015fc40e0950e94682ab4f1e71de6351870fcf09a6561822461390862c29eb6eca8e95b9fc3be528a05142146fa1bbbb2b803ed12fe641d7e3d86d7a675d1ec6aaaff99fe9fb9a8114c4d62a8e6521799b5091b5f2f5473bd0aa9f7f67f71a27da4576ee050c3a43f06af91753187a98d5c4b2bd52c0a000087bcf7f725",
+          "answer": "1002629b030801aa0195031280031af4370e3ca0facbb3feb723bf026aa460f9e888ee05bcb1ff93fea4e4088ab1e161ec7f6035d4a161fa473145725eedf25806a8271dc56adc516d06e24702138901ac11adfd570487a52cf508ae1b05e1b78949f2e7f9cf271e3ccc7ead25dfd054a6a690425b949345e607c779b7b033107f5367946a71e1b4499b833375e7ab8d0a78dff8569c7fc879ea4617db7bbd7f60bd21bc7608e47c1fb4ab2c78f1135035764083cbbb446efe1966c2fcd95caf4f65acb030da566d3825a13f00f6c5f406abcbedd448a29957113dc605f219e7d2c805b8cab8fdc34a0cef1bd1e87a161891401822b32c0891ee641e61dca79a4d12586aa42780b89943b4e219eb997879098fe90290d56217961d7fdb1dae86930ebde5607a277de3b162247da9e7cd12af2de9848145ed18ceeda4e7d4287e7a500b93d70bec2a887a943c4387577d61257e85c9f6485b1a0b4d625af9a89a46952c10cb9685c6ed6e31ca5cae8aa9fd66c47701c206994566f2d11c3af0988b09aced5cb44e4ee04d48b3bf191a10092e0e489745e2c1003dda55594d420a",
+          "event": null,
+          "boardLog": null,
+          "setupHandlerRan": false
+        },
+        {
+          "endpoint": "prov-session",
+          "request": "100262470802b201420a40149df75aadb909c3a92947e382e4e7705e5f01be707b145254af67b17f640eb709b881f0fa21823015b736e6e67b74dee65ffac177040185b11ec9ebbaa9c9bf",
+          "answer": "100262550803ba015012400be364355bf7b3c41e552123792544dcf47a83aa1dcd1203a1a863d93923881724dc8f30f30f9179218b5637978aae3202eebf5bdeede0aa3625e3c293df107f1a0cb66ecc740e733b2e00000001",
+          "event": "setupOk",
+          "boardLog": null,
+          "setupHandlerRan": false
+        },
+        {
+          "endpoint": "hsn-setup",
+          "request": "369b39b35e94ffa599f9008580d3f4d4cb08fcc0291efd66ca567138e22bfcd7dd094ab73b2ba1a2fde36067f423d559966da4593f64e7d492281d393b29c64040cff257c243397da6007c861f61fc370b3116d73e17c14da8716e1846a2f80bc58f51975753ba5750cdcf967486fa0ffaa3fefe8d00387d17b7b0b9fe0142b09959bc411a99bd62c64ec3ba",
+          "answer": null,
+          "event": null,
+          "boardLog": "psa_aead_decrypt failed with status=-149",
+          "setupHandlerRan": false
+        },
+        {
+          "endpoint": "hsn-setup",
+          "request": "5cd60bb83a15ac0013e69044958478affe8a",
+          "answer": "1b2b5d96064efc15ec86a80068577813b4f581ab0238b5773cccdc3d8bd132601b5f23266b75",
+          "event": null,
+          "boardLog": null,
+          "setupHandlerRan": true
+        },
+        {
+          "endpoint": "hsn-setup",
+          "request": "369b39b35e94ffa599f9008580d3f4d4cb08fcc0291efd66ca567138e22bfcd7dd094ab73b2ba1a2fde36067f423d559966da4593f64e7d492281d393b29c64040cff257c243397da6007c861f61fc370b3116d73e17c14da8716e1846a2f80bc58f51975753ba5750cdcf967486fa0ffaa3fefe8d00387d17b7b0b9fe0142b09959bc411a99bd62c64ec3ba",
+          "answer": "9681875517ef67b788789fff4034b9d35e4e8f",
+          "event": null,
+          "boardLog": null,
+          "setupHandlerRan": true
+        }
+      ]
+    }
+  ]
+}

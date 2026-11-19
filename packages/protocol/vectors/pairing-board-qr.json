@@ -1,0 +1,132 @@
+{
+  "schemaVersion": 1,
+  "description": "The board's QR code: hsn://pair/1?c=<code>&d=<chip id>, prefix exact. Parameters as a URL query (percent-decoding, + as a space); others are ignored; c and d each exactly once. c is read as a typed code (pairing-code.json). d is exactly 12 lowercase hex digits, the 6-byte chip id. qr is null when the text is not a board's QR code.",
+  "cases": [
+    {
+      "name": "a siren's display",
+      "text": "hsn://pair/1?c=PSXTK1B3&d=3c71bf9a4f2a",
+      "qr": {
+        "code": "PSXTK1B3",
+        "chipId": "3c71bf9a4f2a"
+      }
+    },
+    {
+      "name": "the chip id first",
+      "text": "hsn://pair/1?d=3c71bf9a4f2a&c=PSXTK1B3",
+      "qr": {
+        "code": "PSXTK1B3",
+        "chipId": "3c71bf9a4f2a"
+      }
+    },
+    {
+      "name": "a check character $, percent-encoded",
+      "text": "hsn://pair/1?c=0000012%24&d=3c71bf9a4f2a",
+      "qr": {
+        "code": "0000012$",
+        "chipId": "3c71bf9a4f2a"
+      }
+    },
+    {
+      "name": "a check character =, percent-encoded",
+      "text": "hsn://pair/1?c=0000013%3D&d=3c71bf9a4f2a",
+      "qr": {
+        "code": "0000013=",
+        "chipId": "3c71bf9a4f2a"
+      }
+    },
+    {
+      "name": "a check character =, not encoded",
+      "text": "hsn://pair/1?c=0000013=&d=3c71bf9a4f2a",
+      "qr": {
+        "code": "0000013=",
+        "chipId": "3c71bf9a4f2a"
+      }
+    },
+    {
+      "name": "a parameter a newer board adds, ignored",
+      "text": "hsn://pair/1?c=PSXTK1B3&d=3c71bf9a4f2a&v=2",
+      "qr": {
+        "code": "PSXTK1B3",
+        "chipId": "3c71bf9a4f2a"
+      }
+    },
+    {
+      "name": "the code with its dash and in lower case",
+      "text": "hsn://pair/1?c=psxt-k1b3&d=3c71bf9a4f2a",
+      "qr": {
+        "code": "PSXTK1B3",
+        "chipId": "3c71bf9a4f2a"
+      }
+    },
+    {
+      "name": "another version",
+      "text": "hsn://pair/2?c=PSXTK1B3&d=3c71bf9a4f2a",
+      "qr": null
+    },
+    {
+      "name": "the scheme in capitals",
+      "text": "HSN://pair/1?c=PSXTK1B3&d=3c71bf9a4f2a",
+      "qr": null
+    },
+    {
+      "name": "a link code's QR code",
+      "text": "hsn://link/1?c=PSXTK1B3&d=3c71bf9a4f2a",
+      "qr": null
+    },
+    {
+      "name": "no query",
+      "text": "hsn://pair/1",
+      "qr": null
+    },
+    {
+      "name": "no code",
+      "text": "hsn://pair/1?d=3c71bf9a4f2a",
+      "qr": null
+    },
+    {
+      "name": "an empty code",
+      "text": "hsn://pair/1?c=&d=3c71bf9a4f2a",
+      "qr": null
+    },
+    {
+      "name": "the code twice",
+      "text": "hsn://pair/1?c=PSXTK1B3&c=PSXTK1B3&d=3c71bf9a4f2a",
+      "qr": null
+    },
+    {
+      "name": "a code with the wrong check character",
+      "text": "hsn://pair/1?c=PSXTK1B0&d=3c71bf9a4f2a",
+      "qr": null
+    },
+    {
+      "name": "no chip id",
+      "text": "hsn://pair/1?c=PSXTK1B3",
+      "qr": null
+    },
+    {
+      "name": "the chip id twice",
+      "text": "hsn://pair/1?c=PSXTK1B3&d=3c71bf9a4f2a&d=3c71bf9a4f2a",
+      "qr": null
+    },
+    {
+      "name": "the chip id in capitals",
+      "text": "hsn://pair/1?c=PSXTK1B3&d=3C71BF9A4F2A",
+      "qr": null
+    },
+    {
+      "name": "a chip id of 5 bytes",
+      "text": "hsn://pair/1?c=PSXTK1B3&d=71bf9a4f2a",
+      "qr": null
+    },
+    {
+      "name": "a chip id of 7 bytes",
+      "text": "hsn://pair/1?c=PSXTK1B3&d=3c71bf9a4f2a00",
+      "qr": null
+    },
+    {
+      "name": "a chip id that is not hex",
+      "text": "hsn://pair/1?c=PSXTK1B3&d=3c71bf9a4f2g",
+      "qr": null
+    }
+  ]
+}

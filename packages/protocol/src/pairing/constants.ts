@@ -89,16 +89,8 @@ export const PAIRING_SECURITY = {
   firstCounter: 1,
 } as const;
 
-/**
- * Advertising while a pairing window is open (m3-design section 5): the service's UUID, the local
- * name `hsn-pair-<the chip id's last 4 hex digits, lower case>` †, and service data of format 1:
- * the format byte, the role (§6's Role), the chip id (6 bytes) †. Where in the advertisement or
- * the scan response each goes is pinned with the firmware owner (31 bytes each).
- */
+/** The pairing scan response. The advertisement carries only flags and the service UUID. */
 export const PAIR_ADVERT = {
   namePrefix: "hsn-pair-",
   nameHexDigits: 4,
-  serviceDataFormat: 1,
-  /** Format byte, role, chip id. */
-  serviceDataBytes: 8,
 } as const;

@@ -22,6 +22,7 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { TextDecoder } from "node:util";
 import { verifyAppVectors } from "./verify-app-vectors.mjs";
+import { verifyPairingVectors } from "./verify-pairing-vectors.mjs";
 import { verifyRelayVectors } from "./verify-relay-vectors.mjs";
 import { verifyUpdateVectors } from "./verify-update-vectors.mjs";
 
@@ -1708,6 +1709,10 @@ const appFiles = verifyAppVectors(VECTORS, { mismatch, count, note });
 
 // The relay's vectors (`relay-*.json`, m4-design.md sections 3 and 5): B1's part.
 for (const name of verifyRelayVectors(VECTORS, { mismatch, count, note })) loadedFiles.add(name);
+
+// Pairing over Bluetooth's vectors (`pairing-*.json` but pairing-data.json, m3-design.md section 5):
+// P3's part.
+for (const name of verifyPairingVectors(VECTORS, { mismatch, count, note })) loadedFiles.add(name);
 
 // Every vector file, the device's and the app's, must be one this script checks.
 for (const name of readdirSync(VECTORS))
