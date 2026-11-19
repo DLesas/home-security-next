@@ -13,16 +13,46 @@ let manager: BleManager | undefined;
 const pairing = new Set(
   Object.values(PROTOCOMM.endpoints).map(({ uuid16 }) => pairingCharacteristic(uuid16)),
 );
-const permissions =
-  Number(Platform.Version) >= 31
+
+/**
+ * How long each step of a connect may take: the connection itself, the MTU request on Android and
+ * the discovery of the services. A first guess (‡), the connect's own timeout, until S9 measures
+ * real phones.
+ */
+export const CONNECT_STEP_MS = 6500;
+
+/** The timer the connect's bounds use; a test gives its own. */
+export interface BleTimer {
+  after(ms: number, run: () => void): () => void;
+}
+
+/** The system's timer. */
+const systemTimer: BleTimer = {
+  after: (ms, run) => {
+    const timeout = setTimeout(run, ms);
+    return () => {
+      clearTimeout(timeout);
+    };
+  },
+};
+
+/** The Android permissions Bluetooth needs at this API level: scan and connect from 31, else location. */
+export function androidPermissions(apiLevel: number) {
+  return apiLevel >= 31
     ? [
         PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
         PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT,
       ]
     : [PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION];
+}
+
+/** The permissions for the phone's own API level. */
+function permissionsHere() {
+  return androidPermissions(Number(Platform.Version));
+}
 
 /** Converts a BLE error without retaining native error messages or characteristic values. */
-function fault(error: unknown): BleFault {
+export function fault(error: unknown): BleFault {
   if (!(error instanceof BleError)) return "failed";
   switch (error.errorCode) {
     case BleErrorCode.BluetoothPoweredOff:
@@ -51,19 +81,41 @@ function result<T>(pending: Promise<T>): Promise<Outcome<T, BleFault>> {
   );
 }
 
+/** Answers the step's outcome, or `timeout` when it has not settled within `ms` on `timer`. */
+function bounded<T>(
+  pending: Promise<Outcome<T, BleFault>>,
+  timer: BleTimer,
+  ms: number,
+): Promise<Outcome<T, BleFault>> {
+  return new Promise((resolve) => {
+    let settled = false;
+    const cancel = timer.after(ms, () => {
+      if (settled) return;
+      settled = true;
+      resolve({ ok: false, fault: "timeout" });
+    });
+    void pending.then((outcome) => {
+      if (settled) return;
+      settled = true;
+      cancel();
+      resolve(outcome);
+    });
+  });
+}
+
 /** Selects the known GATT service for one of the phone's characteristics. */
-function serviceFor(characteristic: string): string {
+export function serviceFor(characteristic: string): string {
   return pairing.has(characteristic) ? PROTOCOMM.serviceUuid : BLUETOOTH_UPDATE.serviceUuid;
 }
 
 /** ble-plx sends characteristic values as padded standard base64. */
-function encode(bytes: Uint8Array): string {
+export function encode(bytes: Uint8Array): string {
   const text = toBase64url(bytes).replaceAll("-", "+").replaceAll("_", "/");
   return text.padEnd(Math.ceil(text.length / 4) * 4, "=");
 }
 
 /** Reads ble-plx's base64 value, or recognizes a missing or malformed read. */
-function decode(value: string | null | undefined): Uint8Array | undefined {
+export function decode(value: string | null | undefined): Uint8Array | undefined {
   return value === null || value === undefined
     ? undefined
     : fromBase64url(value.replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/u, ""));
@@ -144,7 +196,9 @@ async function nativeState(): Promise<BleState> {
     Platform.OS === "android" &&
     !(
       await Promise.all(
-        permissions.map((permission) => PermissionsAndroid.check(permission).catch(() => false)),
+        permissionsHere().map((permission) =>
+          PermissionsAndroid.check(permission).catch(() => false),
+        ),
       )
     ).every(Boolean)
   )
@@ -167,6 +221,7 @@ async function nativeState(): Promise<BleState> {
 /** Starts the manager after the explanatory page and asks Android's system permission. */
 async function askNativeBluetooth(): Promise<BleState> {
   if (Platform.OS === "android") {
+    const permissions = permissionsHere();
     const answered = await PermissionsAndroid.requestMultiple(permissions).catch(() => null);
     if (!permissions.every((permission) => answered?.[permission] === "granted"))
       return "unauthorized";
@@ -197,7 +252,7 @@ async function askNativeBluetooth(): Promise<BleState> {
 }
 
 /** Scans and connects using ble-plx. BlueTooth state is read without prompting here. */
-function blePlxCentral(): BleCentral {
+export function blePlxCentral(timer: BleTimer = systemTimer): BleCentral {
   return {
     state: nativeState,
     scan(service, found) {
@@ -224,15 +279,35 @@ function blePlxCentral(): BleCentral {
     async connect(id, wantMtu) {
       const ble = manager;
       if (ble === undefined) return { ok: false, fault: "unauthorized" };
-      const connected = await result(ble.connectToDevice(id, { timeout: 6500 }));
+      const connected = await result(ble.connectToDevice(id, { timeout: CONNECT_STEP_MS }));
       if (!connected.ok) return connected;
       const device = connected.value;
-      const mtuDevice =
-        Platform.OS === "android" ? await device.requestMTU(wantMtu).catch(() => device) : device;
-      const discovered = await result(mtuDevice.discoverAllServicesAndCharacteristics());
+      /** Ends a connection whose setup failed or never settled. */
+      const abandon = (failure: BleFault): Outcome<GattLink, BleFault> => {
+        void ble.cancelDeviceConnection(id).catch(() => undefined);
+        return { ok: false, fault: failure };
+      };
+      let mtuDevice = device;
+      if (Platform.OS === "android") {
+        // A refused MTU keeps the default one; a request that never answers is a timeout.
+        const asked = await bounded(
+          device.requestMTU(wantMtu).then(
+            (changed): Outcome<Device, BleFault> => ({ ok: true, value: changed }),
+            (): Outcome<Device, BleFault> => ({ ok: true, value: device }),
+          ),
+          timer,
+          CONNECT_STEP_MS,
+        );
+        if (!asked.ok) return abandon(asked.fault);
+        mtuDevice = asked.value;
+      }
+      const discovered = await bounded(
+        result(mtuDevice.discoverAllServicesAndCharacteristics()),
+        timer,
+        CONNECT_STEP_MS,
+      );
       if (discovered.ok) return { ok: true, value: gatt(discovered.value, ble) };
-      void ble.cancelDeviceConnection(id).catch(() => undefined);
-      return discovered;
+      return abandon(discovered.fault);
     },
   };
 }

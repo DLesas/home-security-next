@@ -11,6 +11,7 @@ import { startPhoneClient, type PhoneClient } from "../src/hub/phone-client";
 import { realTimers } from "../src/hub/wire";
 import { addBoard, findPairingBoards, pairingFlow } from "../src/pairing/pair-device";
 import { phoneRequest, refusal } from "../src/pairing/hub";
+import { retryAfter } from "../src/pairing/pair-steps";
 import { memoryRecordStore } from "../src/platform/client-key";
 import * as phoneKeys from "../src/platform/keys.native";
 import { memorySecureItems } from "../src/platform/vault";
@@ -18,6 +19,7 @@ import { BleAir } from "../../tools/ble-bench/src/air/air";
 import { ScriptedCentral } from "../../tools/ble-bench/src/air/central";
 import {
   type BoardOptions,
+  PAIRING_HOLD_MS,
   placeBoard,
   ScriptedBoard,
 } from "../../tools/ble-bench/src/boards/board";
@@ -105,12 +107,16 @@ async function realPhone() {
   console0.stop();
 }
 
-/** Builds real-handshake peripherals for discovery without relying on a simulator. */
+/**
+ * Builds real-handshake peripherals for discovery without relying on a simulator. Each board is
+ * then held for 5 seconds, as the page's "Open pairing on the device" asks: nothing else opens it.
+ */
 function world(...options: BoardOptions[]) {
   const clock = new ManualClock();
   const air = new BleAir(clock, { advertIntervalMs: 15 });
   const central = new ScriptedCentral(air);
   const boards = options.map((option) => placeBoard(air, new ScriptedBoard(clock, option)));
+  for (const board of boards) board.holdButton(PAIRING_HOLD_MS);
   return {
     clock,
     air,
@@ -224,10 +230,13 @@ test("the fifth refused proof stops the window until a hold reopens it with the 
   });
   expect(board.wrongCodes).toBe(5);
   const displayed = board.qr;
-  board.pressButton();
+  // "The light is showing": the page forgets the count, and the person has held the button.
+  const retry = retryAfter("tooManyTries", candidate.version.chip);
+  expect(retry).toEqual({ page: "find", reopen: candidate.version.chip });
+  if (retry.reopen !== undefined) flow.reopened(retry.reopen);
+  board.holdButton(PAIRING_HOLD_MS);
   expect(board.window).toBe("pairing");
   expect(board.qr).toBe(displayed);
-  flow.reopened(candidate.version.chip);
   expect((await settled(clock, flow.open(candidate, board.code, signal)))?.ok).toBe(true);
 });
 

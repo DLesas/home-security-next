@@ -9,8 +9,9 @@
  *   link ios | link android   a one-time link code for a new person, opened in the booted simulator
  *                             as a deep link (`xcrun simctl openurl`, `adb shell am start`); the
  *                             code itself is never printed
- *   {"cmd": …}                a bench command (`tools/ble-bench/src/bench.ts`): press, power,
- *                             offer, faults, state
+ *   {"cmd": …}                a bench command (`tools/ble-bench/src/bench.ts`): hold (5000 ms
+ *                             opens a board's pairing window, 15000 resets it), power, offer,
+ *                             faults, state
  *   quit
  *
  * `bun app/e2e-native/harness.ts [--smoke]`. Everything it started is

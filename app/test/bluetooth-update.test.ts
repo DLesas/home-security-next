@@ -211,7 +211,6 @@ test("all firmware hub refusal reasons survive channel mapping", () => {
     "notPaired",
     "onTrial",
     "noImage",
-    "bluetoothSession",
   ]);
 });
 
@@ -583,4 +582,79 @@ test("a connection completing at the scan deadline cannot start serving", async 
   expect(await settled(clock, result, 10_000)).toEqual({ kind: "failed", fault: "windowEnded" });
   expect(radio.closed()).toBe(true);
   expect(radio.watches()).toBe(0);
+});
+
+test("a phone dropped before Open may reconnect for as long as the sensor's window still advertises", async () => {
+  // The link drops as the first Hello reaches the phone: the sensor never received an Open, so it
+  // has not opened the session and goes back to advertising for the rest of its window (120 s,
+  // update_session.cpp `poll_session`: the no-progress rule applies only once a phone has opened).
+  const world = updateWorld({ faults: { dropAfter: nthFrame(TransferKind.Hello, 1) } });
+  expect(offer(world)).toBe(true);
+  const file = fileOf(world.image.file);
+  const initial = await run(world, file);
+  expect(initial.result).toEqual({ kind: "failed", fault: "lost" });
+  // Before Open the resume runs to the window's end the first attempt allowed, not 30 s.
+  expect(initial.transfer.resumeUntil()).toBe(120_000);
+  // The person walks closer and taps "Carry on" a little over 30 s later, well inside the window.
+  await world.clock.advance(NO_PROGRESS_MS + 1000);
+  expect(world.board.update?.session).toBe("advertising");
+  const carried = await run(world, file, initial.transfer);
+  file.close();
+  expect(carried.result).toEqual({ kind: "done", verified: true, reason: 0 });
+  expect(world.board.connections).toBe(2);
+});
+
+test("before Open the phone stops trying at the window's end, and never past the grant's expiry", async () => {
+  const world = updateWorld({ faults: { dropAfter: nthFrame(TransferKind.Hello, 1) } });
+  expect(offer(world)).toBe(true);
+  const file = fileOf(world.image.file);
+  const initial = await run(world, file);
+  expect(initial.result).toEqual({ kind: "failed", fault: "lost" });
+  await world.clock.advance(120_000 - world.clock.now());
+  expect(initial.transfer.resumeUntil()).toBe(world.clock.now());
+  const late = await run(world, file, initial.transfer);
+  expect(late.result).toEqual({ kind: "failed", fault: "windowEnded" });
+  expect(world.board.connections).toBe(1);
+
+  const short = updateWorld({ faults: { dropAfter: nthFrame(TransferKind.Hello, 1) } });
+  expect(offer(short)).toBe(true);
+  const transfer = updateTransfer(short.central, short.clock, {
+    ...grant(short),
+    expiresAtMs: 50_000,
+  });
+  const dropped = await run(short, file, transfer);
+  expect(dropped.result).toEqual({ kind: "failed", fault: "lost" });
+  expect(transfer.resumeUntil()).toBe(50_000);
+  file.close();
+});
+
+test("once the sensor has accepted Open, the resume deadline is 30 s after its last progress", async () => {
+  const world = updateWorld({
+    faults: { dropAfter: nthFrame(TransferKind.Data, 3), latencyMs: 20 },
+  });
+  expect(offer(world)).toBe(true);
+  const file = fileOf(world.image.file);
+  let connectedAt = -1;
+  let lastServedAt = -1;
+  const transfer = updateTransfer(world.central, world.clock, grant(world));
+  const result = await settled(
+    world.clock,
+    transfer.run(
+      file,
+      new AbortController().signal,
+      0,
+      () => {
+        connectedAt = world.clock.now();
+      },
+      () => {
+        lastServedAt = world.clock.now();
+      },
+    ),
+    155_000,
+  );
+  file.close();
+  expect(result).toEqual({ kind: "failed", fault: "lost" });
+  expect(connectedAt).toBeGreaterThanOrEqual(0);
+  expect(lastServedAt).toBeGreaterThan(connectedAt);
+  expect(transfer.resumeUntil()).toBe(lastServedAt + NO_PROGRESS_MS);
 });

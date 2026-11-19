@@ -1,21 +1,27 @@
 /** The sensor update screens, from hub grant to the device's reported result. */
-import type { AppEventBodyV2, BluetoothSessionObject } from "@hsn/protocol/app";
+import type { AppEventBodyV2 } from "@hsn/protocol/app";
 import { UPDATE_REASONS } from "@hsn/protocol/app";
 import { secondsFromFifteenSecondUnits } from "@hsn/protocol/messages";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { AppState } from "react-native";
 import { bleCentral, type BleState } from "../platform/ble";
-import type { BluetoothUpdate } from "../platform/ble";
 import { useLive, useRead } from "../ui/hub-context";
 import { Actions, Body, Button, Notice, NoticeText, Page, Stack, TextLink } from "../ui/parts";
 import { useFlowAwake } from "./awake";
-import { downloadImage, type ImageCache } from "./download";
+import { downloadImage } from "./download";
 import { phoneRequest, refusal, type PhoneHub } from "./hub";
 import { BluetoothPermission } from "./permission";
 import { isAborted, radioClock } from "./radio";
 import { imageCache } from "./safe/cache";
 import { updateGrant, updateTransfer } from "./update-flow";
+import {
+  type ActiveUpdate,
+  afterFailedSend,
+  backgroundEnds,
+  mayResume,
+  releaseUpdate,
+} from "./update-steps";
 
 type UpdatePageName =
   | "permission"
@@ -30,16 +36,6 @@ type UpdatePageName =
   | "failure"
   | "cancelled";
 type UpdateNotice = AppEventBodyV2<"deviceUpdate">;
-
-interface ActiveUpdate {
-  readonly offer: Pick<BluetoothSessionObject, "imageId" | "fileBytes" | "sha256">;
-  readonly image: number;
-  readonly grant: BluetoothUpdate;
-  cache: ImageCache;
-  readonly transfer: ReturnType<typeof updateTransfer>;
-  readonly abort: AbortController;
-  readonly stopExpiry: () => void;
-}
 
 /** Displays the hub's final outcome and the sensor's own refusal in household terms. */
 export function UpdateResult({
@@ -94,11 +90,7 @@ export function UpdatePage({ hub, device }: { readonly hub: PhoneHub; readonly d
     starting.current = undefined;
     const running = active.current;
     active.current = undefined;
-    if (running === undefined) return;
-    running.stopExpiry();
-    running.abort.abort();
-    running.grant.sessionKey.fill(0);
-    running.cache.remove();
+    if (running !== undefined) releaseUpdate(running);
   }, []);
 
   /** Ends the transfer and shows the exact reason in the UI. */
@@ -136,7 +128,7 @@ export function UpdatePage({ hub, device }: { readonly hub: PhoneHub; readonly d
     const listener = AppState.addEventListener("change", (state) => {
       if (
         state === "background" &&
-        (active.current !== undefined || starting.current !== undefined)
+        backgroundEnds(active.current !== undefined || starting.current !== undefined)
       )
         fail("interrupted");
       if (state === "active" && page === "permission" && radio === "unauthorized")
@@ -246,7 +238,7 @@ export function UpdatePage({ hub, device }: { readonly hub: PhoneHub; readonly d
   async function send(resume: boolean) {
     const running = active.current;
     if (running === undefined) return;
-    if (resume && radioClock.now() >= resumeDeadline.current) {
+    if (resume && !mayResume(radioClock.now(), resumeDeadline.current)) {
       fail("expired");
       return;
     }
@@ -281,9 +273,13 @@ export function UpdatePage({ hub, device }: { readonly hub: PhoneHub; readonly d
     }
     const deadline = running.transfer.resumeUntil();
     if (
-      ["lost", "timeout", "off", "notFound"].includes(result.fault) &&
-      radioClock.now() < deadline &&
-      (resume || startedSending.current > 0)
+      afterFailedSend(
+        result.fault,
+        radioClock.now(),
+        deadline,
+        resume,
+        startedSending.current > 0,
+      ) === "resume"
     ) {
       resumeDeadline.current = deadline;
       setError(result.fault);

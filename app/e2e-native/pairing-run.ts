@@ -5,7 +5,7 @@ import { Role } from "../../packages/protocol/src/messages/common";
 import { fromHex } from "../../packages/protocol/src/bytes";
 import { nthFrame, TransferKind } from "../../tools/ble-bench/src/air/faults";
 import { BleAir } from "../../tools/ble-bench/src/air/air";
-import { placeBoard, ScriptedBoard } from "../../tools/ble-bench/src/boards/board";
+import { PAIRING_HOLD_MS, placeBoard, ScriptedBoard } from "../../tools/ble-bench/src/boards/board";
 import { startBridge } from "../../tools/ble-bench/src/bridge/server";
 import { realClock } from "../../tools/ble-bench/src/clock";
 import { startRealHub, stopAllHubs } from "../test/support/real-hub";
@@ -89,6 +89,12 @@ if (!bridge.ok) {
 say(`Fixture ready at ${bridge.value.url}`);
 for (const [role, board] of boards) say(`${role} test display: ${board.shownCode}`);
 
+/** The length of a `hold` command, in milliseconds: the five-second hold when none is given. */
+function holdMs(text: string | undefined): number {
+  const ms = Number(text);
+  return text === undefined || !Number.isFinite(ms) || ms < 0 ? PAIRING_HOLD_MS : ms;
+}
+
 /** Keeps each fixture status to a non-secret line. */
 function say(message: string) {
   process.stdout.write(`${message}\n`);
@@ -130,7 +136,7 @@ async function stop() {
 process.on("SIGINT", () => void stop());
 process.on("SIGTERM", () => void stop());
 for await (const line of console) {
-  const [command, role] = line.trim().split(/\s+/u);
+  const [command, role, length] = line.trim().split(/\s+/u);
   const board = role === undefined ? undefined : boards.get(role);
   if (command === "quit") await stop();
   else if (command === "link") await link();
@@ -141,7 +147,9 @@ for await (const line of console) {
   else if (command === "drop")
     air.faults = { latencyMs: 20, dropAfter: nthFrame(TransferKind.Data, 30) };
   else if (command === "normal") air.faults = {};
-  else if (command === "press") board?.pressButton();
+  // No board's pairing window is open until its button is held: 5000 ms opens it, 15000 resets.
+  else if (command === "hold")
+    say(`${role ?? "?"}: ${board?.holdButton(holdMs(length)) ?? "no such board"}`);
   else if (command === "on") board?.powerOn();
   else if (command === "off") board?.powerOff();
   else if (command === "state")

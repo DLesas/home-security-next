@@ -1165,7 +1165,6 @@
       "notPaired": "This sensor isn't connected to your home. Add it under Devices first.",
       "onTrial": "It is checking a new version already.",
       "noImage": "The hub doesn't have an update for this sensor. Check under Updates.",
-      "bluetoothSession": "Another update of it is under way.",
       "smallMtu": "This phone cannot update this sensor over Bluetooth. Use another phone.",
       "expired": "The session ended. Start again.",
       "windowEnded": "The sensor stopped listening. Start again.",

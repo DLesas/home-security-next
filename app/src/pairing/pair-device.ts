@@ -91,6 +91,11 @@ export async function findPairingBoards(
       continue;
     }
     const link = connected.value;
+    // A connect that returns after the person left: an aborted signal fires no later listener.
+    if (isAborted(signal)) {
+      link.close();
+      return { ok: false, fault: "lost" };
+    }
     /** Closes the probe when leaving the page. */
     const close = () => {
       link.close();

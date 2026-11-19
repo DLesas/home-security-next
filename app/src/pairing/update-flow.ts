@@ -28,15 +28,28 @@ export function updateGrant(
   };
 }
 
-/** Tracks the board's deadline from actual progress across dropped connections. */
+/**
+ * Tracks the board's deadline across dropped connections. The sensor applies its 30 s rule only
+ * once a phone has opened the session (update_session.cpp, `poll_session`); before that it
+ * advertises until its window ends. So the no-progress deadline runs from the first Data the
+ * board asked for (it accepted Open), and until then a reconnection may run to the end of the
+ * window the first attempt allowed, within the grant's expiry.
+ */
 export function updateTransfer(central: BleCentral, clock: RadioClock, update: BluetoothUpdate) {
   let highest = 0;
   let lastProgress: number | undefined;
+  let windowEnd: number | undefined;
   const name = bluetoothUpdateName(update.address);
   const scanWindow = update.windowS * 1000;
   return {
     /** Returns the absolute limit of the current resume opportunity. */
-    resumeUntil: () => Math.min(update.expiresAtMs, (lastProgress ?? clock.now()) + NO_PROGRESS_MS),
+    resumeUntil: () =>
+      Math.min(
+        update.expiresAtMs,
+        lastProgress === undefined
+          ? (windowEnd ?? clock.now() + scanWindow)
+          : lastProgress + NO_PROGRESS_MS,
+      ),
     /** Finds the address in the grant, opens the GATT link and serves the file. */
     async run(
       file: ImageReader,
@@ -45,11 +58,10 @@ export function updateTransfer(central: BleCentral, clock: RadioClock, update: B
       connected: () => void,
       progress: (offset: number) => void,
     ) {
+      windowEnd ??= clock.now() + scanWindow + waitMs;
       const end = Math.min(
         update.expiresAtMs,
-        lastProgress === undefined
-          ? clock.now() + scanWindow + waitMs
-          : lastProgress + NO_PROGRESS_MS,
+        lastProgress === undefined ? windowEnd : lastProgress + NO_PROGRESS_MS,
       );
       if (clock.now() >= end)
         return {
@@ -78,7 +90,8 @@ export function updateTransfer(central: BleCentral, clock: RadioClock, update: B
         link.value.close();
         return { kind: "failed", fault: "smallMtu" } as const;
       }
-      lastProgress ??= clock.now();
+      // Within this connection the board waits 30 s for an Open, as it waits for progress after.
+      const connectedAt = clock.now();
       connected();
       const result = await serveImage(
         link.value,
@@ -93,7 +106,7 @@ export function updateTransfer(central: BleCentral, clock: RadioClock, update: B
         },
         clock,
         signal,
-        lastProgress + NO_PROGRESS_MS,
+        (lastProgress ?? connectedAt) + NO_PROGRESS_MS,
       );
       if (!result.ok) return { kind: "failed", fault: result.fault } as const;
       return { kind: "done", ...result.value } as const;

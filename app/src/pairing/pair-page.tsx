@@ -37,34 +37,8 @@ import {
   pairingRoles,
 } from "./pair-device";
 import { BluetoothPermission } from "./permission";
+import { pairBackground, type PairPageName, retryAfter, searchFault } from "./pair-steps";
 import { radioClock } from "./radio";
-
-type PageName =
-  | "choose"
-  | "open"
-  | "permission"
-  | "find"
-  | "chooseBoard"
-  | "found"
-  | "scan"
-  | "type"
-  | "checking"
-  | "name"
-  | "adding"
-  | "waiting"
-  | "done"
-  | "failure";
-const searchFault = {
-  timeout: "anotherPhone",
-  notFound: "noBoard",
-  lost: "vanished",
-  failed: "radioFailed",
-  off: "off",
-  unauthorized: "unauthorized",
-  protocol: "protocol",
-  wrongCode: "wrongCode",
-  tooManyTries: "tooManyTries",
-} as const;
 
 /** Maps the board's wire role into a locale key. */
 function roleKey(role: number): "sensor" | "siren" | "gateway" {
@@ -84,7 +58,9 @@ export function PairPage({
   const { t } = useTranslation();
   const phone = usePhone();
   const [flow] = useState(() => pairingFlow(bleCentral, radioClock));
-  const [page, setPage] = useState<PageName>(initialCode === undefined ? "choose" : "permission");
+  const [page, setPage] = useState<PairPageName>(
+    initialCode === undefined ? "choose" : "permission",
+  );
   const [role, setRole] = useState<Role | undefined>();
   const [radio, setRadio] = useState<BleState>();
   const qr = useRef(initialCode);
@@ -106,8 +82,8 @@ export function PairPage({
     return id === undefined || id === null ? undefined : s.modes[id];
   });
   const kind = roleKey(candidate?.version.role ?? role ?? Role.Sensor);
-  const active = !["choose", "open", "permission", "done", "failure"].includes(page);
-  useFlowAwake(active);
+  const keepAwake = !["choose", "open", "permission", "done", "failure"].includes(page);
+  useFlowAwake(keepAwake);
   const exit = <TextLink href="/devices" label={t("nav.devices")} />;
 
   useEffect(
@@ -120,7 +96,8 @@ export function PairPage({
   );
 
   useEffect(() => {
-    if (!active) return;
+    const effect = pairBackground(page);
+    if (effect === "none") return;
     const listener = AppState.addEventListener("change", (state) => {
       if (state !== "background") return;
       operation.current?.abort();
@@ -128,13 +105,13 @@ export function PairPage({
       board.current = undefined;
       qr.current = undefined;
       setText("");
-      setFailure(page === "adding" ? "unfinished" : "interrupted");
+      setFailure(effect);
       setPage("failure");
     });
     return () => {
       listener.remove();
     };
-  }, [active, page]);
+  }, [page]);
 
   useEffect(() => {
     if (page !== "waiting") return;
@@ -478,18 +455,15 @@ export function PairPage({
                         : "pairing.tryAgain",
                 )}
                 onPress={() => {
-                  if (reason === "wrongCode" && candidate !== undefined) {
-                    setFailure(undefined);
-                    setPage("type");
-                  } else if (reason === "tooManyTries" && candidate !== undefined) {
-                    flow.reopened(candidate.version.chip);
-                    void find();
-                  } else if (reason === "off" || reason === "unauthorized") {
-                    setRadio(reason);
+                  const retry = retryAfter(reason, candidate?.version.chip);
+                  if (retry.reopen !== undefined) flow.reopened(retry.reopen);
+                  if (retry.page === "find") void find();
+                  else if (retry.page === "permission") {
+                    setRadio(reason === "off" ? "off" : "unauthorized");
                     setPage("permission");
                   } else {
                     setFailure(undefined);
-                    setPage("open");
+                    setPage(retry.page);
                   }
                 }}
               />
