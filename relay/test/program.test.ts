@@ -7,6 +7,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { chmodSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { endProcesses, spawnTestHub, stopTestHub } from "../../hub/test/world/processes.ts";
 import { RELAY_CLOSE } from "@hsn/protocol/relay";
 import { readConfig, readRefusedHubs } from "../src/shell/config.ts";
 import { loadOrMakeRelayKey, RELAY_KEY_FILE } from "../src/shell/relay-key.ts";
@@ -18,7 +19,8 @@ beforeEach(() => {
   folder = tempFolder();
 });
 
-afterEach(() => {
+afterEach(async () => {
+  await endProcesses();
   cleanup(folder);
 });
 
@@ -92,19 +94,27 @@ describe("the configuration", () => {
 });
 
 describe("the relay's own key", () => {
-  test("is made once, readable only by its account, and the same at every start", () => {
+  test("is made once and the same at every start", () => {
     const first = must(loadOrMakeRelayKey(folder));
-    expect(statSync(join(folder, RELAY_KEY_FILE)).mode & 0o777).toBe(0o600);
     const second = must(loadOrMakeRelayKey(folder));
     expect(second.publicKey).toEqual(first.publicKey);
   });
 
-  test("is refused when others can read it, or it is not 32 bytes", () => {
+  // Windows access lists have no POSIX permission bits.
+  test.skipIf(process.platform === "win32")(
+    "is owner-only and refuses a mode others can read",
+    () => {
+      must(loadOrMakeRelayKey(folder));
+      const path = join(folder, RELAY_KEY_FILE);
+      expect(statSync(path).mode & 0o777).toBe(0o600);
+      chmodSync(path, 0o644);
+      expect(loadOrMakeRelayKey(folder).isErr()).toBe(true);
+    },
+  );
+
+  test("is refused when it is not 32 bytes", () => {
     must(loadOrMakeRelayKey(folder));
     const path = join(folder, RELAY_KEY_FILE);
-    chmodSync(path, 0o644);
-    expect(loadOrMakeRelayKey(folder).isErr()).toBe(true);
-    chmodSync(path, 0o600);
     writeFileSync(path, new Uint8Array(31));
     expect(loadOrMakeRelayKey(folder).isErr()).toBe(true);
   });
@@ -115,10 +125,7 @@ describe("the executable", () => {
 
   test("starts from its configuration, takes a hub, and stops on SIGTERM with 1001", async () => {
     const path = configFile(base(folder));
-    const program = Bun.spawn([process.execPath, main, "--config", path], {
-      stdout: "ignore",
-      stderr: "pipe",
-    });
+    const program = spawnTestHub([main, "--config", path], "pipe");
     const reader = program.stderr.getReader();
     let text = "";
     // Read standard error as it comes.
@@ -134,8 +141,7 @@ describe("the executable", () => {
     const hub = await StandInHub.connect(`ws://127.0.0.1:${port}`);
     expect((await hub.next("joined")).identity).toBe(hub.identity);
     expect(statSync(join(folder, "relay.db")).isFile()).toBe(true);
-    expect(statSync(join(folder, RELAY_KEY_FILE)).mode & 0o777).toBe(0o600);
-    program.kill("SIGTERM");
+    stopTestHub(program);
     expect(await hub.client.closed()).toBe(RELAY_CLOSE.stopping);
     expect(await program.exited).toBe(0);
     await pump;

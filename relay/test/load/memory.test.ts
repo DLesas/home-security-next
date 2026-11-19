@@ -11,22 +11,12 @@ import { connect, type Socket } from "node:net";
 import { join } from "node:path";
 import { PHONE_CLOSE, RELAY_LIMITS } from "@hsn/protocol/relay";
 import { cleanup, Client, StandInHub, tempFolder, until } from "../helpers.ts";
+import { residentBytes } from "../safe/process-memory.ts";
 
 let folder: string;
 let program: ReturnType<typeof Bun.spawn>;
 let port = 0;
-
-/** The program's resident memory, in bytes. */
-function rss(): number {
-  const pid = program.pid;
-  return (
-    Number(
-      Bun.spawnSync(["ps", "-o", "rss=", "-p", String(pid)])
-        .stdout.toString()
-        .trim(),
-    ) * 1024
-  );
-}
+let collections = 0;
 
 function rawPhone(path: string, address: string): Promise<Socket> {
   const socket = connect(port, "127.0.0.1");
@@ -56,10 +46,20 @@ beforeAll(async () => {
     }),
   );
   program = Bun.spawn(
-    [process.execPath, join(import.meta.dir, "../../src/shell/main.ts"), "--config", config],
+    [
+      process.execPath,
+      "--preload",
+      join(import.meta.dir, "memory-gc.ts"),
+      join(import.meta.dir, "../../src/shell/main.ts"),
+      "--config",
+      config,
+    ],
     {
       stdout: "ignore",
       stderr: "pipe",
+      ipc(message: unknown) {
+        if (message === "memory-collected") collections += 1;
+      },
     },
   );
   const reader = (program.stderr as ReadableStream<Uint8Array>).getReader();
@@ -80,6 +80,23 @@ afterAll(async () => {
   await program.exited;
   cleanup(folder);
 });
+
+/** Waits for teardown and a full collection in the relay, then samples its resident bytes. */
+async function sampleRelayMemory(): Promise<number> {
+  await Bun.sleep(10);
+  const target = collections + 1;
+  program.send("collect-memory");
+  await until(() => collections === target, "a full collection in the relay process");
+  // Bun 1.4.2 can return from collection before its allocators give freed pages back to the OS.
+  await Bun.sleep(50);
+  const samples = [residentBytes(program.pid)];
+  for (let i = 1; i < 3; i++) {
+    await Bun.sleep(5);
+    samples.push(residentBytes(program.pid));
+  }
+  expect(samples.every((sample) => sample > 0)).toBe(true);
+  return Math.min(...samples);
+}
 
 test("resident memory stays flat over repeated bursts of slow readers and oversized messages", async () => {
   const url = `ws://127.0.0.1:${port}`;
@@ -115,10 +132,12 @@ test("resident memory stays flat over repeated bursts of slow readers and oversi
     for (const s of slow) s.destroy();
     hub.send({ t: "ping", n: round });
     await hub.next("pong");
-    after.push(rss());
+    after.push(await sampleRelayMemory());
   }
   const [first = 0, , third = 0] = after;
   expect(first).toBeGreaterThan(0);
   // About 140 MB went past the relay in these bursts; it kept none of it.
-  expect(third - first).toBeLessThan(24 * 1024 * 1024);
+  expect(third - first, `relay RSS after each burst (bytes): ${after.join(", ")}`).toBeLessThan(
+    24 * 1024 * 1024,
+  );
 }, 60_000);

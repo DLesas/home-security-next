@@ -5,7 +5,7 @@
  */
 import { describe, expect, test } from "bun:test";
 import { readdirSync } from "node:fs";
-import { join } from "node:path";
+import { join, sep } from "node:path";
 import { bigOfBits, modPow, ROUTES, routesToWalk, socketRequest } from "../src/dev/wave0-parts";
 
 /**
@@ -16,6 +16,7 @@ import { bigOfBits, modPow, ROUTES, routesToWalk, socketRequest } from "../src/d
 function routesOnDisk(): readonly string[] {
   const app = join(import.meta.dir, "..", "src", "app");
   return readdirSync(app, { recursive: true, encoding: "utf8" })
+    .map((file) => file.split(sep).join("/"))
     .filter((file) => file.endsWith(".tsx") && !file.split("/").some((p) => /^[_+]/u.test(p)))
     .map(
       (file) =>

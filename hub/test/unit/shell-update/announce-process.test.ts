@@ -10,19 +10,21 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { RELAY_LIMITS } from "@hsn/protocol/relay";
 import { exchange } from "../../../cli/client.ts";
 import { HUB_VERSION } from "../../../src/shell/hub-facts.ts";
 import { makeRelease, platformOf } from "../../../src/shell/update/release.ts";
+import { programName } from "../../../src/shell/update/program-name.ts";
 import { installPaths } from "../../../launcher/src/layout.ts";
-import { endProcesses, spawnTracked } from "../../world/processes.ts";
+import { endProcesses, spawnTracked, testCli } from "../../world/processes.ts";
+import { isWindows, shapeFolder } from "../shell-control/windows-folders.ts";
 import { type RelayRun, startRelayRun, stopAll, until } from "../shell-relay/support.ts";
 
 const HUB = join(import.meta.dir, "..", "..", "..");
 const TEST_ENTRY = join(HUB, "test", "unit", "shell-main", "hub-with-test-key.ts");
-const HSN = join(HUB, "cli", "hsn.ts");
-const root = mkdtempSync("/tmp/hsn-announce-");
+const root = mkdtempSync(join(tmpdir(), "hsn-announce-"));
 const TEST_SEED = new Uint8Array(32).fill(7);
 
 afterAll(async () => {
@@ -43,7 +45,14 @@ function testRelease(): string {
       madeMs: 0,
       payloadBytes: data.length,
       payloadSha256: hash,
-      files: [{ path: "bin/hsn-hub", bytes: data.length, sha256: hash, executable: true }],
+      files: [
+        {
+          path: `bin/${programName(platform)}`,
+          bytes: data.length,
+          sha256: hash,
+          executable: true,
+        },
+      ],
     },
     data,
     TEST_SEED,
@@ -83,6 +92,7 @@ async function switchWith(
   joined: boolean,
 ): Promise<{ readonly code: number; readonly afterApproveMs: number; readonly identity: string }> {
   const data = mkdtempSync(join(root, "d"));
+  if (isWindows) shapeFolder(data);
   const prefix = programTree();
   const hub = spawnTracked(
     ["bun", TEST_ENTRY, "--data", data, "--port", "0", "--no-usb-watch", "--app-ports", "0,0"],
@@ -95,10 +105,13 @@ async function switchWith(
   const identity = (info.body as { identity?: string } | undefined)?.identity ?? "";
   expect(await op(sock, "relay.set", { url: run.url })).toMatchObject({ ok: true });
   if (joined) await until(() => run.joined === 1, "the hub's link to the relay", 10_000);
-  const install = spawnTracked(["bun", HSN, "--data", data, "update", "install", testRelease()], {
-    stdout: "pipe",
-    stderr: "pipe",
-  });
+  const install = spawnTracked(
+    ["bun", testCli, "--data", data, "update", "install", testRelease()],
+    {
+      stdout: "pipe",
+      stderr: "pipe",
+    },
+  );
   const out = await new Response(install.stdout).text();
   expect(await install.exited).toBe(0);
   expect(out).toContain("staged: version 99.0.0");

@@ -10,8 +10,8 @@
  * 2. The boot event, then `startupInputs` (the hub's facts and the time zone) before any listener
  *    opens, and again when an address changes, with the certificate renewed for the new names.
  * 3. The listeners, the channel given the loop's `enqueue` and a view of the core's state.
- * 4. The healthy mark (`healthy.json`) once a commit has held `update_healthy` and the listeners
- *    are open (section 9, step 4).
+ * 4. The healthy mark (`healthy.json`) once a commit has held `update_healthy`, the app listeners
+ *    are open and the control socket's opening has ended (section 9, step 4).
  */
 import { hostname } from "node:os";
 import { dirname, join } from "node:path";
@@ -196,6 +196,7 @@ export class AppSide {
   #addresses: readonly string[];
   #healthy: string | undefined;
   #marked = false;
+  #controlOpeningEnded = false;
   /** The control socket, for a download asked for on it (`hsn backup export`). */
   #control: DownloadLines | undefined;
 
@@ -254,7 +255,7 @@ export class AppSide {
 
   /**
    * The listeners open, then, in the same synchronous run, the hub's facts and time zone with the
-   * ports they really hold, then the healthy mark if one waits (section 2). Bun binds and listens
+   * ports they really hold (section 2). Bun binds and listens
    * in one call, so a connection can arrive before the facts are queued; but nothing it does runs
    * until this run ends (one thread): it waits in the system's accept queue, and every input it
    * causes is queued after the facts, so no client is served by a core without them.
@@ -293,9 +294,11 @@ export class AppSide {
       enqueue(input);
   }
 
-  /** The control socket, once open: a download asked for on it goes back on it. */
-  useControl(control: DownloadLines): void {
+  /** Records the end of control socket opening and attaches the socket if it opened. */
+  controlSettled(control?: DownloadLines): void {
     this.#control = control;
+    this.#controlOpeningEnded = true;
+    this.#markIfHealthy();
   }
 
   get lanPort(): number | undefined {
@@ -434,16 +437,23 @@ export class AppSide {
     return this.channel.download(conn, line);
   }
 
-  /** Each commit's records: an `update_healthy` waits for the listeners, then is marked once. */
+  /** Marks a healthy trial once app listeners are open and the control socket's opening has ended. */
   committed(records: readonly AuditRecord[]): void {
-    const version = healthyIn(records);
+    const version = healthyIn(records, this.#options.env);
     if (version === undefined) return;
     this.#healthy = version;
     this.#markIfHealthy();
   }
 
+  /** The launcher may write to the program tree once the control socket's opening has ended. */
   #markIfHealthy(): void {
-    if (this.#marked || this.#healthy === undefined || this.#listeners === undefined) return;
+    if (
+      this.#marked ||
+      this.#healthy === undefined ||
+      this.#listeners === undefined ||
+      !this.#controlOpeningEnded
+    )
+      return;
     this.#marked = true;
     const marked = markHealthy(prefixFrom(this.#options.env), this.#healthy);
     if (marked.isErr())

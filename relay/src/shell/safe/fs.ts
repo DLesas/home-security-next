@@ -53,6 +53,6 @@ export function writeSecretFile(path: string, bytes: Uint8Array): Result<void, R
     } finally {
       closeSync(fd);
     }
-    chmodSync(path, 0o600);
+    if (process.platform !== "win32") chmodSync(path, 0o600);
   });
 }

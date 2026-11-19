@@ -45,6 +45,8 @@ import { readRestoreHeader, RestorePieces } from "../../../src/shell/backup/rest
 import type { ExportChunk } from "../../../src/shell/backup/write.ts";
 import { type OpenedStore, openStore } from "../../../src/shell/storage/store.ts";
 
+import { retryHostedTiming, timePiece, type TimingMiss } from "../../world/hosted-timing.ts";
+
 const MIGRATIONS = join(import.meta.dir, "..", "..", "..", "drizzle");
 const WALL = Date.UTC(2026, 10, 15, 3, 0, 0);
 const APP_PUBLIC = new Uint8Array(32).fill(0x0a);
@@ -570,9 +572,12 @@ describe("the history file", () => {
     expect(outcome).toEqual(refused);
   });
 
-  test("in pieces of a page: at most a page of lines a piece, door reports committed and checkpointed between them and not in it", () => {
+  /** Measures export pages while committing door reports to a fresh database. */
+  function pageExport(attempt: number) {
     const mb = Number(process.env.HSN_HISTORY_EXPORT_MB ?? "6");
-    const data = join(root, "data");
+    const data = join(root, `data-${attempt}`);
+    const limitMs = TIMING ? PIECE_LIMIT_MS : LOADED_BOUND_MS;
+    const misses: TimingMiss[] = [];
     const store = hub(data, 2_000);
     // Both tables without a `seq` at the most their 30-day retention holds at the largest site
     // (every minute, three gateways, four reasons; 75 devices), or a smaller part by default.
@@ -605,10 +610,11 @@ describe("the history file", () => {
     const doorSeqs: number[] = [];
     let outcome;
     for (;;) {
-      const t = performance.now();
       const linesBefore = job.lines;
-      outcome = job.next();
-      longest = Math.max(longest, performance.now() - t);
+      const { value, wallMs, cpuMs } = timePiece(() => job.next());
+      outcome = value;
+      longest = Math.max(longest, wallMs);
+      if (wallMs >= limitMs) misses.push({ label: `page ${pieces + 1}`, wallMs, cpuMs, limitMs });
       pieces += 1;
       // A piece writes at most a page of lines, and a part's opening line.
       expect(job.lines - linesBefore).toBeLessThanOrEqual(HISTORY_ROWS_PER_PAGE + 1);
@@ -642,6 +648,15 @@ describe("the history file", () => {
     console.log(
       `history export of ${mb} MB, ${minutes * 12} rejects, ${31 * 75} loss rows: ${pieces} pieces, longest ${longest.toFixed(1)} ms, ${(text.length / 1e6).toFixed(0)} MB of JSON Lines`,
     );
-    expect(longest).toBeLessThan(TIMING ? PIECE_LIMIT_MS : LOADED_BOUND_MS);
-  });
+    db.close(true);
+    return {
+      misses,
+      assertTiming: () => {
+        expect(longest).toBeLessThan(limitMs);
+      },
+    };
+  }
+
+  test("in pieces of a page: at most a page of lines a piece, door reports committed and checkpointed between them and not in it", () =>
+    retryHostedTiming(pageExport));
 });

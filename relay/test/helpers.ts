@@ -52,8 +52,10 @@ export function must<T>(
   return result._unsafeUnwrap();
 }
 
-export function tempFolder(): string {
-  return mkdtempSync(join(tmpdir(), "hsn-relay-test-"));
+/** Uses the runner's temporary volume for Windows local WebSockets, which need the current drive. */
+export function tempFolder(prefix = "hsn-relay-test-"): string {
+  const root = process.platform === "win32" ? (process.env.RUNNER_TEMP ?? tmpdir()) : tmpdir();
+  return mkdtempSync(join(root, prefix));
 }
 
 export function cleanup(folder: string): void {

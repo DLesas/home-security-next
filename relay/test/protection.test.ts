@@ -222,7 +222,7 @@ describe("new hub identities", () => {
         insert.run(`h${i.toString().padStart(25, "0")}`, now, Math.floor(now / 86_400_000), now);
       }
     })();
-    db.close();
+    db.close(true);
     t = startRelay(folder, { dbPath, trustedProxies: ["127.0.0.1"], clock: new ManualClock(now) });
     expect(t.relay.counts.hubs).toBe(L.newIdentities.storedMax - 1);
     const last = await StandInHub.connect(t.url, { address: "192.0.2.60" });

@@ -32,6 +32,7 @@ import { startJob } from "../../src/shell/backup/jobs.ts";
 import type { JobStarted } from "../../src/shell/loop.ts";
 import { TEST_PUBLISHER_KEY } from "../../src/shell/update/publisher-keys.ts";
 import { platformOf } from "../../src/shell/update/release.ts";
+import { programName } from "../../src/shell/update/program-name.ts";
 import { installPaths } from "../../launcher/src/layout.ts";
 import { releaseOf } from "../../packaging/shared/make-release.ts";
 import { tempDir } from "../unit/storage/fixtures.ts";
@@ -45,6 +46,7 @@ const PHONE = clientId(30);
 const RUNNING = "0.1.0";
 const VERSION = "9.0.0";
 const PLATFORM = platformOf(process.platform, process.arch) ?? "darwin-arm64";
+const PROGRAM = programName(PLATFORM);
 
 let home: Home | undefined;
 const folders: { remove(): void }[] = [];
@@ -71,7 +73,7 @@ function releaseSetup(): {
   folders.push(root);
   const source = join(root.path, "source");
   mkdirSync(join(source, "bin"), { recursive: true });
-  writeFileSync(join(source, "bin", "hsn-hub"), new Uint8Array(600_000).fill(7), { mode: 0o755 });
+  writeFileSync(join(source, "bin", PROGRAM), new Uint8Array(600_000).fill(7), { mode: 0o755 });
   const path = join(root.path, "fetched.hsnr");
   const file = releaseOf(source, VERSION, PLATFORM, new Uint8Array(32).fill(7), 0)._unsafeUnwrap();
   writeFileSync(path, file);
@@ -263,14 +265,14 @@ describe.each(CRASH_POINTS.map((p) => [p]))("power lost at %s", (point: CrashPoi
       // A turn a piece, as the loop runs jobs (the home turns only for inputs).
       for (let i = 0; i < 200 && hub.restarts === 0; i++) hub.input({ kind: "tick" });
       expect(hub.restarts).toBe(1);
-      if (recorded() === VERSION) expect(existsSync(join(staged, "bin", "hsn-hub"))).toBe(true);
+      if (recorded() === VERSION) expect(existsSync(join(staged, "bin", PROGRAM))).toBe(true);
       else {
         // Lost with the turn: the relay offers again when the link opens, and a person fetches again.
         expect(fetch(2)).toMatchObject({ ok: true });
         for (let i = 0; i < 200 && recorded() !== VERSION; i++) hub.input({ kind: "tick" });
       }
       expect(recorded()).toBe(VERSION);
-      expect(readFileSync(join(staged, "bin", "hsn-hub")).length).toBe(600_000);
+      expect(readFileSync(join(staged, "bin", PROGRAM)).length).toBe(600_000);
       must(hub.advanceBy(MINUTE));
     },
     DAY_TEST_TIMEOUT_MS,

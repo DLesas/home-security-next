@@ -134,37 +134,37 @@ describe("a byte changed at every position", () => {
     expect(refused).toBeGreaterThanOrEqual(10);
   }, 60_000);
 
-  test("response 1: either refused, or a session whose first request the board would refuse", async () => {
-    const original = fromHex(exchange.response1);
-    const first = exchange.messages[0];
-    for (let i = 0; i < original.length; i++) {
-      const changed = original.slice();
+  const response1 = fromHex(exchange.response1);
+  const first = exchange.messages[0];
+  for (const i of response1.keys()) {
+    test(`response 1 byte ${i}: refused or produces a different first request`, async () => {
+      const changed = response1.slice();
       changed[i] = (changed[i] ?? 0) ^ 0x01;
       const { client } = await clientAt("sent1");
       const finished = await client.finish(changed);
       if (!finished.ok) {
         expect(["wrongCode", "protocol"]).toContain(finished.error);
-        continue;
+        return;
       }
       // Only the session id is not covered by the proofs: the request then differs.
-      expect(i).toBeGreaterThanOrEqual(original.length - 12);
-      expect(i).toBeLessThan(original.length - 4);
+      expect(i).toBeGreaterThanOrEqual(response1.length - 12);
+      expect(i).toBeLessThan(response1.length - 4);
       const sealed = finished.value.seal(fromHex(first?.plaintext ?? ""));
       expect(toHex(value(sealed) ?? new Uint8Array())).not.toBe(first?.sealed);
-    }
-  });
+    });
+  }
 
-  test("the board's proof changed at each byte is a wrong code", async () => {
-    const r1 = decodeSessionData(fromHex(exchange.response1));
-    expect(r1?.msg).toBe("response1");
-    if (r1?.msg !== "response1") return;
-    for (let i = 0; i < 64; i++) {
+  const r1 = decodeSessionData(response1);
+  for (let i = 0; i < 64; i++) {
+    test(`the board's proof changed at byte ${i} is a wrong code`, async () => {
+      expect(r1?.msg).toBe("response1");
+      if (r1?.msg !== "response1") return;
       const proof = r1.proof.slice();
       proof[i] = (proof[i] ?? 0) ^ 0x80;
       const { client } = await clientAt("sent1");
       expect(error(await client.finish(encodeSessionData({ ...r1, proof })))).toBe("wrongCode");
-    }
-  });
+    });
+  }
 
   test("every sealed answer, at every position, does not open and ends the session", () => {
     for (const m of exchange.messages.filter((x) => x.direction === "toPhone")) {

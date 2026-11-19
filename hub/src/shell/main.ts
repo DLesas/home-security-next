@@ -639,11 +639,11 @@ export async function runHub(
     say(`the control socket could not open: ${control.error.message}`);
   } else {
     holder.control = control.value;
-    side.value.useControl(control.value);
     control.value.listen((event) => {
       loop.enqueue(event);
     });
   }
+  side.value.controlSettled(holder.control);
 
   const code =
     exitCode.code ??

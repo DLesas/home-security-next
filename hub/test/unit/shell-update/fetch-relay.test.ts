@@ -26,6 +26,7 @@ import { startJob } from "../../../src/shell/backup/jobs.ts";
 import type { JobPieces, JobStarted } from "../../../src/shell/loop.ts";
 import { TEST_PUBLISHER_KEY } from "../../../src/shell/update/publisher-keys.ts";
 import { platformOf } from "../../../src/shell/update/release.ts";
+import { programName } from "../../../src/shell/update/program-name.ts";
 import { installPaths } from "../../../launcher/src/layout.ts";
 import { releaseOfFiles } from "../../../packaging/shared/make-release.ts";
 import { ReleaseBudget } from "../../../../relay/src/core/release-budget.ts";
@@ -56,7 +57,11 @@ beforeAll(() => {
   mkdirSync(releases);
   const made = releaseOfFiles(
     [
-      { path: "bin/hsn-hub", data: new Uint8Array(randomBytes(1_200_000)), executable: true },
+      {
+        path: `bin/${programName(PLATFORM)}`,
+        data: new Uint8Array(randomBytes(1_200_000)),
+        executable: true,
+      },
       { path: "drizzle/0000.sql", data: new TextEncoder().encode("SELECT 1;"), executable: false },
     ],
     VERSION,

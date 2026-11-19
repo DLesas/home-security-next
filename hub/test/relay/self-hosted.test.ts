@@ -18,7 +18,7 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { endProcesses } from "../world/processes.ts";
 import { loopbackTls, writeSecretFile } from "../../../tools/push-standins/src/index.ts";
 import { Seen } from "./leaks.ts";
@@ -26,7 +26,6 @@ import { AwayPhone } from "./phone.ts";
 import {
   ALL_OUTPUT,
   check,
-  freePort,
   HubProcess,
   PushRole,
   RelayProgram,
@@ -78,11 +77,10 @@ async function operated(): Promise<Operated> {
   check(keyPath.ok, "the TLS key written");
   const certPath = join(root, "push-tls.crt");
   writeFileSync(certPath, pair.cert);
-  const port = await freePort();
   const forwarding = join(root, "releases.sock");
   const push = new PushRole(root, s, {
     releasesSocket: forwarding,
-    tls: { certPath, keyPath: keyPath.ok ? keyPath.value : "", port },
+    tls: { certPath, keyPath: keyPath.ok ? keyPath.value : "" },
   });
   await push.start();
   stops.push(() => push.stop());
@@ -103,7 +101,7 @@ async function operated(): Promise<Operated> {
     relay,
     forwarding,
     release,
-    pushUrl: `wss://127.0.0.1:${String(port)}/v1/relay`,
+    pushUrl: `wss://127.0.0.1:${String(push.tlsPort)}/v1/relay`,
     caPath: certPath,
   };
 }
@@ -183,7 +181,7 @@ describe("a self-hosted relay and the operated service", () => {
   test("FOUND-2: a self-hosted relay fills its release cache over its relay link to the operated service", async () => {
     const o = await operated();
     const own = await selfHosted(o);
-    const name = o.release.path.split("/").at(-1) ?? "";
+    const name = basename(o.release.path);
     expect(await waitFor(() => cached(own.folder, name), 20 * SECOND)).toBe(true);
     expect(sha(join(own.folder, name))).toBe(sha(o.release.path));
   }, 60_000);
@@ -191,7 +189,7 @@ describe("a self-hosted relay and the operated service", () => {
   test("on one host, through the forwarding socket: the cache fills, and a hub on the self-hosted relay fetches and stages the release", async () => {
     const o = await operated();
     const own = await selfHosted(o, o.forwarding);
-    const name = o.release.path.split("/").at(-1) ?? "";
+    const name = basename(o.release.path);
     check(await waitFor(() => cached(own.folder, name), 20 * SECOND), "the cache filled");
     expect(sha(join(own.folder, name))).toBe(sha(o.release.path));
     const hub = new HubProcess(own.relay.folder, { programTree: true });

@@ -13,7 +13,15 @@ process.exitCode = await runCli(process.argv.slice(2), {
   },
   nowMs: Date.now,
   stdin: () => Bun.stdin.text(),
-  ask: () => Promise.resolve(""),
+  ask: (question) => {
+    process.stdout.write(question);
+    return new Promise((resolve) => {
+      process.stdin.once("data", (data) => {
+        process.stdin.pause();
+        resolve(data.toString());
+      });
+    });
+  },
   onInterrupt: (end) => {
     process.once("SIGINT", end);
   },

@@ -13,20 +13,21 @@ import { Session } from "../../../cli/client.ts";
 import { ExitCode } from "../../../cli/exit-codes.ts";
 import { type CliIo, runCli } from "../../../cli/main.ts";
 import { imageFileName, storeFolder } from "../../../src/shell/firmware/store.ts";
-import { endProcesses, spawnTracked } from "../../world/processes.ts";
+import { endProcesses, spawnTestHub, stopTestHub } from "../../world/processes.ts";
 import { espImage, release, sha256, STRANGER_SEED } from "../shell-firmware/support.ts";
+import { isWindows, ownSid, shapeFolder } from "../shell-control/windows-folders.ts";
 
 const ENTRY = join(import.meta.dir, "..", "shell-main", "hub-with-test-key.ts");
 let base: string;
 let dataDir: string;
-let hub: ReturnType<typeof spawnTracked> | undefined;
+let hub: ReturnType<typeof spawnTestHub<"pipe">> | undefined;
 let answer = "y";
 
 /** The hub, started on the data folder, once its control socket answers. */
 async function start(): Promise<void> {
-  hub = spawnTracked(
-    ["bun", ENTRY, "--data", dataDir, "--port", "0", "--no-usb-watch", "--app-ports", "0,0"],
-    { stdout: "ignore", stderr: "pipe" },
+  hub = spawnTestHub(
+    [ENTRY, "--data", dataDir, "--port", "0", "--no-usb-watch", "--app-ports", "0,0"],
+    "pipe",
   );
   for (let i = 0; i < 200; i++) {
     if (existsSync(join(dataDir, "control.sock")) && (await hsn("rollout status")).code === 0)
@@ -37,7 +38,7 @@ async function start(): Promise<void> {
 }
 
 async function stop(): Promise<void> {
-  hub?.kill("SIGTERM");
+  if (hub !== undefined) stopTestHub(hub);
   await hub?.exited;
   hub = undefined;
 }
@@ -48,12 +49,14 @@ interface Run {
   readonly err: readonly string[];
 }
 
+/** Runs the command with the process's account as the expected owner of the test hub. */
 async function hsn(args: string): Promise<Run> {
   const out: string[] = [];
   const err: string[] = [];
   const io: CliIo = {
     out: (line) => out.push(line),
     err: (line) => err.push(line),
+    ...(isWindows ? { hubAccount: ownSid() } : {}),
     env: { HSN_DATA_DIR: dataDir, USER: "tester" },
     stdin: () => Promise.resolve(""),
     nowMs: () => Date.now(),
@@ -74,6 +77,7 @@ beforeAll(async () => {
   // A short folder: a socket's path must stay under 104 bytes.
   base = mkdtempSync(join(tmpdir(), "hsn-fwhub-"));
   dataDir = join(base, "data");
+  if (isWindows) shapeFolder(dataDir);
   writeFileSync(join(base, "rel.hsnf"), release({ payload }));
   writeFileSync(join(base, "bad.hsnf"), release({ payload, seed: STRANGER_SEED }));
   writeFileSync(join(base, "own.bin"), own);

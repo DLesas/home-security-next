@@ -188,30 +188,35 @@ class SqliteStore implements RelayStore {
     });
   }
 
+  /** Finalizes Drizzle's prepared statements so the database files are released synchronously. */
   close(): void {
     this.run("close", () => {
-      this.raw.close();
+      this.raw.close(true);
     }).unwrapOr(undefined);
   }
 }
 
 /** Opens (and makes, and migrates) the database at `path`; `:memory:` for a store that is not kept. */
 export function openStore(path: string): Result<RelayStore, RelayError> {
-  const opened = attempt("storage", ORIGIN, "open the database", () => {
-    const raw = new Database(path, { create: true, strict: true });
+  const opened = attempt(
+    "storage",
+    ORIGIN,
+    "open the database",
+    () => new Database(path, { create: true, strict: true }),
+  );
+  if (opened.isErr()) return err(opened.error);
+  const raw = opened.value;
+  const configured = attempt("storage", ORIGIN, "configure the database", () => {
     raw.run("PRAGMA journal_mode = WAL");
     raw.run("PRAGMA synchronous = FULL");
     raw.run("PRAGMA foreign_keys = ON");
     raw.run("PRAGMA busy_timeout = 0");
     if (process.platform === "darwin") raw.run("PRAGMA fullfsync = ON");
-    return raw;
   });
-  if (opened.isErr()) return err(opened.error);
-  const raw = opened.value;
-  const migrated = migrate(raw);
+  const migrated = configured.andThen(() => migrate(raw));
   if (migrated.isErr()) {
     attempt("storage", ORIGIN, "close", () => {
-      raw.close();
+      raw.close(true);
     }).unwrapOr(undefined);
     return err(migrated.error);
   }

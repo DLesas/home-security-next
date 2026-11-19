@@ -37,7 +37,7 @@ describe("loading", () => {
     db.run("INSERT INTO push_keys (client_id, key) VALUES (5, ?)", [KEY]);
     db.run("INSERT INTO push_keys (client_id, key) VALUES (6, ?)", [KEY]);
     const keys = MemoryPushKeys.load(db)._unsafeUnwrap();
-    db.close();
+    db.close(true);
     expect(keys.held).toBe(1);
     expect(keys.key(clientId(5))).toEqual({ keyId: KEY_ID, key: KEY });
     expect(keys.key(clientId(6))).toBeUndefined();

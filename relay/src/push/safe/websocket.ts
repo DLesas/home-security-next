@@ -10,6 +10,7 @@
 import type { ServerWebSocket } from "bun";
 import { err, ok, type Result } from "neverthrow";
 import { PROTECTION_LIMITS } from "../../core/rules.ts";
+import { localSocketUrl } from "../../shell/safe/unix-websocket.ts";
 import { type PushError, pushError } from "../errors.ts";
 import type { LinkSocket } from "../relay-link.ts";
 import { thrownCode } from "./thrown.ts";
@@ -56,7 +57,9 @@ export function serverSocket<T>(ws: ServerWebSocket<T>): LinkSocket {
 /** Opens a client WebSocket; a malformed URL is an error, a failed connection a `close` event. */
 export function openWebSocket(url: string, ca: string | undefined): Result<WebSocket, PushError> {
   try {
-    const socket = ca === undefined ? new WebSocket(url) : new WebSocket(url, { tls: { ca } });
+    const address = localSocketUrl(url);
+    const socket =
+      ca === undefined ? new WebSocket(address) : new WebSocket(address, { tls: { ca } });
     socket.binaryType = "arraybuffer";
     return ok(socket);
   } catch (thrown) {

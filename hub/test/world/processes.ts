@@ -28,6 +28,7 @@ export function spawnTestHub<Output extends "inherit" | "pipe" | "ignore">(
   args: readonly string[],
   stderr: Output,
   env = process.env,
+  cwd = process.cwd(),
 ) {
   const windows = process.platform === "win32";
   const preload = windows ? ["--preload", join(import.meta.dir, "console-stop.ts")] : [];
@@ -35,6 +36,7 @@ export function spawnTestHub<Output extends "inherit" | "pipe" | "ignore">(
     stdout: "ignore",
     stderr,
     env,
+    cwd,
     ...(windows ? { ipc: () => undefined } : {}),
   });
 }

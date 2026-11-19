@@ -158,7 +158,7 @@ function restored(bytes: Uint8Array, job = 1): { readonly db: Database; readonly
     () => undefined,
     () => undefined,
   );
-  store.db.close();
+  store.db.close(true);
   return { db: new Database(join(data, RESTORE_FILE), { readonly: true }), data };
 }
 
@@ -168,7 +168,7 @@ describe("every table of the schema is decided", () => {
     folders.push(dir);
     const store = openTestStore(dir.path, new TestClock());
     const all = tablesOf(store.db).toSorted();
-    store.db.close();
+    store.db.close(true);
     const lists: string[] = [...BACKUP_TABLES, ...NEVER_TABLES, ...LEFT_OUT_TABLES];
     expect(lists.toSorted()).toEqual(all);
     expect(new Set(lists).size).toBe(lists.length);
@@ -221,13 +221,13 @@ describe("a backup on this code's schema", () => {
       false,
     );
     file.close();
-    db.close();
+    db.close(true);
   });
 
   test("restored: the relay setting kept; no push target, key or outbox row, no image, rollout or device update; every key marked for change, the pending one BothHeld (U8)", () => {
     const { db, data } = hub();
     const { db: out } = restored(backupOf(db, data));
-    db.close();
+    db.close(true);
     expect(out.query("SELECT url, revision FROM relay_settings").all()).toEqual([
       { url: RELAY, revision: 4 },
     ]);
@@ -247,7 +247,7 @@ describe("a backup on this code's schema", () => {
         )
         .all(),
     ).toEqual([{ key: DEVICE_KEY, next_key: NEXT_KEY, rekey: Rekey.BothHeld }] as never);
-    out.close();
+    out.close(true);
   });
 
   test("the default relay (url null) restored as the default", () => {
@@ -255,11 +255,11 @@ describe("a backup on this code's schema", () => {
     const store = openTestStore(data, new TestClock());
     household(store.db);
     const { db: out } = restored(backupOf(store.db, data));
-    store.db.close();
+    store.db.close(true);
     expect(out.query("SELECT url, revision FROM relay_settings").all()).toEqual([
       { url: null, revision: 0 },
     ]);
-    out.close();
+    out.close(true);
   });
 
   test("a file holding a push key, a target, an outbox row and an image anyway: restored without them", () => {
@@ -290,11 +290,11 @@ describe("a backup on this code's schema", () => {
       true,
     );
     const { db: out } = restored(sealed.value, 2);
-    db.close();
+    db.close(true);
     for (const table of ["push_keys", "push_targets", "push_outbox", "firmware_images"])
       expect([table, count(out, table)]).toEqual([table, 0]);
     expect(count(out, "relay_settings")).toBe(1);
-    out.close();
+    out.close(true);
   });
 });
 
@@ -325,7 +325,7 @@ describe("a backup made before migration 3 (an M2 hub's)", () => {
     expect(M3).toBe(3);
     const { db, data } = m2Hub();
     const bytes = backupOf(db, data);
-    db.close();
+    db.close(true);
     const header = backupCodec.readHeader(bytes);
     expect(header.ok && header.value.schema).toBe(M3);
     const file = opened(bytes);
@@ -343,7 +343,7 @@ describe("a backup made before migration 3 (an M2 hub's)", () => {
   test("restored onto this code's schema: migrated, the default relay, empty new tables, every key marked Required; it opens and boots", () => {
     const { db, data } = m2Hub();
     const bytes = backupOf(db, data);
-    db.close();
+    db.close(true);
     const { db: out, data: newData } = restored(bytes);
     expect(count(out, MIGRATIONS_TABLE)).toBe(journal.entries.length);
     expect(out.query("SELECT url, revision FROM relay_settings").all()).toEqual([
@@ -366,7 +366,7 @@ describe("a backup made before migration 3 (an M2 hub's)", () => {
         .all(),
     ).toEqual([{ key: DEVICE_KEY, next_key: null, rekey: Rekey.Required }] as never);
     expect(out.query("SELECT last_seq AS s FROM clients").all()).toEqual([{ s: 41 + 2 ** 32 }]);
-    out.close();
+    out.close(true);
     // Put in place, it opens with nothing left to migrate, and its snapshot is a restored M3 hub's.
     expect(swapRestored(newData).isOk()).toBe(true);
     const reopened = openTestStore(newData, new TestClock());
@@ -379,6 +379,6 @@ describe("a backup made before migration 3 (an M2 hub's)", () => {
       () => undefined,
       () => undefined,
     );
-    reopened.db.close();
+    reopened.db.close(true);
   });
 });

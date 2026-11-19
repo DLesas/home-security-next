@@ -271,7 +271,7 @@ describe("a removal held back by a failing commit", () => {
         .map((i) => i.id),
     ).toEqual([imageId(2)]);
     expect(nextStart(r)).toEqual({ damaged: [], removed: [] });
-    r.store.db.close();
+    r.store.db.close(true);
   });
 
   test("no image staged again: the held removal deletes the file", () => {
@@ -286,14 +286,14 @@ describe("a removal held back by a failing commit", () => {
     ]);
     expect(existsSync(join(storeFolder(r.dataDir), FILE))).toBe(false);
     expect(nextStart(r)).toEqual({ damaged: [], removed: [] });
-    r.store.db.close();
+    r.store.db.close(true);
   });
 
   test("not held at all: the removal deletes the file at once", () => {
     const r = rig();
     tick(r, [writeRow(row(1, 5)), remove(1)]);
     expect(existsSync(join(storeFolder(r.dataDir), FILE))).toBe(false);
-    r.store.db.close();
+    r.store.db.close(true);
   });
 
   test("the mirror: a staging held behind a removal of the same image stages it after the removal", () => {
@@ -318,6 +318,6 @@ describe("a removal held back by a failing commit", () => {
     // The core indexes it from `firmwareStaged`; the next start then finds it whole.
     tick(r, [writeRow(row(2, null))]);
     expect(nextStart(r)).toEqual({ damaged: [], removed: [] });
-    r.store.db.close();
+    r.store.db.close(true);
   });
 });

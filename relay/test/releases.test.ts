@@ -8,7 +8,15 @@
  */
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { createHash, randomBytes } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import {
   FIRMWARE_RELEASE,
@@ -480,10 +488,13 @@ describe("relay links, through the forwarding socket", () => {
     cleanup(join(operated, ".."));
   });
 
-  test("the socket is the operator's account's alone (0600)", () => {
-    const mode = Bun.spawnSync(["stat", "-f", "%Lp", socketPath]).stdout.toString().trim();
-    expect(mode).toBe("600");
-  });
+  // Windows does not expose Unix-domain socket permissions as POSIX mode bits.
+  test.skipIf(process.platform === "win32")(
+    "the socket is the operator's account's alone (0600)",
+    () => {
+      expect(statSync(socketPath).mode & 0o777).toBe(0o600);
+    },
+  );
 
   test("a self-hosted relay's cache fills with every offered file, whole and checked", async () => {
     const index = new FolderReleaseIndex(selfHosted, memoryLog());
@@ -710,10 +721,8 @@ describe("relay links, through the forwarding socket", () => {
   });
 });
 
+/** Lists a folder, optionally including dot files. */
 function readdirNames(folder: string, all = false): string[] {
-  const names = Bun.spawnSync(["ls", "-a", folder])
-    .stdout.toString()
-    .split("\n")
-    .filter((n) => n !== "" && n !== "." && n !== "..");
+  const names = readdirSync(folder);
   return all ? names : names.filter((n) => !n.startsWith("."));
 }

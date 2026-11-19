@@ -332,7 +332,7 @@ describe("through the loop", () => {
     for (const key of [new Uint8Array(sessionKey), fromHex(vector.deviceKey)])
       for (const form of forms(key))
         for (const bytes of [...written, ...said]) expect(bytes.includes(form)).toBe(false);
-    store.db.close();
+    store.db.close(true);
   });
 
   test("while the commit fails the reply waits; it leaves with the first commit that succeeds", () => {

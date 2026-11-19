@@ -92,103 +92,111 @@ function collect(stream: ReadableStream<Uint8Array>): { text: () => string; done
 }
 
 describe("the push role's own process (the real XN)", () => {
-  test("pushes through both services, refuses a key on SIGHUP, stops on SIGTERM; no secret in its log", async () => {
-    const s = await standIns();
-    stops.push(() => s.close());
-    const socket = join(s.folder, "push.sock");
-    const refusedPath = join(s.folder, "refused-relays");
-    writeFileSync(refusedPath, "# none yet\n");
-    const child = Bun.spawn(
-      [
-        process.execPath,
-        "relay/src/push/main.ts",
-        ...argsFor(s, socket, ["--refused-relays", refusedPath]),
-      ],
-      {
-        cwd: REPO,
-        stdout: "ignore",
-        stderr: "pipe",
-      },
-    );
-    stops.push(() => {
-      child.kill("SIGKILL");
-    });
-    const stderr = collect(child.stderr);
-    expect(await until(() => stderr.text().includes('"started"'))).toBe(true);
-    expect(statSync(socket).mode & 0o777).toBe(0o600);
+  // Windows does not deliver SIGHUP or SIGTERM to a running process.
+  test.skipIf(process.platform === "win32")(
+    "pushes through both services, refuses a key on SIGHUP, stops on SIGTERM; no secret in its log",
+    async () => {
+      const s = await standIns();
+      stops.push(() => s.close());
+      const socket = join(s.folder, "push.sock");
+      const refusedPath = join(s.folder, "refused-relays");
+      writeFileSync(refusedPath, "# none yet\n");
+      const child = Bun.spawn(
+        [
+          process.execPath,
+          "relay/src/push/main.ts",
+          ...argsFor(s, socket, ["--refused-relays", refusedPath]),
+        ],
+        {
+          cwd: REPO,
+          stdout: "ignore",
+          stderr: "pipe",
+        },
+      );
+      stops.push(() => {
+        child.kill("SIGKILL");
+      });
+      const stderr = collect(child.stderr);
+      expect(await until(() => stderr.text().includes('"started"'))).toBe(true);
+      expect(statSync(socket).mode & 0o777).toBe(0o600);
 
-    const key = relayKey();
-    const identity = formatIdentity(appIdentityBytes(sha256, key.publicKey));
-    const pushLink = new PushLink({
-      url: `ws+unix://${socket}:/v1/relay`,
-      staticKey: key,
-      version: "0.1.0",
-      clock: SYSTEM_CLOCK,
-      log: memoryLog(),
-      random: () => 0.5,
-    });
-    stops.push(() => {
-      pushLink.stop();
-    });
-    pushLink.start();
-    expect(await until(() => pushLink.up)).toBe(true);
+      const key = relayKey();
+      const identity = formatIdentity(appIdentityBytes(sha256, key.publicKey));
+      const pushLink = new PushLink({
+        url: `ws+unix://${socket}:/v1/relay`,
+        staticKey: key,
+        version: "0.1.0",
+        clock: SYSTEM_CLOCK,
+        log: memoryLog(),
+        random: () => 0.5,
+      });
+      stops.push(() => {
+        pushLink.stop();
+      });
+      pushLink.start();
+      expect(await until(() => pushLink.up)).toBe(true);
 
-    s.apns.unregister(apnsToken(3));
-    s.fcm.unregister(fcmToken(4));
-    const sent = [
-      item(1, "apns", apnsToken(1)),
-      item(2, "fcm", fcmToken(2)),
-      item(3, "apns", apnsToken(3)),
-      item(4, "fcm", fcmToken(4)),
-    ];
-    const results = (await pushLink.send(sent))._unsafeUnwrap();
-    expect([...results].sort((a, b) => a.id - b.id)).toEqual([
-      { id: 1, outcome: "accepted" },
-      { id: 2, outcome: "accepted" },
-      { id: 3, outcome: "badToken" },
-      { id: 4, outcome: "badToken" },
-    ]);
-    expect(s.apns.received.map((r) => r.deviceToken)).toEqual([apnsToken(1), apnsToken(3)]);
-    expect(s.fcm.received.map((r) => r.token)).toEqual([fcmToken(2), fcmToken(4)]);
-    expect(JSON.parse(s.apns.received[0]?.body ?? "{}")).toMatchObject({ h: sealedH(1) });
+      s.apns.unregister(apnsToken(3));
+      s.fcm.unregister(fcmToken(4));
+      const sent = [
+        item(1, "apns", apnsToken(1)),
+        item(2, "fcm", fcmToken(2)),
+        item(3, "apns", apnsToken(3)),
+        item(4, "fcm", fcmToken(4)),
+      ];
+      const results = (await pushLink.send(sent))._unsafeUnwrap();
+      expect([...results].sort((a, b) => a.id - b.id)).toEqual([
+        { id: 1, outcome: "accepted" },
+        { id: 2, outcome: "accepted" },
+        { id: 3, outcome: "badToken" },
+        { id: 4, outcome: "badToken" },
+      ]);
+      expect(s.apns.received.map((r) => r.deviceToken)).toEqual([apnsToken(1), apnsToken(3)]);
+      expect(s.fcm.received.map((r) => r.token)).toEqual([fcmToken(2), fcmToken(4)]);
+      expect(JSON.parse(s.apns.received[0]?.body ?? "{}")).toMatchObject({ h: sealedH(1) });
 
-    writeFileSync(refusedPath, `# refused\n${identity}\n`);
-    child.kill("SIGHUP");
-    expect(await until(() => !pushLink.up)).toBe(true);
-    expect(await until(() => stderr.text().includes('"refusedRelays"'))).toBe(true);
+      writeFileSync(refusedPath, `# refused\n${identity}\n`);
+      child.kill("SIGHUP");
+      expect(await until(() => !pushLink.up)).toBe(true);
+      expect(await until(() => stderr.text().includes('"refusedRelays"'))).toBe(true);
 
-    child.kill("SIGTERM");
-    expect(await child.exited).toBe(0);
-    await stderr.done;
-    const log = stderr.text();
-    expect(log).toContain('"stopped"');
-    // One JSON object a line, every line.
-    for (const line of log.trim().split("\n"))
-      expect(() => JSON.parse(line) as unknown).not.toThrow();
-    expectNoSecret(log, [
-      ...secretsOf(s, sent),
-      identity,
-      Buffer.from(key.publicKey).toString("hex"),
-    ]);
-  });
+      child.kill("SIGTERM");
+      expect(await child.exited).toBe(0);
+      await stderr.done;
+      const log = stderr.text();
+      expect(log).toContain('"stopped"');
+      // One JSON object a line, every line.
+      for (const line of log.trim().split("\n"))
+        expect(() => JSON.parse(line) as unknown).not.toThrow();
+      expectNoSecret(log, [
+        ...secretsOf(s, sent),
+        identity,
+        Buffer.from(key.publicKey).toString("hex"),
+      ]);
+    },
+  );
 
-  test("a key file others may read: it does not start (78), and says so without the key", async () => {
-    const s = await standIns();
-    stops.push(() => s.close());
-    chmodSync(s.apnsKeyPath, 0o644);
-    const child = Bun.spawn(
-      [process.execPath, "relay/src/push/main.ts", ...argsFor(s, join(s.folder, "push.sock"))],
-      {
-        cwd: REPO,
-        stdout: "ignore",
-        stderr: "pipe",
-      },
-    );
-    expect(await child.exited).toBe(78);
-    const log = await new Response(child.stderr).text();
-    expect(log).toContain("may be read by others");
-    expectNoSecret(log, secretsOf(s, []));
-  });
+  // This refusal is driven by a POSIX key mode, which Windows does not expose.
+  test.skipIf(process.platform === "win32")(
+    "a key file others may read: it does not start (78), and says so without the key",
+    async () => {
+      const s = await standIns();
+      stops.push(() => s.close());
+      chmodSync(s.apnsKeyPath, 0o644);
+      const child = Bun.spawn(
+        [process.execPath, "relay/src/push/main.ts", ...argsFor(s, join(s.folder, "push.sock"))],
+        {
+          cwd: REPO,
+          stdout: "ignore",
+          stderr: "pipe",
+        },
+      );
+      expect(await child.exited).toBe(78);
+      const log = await new Response(child.stderr).text();
+      expect(log).toContain("may be read by others");
+      expectNoSecret(log, secretsOf(s, []));
+    },
+  );
 });
 
 describe("the push role started here, over TLS, with more of the services' answers", () => {
