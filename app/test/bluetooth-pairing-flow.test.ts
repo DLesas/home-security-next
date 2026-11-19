@@ -252,3 +252,9 @@ test("the timed-out pairing result shows success when the hub hears the device",
   expect(showsNoContact(true, "paired")).toBe(true);
   expect(showsNoContact(true, "contacted")).toBe(false);
 });
+
+test("interrupted pairing explains that leaving the screen can stop adding", () => {
+  expect(failures.pairing.failure.interrupted).toBe(
+    "Adding stopped because the app was closed or left the screen. Check Devices. To start again, hold the button under the cover for about 5 seconds until the light shows.",
+  );
+});

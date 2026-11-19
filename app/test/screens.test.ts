@@ -215,10 +215,10 @@ describe("the home screen", () => {
     expect(textOf(html)).not.toContain("seconds left");
   });
 
-  test("no doors: says what belongs there and offers to add one", async () => {
+  test("no doors on the web: directs the household to the phone app", async () => {
     const html = await renderWith(createElement(arming.Doors), {});
-    expect(textOf(html)).toContain("No doors yet.");
-    expect(html).toMatch(/<a[^>]*href="\/setup"[^>]*>Add a door<\/a>/u);
+    expect(textOf(html)).toContain("No doors yet. Add a door sensor with the phone app.");
+    expect(html).not.toContain('href="/setup"');
   });
 
   test("needs attention: only when a device has something wrong, said in words", async () => {

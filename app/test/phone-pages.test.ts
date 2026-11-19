@@ -20,6 +20,7 @@ import { createStore } from "zustand/vanilla";
 import { renderWith, textOf } from "./support/screens";
 
 const { PhoneProvider } = await import("../src/ui/phone-parts");
+const { Doors } = await import("../src/ui/arming");
 const scan = await import("../src/ui/scan");
 const link = await import("../src/ui/phone-link");
 const restore = await import("../src/ui/phone-restore");
@@ -541,4 +542,10 @@ describe("firmware results on the sensor page", () => {
     expect(await show("rolledBack")).toContain("couldn't join Wi-Fi");
     expect(await show("refused")).toContain("couldn't join Wi-Fi");
   });
+});
+
+test("no doors on a phone: opens the app’s device-add flow", async () => {
+  const html = await renderWith(onPhone(createElement(Doors)), {});
+  expect(textOf(html)).toContain("No doors yet. Add a door sensor in this app.");
+  expect(html).toMatch(/<a[^>]*href="\/device\/add"[^>]*>Add a device<\/a>/u);
 });

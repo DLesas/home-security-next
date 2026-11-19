@@ -7,6 +7,7 @@ import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { useLive } from "./hub-context";
 import { Body, Heading, List, ListRow, Section, TextLink } from "./parts";
+import { usePhone } from "./phone-parts";
 
 const HEALTH = ["silent", "batteryLow", "tamperOpen", "poorLink"] as const;
 const DOOR = {
@@ -53,6 +54,7 @@ export function NeedsAttention() {
 /** Each door: its state and its arming in words (the time left is the state field's alone). */
 export function Doors() {
   const { t } = useTranslation();
+  const phone = usePhone();
   const sensors = useLive((s) => s.sensors);
   const devices = useLive((s) => s.devices);
   const list = useMemo(() => Object.values(sensors).sort((a, b) => a.id - b.id), [sensors]);
@@ -61,8 +63,8 @@ export function Doors() {
       <Heading level={2}>{t("home.doors")}</Heading>
       {list.length === 0 ? (
         <>
-          <Body>{t("home.noDoors")}</Body>
-          <TextLink href="/setup" label={t("home.addDoor")} />
+          <Body>{t(phone === undefined ? "home.noDoorsWeb" : "home.noDoors")}</Body>
+          {phone === undefined ? null : <TextLink href="/device/add" label={t("pairing.add")} />}
         </>
       ) : (
         <List>
