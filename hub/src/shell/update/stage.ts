@@ -1,7 +1,10 @@
 /**
- * `stageUpdate` (m2-design.md section 9, "Hub updates", step 1; release format 2), **in pieces
- * between the loop's turns** (section 3, "The loop's time"): no piece holds the loop for more
- * than about 20 ms on a Raspberry Pi, and the hub stays one thread with one order of events.
+ * `stageUpdate` (m2-design.md section 9, "Hub updates", step 1; release format 2), **in pieces,
+ * on the staging worker's thread** (`stage-job.ts`, `stage-serve.ts`; the product owner's ruling
+ * of 2026-11-20 on section 3, "The loop's time"): the loop only takes the outcome, so a file call
+ * that waits (on Windows a create or a close can wait for hundreds of milliseconds) never holds
+ * it. Each piece's work stays bounded, since the worker looks at a cancel or a stop only between
+ * pieces.
  *
  * - **The first piece** checks everything but the hashes, on the uploaded file itself, in section
  *   9's order: the head and the manifest (`badFile`: a wrong magic or format byte, a manifest the

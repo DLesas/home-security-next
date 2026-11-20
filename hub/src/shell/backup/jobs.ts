@@ -21,7 +21,7 @@ import { HUB_VERSION } from "../hub-facts.ts";
 import { requestSwitch } from "../update/notes.ts";
 import { PUBLISHER_KEYS } from "../update/publisher-keys.ts";
 import { platformOf } from "../update/release.ts";
-import { Staging } from "../update/stage.ts";
+import { StagingJob } from "../update/stage-job.ts";
 import { readRestoreHeader, RestorePieces, swapRestored } from "./restore.ts";
 import { ExportPieces } from "./export-pieces.ts";
 import { HistoryExport } from "./history-export.ts";
@@ -57,6 +57,11 @@ export interface JobDeps extends WriteDeps {
    * committed (wired as the writer's `flush("log")`; without it, what the last commit holds).
    */
   readonly flush?: () => Result<unknown, string>;
+  /**
+   * Asks the loop for a turn (`main.ts`'s): a staging's worker calls it when its outcome has come
+   * (`update/stage-job.ts`). Without it the staging job never says it is waiting.
+   */
+  readonly wake?: () => void;
 }
 
 /** What a job came to: an outcome for the core, or a clean stop and exit 70 after `afterStop`. */
@@ -85,13 +90,16 @@ export function roomOf(
 }
 
 /**
- * A job that runs in pieces between the loop's turns (staging an update): `next` does one bounded
- * piece and gives the outcome once the job has ended; `abort` ends it now (a stop), leaving
- * nothing behind.
+ * A job that runs in pieces between the loop's turns (a backup, an export, a restore): `next` does
+ * one bounded piece and gives the outcome once the job has ended; `abort` ends it now (a stop),
+ * leaving nothing behind. Staging an update runs on a worker thread instead (`StagingJob`): its
+ * `next` only reads whether the worker's outcome has come, and `waiting` is true until it has.
  */
 export interface Pieces {
   next(): FileOutcome | undefined;
   abort(message: string): FileOutcome;
+  /** True while the job has nothing for the loop to do until something else happens. */
+  waiting?(): boolean;
 }
 
 /** What starting a job gives: done at once, a switch, or pieces for the loop to continue. */
@@ -101,7 +109,8 @@ export type JobStart = JobDone | { readonly kind: "pieces"; readonly pieces: Pie
  * Starts a job (the wiring the step 0 owner is asked for, section 3's contract): staging an update,
  * a backup, an export and applying a restore are returned as
  * pieces, the loop running one piece after each turn's inputs and effects and asking for another
- * turn while any remains, so inputs are never starved; every other job is done at once.
+ * turn while any remains, so inputs are never starved; every other job is done at once. Staging
+ * an update is done on a worker thread, its pieces only telling the loop when it has ended.
  */
 export function startJob(job: JobId, work: FileWork, deps: JobDeps): JobStart {
   if (work.kind === "export")
@@ -139,14 +148,17 @@ export function startJob(job: JobId, work: FileWork, deps: JobDeps): JobStart {
   if (path === undefined) return noUpload(work.upload);
   return {
     kind: "pieces",
-    pieces: new Staging({
-      path,
-      prefix: deps.prefix,
-      runningVersion: deps.version ?? HUB_VERSION,
-      platform: platformOf(process.platform, process.arch),
-      keys: deps.publisherKeys ?? PUBLISHER_KEYS,
-      wanted: () => deps.stagingWanted?.(job) ?? true,
-    }),
+    pieces: new StagingJob(
+      {
+        path,
+        prefix: deps.prefix,
+        runningVersion: deps.version ?? HUB_VERSION,
+        platform: platformOf(process.platform, process.arch),
+        keys: deps.publisherKeys ?? PUBLISHER_KEYS,
+        wanted: () => deps.stagingWanted?.(job) ?? true,
+      },
+      deps.wake === undefined ? {} : { wake: deps.wake },
+    ),
   };
 }
 
@@ -200,6 +212,8 @@ function atOnce(work: AtOnce, deps: JobDeps): JobDone {
 /**
  * A job started and, if in pieces, run to its end, a piece after another: what the tests use
  * to see a job's outcome. The hub never does this: its loop takes `startJob`'s pieces one a turn.
+ * Only for the jobs that run on the loop: a staging's outcome comes from its worker, so that one
+ * needs `jobToEnd`.
  */
 export function runToEnd(job: JobId, work: FileWork, deps: JobDeps): JobDone {
   const started = startJob(job, work, deps);
@@ -207,5 +221,16 @@ export function runToEnd(job: JobId, work: FileWork, deps: JobDeps): JobDone {
   for (;;) {
     const outcome = started.pieces.next();
     if (outcome !== undefined) return ready(outcome);
+  }
+}
+
+/** `runToEnd` for any job, a staging's worker included: the thread lets events in between pieces. */
+export async function jobToEnd(job: JobId, work: FileWork, deps: JobDeps): Promise<JobDone> {
+  const started = startJob(job, work, deps);
+  if (started.kind !== "pieces") return started;
+  for (;;) {
+    const outcome = started.pieces.next();
+    if (outcome !== undefined) return ready(outcome);
+    await new Promise((resolve) => setImmediate(resolve));
   }
 }

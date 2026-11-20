@@ -289,23 +289,31 @@ export class ReleaseFetch implements JobPieces {
     return this.#inFlight.size;
   }
 
-  /** Nothing to do until a piece, a refusal or the link comes: the loop need not turn for it. */
+  /**
+   * Nothing to do until a piece, a refusal or the link comes, or, once fetched, until the staging's
+   * worker has ended (`shell/update/stage-job.ts`): the loop need not turn for it.
+   */
   waiting(): boolean {
+    if (this.#phase === "staging") return this.#staging?.waiting?.() === true;
     if (this.#phase !== "fetching" || this.#failure !== undefined || !this.#wanted()) return false;
     return !this.#received.has(this.written) && this.written < this.#work.bytes;
   }
 
   next(): { readonly done: false } | { readonly done: true; readonly outcome: FileOutcome } {
     if (this.#phase === "over") return { done: true, outcome: failed("io", "the fetch is over") };
+    if (this.#phase === "staging") {
+      // A cancel reaches the staging's worker without the loop waiting for it, and the staging
+      // removes what it wrote (`shell/update/stage-job.ts`); the fetch, and the fetched file the
+      // worker reads, end only with the staging.
+      const staged = this.#staging?.next() ?? { done: true, outcome: failed("io", "no staging") };
+      if (!staged.done) return staged;
+      return this.#end(this.#wanted() ? staged.outcome : UNWANTED);
+    }
     if (!this.#wanted()) {
       this.abort();
       return { done: true, outcome: UNWANTED };
     }
     if (this.#failure !== undefined) return this.#end(this.#failure);
-    if (this.#phase === "staging") {
-      const staged = this.#staging?.next() ?? { done: true, outcome: failed("io", "no staging") };
-      return staged.done ? this.#end(staged.outcome) : staged;
-    }
     const at = this.written;
     const piece = this.#received.get(at);
     if (piece !== undefined) {

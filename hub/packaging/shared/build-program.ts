@@ -14,7 +14,9 @@
  * ```
  *
  * All three are compiled through `compileExecutable` (`compile.ts`, the step 0 owner's), with
- * Bun's automatic loading of `.env`, `bunfig.toml`, `tsconfig` and `package.json` turned off.
+ * Bun's automatic loading of `.env`, `bunfig.toml`, `tsconfig` and `package.json` turned off. The
+ * hub's program embeds its worker entries (`hubWorkers`): staging an update's on every system,
+ * and the serial port's on Windows.
  *
  * Run on a machine of the target's own system (each package's build says which): Bun compiles
  * for another system only by fetching that system's runtime, which these builds do not do here.
@@ -56,13 +58,36 @@ function exe(target: Target, name: string): string {
   return target === "bun-windows-x64" ? `${name}.exe` : name;
 }
 
+/**
+ * The worker entries the hub's program embeds, below `HUB` (each started by its source path):
+ * staging an update's on every system (`src/shell/update/stage-worker.ts`), and on Windows the
+ * serial port's.
+ */
+export function hubWorkers(target: Target): readonly string[] {
+  return [
+    join(HUB, "src", "shell", "update", "stage-worker.ts"),
+    ...(target === "bun-windows-x64"
+      ? [join(HUB, "src", "shell", "safe", "worker-windows-serial.ts")]
+      : []),
+  ];
+}
+
+/** The Bun target of the computer this runs on, if the hub is built for it. */
+export function hostTarget(): Target | undefined {
+  const system = process.platform === "win32" ? "windows" : process.platform;
+  const target = `bun-${system}-${process.arch}`;
+  return isTarget(target) ? target : undefined;
+}
+
 function compile(target: Target, entry: string, outfile: string): string | undefined {
-  const windowsHub =
-    target === "bun-windows-x64" && entry === join(HUB, "packaging", "shared", "program.ts");
-  const worker = windowsHub
-    ? { root: HUB, entry: join(HUB, "src", "shell", "safe", "worker-windows-serial.ts") }
-    : undefined;
-  return compileExecutable(target, entry, outfile, REPO, worker);
+  const hub = entry === join(HUB, "packaging", "shared", "program.ts");
+  return compileExecutable(
+    target,
+    entry,
+    outfile,
+    REPO,
+    hub ? { root: HUB, entries: hubWorkers(target) } : undefined,
+  );
 }
 
 /** Builds into `out`; the version, or why not. */

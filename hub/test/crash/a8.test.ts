@@ -100,6 +100,15 @@ function releaseSetup(): {
  */
 let crashOnFetch: CrashPoint | undefined;
 
+/** Ticks until `done`, letting the thread go between turns (a staging's worker answers then); 20 s at most. */
+async function ticksUntil(hub: { input(event: { kind: "tick" }): unknown }, done: () => boolean) {
+  const until = performance.now() + 20_000;
+  while (!done() && performance.now() < until) {
+    hub.input({ kind: "tick" });
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+}
+
 async function household(
   seed: number,
   release?: ReturnType<typeof releaseSetup>,
@@ -145,6 +154,7 @@ async function household(
             const outcome = pieces.next();
             return outcome === undefined ? { done: false } : { done: true, outcome };
           },
+          waiting: () => pieces.waiting?.() === true,
           abort: () => {
             pieces.abort("the hub is stopping");
           },
@@ -262,14 +272,15 @@ describe.each(CRASH_POINTS.map((p) => [p]))("power lost at %s", (point: CrashPoi
       // The staging runs in pieces after the answer; its end is written now, where the power goes.
       crashOnFetch = point;
       expect(fetch(1)).toMatchObject({ ok: true });
-      // A turn a piece, as the loop runs jobs (the home turns only for inputs).
-      for (let i = 0; i < 200 && hub.restarts === 0; i++) hub.input({ kind: "tick" });
+      // Turns, as the loop runs jobs (the home turns only for inputs), with the thread let go
+      // between them as the hub's is: the staging's worker answers in between.
+      await ticksUntil(hub, () => hub.restarts > 0);
       expect(hub.restarts).toBe(1);
       if (recorded() === VERSION) expect(existsSync(join(staged, "bin", PROGRAM))).toBe(true);
       else {
         // Lost with the turn: the relay offers again when the link opens, and a person fetches again.
         expect(fetch(2)).toMatchObject({ ok: true });
-        for (let i = 0; i < 200 && recorded() !== VERSION; i++) hub.input({ kind: "tick" });
+        await ticksUntil(hub, () => recorded() === VERSION);
       }
       expect(recorded()).toBe(VERSION);
       expect(readFileSync(join(staged, "bin", PROGRAM)).length).toBe(600_000);

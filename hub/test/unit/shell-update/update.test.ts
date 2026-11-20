@@ -14,7 +14,7 @@ import { installPaths, parseHealthyNote, parseSwitchNote } from "../../../launch
 import type { AuditRecord } from "../../../src/core/model/audit.ts";
 import { connId, jobId, RECORDS_PER_BOOT, seq } from "../../../src/core/model/ids.ts";
 import { DEFAULT_RULES } from "../../../src/core/model/rules.ts";
-import { runToEnd } from "../../../src/shell/backup/jobs.ts";
+import { jobToEnd, runToEnd } from "../../../src/shell/backup/jobs.ts";
 import {
   healthyIn,
   markHealthy,
@@ -115,9 +115,9 @@ describe("health", () => {
 });
 
 describe("staging", () => {
-  test("waits for the release format: answered failed, nothing unpacked", () => {
+  test("waits for the release format: answered failed, nothing unpacked", async () => {
     const prefix = install();
-    const done = runToEnd(
+    const done = await jobToEnd(
       jobId(1),
       { kind: "stageUpdate", upload: { conn: connId(1), job: 1 } },
       deps(prefix),
