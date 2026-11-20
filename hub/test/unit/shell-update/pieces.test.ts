@@ -12,6 +12,13 @@
  * generous enough for a loaded machine (`LOADED_BOUND_MS`), which catches a piece doing far more
  * than its bytes, never a busy neighbour. The tight figures, the 20 ms ‡ of section 3 and a door
  * report's wait, are measured and asserted by the opt-in timing test (`HSN_TIMING=1`), run alone.
+ *
+ * On Windows the ordinary run times each file call. On the hosted Windows runners a create that
+ * gives a folder's index a new block (the 8th file of `web/`, then every 21st from the 42nd) can
+ * wait half a second with the thread doing nothing; the hosted policy (`hosted-timing.ts`) lets
+ * such a piece pass, saying so, only if the wait is in a create and the rest of the piece is
+ * within the bound. The tests after the ordinary run stage with one piece made to misbehave, and
+ * show what still fails, on a hosted runner and off one.
  */
 import { afterAll, afterEach, beforeAll, describe, expect, spyOn, test } from "bun:test";
 import * as fs from "node:fs";
@@ -25,7 +32,8 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join, relative, sep } from "node:path";
+import { ResultAsync } from "neverthrow";
 import { releaseOf } from "../../../packaging/shared/make-release.ts";
 import { installPaths } from "../../../launcher/src/layout.ts";
 import { TEST_PUBLISHER_KEY } from "../../../src/shell/update/publisher-keys.ts";
@@ -36,6 +44,7 @@ import {
 } from "../../../src/shell/update/stage.ts";
 
 import {
+  type FileCall,
   HOSTED_TIMING,
   retryHostedTiming,
   timePiece,
@@ -86,20 +95,53 @@ afterEach(() => {
   restoreFileCalls = undefined;
 });
 
-/** Times the real filesystem calls so a slow piece can be traced to an individual operation. */
-function timeFileCalls() {
+/** One call to delay, as the hosted disk delays a create: its name, its path below the folder. */
+interface Delay {
+  readonly name: "openSync" | "mkdirSync";
+  readonly path: string;
+  readonly ms: number;
+  /** How many such calls to let through first. */
+  readonly skip?: number;
+}
+
+/**
+ * Times the real filesystem calls so a slow piece can be traced to an individual operation, each
+ * with what it was called on (a path below `under`, or a file's name), and whether it made a file
+ * (`openSync` with `wx`, as pass 2 makes each one). `delay` makes one call of that name on that
+ * path (the first after `skip` of them) wait so long inside the call.
+ */
+function timeFileCalls(under: string, delay?: Delay) {
   const names = ["openSync", "readSync", "writeSync", "closeSync", "mkdirSync"] as const;
   interface Call {
     name: (typeof names)[number];
     ms: number;
+    path: string;
+    create: boolean;
   }
   let calls: Call[] = [];
+  let matching = 0;
+  const opened = new Map<number, string>();
+  const named = (path: string) => {
+    const below = relative(under, path);
+    return below.startsWith("..") ? basename(path) : below.split(sep).join("/");
+  };
   const spies = names.map((name) => {
     const original = fs[name];
     return spyOn(fs, name).mockImplementation((...args: Parameters<typeof original>) => {
+      const [target, flags] = args;
+      const path =
+        typeof target === "string"
+          ? named(target)
+          : typeof target === "number"
+            ? (opened.get(target) ?? "?")
+            : "?";
       const start = performance.now();
+      if (delay?.name === name && delay.path === path && matching++ === (delay.skip ?? 0))
+        Bun.sleepSync(delay.ms);
       const value = Reflect.apply(original, fs, args) as ReturnType<typeof original>;
-      calls.push({ name, ms: performance.now() - start });
+      const ms = performance.now() - start;
+      if (name === "openSync" && typeof value === "number") opened.set(value, path);
+      calls.push({ name, ms, path, create: name === "openSync" && flags === "wx" });
       return value;
     });
   });
@@ -113,6 +155,15 @@ function timeFileCalls() {
     for (const spy of spies) spy.mockClear();
     return piece;
   };
+}
+
+/** The piece's longest file call, for the hosted policy. */
+function longestCall(
+  calls: ReturnType<ReturnType<typeof timeFileCalls>> | undefined,
+): FileCall | undefined {
+  let longest: FileCall | undefined;
+  for (const call of calls ?? []) if (call.ms > (longest?.ms ?? -1)) longest = call;
+  return longest;
 }
 
 function prefix(name: string): string {
@@ -138,12 +189,48 @@ function staging(p: string, wanted: () => boolean = () => true): Staging {
   });
 }
 
+/** What a test makes one staging do beyond its real work, to show what the ordinary run catches. */
+interface Misbehaviour {
+  /** The folder's name, so that tests do not share one. */
+  readonly name: string;
+  /** Times the file calls (and thread CPU) even off Windows. */
+  readonly timeCalls?: boolean;
+  /** Runs inside each timed piece, after its real work. */
+  readonly after?: (piece: {
+    index: number;
+    phase: Staging["phase"];
+    job: Staging;
+    folder: string;
+  }) => void;
+  /** Makes one file call wait so long inside it. */
+  readonly delay?: Delay;
+}
+
+/** Reads the assertion error from a failed staging, or undefined if it passed. */
+async function failureOf(run: Promise<void>): Promise<string | undefined> {
+  const result = await ResultAsync.fromPromise(run, (reason: unknown) => reason);
+  return result.isErr() ? String(result.error) : undefined;
+}
+
+/** Spends at least `ms` of this thread's processor time. */
+function spin(ms: number): void {
+  const start = process.threadCpuUsage();
+  for (;;) {
+    const used = process.threadCpuUsage(start);
+    if ((used.user + used.system) / 1000 >= ms) return;
+  }
+}
+
 describe("staging a 112 MB program in pieces", () => {
   /** Stages a fresh release and checks its work, leaving wall timing to the hosted policy. */
-  function boundedPieces(attempt: number) {
-    const p = prefix(`bytes-${attempt}`);
+  function boundedPieces(attempt: number, misbehaviour?: Misbehaviour) {
+    const p = prefix(`${misbehaviour?.name ?? "bytes"}-${attempt}`);
     const job = staging(p);
-    const fileCalls = process.platform === "win32" || TIMING ? timeFileCalls() : undefined;
+    const folder = join(p, "staged", ".staging-9.0.0");
+    const fileCalls =
+      process.platform === "win32" || TIMING || misbehaviour?.timeCalls === true
+        ? timeFileCalls(folder, misbehaviour?.delay)
+        : undefined;
     const misses: TimingMiss[] = [];
     let read = 0;
     let longest: {
@@ -164,15 +251,31 @@ describe("staging a 112 MB program in pieces", () => {
     let outcome;
     for (;;) {
       const phase = job.phase;
+      const index = pieces;
       const {
         value,
         wallMs: ms,
         cpuMs,
-      } = timePiece(() => job.next(), HOSTED_TIMING || fileCalls !== undefined);
+      } = timePiece(
+        () => {
+          const ended = job.next();
+          misbehaviour?.after?.({ index, phase, job, folder });
+          return ended;
+        },
+        HOSTED_TIMING || fileCalls !== undefined,
+      );
       outcome = value;
-      if (ms >= LOADED_BOUND_MS)
-        misses.push({ label: phase, wallMs: ms, cpuMs, limitMs: LOADED_BOUND_MS });
       const calls = fileCalls?.();
+      if (ms >= LOADED_BOUND_MS) {
+        const call = longestCall(calls);
+        misses.push({
+          label: phase,
+          wallMs: ms,
+          cpuMs,
+          limitMs: LOADED_BOUND_MS,
+          ...(call === undefined ? {} : { call }),
+        });
+      }
       if (ms > longest.ms) {
         longest = {
           phase,
@@ -187,7 +290,7 @@ describe("staging a 112 MB program in pieces", () => {
       expect(job.bytesRead - read).toBeLessThanOrEqual(STAGING_PIECE_BYTES);
       read = job.bytesRead;
       if (phase === "copy" && job.phase === "copy") {
-        const made = readdirSync(join(p, "staged", ".staging-9.0.0"), { recursive: true }).length;
+        const made = readdirSync(folder, { recursive: true }).length;
         expect(made - madeBefore).toBeLessThanOrEqual(STAGING_FILES_PER_PIECE + 3);
         madeBefore = made;
       }
@@ -210,6 +313,7 @@ describe("staging a 112 MB program in pieces", () => {
       ).toBe(true);
     restoreFileCalls?.();
     restoreFileCalls = undefined;
+    if (misbehaviour !== undefined) rmSync(p, { recursive: true, force: true });
     return {
       misses,
       assertTiming: () => {
@@ -222,6 +326,123 @@ describe("staging a 112 MB program in pieces", () => {
     "each piece reads at most its bytes and makes at most its files; both passes in pieces; byte for byte",
     () => retryHostedTiming(boundedPieces),
     60_000,
+  );
+
+  /** The ordinary run with one piece misbehaving, as on a hosted runner (`true`) and off one. */
+  function misbehaving(hosted: boolean, misbehaviour: Misbehaviour) {
+    const name = `${misbehaviour.name}-${hosted ? "hosted" : "local"}`;
+    return failureOf(
+      retryHostedTiming(
+        (attempt) => boundedPieces(attempt, { timeCalls: true, ...misbehaviour, name }),
+        hosted,
+      ),
+    );
+  }
+
+  // A file well away from the creates that grow `web/`'s index (its 8th, 42nd, 63rd...), so that a
+  // hosted disk's own wait does not land in the same piece.
+  const QUIET_CREATE = "web/f124.js";
+
+  test("a piece over the bound that waited in one create passes on a hosted runner, saying what it measured; off one it fails", async () => {
+    const lines: string[] = [];
+    const log = spyOn(console, "log").mockImplementation((...args: unknown[]) => {
+      lines.push(args.map(String).join(" "));
+    });
+    const delay = { name: "openSync", path: QUIET_CREATE, ms: LOADED_BOUND_MS + 150 } as const;
+    const hosted = await misbehaving(true, { name: "create-wait", delay });
+    log.mockRestore();
+    expect(hosted).toBeUndefined();
+    const passed = lines.find((line) => line.startsWith("Passing hosted timing"));
+    expect(passed).toMatch(
+      /waited in one file create, the rest of it within the limit, in attempt 1: (?:.*; )?copy: [\d.]+ ms wall, [\d.]+ ms thread CPU \(limit 250 ms\); 4\d\d\.\d ms of it in one file create \(web\/f124\.js\)/u,
+    );
+    expect(lines.join("\n")).not.toContain("paused");
+    expect(await misbehaving(false, { name: "create-wait", delay })).toContain("Expected: < 250");
+  }, 60_000);
+
+  test("a piece over the bound that waited outside any create is retried as a pause on a hosted runner, and fails", async () => {
+    const after = ({ index }: { index: number }) => {
+      if (index === 10) Bun.sleepSync(LOADED_BOUND_MS + 150);
+    };
+    expect(await misbehaving(true, { name: "pause", after })).toMatch(
+      /the runner paused the process in all three attempts\n(?:attempt [123]: hash: [\d.]+ ms wall, [\d.]+ ms thread CPU \(limit 250 ms\); [\d.]+ ms of it in one readSync \(upload\.hsnr\), [\d.]+ ms outside it[^\n]*\n?){3}/u,
+    );
+  }, 60_000);
+
+  // Pass 2 makes `web/` again before each of its files: the one before the quiet create.
+  const QUIET_MKDIR = { name: "mkdirSync", path: "web", skip: 29, phase: "copy" } as const;
+
+  test.each([
+    { hosted: true, ...QUIET_MKDIR },
+    { hosted: false, ...QUIET_MKDIR },
+    // The upload is opened to be read, not made: not a create.
+    { hosted: true, name: "openSync", path: "upload.hsnr", skip: 0, phase: "start" },
+  ] as const)(
+    "a piece over the bound that waited in one file call other than a create fails, naming the call ($name $path, hosted runner: $hosted)",
+    async ({ hosted, name, path, skip, phase }) => {
+      const delay = { name, path, skip, ms: LOADED_BOUND_MS + 150 };
+      const failure = await misbehaving(hosted, { name: `wait-${name}`, delay });
+      if (hosted) {
+        expect(failure).toContain(
+          `one file call waited, which a hosted runner allows only for a file create of at most 750 ms: ${phase}: `,
+        );
+        // The delay (400 ms), measured inside the call and named by it.
+        expect(failure?.match(/; (\d+)\.\d ms of it in one (\w+) \(([^)]+)\)/u)?.slice(2)).toEqual([
+          name,
+          path,
+        ]);
+        expect(Number(failure?.match(/; (\d+)\.\d ms of it in one/u)?.[1])).toBeGreaterThanOrEqual(
+          400,
+        );
+      } else expect(failure).toContain("Expected: < 250");
+      expect(failure).not.toContain("paused");
+    },
+    60_000,
+  );
+
+  test("a piece that spends more processor time than the bound fails, on a hosted runner and off one", async () => {
+    let attempts = 0;
+    const after = ({ index }: { index: number }) => {
+      if (index !== 10) return;
+      attempts += 1;
+      spin(LOADED_BOUND_MS + 50);
+    };
+    const hosted = await misbehaving(true, { name: "cpu", after });
+    // Failed on the processor time, at the first attempt: never retried as a pause.
+    expect(hosted).toMatch(
+      /hash: [\d.]+ ms wall, (?:2[5-9]\d|[3-9]\d\d)\.\d ms thread CPU \(limit 250 ms\)/u,
+    );
+    expect(hosted).not.toContain("paused");
+    expect(attempts).toBe(1);
+    expect(await misbehaving(false, { name: "cpu", after })).toContain("Expected: < 250");
+  }, 60_000);
+
+  test.each([true, false])(
+    "a piece that reads more than its bytes fails (hosted runner: %p)",
+    async (hosted) => {
+      const after = ({ index, job }: { index: number; job: Staging }) => {
+        if (index === 10) job.next();
+      };
+      expect(await misbehaving(hosted, { name: "bytes-over", after })).toContain(
+        `Expected: <= ${STAGING_PIECE_BYTES}\nReceived: ${2 * STAGING_PIECE_BYTES}`,
+      );
+    },
+  );
+
+  test.each([true, false])(
+    "a piece that makes more than its files fails (hosted runner: %p)",
+    async (hosted) => {
+      let extra = false;
+      const after = ({ phase, folder }: { phase: Staging["phase"]; folder: string }) => {
+        if (phase !== "copy" || extra) return;
+        extra = true;
+        for (let i = 0; i < STAGING_FILES_PER_PIECE + 4; i++)
+          writeFileSync(join(folder, `extra-${i}`), "");
+      };
+      expect(await misbehaving(hosted, { name: "files-over", after })).toContain(
+        `Expected: <= ${STAGING_FILES_PER_PIECE + 3}`,
+      );
+    },
   );
 
   /** Stages between simulated door reports to measure the opt-in timing budget. */
