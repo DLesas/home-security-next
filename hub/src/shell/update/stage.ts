@@ -1,7 +1,10 @@
 /**
- * `stageUpdate` (m2-design.md section 9, "Hub updates", step 1; release format 2), **in pieces
- * between the loop's turns** (section 3, "The loop's time"): no piece holds the loop for more
- * than about 20 ms on a Raspberry Pi, and the hub stays one thread with one order of events.
+ * `stageUpdate` (m2-design.md section 9, "Hub updates", step 1; release format 2), **in pieces,
+ * on the staging worker's thread** (`stage-job.ts`, `stage-serve.ts`; the product owner's ruling
+ * of 2026-11-20 on section 3, "The loop's time"): the loop only takes the outcome, so a file call
+ * that waits (on Windows a create or a close can wait for hundreds of milliseconds) never holds
+ * it. Each piece's work stays bounded, since the worker looks at a cancel or a stop only between
+ * pieces.
  *
  * - **The first piece** checks everything but the hashes, on the uploaded file itself, in section
  *   9's order: the head and the manifest (`badFile`: a wrong magic or format byte, a manifest the
@@ -12,7 +15,16 @@
  *   `node:crypto`, which must be `payloadSha256`. Not a byte is written before it passes.
  * - **Pass 2** copies each file's byte range into a folder beside the hub's `staged/` versions, the same size a
  *   piece and at most `STAGING_FILES_PER_PIECE` ‡ files made, checking each file's own SHA-256 as it ends; the paths are the manifest's, already
- *   checked to stay inside.
+ *   checked to stay inside. Each file is synced to the disk before it is closed, on the worker:
+ *   without it the disk's cost of the new files fell on the loop, in the `hub.db` commit that
+ *   records `update_staged` (the hub's thread waiting in it, measured on hosted runners through 60
+ *   real stagings a machine: Linux up to 221 ms, run 44915548026; in run 44918706591, 23 of 240
+ *   stagings over 20 ms on Linux, Windows up to 114 ms, 16 of 240), and with it that commit no
+ *   longer waits for them (the longest gap a staging: Linux 7.6 to 9.9 ms, Windows 11 to 16 ms,
+ *   4 of 480 over 20 ms, each the commit's own write). It is also what makes the record true of the bytes and not only of the
+ *   names: the core records the version staged only once its folder is in place, and with the
+ *   sync its files' contents are on the disk by then. It costs the staging, on the worker, 11 to
+ *   22 ms on Linux and 150 to 230 ms on Windows for a release of 42 files.
  * - **Then** any version but the current one is removed, one a piece (at most two, section 9;
  *   never before the hashes, so a refused release costs the rollback nothing), and the folder is
  *   renamed to `staged/<version>/` in the hub's program tree (section 9, "The privilege boundary").
@@ -25,6 +37,7 @@ import {
   chmodSync,
   closeSync,
   fstatSync,
+  fsyncSync,
   mkdirSync,
   openSync,
   readSync,
@@ -307,6 +320,8 @@ export class Staging {
         budget -= take;
       }
       if (writing.written < file.bytes) return undefined;
+      // On the disk before the core can record it (see the header), paid on this thread.
+      fsyncSync(writing.fd);
       closeSync(writing.fd);
       this.#writing = undefined;
       if (writing.hash.digest("hex") !== file.sha256)

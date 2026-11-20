@@ -117,6 +117,8 @@ export interface AppWiringOptions {
    * entry; a test's entry passes `TEST_PUBLISHER_KEY` (section 9, "Hub updates").
    */
   readonly publisherKeys: readonly Uint8Array[];
+  /** Asks the loop for a turn: a staging's worker has ended (`shell/update/stage-job.ts`). */
+  readonly wake?: () => void;
 }
 
 /** The keys and the stores made before the boot event. */
@@ -373,6 +375,7 @@ export class AppSide {
       flush: () => this.#options.writer.flush("log").mapErr((e) => e.message),
       nowMs: this.#options.nowMs,
       salt: () => this.#options.random(8).mapErr((e) => e.message),
+      ...(this.#options.wake === undefined ? {} : { wake: this.#options.wake }),
     });
     if (started.kind !== "pieces") return started;
     const pieces = started.pieces;
@@ -383,6 +386,8 @@ export class AppSide {
           const outcome = pieces.next();
           return outcome === undefined ? { done: false } : { done: true, outcome };
         },
+        // A staging on its worker asks no turn while it works: its outcome asks for one.
+        waiting: () => pieces.waiting?.() === true,
         // A stop: the job's temporary files go, and an export's connection is told (section 6).
         abort: () => {
           pieces.abort("the hub is stopping");

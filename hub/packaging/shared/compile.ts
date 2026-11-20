@@ -22,13 +22,16 @@ export const NO_AUTOLOAD_FLAGS = [
   "--no-compile-autoload-package-json",
 ] as const;
 
-/** The command that compiles `entry` to `outfile` for `target`, with nothing loaded at run time. */
+/**
+ * The command that compiles `entry` to `outfile` for `target`, with nothing loaded at run time;
+ * `workers` are embedded beside it, each found at run time by its path below `root`.
+ */
 export function compileCommand(
   bun: string,
   target: string,
   entry: string,
   outfile: string,
-  worker?: { readonly root: string; readonly entry: string },
+  workers?: { readonly root: string; readonly entries: readonly string[] },
 ): readonly string[] {
   return [
     bun,
@@ -37,7 +40,9 @@ export function compileCommand(
     ...NO_AUTOLOAD_FLAGS,
     `--target=${target}`,
     entry,
-    ...(worker === undefined ? [] : ["--root", worker.root, worker.entry]),
+    ...(workers === undefined || workers.entries.length === 0
+      ? []
+      : ["--root", workers.root, ...workers.entries]),
     "--outfile",
     outfile,
   ];
@@ -49,10 +54,10 @@ export function compileExecutable(
   entry: string,
   outfile: string,
   cwd: string,
-  worker?: Parameters<typeof compileCommand>[4],
+  workers?: Parameters<typeof compileCommand>[4],
 ): string | undefined {
   const built = Bun.spawnSync(
-    [...compileCommand(process.execPath, target, entry, outfile, worker)],
+    [...compileCommand(process.execPath, target, entry, outfile, workers)],
     {
       cwd,
       stdout: "pipe",

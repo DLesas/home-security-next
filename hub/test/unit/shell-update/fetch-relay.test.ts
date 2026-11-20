@@ -176,6 +176,7 @@ async function joined(
       version: RUNNING,
       nowMs: () => 0,
       salt: () => ok(new Uint8Array(8)),
+      wake: () => undefined,
     });
     if (started.kind !== "pieces") return started;
     const pieces = started.pieces;
@@ -186,6 +187,8 @@ async function joined(
           const outcome = pieces.next();
           return outcome === undefined ? { done: false } : { done: true, outcome };
         },
+        // As the app side's wiring: a staging on its worker waits, its outcome asking for a turn.
+        waiting: () => pieces.waiting?.() === true,
         abort: () => {
           pieces.abort("stopped");
         },
@@ -198,16 +201,29 @@ async function joined(
   return { side, uploads };
 }
 
-/** Runs pieces as the loop does: one `next` a turn, none while the job waits; `each` after each. */
+/** The most turns a fetch and its staging may ask for (6 or 7 here), and how long it may take. */
+const MOST_TURNS = 50;
+const DRIVE_MS = 30_000;
+
+/**
+ * Runs pieces as the loop does: one `next` a turn, none while the job waits; `each` after each.
+ * It yields after every turn, as the loop does, so a job asking for turns it has no use for
+ * fails by the turns' bound rather than spinning for ever.
+ */
 async function drive(pieces: JobPieces, each: () => void = () => undefined): Promise<FileOutcome> {
-  for (;;) {
+  const end = performance.now() + DRIVE_MS;
+  for (let turns = 0; ;) {
+    expect(performance.now(), `the job ended within ${DRIVE_MS} ms`).toBeLessThan(end);
     if (pieces.waiting?.() === true) {
       await settle(2);
       continue;
     }
+    turns += 1;
+    expect(turns, "turns asked for one fetch and its staging").toBeLessThanOrEqual(MOST_TURNS);
     const step = pieces.next();
     if (step.done) return step.outcome;
     each();
+    await new Promise((resolve) => setImmediate(resolve));
   }
 }
 

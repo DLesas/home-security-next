@@ -208,6 +208,20 @@ jobs:
           check "The console serves the web app's page" sh -c 'curl -fsS http://127.0.0.1:8445/ | grep -qi "<html"'
           hosted console
 
+      - name: Staging an update in the installed hub (its worker)
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: |
+          . .github/workflows/installer-checks.sh
+          heading "Staging an update: the staging worker in the installed program"
+          release=$(bun hub/packaging/test/test-release.ts "$RUNNER_TEMP")
+          answer=$(sudo hsn update install "$release" 2>&1)
+          code=$?
+          expect "sudo hsn update install of a release no compiled-in key signed: exit 1" "1" "$code"
+          check "Refused badSignature by staging's first piece, in the staging worker (a worker not found would end it io)" sh -c 'printf "%s" "$1" | grep -q "\"reason\":\"badSignature\""' _ "$answer"
+          info "What hsn said" "$(printf '%s' "$answer" | one_line)"
+          printf 'hsn update install said (exit %s): %s\n' "$code" "$(printf '%s' "$answer" | one_line)"
+          expect "No staging folder left in the program tree" "" "$(sudo find "$PROGRAM/staged" -maxdepth 1 -name '.staging-*' 2>&1)"
       - name: The hub's trees
         if: ${{ !cancelled() }}
         shell: bash
@@ -456,6 +470,20 @@ jobs:
           check "The console serves the web app's page" sh -c 'curl -fsS http://127.0.0.1:8445/ | grep -qi "<html"'
           hosted console
 
+      - name: Staging an update in the installed hub (its worker)
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: |
+          . .github/workflows/installer-checks.sh
+          heading "Staging an update: the staging worker in the installed program"
+          release=$(bun hub/packaging/test/test-release.ts "$RUNNER_TEMP")
+          answer=$(sudo hsn update install "$release" 2>&1)
+          code=$?
+          expect "sudo hsn update install of a release no compiled-in key signed: exit 1" "1" "$code"
+          check "Refused badSignature by staging's first piece, in the staging worker (a worker not found would end it io)" sh -c 'printf "%s" "$1" | grep -q "\"reason\":\"badSignature\""' _ "$answer"
+          info "What hsn said" "$(printf '%s' "$answer" | one_line)"
+          printf 'hsn update install said (exit %s): %s\n' "$code" "$(printf '%s' "$answer" | one_line)"
+          expect "No staging folder left in the program tree" "" "$(sudo find "$PROGRAM/staged" -maxdepth 1 -name '.staging-*' 2>&1)"
       - name: The hub's trees
         if: ${{ !cancelled() }}
         shell: bash
@@ -912,6 +940,25 @@ jobs:
           # A probe expected to fail (sc.exe query of a removed service, netsh of a removed rule)
           # leaves its exit code behind: the checks above are this step's result, counted by
           # Result; a step that must stop the job says so with Stop-Job.
+          exit 0
+
+      - name: Staging an update in the installed hub (its worker)
+        if: ${{ !cancelled() && env.HSN_STOPPED == '' }}
+        shell: pwsh
+        run: |
+          . .github/workflows/installer-checks.ps1
+          Write-Heading "Staging an update: the staging worker in the installed program"
+          $data = Join-Path $env:ProgramData "HSN Hub"
+          $env:Path = "$([Environment]::GetEnvironmentVariable('Path', 'Machine'));$env:Path"
+          $release = ((& bun hub/packaging/test/test-release.ts $env:RUNNER_TEMP) | Select-Object -Last 1).Trim()
+          $answer = ((& hsn --data $data update install $release 2>&1) -join "`n")
+          $code = $LASTEXITCODE
+          Test-Check "hsn update install of a release no compiled-in key signed: exit 1" { if ($code -eq 1) { $true } else { "exit $code" } }
+          Test-Check "Refused badSignature by staging's first piece, in the staging worker (a worker not found would end it io)" { if ($answer -match '"reason":"badSignature"') { $true } else { ConvertTo-OneLine (Hide-Secrets $answer) } }
+          Write-Info "What hsn said" (ConvertTo-OneLine (Hide-Secrets $answer))
+          Write-Host "hsn update install said (exit ${code}): $(ConvertTo-OneLine (Hide-Secrets $answer))"
+          $staged = Join-Path $env:ProgramData "HSN Hub Program\staged"
+          Test-Check "No staging folder left in the program tree" { $left = @(Get-ChildItem -Force -LiteralPath $staged -Filter '.staging-*' -ErrorAction SilentlyContinue); if ($left.Count -eq 0) { $true } else { $left.Name -join ', ' } }
           exit 0
 
       - name: The installed hub from an ordinary local account

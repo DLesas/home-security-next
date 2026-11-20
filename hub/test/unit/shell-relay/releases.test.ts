@@ -350,6 +350,8 @@ describe("fetching", () => {
       let wanted = true;
       let stages = 0;
       let aborted = 0;
+      /** Whether the core still wanted the release each time the staging was asked for a piece. */
+      const asked: boolean[] = [];
       const client = makeClient({
         key: staticKeyOf(75),
         connect: relay.connect,
@@ -359,8 +361,13 @@ describe("fetching", () => {
           return {
             kind: "pieces",
             pieces: {
-              // A cancellation must be checked before the very first staging turn.
-              next: () => ({ done: true, outcome: { kind: "updateStaged", version: "9.0.0" } }),
+              // The staging is asked only after the cancel, which a real one sees in its own next()
+              // and ends without the loop waiting (`shell/update/stage-job.ts`); what it gives then
+              // is not the fetch's outcome.
+              next: () => {
+                asked.push(wanted);
+                return { done: true, outcome: { kind: "updateStaged", version: "9.0.0" } };
+              },
               abort: () => {
                 aborted += 1;
               },
@@ -383,7 +390,9 @@ describe("fetching", () => {
       wanted = false;
       expect(fetch.pieces.next()).toMatchObject({ done: true, outcome: { kind: "failed" } });
       expect(stages).toBe(Number(startedStaging));
-      expect(aborted).toBe(Number(startedStaging));
+      expect(asked).toEqual(startedStaging ? [false] : []);
+      // Never aborted: an abort is a stop's, which waits for the staging's worker.
+      expect(aborted).toBe(0);
       expect(client.uploads.held).toBe(0);
       expect(link.sent("release.get")).toHaveLength(1);
     },

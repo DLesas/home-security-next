@@ -25,7 +25,7 @@ import { createHash } from "node:crypto";
 import { installPaths } from "../../../launcher/src/layout.ts";
 import { connId, jobId } from "../../../src/core/model/ids.ts";
 import { DEFAULT_RULES } from "../../../src/core/model/rules.ts";
-import { runToEnd } from "../../../src/shell/backup/jobs.ts";
+import { jobToEnd, runToEnd } from "../../../src/shell/backup/jobs.ts";
 import {
   PUBLISHER_KEYS,
   releaseKeysProblem,
@@ -403,9 +403,9 @@ describe("the switch's room", () => {
 
   // The job stages for the system it runs on (`platformOf`), so the release is built for it.
   const here = platformOf(process.platform, process.arch);
-  test.skipIf(here === undefined)("staged through the job, with the test key", () => {
+  test.skipIf(here === undefined)("staged through the job, with the test key", async () => {
     writeFileSync(upload, release("1.0.0", here ?? "linux-x64"));
-    const done = runToEnd(
+    const done = await jobToEnd(
       jobId(1),
       { kind: "stageUpdate", upload: { conn: connId(1), job: 1 } },
       {

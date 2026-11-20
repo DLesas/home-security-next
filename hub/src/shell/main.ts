@@ -287,6 +287,10 @@ export async function runHub(
       say(`${error.origin}: ${error.message}`);
     },
     publisherKeys: trusted.publisherKeys,
+    // A staging's worker has ended: a turn takes its outcome (the loop's `askTurn`, below).
+    wake: () => {
+      askTurn();
+    },
     history: {
       rows: (page: Parameters<typeof store.reader.historyRows>[0]) =>
         store.reader.historyRows(page),
