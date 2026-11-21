@@ -1,12 +1,11 @@
 /** W1's Win32 calls and worker exchange; the test supplies a serial driver on every host. */
 import { describe, expect, test } from "bun:test";
-import { Worker } from "node:worker_threads";
+import { join } from "node:path";
 import { ok } from "neverthrow";
 import type { HubEvent } from "../../../src/core/model/events.ts";
 import { linkId, sendRef } from "../../../src/core/model/ids.ts";
 import { LinkRegistry } from "../../../src/shell/links/registry.ts";
 import { SerialLinks } from "../../../src/shell/links/serial.ts";
-import type { WindowsSerialCalls } from "../../../src/shell/safe/ffi-windows-serial.ts";
 import {
   byteCleanMismatch,
   devicePath,
@@ -18,147 +17,19 @@ import {
 import { openWindowsSerial } from "../../../src/shell/safe/serial-windows.ts";
 import {
   DRAINED,
-  ESCAPE,
   FIRST_BYTE,
   GATE,
   READS,
-  STOP,
-  WAKE,
-  WRITE,
   WRITES,
   type FakeMode,
 } from "./serial-windows-mock-worker.ts";
+import { expectClosed, fakePort, until, windows } from "./serial-windows-doubles.ts";
 
-type Failure =
-  | "open"
-  | "GetCommState"
-  | "SetCommState"
-  | "GetCommState read-back"
-  | "read-back"
-  | "SetCommTimeouts"
-  | "PurgeComm";
-
-/** Open/configure doubles observe the bytes handed to Win32 in call order. */
-function windows(fail?: Failure, code = 5, shared?: Int32Array) {
-  const operations: string[] = [];
-  const settings = newDcb();
-  const calls: WindowsSerialCalls = {
-    CreateFileW: (name, access, share, security, disposition, flags, template) => {
-      operations.push("CreateFileW");
-      expect(name instanceof Uint16Array ? String.fromCharCode(...name) : "").toBe(
-        "\\\\.\\COM10\0",
-      );
-      expect([access, share, security, disposition, flags, template]).toEqual([
-        0xc000_0000,
-        0,
-        null,
-        3,
-        0x4000_0000,
-        0n,
-      ]);
-      return fail === "open" ? -1n : 10n;
-    },
-    GetCommState: (handle, target) => {
-      operations.push("GetCommState");
-      expect(handle).toBe(10n);
-      const call = operations.length > 2 ? "GetCommState read-back" : "GetCommState";
-      if (!(target instanceof Uint8Array) || fail === call) return 0;
-      target.set(settings);
-      if (fail === "read-back" && operations.length > 2) target[18] = 7;
-      return 1;
-    },
-    SetCommState: (_handle, dcb) => {
-      operations.push("SetCommState");
-      if (!(dcb instanceof Uint8Array) || fail === "SetCommState") return 0;
-      settings.set(dcb);
-      return 1;
-    },
-    SetCommTimeouts: (_handle, timeouts) => {
-      operations.push("SetCommTimeouts");
-      expect(timeouts).toEqual(Uint32Array.of(0xffff_ffff, 0xffff_ffff, 500, 0, 500));
-      return fail === "SetCommTimeouts" ? 0 : 1;
-    },
-    PurgeComm: (_handle, flags) => {
-      operations.push("PurgeComm");
-      expect(flags).toBe(0x0f);
-      return fail === "PurgeComm" ? 0 : 1;
-    },
-    ReadFileEx: () => 0,
-    WriteFileEx: () => 0,
-    WaitForMultipleObjectsEx: () => 0,
-    CancelIoEx: () => 0,
-    SleepEx: () => 0,
-    CreateEventW: (_attributes, manual, initial, name) => {
-      expect([_attributes, initial, name]).toEqual([null, 0, null]);
-      operations.push(manual === 1 ? "stop event" : "write event");
-      return manual === 1 ? 11n : 12n;
-    },
-    SetEvent: (event) => {
-      if (shared === undefined) return 0;
-      Atomics.or(shared, WAKE, event === 11n ? STOP : WRITE);
-      Atomics.notify(shared, WAKE);
-      return 1;
-    },
-    CloseHandle: (handle) => {
-      operations.push(handle === 10n ? "CloseHandle" : `close event ${handle}`);
-      return 1;
-    },
-    GetLastError: () => code,
-  };
-  return { calls, operations };
-}
-
-/** Waits for a data or error message sent by the worker. */
-async function until(check: () => boolean): Promise<boolean> {
-  const deadline = Date.now() + 3000;
-  while (!check() && Date.now() < deadline) await Bun.sleep(1);
-  return check();
-}
-
-/** Opens COM10 with native-call doubles and the actual message loop in a worker. */
-function fakePort(mode: FakeMode) {
-  const shared = new Int32Array(new SharedArrayBuffer((ESCAPE + 1) * 4));
-  const { calls, operations } = windows(undefined, 5, shared);
-  const port = openWindowsSerial("COM10", {
-    system: calls,
-    startWorker: (job, stopping) => {
-      expect(job.kind).toBe("port");
-      return new Worker(new URL("./serial-windows-mock-worker.ts", import.meta.url), {
-        workerData: { ...job, stopping, mode, shared },
-        transferList: job.kind === "port" ? [job.incoming] : [],
-      });
-    },
-  })._unsafeUnwrap();
-  let ready = false;
-  port.stream.on("ready", () => {
-    ready = true;
-  });
-  const received: Uint8Array[] = [];
-  const errors: string[] = [];
-  port.stream.on("data", (bytes: Uint8Array) => {
-    received.push(bytes);
-  });
-  port.stream.on("error", (error: { message: string }) => {
-    errors.push(error.message);
-  });
-  return { port, shared, received, errors, operations, ready: () => ready };
-}
-
-/** Bounds the test separately from the drain and frees the double if the worker hangs. */
-async function expectClosed(shared: Int32Array, closed: Promise<void>): Promise<void> {
-  const watchdog = Promise.withResolvers<boolean>();
-  const timer = setTimeout(() => {
-    watchdog.resolve(false);
-    Atomics.store(shared, ESCAPE, 1);
-    Atomics.notify(shared, ESCAPE);
-  }, 2200);
-  const exited = await Promise.race([closed.then(() => true), watchdog.promise]);
-  clearTimeout(timer);
-  expect(exited).toBe(true);
-}
-
-// Aim for 5 ms. Leave 5 ms for local cross-thread scheduling and more on the hosted Windows VM.
-const wakeBudgetMs = process.platform === "win32" ? 50 : 10;
+const REPO = join(import.meta.dir, "..", "..", "..", "..");
+/** The timed tests, in a process of their own (`serial-windows-timing.child.test.ts`). */
+const TIMING_CHILD = join(import.meta.dir, "serial-windows-timing.child.test.ts");
+/** Its tests: the close twice, a write's wake in four phases, two writes back to back. */
+const TIMED_TESTS = 6;
 
 describe("the Windows COM adapter", () => {
   test("DCB fields and timeouts match the documented byte layouts", () => {
@@ -291,22 +162,29 @@ describe("the Windows COM adapter", () => {
     expect(operations.slice(-3)).toEqual(["CloseHandle", "close event 11", "close event 12"]);
   });
 
-  test("close twice during a pending read releases once and consumes no further bytes", async () => {
-    const { port, shared, received, operations } = fakePort("waiting");
-    const reading = await until(() => Atomics.load(shared, READS) === 1);
-    const started = performance.now();
-    port.close();
-    port.close();
-    await expectClosed(shared, port.closed);
-    const elapsed = performance.now() - started;
-    console.log(`COM double: pending read to released handle ${elapsed.toFixed(3)} ms`);
-    expect(reading).toBe(true);
-    expect(elapsed).toBeLessThan(wakeBudgetMs);
-    expect(Atomics.load(shared, READS)).toBe(1);
-    expect(Atomics.load(shared, DRAINED)).toBe(2);
-    expect(received).toEqual([]);
-    expect(operations.filter((name) => name === "CloseHandle")).toHaveLength(1);
-  });
+  test("the timed wakes (a close during a pending read, a write through its completion), in a process that holds only them", async () => {
+    // The whole test run's heap has its own collections pause this thread 20 to 30 ms on the
+    // hosted runners (JSC's collection log, run 44931950021), across a 2 to 3 ms timed close: the
+    // timed tests run in a child process of their own, with their budgets as they are.
+    const child = Bun.spawn([process.execPath, "test", TIMING_CHILD], {
+      cwd: REPO,
+      env: { ...process.env, HSN_SERIAL_TIMING_CHILD: "1" },
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const [out, err, code] = await Promise.all([
+      new Response(child.stdout).text(),
+      new Response(child.stderr).text(),
+      child.exited,
+    ]);
+    const lines = `${out}\n${err}`.split("\n").map((line) => line.trim());
+    for (const line of lines) if (line.startsWith("COM double:")) console.log(line);
+    expect({
+      code,
+      failed: lines.filter((line) => line.startsWith("(fail)")),
+      passed: lines.find((line) => /^\d+ pass$/u.test(line)),
+    }).toEqual({ code: 0, failed: [], passed: `${TIMED_TESTS} pass` });
+  }, 60_000);
 
   test.each([
     ["cancel-failed", ["COM10: CancelIoEx failed (Win32 1167)"]],
@@ -329,51 +207,6 @@ describe("the Windows COM adapter", () => {
     expect(Buffer.from(bytes).toString("hex")).toBe(
       "0000000000000000000000000000000000000000000000000000000000000000",
     );
-  });
-
-  test.each([
-    ["waiting", READS],
-    ["before-read", GATE],
-    ["after-read", GATE],
-    ["busy-read", READS],
-  ] as const)("a write wakes the worker %s", async (mode, phase) => {
-    const { port, shared } = fakePort(mode);
-    const reached = await until(() => Atomics.load(shared, phase) > 0);
-    const started = performance.now();
-    const sent = await Promise.race([
-      port.write(Uint8Array.of(1, 2, 3)),
-      Bun.sleep(500).then(() => undefined),
-    ]);
-    const elapsed = performance.now() - started;
-    port.close();
-    await port.closed;
-    console.log(`COM double: ${mode} write through completion ${elapsed.toFixed(3)} ms`);
-    expect(reached && sent?.isOk()).toBe(true);
-    expect(elapsed).toBeGreaterThanOrEqual(0);
-    expect(elapsed).toBeLessThan(wakeBudgetMs);
-  });
-
-  test("a second write wakes the same pending read without waiting for its timeout", async () => {
-    const { port, shared } = fakePort("waiting");
-    const reading = await until(() => Atomics.load(shared, READS) > 0);
-    const delays: number[] = [];
-    const outcomes = [];
-    for (let index = 0; index < 2; index++) {
-      const asked = performance.now();
-      outcomes.push((await port.write(Uint8Array.of(index, 1, 2))).isOk());
-      delays.push(performance.now() - asked);
-    }
-    port.close();
-    await port.closed;
-    console.log(
-      `COM double: back-to-back write through completion ${delays.map((ms) => ms.toFixed(3)).join(", ")} ms`,
-    );
-    expect(reading && outcomes.every(Boolean)).toBe(true);
-    expect(Atomics.load(shared, READS)).toBe(1);
-    for (const ms of delays) {
-      expect(ms).toBeGreaterThanOrEqual(0);
-      expect(ms).toBeLessThan(wakeBudgetMs);
-    }
   });
 
   test("stop wins over an already queued write when the read is about to start", async () => {

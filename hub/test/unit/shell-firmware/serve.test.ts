@@ -6,6 +6,12 @@
  * device over a real WebSocket link and a real pseudo-terminal USB link, with lost and repeated
  * Gets and lost Data, a revoke mid-transfer for each reason and the resumption after, and a
  * dropped link resumed on a new one. Each answer's time is measured; the longest is printed.
+ *
+ * The tests that bound an answer's time (`LOADED_ANSWER_MS`: the burst, and the two whole
+ * transfers) run in a child process holding only them, this file again with
+ * `HSN_SERVE_TIMING_CHILD=1`, started by the last test here: in the whole test run's process its
+ * own collections pause the thread 20 to 48 ms on the hosted runners (JSC's collection log, run
+ * 44913617902), and an answer timed across one read 47 and 55 ms (runs 44944661562, 44944663126).
  */
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
@@ -35,6 +41,10 @@ const LOADED_ANSWER_MS = 20;
 /** Section 3's limit for a turn ‡, asserted on a burst only with `HSN_TIMING=1`. */
 const TURN_LIMIT_MS = 20;
 const TIMING = process.env.HSN_TIMING === "1";
+/** This file run as its own child, holding only the timed tests (see the header). */
+const TIMING_CHILD = process.env.HSN_SERVE_TIMING_CHILD === "1";
+/** The timed tests, by name, for the child's `-t`. */
+const TIMED = "a burst: sixteen devices|a whole image over a real";
 
 let folder: TempFolder;
 let dataDir: string;
@@ -71,7 +81,8 @@ beforeAll(async () => {
 
 afterAll(() => {
   folder.remove();
-  console.log(`longest answer to one frame: ${Math.max(0, ...longest).toFixed(3)} ms`);
+  const which = TIMING_CHILD ? "" : " (the untimed tests here)";
+  console.log(`longest answer to one frame${which}: ${Math.max(0, ...longest).toFixed(3)} ms`);
 });
 
 /** The file a device pulls. */
@@ -273,20 +284,25 @@ describe("the answers on one link", () => {
       expect(event).toMatchObject({ kind: "transferProgress", link: L, image: imageId });
   });
 
-  test("a burst: sixteen devices with four Gets each, answered one at a time", () => {
-    const { server, sent } = bench();
-    for (let n = 1; n <= 16; n++) server.grant(linkId(n), { imageId, header, file });
-    const started = performance.now();
-    for (let n = 1; n <= 16; n++)
-      for (let k = 0; k < 4; k++) server.take(linkId(n), get(128 + (n * 4 + k) * 1000, 1000));
-    const burst = performance.now() - started;
-    expect(sent).toHaveLength(64);
-    const one = server.takeLongestMs();
-    longest.push(one);
-    console.log(`a burst of 64 Gets: ${burst.toFixed(3)} ms; the longest one ${one.toFixed(3)} ms`);
-    expect(one).toBeLessThan(LOADED_ANSWER_MS);
-    if (TIMING) expect(burst).toBeLessThan(TURN_LIMIT_MS);
-  });
+  test.skipIf(!TIMING_CHILD)(
+    "a burst: sixteen devices with four Gets each, answered one at a time",
+    () => {
+      const { server, sent } = bench();
+      for (let n = 1; n <= 16; n++) server.grant(linkId(n), { imageId, header, file });
+      const started = performance.now();
+      for (let n = 1; n <= 16; n++)
+        for (let k = 0; k < 4; k++) server.take(linkId(n), get(128 + (n * 4 + k) * 1000, 1000));
+      const burst = performance.now() - started;
+      expect(sent).toHaveLength(64);
+      const one = server.takeLongestMs();
+      longest.push(one);
+      console.log(
+        `a burst of 64 Gets: ${burst.toFixed(3)} ms; the longest one ${one.toFixed(3)} ms`,
+      );
+      expect(one).toBeLessThan(LOADED_ANSWER_MS);
+      if (TIMING) expect(burst).toBeLessThan(TURN_LIMIT_MS);
+    },
+  );
 });
 
 // ----- Real links -----
@@ -405,7 +421,7 @@ async function wholeTransfer(
   expect(one).toBeLessThan(LOADED_ANSWER_MS);
 }
 
-describe("a whole image over a real WebSocket link", () => {
+describe.skipIf(!TIMING_CHILD)("a whole image over a real WebSocket link", () => {
   const servers: { stop(force: boolean): unknown }[] = [];
   afterEach(() => {
     for (const s of servers.splice(0)) s.stop(true);
@@ -446,52 +462,55 @@ describe("a whole image over a real WebSocket link", () => {
 const RELAY = join(import.meta.dir, "..", "shell-links", "pty-relay.ts");
 const ptys = process.platform !== "win32";
 
-describe.skipIf(!ptys)("a whole image over a real USB link (a pseudo-terminal)", () => {
-  const relays: { kill(): void }[] = [];
-  afterEach(() => {
-    for (const r of relays.splice(0)) r.kill();
-  });
-
-  test("lost and repeated Gets, lost Data, a revoke for each reason, resumption, a new link", async () => {
-    await wholeTransfer(async (side, device) => {
-      const proc = Bun.spawn(["bun", RELAY], { stdin: "pipe", stdout: "pipe", stderr: "ignore" });
-      relays.push(proc);
-      const reader = proc.stdout.getReader();
-      // The relay prints its terminal's path first; nothing else comes before the hub writes.
-      let header = "";
-      let path = "";
-      for (let reads = 0; path === "" && reads < 100; reads++) {
-        const chunk = await reader.read();
-        if (chunk.done) break;
-        header += new TextDecoder().decode(chunk.value);
-        const at = header.indexOf("\n");
-        if (at >= 0) path = header.slice(0, at);
-      }
-      const decoder = new UsbFrameDecoder();
-      const deliver = (bytes: Uint8Array): void => {
-        for (const frame of decoder.push(bytes)) if (frame.ok) device.receive(frame.value);
-      };
-      void (async () => {
-        for (;;) {
-          const chunk = await reader.read();
-          if (chunk.done) return;
-          deliver(chunk.value);
-        }
-      })();
-      const serial = new SerialLinks(side.registry);
-      expect(serial.open(path).isOk()).toBe(true);
-      return {
-        send: (bytes) => {
-          void proc.stdin.write(encodeUsbFrame(bytes));
-          void proc.stdin.flush();
-        },
-        close: () => {
-          proc.kill();
-        },
-      };
+describe.skipIf(!ptys || !TIMING_CHILD)(
+  "a whole image over a real USB link (a pseudo-terminal)",
+  () => {
+    const relays: { kill(): void }[] = [];
+    afterEach(() => {
+      for (const r of relays.splice(0)) r.kill();
     });
-  }, 30_000);
-});
+
+    test("lost and repeated Gets, lost Data, a revoke for each reason, resumption, a new link", async () => {
+      await wholeTransfer(async (side, device) => {
+        const proc = Bun.spawn(["bun", RELAY], { stdin: "pipe", stdout: "pipe", stderr: "ignore" });
+        relays.push(proc);
+        const reader = proc.stdout.getReader();
+        // The relay prints its terminal's path first; nothing else comes before the hub writes.
+        let header = "";
+        let path = "";
+        for (let reads = 0; path === "" && reads < 100; reads++) {
+          const chunk = await reader.read();
+          if (chunk.done) break;
+          header += new TextDecoder().decode(chunk.value);
+          const at = header.indexOf("\n");
+          if (at >= 0) path = header.slice(0, at);
+        }
+        const decoder = new UsbFrameDecoder();
+        const deliver = (bytes: Uint8Array): void => {
+          for (const frame of decoder.push(bytes)) if (frame.ok) device.receive(frame.value);
+        };
+        void (async () => {
+          for (;;) {
+            const chunk = await reader.read();
+            if (chunk.done) return;
+            deliver(chunk.value);
+          }
+        })();
+        const serial = new SerialLinks(side.registry);
+        expect(serial.open(path).isOk()).toBe(true);
+        return {
+          send: (bytes) => {
+            void proc.stdin.write(encodeUsbFrame(bytes));
+            void proc.stdin.flush();
+          },
+          close: () => {
+            proc.kill();
+          },
+        };
+      });
+    }, 30_000);
+  },
+);
 
 test("the registry hands a transfer frame's answer to the link, and keeps its failure from the core", () => {
   const side = hubSide();
@@ -517,3 +536,29 @@ test("the registry hands a transfer frame's answer to the link, and keeps its fa
   side.registry.closed(link, "remote");
   expect(side.server.holds(link)).toBe(false);
 });
+
+test.skipIf(TIMING_CHILD)(
+  "the timed answers (a burst, a whole image over each real link), in a process that holds only them",
+  async () => {
+    const child = Bun.spawn([process.execPath, "test", import.meta.path, "-t", TIMED], {
+      cwd: join(import.meta.dir, "..", "..", "..", ".."),
+      env: { ...process.env, HSN_SERVE_TIMING_CHILD: "1" },
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const [out, err, code] = await Promise.all([
+      new Response(child.stdout).text(),
+      new Response(child.stderr).text(),
+      child.exited,
+    ]);
+    const lines = `${out}\n${err}`.split("\n").map((line) => line.trim());
+    for (const line of lines)
+      if (line.startsWith("longest answer") || line.startsWith("a burst of")) console.log(line);
+    expect({
+      code,
+      failed: lines.filter((line) => line.startsWith("(fail)")),
+      passed: lines.find((line) => /^\d+ pass$/u.test(line)),
+    }).toEqual({ code: 0, failed: [], passed: `${ptys ? 3 : 2} pass` });
+  },
+  60_000,
+);

@@ -870,6 +870,10 @@ export class RekeyHub {
       const at = wake === undefined ? undefined : wake + this.clock.bootAtUs;
       if (at === undefined || at > to) break;
       this.clock.trueUs = Math.max(this.clock.trueUs, at);
+      // The tick the one timer queues in the hub (`main.ts`, `wakeAt`): without it the turn takes
+      // no input, the core's due deadline is never run, and this loop turned 100,000 times a call
+      // for nothing (both-held.test.ts: 500,034 turns a test, 3.1 to 4.9 s on hosted Windows).
+      this.#loop?.enqueue({ kind: "tick" });
       this.#loop?.turn();
       this.drain();
     }
