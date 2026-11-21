@@ -100,6 +100,11 @@ interface Plan {
   readonly head: FirmwareHead | null;
 }
 
+/** The temporary file job `job` stages into: `.staging-<job>` in the store's folder. */
+export function stagingFile(dataDir: string, job: number): string {
+  return join(storeFolder(dataDir), `${STAGING_PREFIX}${job}`);
+}
+
 /** An image being staged, a bounded piece at a time. */
 export class FirmwareStaging {
   readonly #inputs: FirmwareStageInputs;
@@ -138,7 +143,7 @@ export class FirmwareStaging {
 
   /** The temporary file this job writes. */
   get temporary(): string {
-    return join(storeFolder(this.#inputs.dataDir), `${STAGING_PREFIX}${this.#inputs.job}`);
+    return stagingFile(this.#inputs.dataDir, this.#inputs.job);
   }
 
   /** One piece; the outcome once staging has ended, undefined while there is more. */

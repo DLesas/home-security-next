@@ -2,8 +2,9 @@
  * The firmware store's file work (docs/m3-updates-design.md section 4; m2-design.md section 3,
  * "Jobs in pieces, the loop's contract"), started from `shell/backup/jobs.ts`'s `startJob`:
  *
- * - `stageFirmware`: an upload checked and staged, in pieces (`stage.ts`), ending
- *   `firmwareStaged` or a refusal; a job whose upload is not there is `noUpload`.
+ * - `stageFirmware`: an upload checked and staged, in pieces (`stage.ts`) on a worker thread
+ *   (`stage-job.ts`), ending `firmwareStaged` or a refusal; a job whose upload is not there is
+ *   `noUpload`.
  * - `removeFirmware`: the image's file removed, at once (`firmwareRemoved`), unless an image in
  *   the index names it when it is deleted (`store.ts`). Image 0 is a staged file the core refused
  *   as `storeFull`, which has no row: its file goes the same way.
@@ -25,8 +26,9 @@ import type { JobDeps, JobStart } from "../backup/jobs.ts";
 import { base64url, type ExportSink } from "../backup/write.ts";
 import { closeQuietly, openToRead, readAt } from "../safe/firmware-io.ts";
 import { PUBLISHER_KEYS } from "../update/publisher-keys.ts";
-import { hubSigner } from "./sign.ts";
+import { hubSigner, hubSigningKeys } from "./sign.ts";
 import { FIRMWARE_PIECE_BYTES, FirmwareStaging } from "./stage.ts";
+import { FirmwareStagingJob } from "./stage-job.ts";
 import { imagePath, indexedFile, removeImageFile } from "./store.ts";
 
 /** The firmware store's file work. */
@@ -44,7 +46,7 @@ export function isFirmwareWork(work: FileWork): work is FirmwareWork {
 /** What the firmware's jobs need of `startJob`'s dependencies. */
 export type FirmwareJobDeps = Pick<
   JobDeps,
-  "db" | "dataDir" | "rules" | "uploads" | "exports" | "publisherKeys"
+  "db" | "dataDir" | "rules" | "uploads" | "exports" | "publisherKeys" | "wake" | "onThread"
 >;
 
 /** Starts one of the firmware store's jobs. */
@@ -58,17 +60,23 @@ export function firmwareJob(job: JobId, work: FirmwareWork, deps: FirmwareJobDep
           reason: "noUpload",
           message: `no upload ${work.upload.job} on connection ${work.upload.conn}`,
         });
+      const inputs = {
+        job,
+        path,
+        own: work.own,
+        dataDir: deps.dataDir,
+        keys: deps.publisherKeys ?? PUBLISHER_KEYS,
+        rules: deps.rules.firmware,
+      };
       return {
         kind: "pieces",
-        pieces: new FirmwareStaging({
-          job,
-          path,
-          own: work.own,
-          dataDir: deps.dataDir,
-          keys: deps.publisherKeys ?? PUBLISHER_KEYS,
-          rules: deps.rules.firmware,
-          signer: () => hubSigner(deps.db),
-        }),
+        pieces:
+          deps.onThread === true
+            ? new FirmwareStaging({ ...inputs, signer: () => hubSigner(deps.db) })
+            : new FirmwareStagingJob(
+                { ...inputs, signingKeys: () => hubSigningKeys(deps.db) },
+                deps.wake === undefined ? {} : { wake: deps.wake },
+              ),
       };
     }
     case "removeFirmware": {

@@ -6,11 +6,13 @@
  * - **Uploads.** `hsn firmware add` sends its file as `fileChunk` control lines on its
  *   connection (m2-design.md section 6); the lockstep hub's one control connection keeps them in
  *   an `UploadStore`, as the control socket does, for the `firmware.upload` that names its job.
- * - **File jobs.** Every `fileJob` the core asks for runs through `startJob` exactly as on the
- *   running hub: staging and removing firmware, backups, exports. A download's chunks
- *   (`backup.export`, `firmware.download`) have no line on the lockstep wire, so they fail; a
- *   switch (a hub update's, or a real `restore.start`'s) is not the lockstep hub's: the
- *   controller's restore is `benchRestore`, below.
+ * - **File jobs.** Every `fileJob` the core asks for runs through `startJob` as on the running
+ *   hub: staging and removing firmware, backups, exports; but each job the running hub gives a
+ *   worker thread (D145) runs its same pieces on the hub's thread here, a piece a turn
+ *   (`onThread`), so a run's every answer is the simulated clock's, never the machine's. A
+ *   download's chunks (`backup.export`, `firmware.download`) have no line on the lockstep wire, so
+ *   they fail; a switch (a hub update's, or a real `restore.start`'s) is not the lockstep hub's:
+ *   the controller's restore is `benchRestore`, below.
  * - **The seeded keys a backup needs.** A real hub's backup key is made at its first start and
  *   reaches only a phone (m2-design.md section 9); a backup's header names the hub's app key. The
  *   lockstep hub has no phone and no app channel, so at its first start it makes both from the
@@ -178,6 +180,7 @@ export function lockstepFiles(deps: LockstepFileDeps): {
         prefix: undefined,
         switchBlockedBy: () => switchBlockedBy(deps.state()),
         stagingWanted: (staging) => stagingJob(deps.state()) === staging,
+        onThread: true,
         flush: () => deps.writer.flush("log").mapErr((e) => e.message),
         nowMs: deps.nowMs,
         salt: () => deps.random(8).mapErr((e) => e.message),

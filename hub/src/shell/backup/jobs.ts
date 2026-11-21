@@ -21,6 +21,7 @@ import { HUB_VERSION } from "../hub-facts.ts";
 import { requestSwitch } from "../update/notes.ts";
 import { PUBLISHER_KEYS } from "../update/publisher-keys.ts";
 import { platformOf } from "../update/release.ts";
+import { Staging, type StageInputs } from "../update/stage.ts";
 import { StagingJob } from "../update/stage-job.ts";
 import { readRestoreHeader, RestorePieces, swapRestored } from "./restore.ts";
 import { ExportPieces } from "./export-pieces.ts";
@@ -58,10 +59,16 @@ export interface JobDeps extends WriteDeps {
    */
   readonly flush?: () => Result<unknown, string>;
   /**
-   * Asks the loop for a turn (`main.ts`'s): a staging's worker calls it when its outcome has come
-   * (`update/stage-job.ts`). Without it the staging job never says it is waiting.
+   * Asks the loop for a turn (`main.ts`'s): a job on a worker (`shell/worker/job.ts`) calls it when
+   * its outcome has come. Without it such a job never says it is waiting.
    */
   readonly wake?: () => void;
+  /**
+   * Every job's pieces on the hub's own thread, a piece a turn, as before D145: the lockstep hub's
+   * (`lockstep/files.ts`), whose runs are the simulated clock's, never the machine's, as a
+   * worker's outcome would be. The same classes the workers run.
+   */
+  readonly onThread?: boolean;
 }
 
 /** What a job came to: an outcome for the core, or a clean stop and exit 70 after `afterStop`. */
@@ -146,19 +153,20 @@ export function startJob(job: JobId, work: FileWork, deps: JobDeps): JobStart {
   if (work.kind !== "stageUpdate") return atOnce(work, deps);
   const path = deps.uploads.pathOf(work.upload);
   if (path === undefined) return noUpload(work.upload);
+  const inputs: StageInputs = {
+    path,
+    prefix: deps.prefix,
+    runningVersion: deps.version ?? HUB_VERSION,
+    platform: platformOf(process.platform, process.arch),
+    keys: deps.publisherKeys ?? PUBLISHER_KEYS,
+    wanted: () => deps.stagingWanted?.(job) ?? true,
+  };
   return {
     kind: "pieces",
-    pieces: new StagingJob(
-      {
-        path,
-        prefix: deps.prefix,
-        runningVersion: deps.version ?? HUB_VERSION,
-        platform: platformOf(process.platform, process.arch),
-        keys: deps.publisherKeys ?? PUBLISHER_KEYS,
-        wanted: () => deps.stagingWanted?.(job) ?? true,
-      },
-      deps.wake === undefined ? {} : { wake: deps.wake },
-    ),
+    pieces:
+      deps.onThread === true
+        ? new Staging(inputs)
+        : new StagingJob(inputs, deps.wake === undefined ? {} : { wake: deps.wake }),
   };
 }
 

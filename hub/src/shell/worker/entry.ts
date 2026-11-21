@@ -5,6 +5,7 @@
  * each kind's module is small, so a worker loading them all costs its start little.
  */
 import { parentPort, workerData } from "node:worker_threads";
+import { serveFirmwareStaging } from "../firmware/stage-serve.ts";
 import { serveStaging } from "../update/stage-serve.ts";
 import type { JobKind, JobKindData, KindData, WorkerData } from "./kinds.ts";
 import type { WorkerReply } from "./serve.ts";
@@ -19,6 +20,7 @@ interface Port {
  */
 const SERVERS: { readonly [K in JobKind]: (port: Port, data: WorkerData<KindData<K>>) => void } = {
   stageUpdate: serveStaging,
+  stageFirmware: serveFirmwareStaging,
 };
 
 function served(kind: unknown): kind is JobKind {

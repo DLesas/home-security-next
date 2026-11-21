@@ -231,6 +231,22 @@ function tick(r: Rig, effects: readonly Effect[]): void {
   for (let i = 0; i < 1000 && (r.loop.openJobs > 0 || r.loop.waiting > 0); i++) r.loop.turn();
 }
 
+/**
+ * `tick`, then the loop's turns until no job is open, letting the event loop run between them: a
+ * staging's outcome comes from its worker thread (within 10 s).
+ */
+async function settled(r: Rig, effects: readonly Effect[]): Promise<void> {
+  r.next = effects;
+  r.loop.enqueue({ kind: "tick" });
+  r.loop.turn();
+  const end = performance.now() + 10_000;
+  while (r.loop.openJobs > 0 || r.loop.waiting > 0) {
+    expect(performance.now()).toBeLessThan(end);
+    await Bun.sleep(2);
+    r.loop.turn();
+  }
+}
+
 function remove(id: number): Effect {
   return {
     kind: "fileJob",
@@ -296,7 +312,7 @@ describe("a removal held back by a failing commit", () => {
     r.store.db.close(true);
   });
 
-  test("the mirror: a staging held behind a removal of the same image stages it after the removal", () => {
+  test("the mirror: a staging held behind a removal of the same image stages it after the removal", async () => {
     const r = rig();
     r.failing = true;
     tick(r, [writeRow(row(1, 5)), remove(1)]);
@@ -308,7 +324,7 @@ describe("a removal held back by a failing commit", () => {
       },
     ]);
     r.failing = false;
-    tick(r, []);
+    await settled(r, []);
     // The removal ran first (no image named the file then), then the staging put it back.
     expect(r.ready.map((e) => (e.kind === "fileReady" ? e.outcome.kind : ""))).toEqual([
       "firmwareRemoved",

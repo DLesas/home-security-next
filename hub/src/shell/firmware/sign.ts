@@ -5,8 +5,10 @@
  * `@hsn/protocol/update`'s `signImageHeader`), so the same image gives the same header on every
  * run and the vectors' headers exactly.
  *
- * The private scalar is read out of `hub_keys` when a header is made and dropped after it: it
- * leaves the shell only into a backup (HD 5), never into the core, a record or an event.
+ * The key is read out of `hub_keys` as a firmware staging starts, on the hub's thread, and given
+ * to the staging's worker, which makes the signer of it when the header is made and drops it after
+ * (`stage-job.ts`): it leaves the shell only into a backup (HD 5), never into the core, a record
+ * or an event.
  */
 import type { Database } from "bun:sqlite";
 import {
@@ -49,12 +51,30 @@ export function signerOf(
   return ok({ scalar: scalar.value, publicKey, identity });
 }
 
-/** The signer from the hub's database, on the writer's connection. */
-export function hubSigner(db: Database): Result<HubSigner, string> {
+/** The three `hub_keys` columns a signer is made of, as read: data only, nothing derived. */
+export interface SigningKeys {
+  readonly signingPrivate: Uint8Array;
+  readonly signingPublic: Uint8Array;
+  readonly identity: Uint8Array;
+}
+
+/** The signing key's columns from the hub's database, on the writer's connection. */
+export function hubSigningKeys(db: Database): Result<SigningKeys, string> {
   const row = readHubKeysRow(db);
   if (row.isErr()) return err(row.error.message);
   if (row.value === undefined) return err("the hub has no signing key yet");
-  return signerOf(row.value.signingPrivate, row.value.signingPublic, row.value.identity);
+  const { signingPrivate, signingPublic, identity } = row.value;
+  return ok({ signingPrivate, signingPublic, identity });
+}
+
+/** The signer of those columns (`signerOf`): the scalar parsed and checked against the key. */
+export function signerOfKeys(keys: SigningKeys): Result<HubSigner, string> {
+  return signerOf(keys.signingPrivate, keys.signingPublic, keys.identity);
+}
+
+/** The signer from the hub's database, on the writer's connection. */
+export function hubSigner(db: Database): Result<HubSigner, string> {
+  return hubSigningKeys(db).andThen(signerOfKeys);
 }
 
 /** A version's three numbers, each a byte, or undefined for one a header cannot carry. */

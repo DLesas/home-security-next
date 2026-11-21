@@ -1,7 +1,8 @@
 /**
- * Staging an update in a compiled executable: the probe (`staging-probe.ts`) compiled exactly as
- * the hub's program is, `build-program.ts`'s flags and its embedded workers (`hubWorkers`), for
- * the computer the test runs on, stages a release through the staging worker. That the worker is
+ * Staging an update, and a firmware image, in a compiled executable: the probes
+ * (`staging-probe.ts`, `firmware-probe.ts`) compiled exactly as the hub's program is,
+ * `build-program.ts`'s flags and its embedded workers (`hubWorkers`), for the computer the test
+ * runs on, each stage through the one worker entry. That the worker is
  * embedded and found in the executable (Bun finds it by its source path below the compile root)
  * is what the source runs cannot show. The installed program's own check is the installers'.
  */
@@ -18,11 +19,17 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { installPaths } from "../../launcher/src/layout.ts";
+import { imageFileName, storeFolder } from "../../src/shell/firmware/store.ts";
 import { programName } from "../../src/shell/update/program-name.ts";
 import { platformOf } from "../../src/shell/update/release.ts";
 import { compileExecutable } from "../shared/compile.ts";
 import { hostTarget, hubWorkers } from "../shared/build-program.ts";
 import { releaseOfFiles } from "../shared/make-release.ts";
+import {
+  espImage,
+  release as firmwareRelease,
+  sha256,
+} from "../../test/unit/shell-firmware/support.ts";
 
 const HUB = join(import.meta.dir, "..", "..");
 const REPO = join(HUB, "..");
@@ -31,18 +38,26 @@ const platform = platformOf(process.platform, process.arch);
 const SEED = new Uint8Array(32).fill(7);
 const root = mkdtempSync(join(tmpdir(), "hsn-compiled-staging-"));
 let probe = "";
+let firmwareProbe = "";
 
 // Compiling takes seconds, and a whole suite running beside it more.
 setDefaultTimeout(120_000);
 
 beforeAll(() => {
   if (target === undefined) return;
-  probe = join(root, process.platform === "win32" ? "probe.exe" : "probe");
-  const failed = compileExecutable(target, join(import.meta.dir, "staging-probe.ts"), probe, REPO, {
-    root: HUB,
-    entries: hubWorkers(target),
-  });
-  expect(failed).toBeUndefined();
+  const exe = process.platform === "win32" ? ".exe" : "";
+  probe = join(root, `probe${exe}`);
+  firmwareProbe = join(root, `firmware-probe${exe}`);
+  for (const [source, out] of [
+    ["staging-probe.ts", probe],
+    ["firmware-probe.ts", firmwareProbe],
+  ] as const) {
+    const failed = compileExecutable(target, join(import.meta.dir, source), out, REPO, {
+      root: HUB,
+      entries: hubWorkers(target),
+    });
+    expect(failed).toBeUndefined();
+  }
 });
 
 afterAll(() => {
@@ -86,9 +101,9 @@ function release(spoil = false): {
   return { path, files };
 }
 
-/** Runs the compiled probe: what it printed. */
-async function staged(upload: string, prefix: string) {
-  const run = Bun.spawn([probe, upload, prefix], { stdout: "pipe", stderr: "pipe" });
+/** Runs a compiled probe (the update's, unless told): what it printed. */
+async function staged(upload: string, prefix: string, which = probe) {
+  const run = Bun.spawn([which, upload, prefix], { stdout: "pipe", stderr: "pipe" });
   const [out, err, code] = await Promise.all([
     new Response(run.stdout).text(),
     new Response(run.stderr).text(),
@@ -123,6 +138,45 @@ describe.skipIf(target === undefined || platform === undefined)(
       expect(outcome).toMatchObject({ kind: "failed", reason: "badFile" });
       expect(readdirSync(join(prefix, "staged"))).toEqual(["0.1.0"]);
       expect(existsSync(join(prefix, "staged", ".staging-9.0.0"))).toBe(false);
+    });
+  },
+);
+
+describe.skipIf(target === undefined)(
+  "firmware staging in the compiled program, through its embedded worker",
+  () => {
+    /** A data folder with a firmware file to stage in it. */
+    function upload(
+      name: string,
+      file: Uint8Array,
+    ): { readonly path: string; readonly dataDir: string } {
+      const dataDir = join(root, name);
+      mkdirSync(join(dataDir, "uploads"), { recursive: true });
+      const path = join(dataDir, "uploads", "1");
+      writeFileSync(path, file);
+      return { path, dataDir };
+    }
+
+    test("staged byte for byte, from inside the executable", async () => {
+      const payload = espImage({ size: 900_000, seed: 3 });
+      const { path, dataDir } = upload("firmware-good", firmwareRelease({ payload }));
+      const { main, outcome } = await staged(path, dataDir, firmwareProbe);
+      expect(main).toMatch(/(?:^|[\\/])(?:~BUN|\$bunfs)[\\/]/u);
+      expect(outcome).toMatchObject({ kind: "firmwareStaged", image: { bytes: payload.length } });
+      const file = imageFileName(sha256(payload));
+      expect(readdirSync(storeFolder(dataDir))).toEqual([file]);
+      expect(Buffer.from(readFileSync(join(storeFolder(dataDir), file))).equals(payload)).toBe(
+        true,
+      );
+    });
+
+    test("a file refused by the worker: badFile, nothing left behind", async () => {
+      const file = firmwareRelease({ payload: espImage({ size: 900_000, seed: 3 }) });
+      file[file.length - 1] = (file[file.length - 1] ?? 0) ^ 1;
+      const { path, dataDir } = upload("firmware-spoilt", file);
+      const { outcome } = await staged(path, dataDir, firmwareProbe);
+      expect(outcome).toMatchObject({ kind: "failed", reason: "badFile" });
+      expect(existsSync(storeFolder(dataDir)) ? readdirSync(storeFolder(dataDir)) : []).toEqual([]);
     });
   },
 );

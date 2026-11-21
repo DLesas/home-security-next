@@ -1,7 +1,7 @@
 /**
  * The firmware store's file jobs as `startJob` starts them (`shell/firmware/jobs.ts`;
  * docs/m3-updates-design.md section 4): staging an upload with the hub's key read from its own
- * database, removing an image's file (image 0 included), and `firmware.download`'s stream, whose
+ * database (on a worker thread, so its outcome is awaited; `stage-job.test.ts`), removing an image's file (image 0 included), and `firmware.download`'s stream, whose
  * last chunk waits for the payload's hash, so a damaged file is never delivered whole.
  */
 import { afterEach, beforeAll, describe, expect, test } from "bun:test";
@@ -24,6 +24,7 @@ import {
   isFirmwareWork,
 } from "../../../src/shell/firmware/jobs.ts";
 import { makeHeader, type HubSigner } from "../../../src/shell/firmware/sign.ts";
+import { FirmwareStaging } from "../../../src/shell/firmware/stage.ts";
 import { imageFileName, storeFolder } from "../../../src/shell/firmware/store.ts";
 import { TEST_PUBLISHER_KEY } from "../../../src/shell/update/publisher-keys.ts";
 import { openStore, type OpenedStore } from "../../../src/shell/storage/store.ts";
@@ -128,6 +129,18 @@ function run(started: JobStart): FileOutcome {
   return { kind: "failed", reason: "io", message: "a switch" };
 }
 
+/** A staging's outcome: its worker's, taken by the job once it has come (within 10 s). */
+async function staged(started: JobStart): Promise<FileOutcome> {
+  if (started.kind !== "pieces") return run(started);
+  const end = performance.now() + 10_000;
+  for (;;) {
+    const outcome = started.pieces.next();
+    if (outcome !== undefined) return outcome;
+    expect(performance.now()).toBeLessThan(end);
+    await Bun.sleep(2);
+  }
+}
+
 const JOB = jobId(2 ** 31 + 3);
 
 test("the firmware's work is told from the rest", () => {
@@ -142,7 +155,7 @@ test("the firmware's work is told from the rest", () => {
 });
 
 describe("stageFirmware", () => {
-  test("a release staged in pieces, signed with the key in the hub's own database", () => {
+  test("a release staged in pieces, signed with the key in the hub's own database", async () => {
     const hub = rig();
     const payload = espImage({ size: 400_000 });
     writeFileSync(join(hub.dataDir, "uploads", "7"), release({ payload }));
@@ -152,7 +165,7 @@ describe("stageFirmware", () => {
       hub.deps(),
     );
     expect(started.kind).toBe("pieces");
-    const outcome = run(started);
+    const outcome = await staged(started);
     expect(outcome.kind).toBe("firmwareStaged");
     if (outcome.kind !== "firmwareStaged") return;
     expect(verifyImageHeader(outcome.image.header, keys.publicKey)).toBe(true);
@@ -160,10 +173,10 @@ describe("stageFirmware", () => {
     hub.store.db.close(true);
   });
 
-  test("an own build with no signing key yet: failed, nothing stored", () => {
+  test("an own build with no signing key yet: failed, nothing stored", async () => {
     const hub = rig(false);
     writeFileSync(join(hub.dataDir, "uploads", "7"), espImage());
-    const outcome = run(
+    const outcome = await staged(
       firmwareJob(
         JOB,
         { kind: "stageFirmware", upload: { conn: connId(1), job: 7 }, own: { version: "1.4.0" } },
@@ -176,6 +189,23 @@ describe("stageFirmware", () => {
       message: "the hub has no signing key yet",
     });
     expect(existsSync(storeFolder(hub.dataDir))).toBe(false);
+    hub.store.db.close(true);
+  });
+
+  test("on the thread when asked (the lockstep hub's `onThread`): the same outcome, a piece a call", () => {
+    const hub = rig();
+    const payload = espImage({ size: 400_000 });
+    writeFileSync(join(hub.dataDir, "uploads", "7"), release({ payload }));
+    const started = firmwareJob(
+      JOB,
+      { kind: "stageFirmware", upload: { conn: connId(1), job: 7 }, own: null },
+      { ...hub.deps(), onThread: true },
+    );
+    expect(started.kind === "pieces" ? started.pieces : undefined).toBeInstanceOf(FirmwareStaging);
+    const outcome = run(started);
+    expect(outcome.kind).toBe("firmwareStaged");
+    if (outcome.kind === "firmwareStaged")
+      expect(verifyImageHeader(outcome.image.header, keys.publicKey)).toBe(true);
     hub.store.db.close(true);
   });
 
