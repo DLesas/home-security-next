@@ -21,7 +21,8 @@ import { isWindows, shapeFolder } from "../test/unit/shell-control/windows-folde
 const HUB = join(import.meta.dir, "..");
 const [mode = "source", exe = ""] = process.argv.slice(2);
 const N = Number(process.env.DIAG_STAGINGS ?? "60");
-const LABEL = `${process.env.DIAG_LABEL ?? "local"}-${mode}`;
+const KIND = process.env.DIAG_KIND ?? "stage";
+const LABEL = `${process.env.DIAG_LABEL ?? "local"}-${mode}-${KIND}`;
 const HERE = platformOf(process.platform, process.arch) ?? "linux-x64";
 const root = mkdtempSync(join(process.env.DIAG_ROOT ?? tmpdir(), "hsn-stagings-"));
 const prefix = join(root, "program");
@@ -53,7 +54,8 @@ interface Gc { readonly vm: string; readonly kind: string; readonly heapKb: numb
 type Event =
   | { readonly kind: "lag"; readonly t: number; readonly late: number; readonly cpu: number; readonly heap: number }
   | { readonly kind: "sec"; readonly t: number; readonly worst: number; readonly heap: number }
-  | { readonly kind: "gc"; readonly gc: Gc };
+  | { readonly kind: "gc"; readonly gc: Gc }
+  | { readonly kind: "call"; readonly t: number; readonly ms: number; readonly cpu: number; readonly what: string; readonly effects?: string; readonly reason?: string };
 const events: Event[] = [];
 const starts = new Map<string, { kind: string; heapKb: number }>();
 const vms: string[] = [];
@@ -61,6 +63,7 @@ const other: string[] = [];
 function line(l: string): void {
   if (l.startsWith("DIAG-LAG ")) events.push({ kind: "lag", ...JSON.parse(l.slice(9)) });
   else if (l.startsWith("DIAG-SEC ")) events.push({ kind: "sec", ...JSON.parse(l.slice(9)) });
+  else if (l.startsWith("DIAG-CALL ")) events.push({ kind: "call", ...JSON.parse(l.slice(10)) });
   else {
     const vm = /\[GC<(0x[0-9a-f]+)>/u.exec(l)?.[1];
     if (vm === undefined) {
@@ -112,12 +115,18 @@ console.log(`${LABEL}: hub up; its VM ${mainVm}; ${vms.length} VM(s) seen so far
 interface Row { readonly n: number; readonly ok: boolean; readonly ms: number; readonly worst: number; readonly worstCpu: number; readonly gcMain: number; readonly gcWorker: number; readonly gapGcs: string[]; readonly heapMb: number }
 const rows: Row[] = [];
 for (let n = 1; n <= N; n++) {
-  const path = release(`99.0.${n}`);
+  // "stage": a newer release, staged; "refuse": the same upload, refused at once (notNewer);
+  // "idle": no upload, the hub left alone as long.
+  const path = KIND === "idle" ? "" : release(KIND === "refuse" ? `0.0.${n}` : `99.0.${n}`);
   const from = events.length;
   const t0 = performance.timeOrigin + performance.now();
-  const cli = Bun.spawn([process.execPath, testCli, "--data", data, "update", "install", path], { stdout: "pipe", stderr: "pipe" });
-  const out = await new Response(cli.stdout).text();
-  await cli.exited;
+  let out = "";
+  if (KIND === "idle") await Bun.sleep(300);
+  else {
+    const cli = Bun.spawn([process.execPath, testCli, "--data", data, "update", "install", path], { stdout: "pipe", stderr: "pipe" });
+    out = (await new Response(cli.stdout).text()) + (await new Response(cli.stderr).text());
+    await cli.exited;
+  }
   const t1 = performance.timeOrigin + performance.now();
   await Bun.sleep(150);
   const mine = events.slice(from);
@@ -136,11 +145,15 @@ for (let n = 1; n <= N; n++) {
       if (b === undefined || b.kind !== "gc") break;
       before.push(`${b.gc.vm === mainVm ? "hub" : "worker"} ${b.gc.kind} ${(b.gc.heapKb / 1024).toFixed(0)} MB p=${b.gc.p.toFixed(1)} cycle=${b.gc.cycle.toFixed(1)}`);
     }
-    gapGcs.push(`${e.late.toFixed(1)} ms (cpu ${e.cpu.toFixed(1)}): ${before.join(", ") || "no collection ended in it"}`);
+    const from = e.t - e.late - 12;
+    const calls = mine
+      .filter((c): c is Extract<Event, { kind: "call" }> => c.kind === "call" && c.t >= from && c.t <= e.t + 1)
+      .map((c) => `${c.what}${c.effects ? ` [${c.effects}]` : ""}${c.reason ? ` (${c.reason})` : ""} ${c.ms.toFixed(1)} ms, cpu ${c.cpu.toFixed(1)}`);
+    gapGcs.push(`${e.late.toFixed(1)} ms (cpu ${e.cpu.toFixed(1)}): ${before.join(", ") || "no collection ended in it"}; in it: ${calls.join(" > ") || "no turn, commit or chunk over 5 ms"}`);
   });
   const row: Row = {
     n,
-    ok: out.includes(`staged: version 99.0.${n}`),
+    ok: KIND === "idle" || (KIND === "refuse" ? out.includes("notNewer") || out.includes("not newer") : out.includes(`staged: version 99.0.${n}`)),
     ms: t1 - t0,
     worst,
     worstCpu: worstLag?.cpu ?? 0,
@@ -162,7 +175,7 @@ await hub.exited;
 const q = (v: number[], p: number) => v.toSorted((a, b) => a - b)[Math.min(v.length - 1, Math.floor(p * v.length))] ?? Number.NaN;
 const worsts = rows.map((r) => r.worst);
 const summary = [
-  `### Real hub stagings: ${LABEL}, ${rows.length} stagings, ${rows.filter((r) => r.ok).length} staged`,
+  `### Real hub, ${LABEL}: ${rows.length} rounds, ${rows.filter((r) => r.ok).length} as expected`,
   "",
   `- the hub thread's longest timer gap per staging (0 is 5 ms or less: only gaps over 5 ms are written): p50 ${q(worsts, 0.5).toFixed(1)} ms, p95 ${q(worsts, 0.95).toFixed(1)} ms, max ${Math.max(...worsts).toFixed(1)} ms; stagings with a gap over 20 ms: ${worsts.filter((w) => w > 20).length}`,
   `- the longest collection pause JSC logged per staging, the hub's VM: p50 ${q(rows.map((r) => r.gcMain), 0.5).toFixed(1)} ms, max ${Math.max(...rows.map((r) => r.gcMain)).toFixed(1)} ms; the workers' VMs: max ${Math.max(...rows.map((r) => r.gcWorker)).toFixed(1)} ms`,

@@ -1,0 +1,62 @@
+# Diagnostic only, on throwaway branches: a real hub's own thread (the test-key hub, from source
+# and compiled) left idle, refusing an upload at once, and staging, 60 rounds each, Defender off
+# and on; each gap over 15 ms with what ran in it (turns, hub.db commits, upload chunks,
+# collections). On 6551620.
+name: Diag the hub's thread (6551620)
+
+on:
+  push:
+    branches: ["diag-windows-staging-*"]
+
+permissions:
+  contents: read
+
+jobs:
+  hub:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    env:
+      DIAG_STAGINGS: "60"
+    steps:
+      - run: git config --global core.autocrlf false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.2
+      - run: bun install --frozen-lockfile
+      - name: Build the compiled test-key hub
+        shell: bash
+        run: bun hub/diag/build-hub.ts "$RUNNER_TEMP/lag-hub${{ runner.os == 'Windows' && '.exe' || '' }}"
+      - name: Defender off (the runner's own state)
+        continue-on-error: true
+        shell: bash
+        run: |
+          set +e
+          exe="$RUNNER_TEMP/lag-hub${{ runner.os == 'Windows' && '.exe' || '' }}"
+          for mode in source compiled; do for kind in idle refuse stage; do
+            DIAG_KIND=$kind DIAG_LABEL="6551620-${{ runner.os }}-${{ strategy.job-index }}-off" bun hub/diag/stagings.ts $mode "$exe" | grep -v "^DIAG-STAGING" | cut -c1-3000
+          done; done
+      - name: Defender on
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Remove-MpPreference -ExclusionPath "C:\","D:\"
+          Set-MpPreference -DisableRealtimeMonitoring $false -DisableIOAVProtection $false -DisableBehaviorMonitoring $false -DisableScriptScanning $false
+          Start-Sleep -Seconds 5
+          Get-MpComputerStatus | Select-Object RealTimeProtectionEnabled | Format-List
+      - name: Defender on, the same
+        if: runner.os == 'Windows'
+        continue-on-error: true
+        shell: bash
+        run: |
+          set +e
+          exe="$RUNNER_TEMP/lag-hub.exe"
+          for mode in source compiled; do for kind in idle refuse stage; do
+            DIAG_KIND=$kind DIAG_LABEL="6551620-${{ runner.os }}-${{ strategy.job-index }}-on" bun hub/diag/stagings.ts $mode "$exe" | grep -v "^DIAG-STAGING" | cut -c1-3000
+          done; done

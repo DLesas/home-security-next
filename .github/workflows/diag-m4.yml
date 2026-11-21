@@ -3,8 +3,7 @@
 name: Diag M4 guard
 
 on:
-  push:
-    branches: ["diag-windows-staging-*"]
+  workflow_dispatch:
 
 permissions:
   contents: read
