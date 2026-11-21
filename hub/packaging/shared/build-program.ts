@@ -60,12 +60,12 @@ function exe(target: Target, name: string): string {
 
 /**
  * The worker entries the hub's program embeds, below `HUB` (each started by its source path):
- * staging an update's on every system (`src/shell/update/stage-worker.ts`), and on Windows the
+ * the file jobs' one entry on every system (`src/shell/worker/entry.ts`), and on Windows the
  * serial port's.
  */
 export function hubWorkers(target: Target): readonly string[] {
   return [
-    join(HUB, "src", "shell", "update", "stage-worker.ts"),
+    join(HUB, "src", "shell", "worker", "entry.ts"),
     ...(target === "bun-windows-x64"
       ? [join(HUB, "src", "shell", "safe", "worker-windows-serial.ts")]
       : []),

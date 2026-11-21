@@ -10,23 +10,23 @@
  * folder. Then it marks itself ended, wakes a stop that waits for it, and posts the outcome. It
  * never touches `hub.db`, and nothing it does reaches the core but that one outcome.
  */
-import type { FileOutcome } from "../../core/model/events.ts";
 import { Staging, type StageInputs } from "./stage.ts";
+import { JOB_CANCEL, JOB_RUN, JOB_STOP, type JobControl, jobControl } from "../worker/control.ts";
+import { serveJob, type WorkerReply } from "../worker/serve.ts";
 
 /** The loop's word to the worker, `control[0]`: go on, the core no longer wants it, or a stop. */
-export const STAGING_RUN = 0;
-export const STAGING_CANCEL = 1;
-export const STAGING_STOP = 2;
+export const STAGING_RUN = JOB_RUN;
+export const STAGING_CANCEL = JOB_CANCEL;
+export const STAGING_STOP = JOB_STOP;
 
-/**
- * Two shared 32-bit words: `[0]` what the loop asks (`STAGING_RUN`, `STAGING_CANCEL`,
- * `STAGING_STOP`), `[1]` 1 once the worker has ended, its folder removed if it failed or was
- * ended. The loop writes the first, the worker the second.
- */
-export type StagingControl = Int32Array<SharedArrayBuffer>;
+/** A cancel's outcome message, as `Staging` ends a staging the core no longer wants. */
+export const STAGING_CANCELLED = "staging was cancelled";
+
+/** The word the loop and the worker share (`worker/control.ts`). */
+export type StagingControl = JobControl;
 
 export function stagingControl(): StagingControl {
-  return new Int32Array(new SharedArrayBuffer(2 * Int32Array.BYTES_PER_ELEMENT));
+  return jobControl();
 }
 
 /** What the worker is started with: staging's inputs but `wanted`, which is the control word. */
@@ -36,27 +36,16 @@ export interface StagingWorkerData {
 }
 
 /** The worker's one message: the outcome, once staging has ended. */
-export interface StagingReply {
-  readonly kind: "ended";
-  readonly outcome: FileOutcome;
-}
+export type StagingReply = WorkerReply;
 
-/** Stages to the end on this thread, then marks the control word and posts the outcome. */
+/**
+ * Stages to the end on this thread, then marks the control word and posts the outcome
+ * (`worker/serve.ts`): a cancel, looked at before every piece, ends it as `Staging` ends one the
+ * core no longer wants ("staging was cancelled", its folder removed).
+ */
 export function serveStaging(
   port: { postMessage(reply: StagingReply): void },
   data: StagingWorkerData,
 ): void {
-  const { control } = data;
-  const job = new Staging({
-    ...data.inputs,
-    // Looked at before every piece (`Staging.next`): a cancel ends it as before, "cancelled".
-    wanted: () => Atomics.load(control, 0) !== STAGING_CANCEL,
-  });
-  let outcome: FileOutcome | undefined;
-  while (outcome === undefined)
-    outcome =
-      Atomics.load(control, 0) === STAGING_STOP ? job.abort("the hub is stopping") : job.next();
-  Atomics.store(control, 1, 1);
-  Atomics.notify(control, 1);
-  port.postMessage({ kind: "ended", outcome });
+  serveJob(port, data.control, new Staging(data.inputs), STAGING_CANCELLED);
 }
