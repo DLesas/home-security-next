@@ -31,15 +31,6 @@ on:
         description: "Also run the privilege-boundary jobs (plant, verify, link-top around an upgrade, an uninstall and a removal with data)"
         type: boolean
         default: false
-  push:
-    paths:
-      - "hub/**"
-      - "app/**"
-      - "packages/**"
-      - "package.json"
-      - "bun.lock"
-      - ".github/workflows/installers.yml"
-      - ".github/workflows/installer-checks.*"
 
 permissions:
   contents: read

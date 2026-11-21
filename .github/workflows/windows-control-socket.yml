@@ -14,26 +14,6 @@ name: Windows command socket (A11)
 
 on:
   workflow_dispatch:
-  push:
-    paths:
-      - "hub/src/shell/control/**"
-      - "hub/src/shell/main.ts"
-      - "hub/src/shell/links/serial.ts"
-      - "hub/src/shell/links/usb-watch.ts"
-      - "hub/src/shell/safe/serial*.ts"
-      - "hub/src/shell/safe/ffi-windows-serial*.ts"
-      - "hub/src/shell/safe/ffi-windows-list.ts"
-      - "hub/src/shell/safe/worker-*serial*.ts"
-      - "hub/src/shell/safe/control-socket*.ts"
-      - "hub/test/unit/shell-control/**"
-      - "hub/test/unit/cli/**"
-      - "hub/test/world/processes.ts"
-      - "hub/test/world/console-stop.ts"
-      - "hub/test/world/checkout-cli.ts"
-      - "hub/test/unit/safe/control-socket*.ts"
-      - "hub/test/windows/serial-probe.ts"
-      - "hub/cli/**"
-      - ".github/workflows/windows-control-socket.yml"
 
 permissions:
   contents: read

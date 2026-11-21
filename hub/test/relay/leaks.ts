@@ -105,8 +105,12 @@ export const GUARD_WORDS = ["a deadline was left at or before its time", '"prese
 
 /** Which guard words appear in `texts`. */
 export function guardsEngaged(texts: readonly string[]): string[] {
-  const all = texts.join("\n");
-  return GUARD_WORDS.filter((word) => all.includes(word));
+  // Diagnostic only: the whole lines, which name the owner, the timer and the turn's times.
+  return texts
+    .join("\n")
+    .split("\n")
+    .filter((line) => GUARD_WORDS.some((word) => line.includes(word)))
+    .slice(0, 40);
 }
 
 /**

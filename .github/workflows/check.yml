@@ -9,7 +9,6 @@
 name: Check (bun run check)
 
 on:
-  push:
   workflow_dispatch:
 
 permissions:
