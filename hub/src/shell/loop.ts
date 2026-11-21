@@ -275,6 +275,11 @@ export class HubLoop {
     return longest;
   }
 
+  diagTurnAt: Mono | undefined;
+  diagFlushAt: Mono | undefined;
+  diagDueAtFlush: Mono | undefined;
+  diagInputs = "";
+
   /** Each deadline found stuck at or before its time, once per occurrence, oldest first. */
   get overdue(): readonly OverdueDeadline[] {
     return this.#overdueLog;
@@ -304,6 +309,8 @@ export class HubLoop {
     const { clock, writer, control } = this.#ports;
     const stopwatch = this.#ports.stopwatch ?? (() => 0);
     const startedMs = stopwatch();
+    this.diagTurnAt = clock.now().mono;
+    this.diagInputs = this.#queue.slice(0, MAX_INPUTS_PER_TURN).map((e) => e.kind).join(",");
     const inputs = this.#queue.splice(0, MAX_INPUTS_PER_TURN);
     const effects: Effect[] = [];
     const faults: CoreFault[] = [];
@@ -358,7 +365,9 @@ export class HubLoop {
 
     // Step 3: flush when due; at once for anything "now".
     const needsNow = staged.some((item) => item.durability === "now");
-    const flushed = writer.flushIfDue(clock.now().mono);
+    this.diagFlushAt = clock.now().mono;
+    this.diagDueAtFlush = writer.due(this.diagFlushAt);
+    const flushed = writer.flushIfDue(this.diagFlushAt);
     if (flushed.isErr()) {
       this.#failing = true;
       this.#ports.report(flushed.error);
@@ -424,7 +433,7 @@ export class HubLoop {
       this.#ports.wakeAt(this.nextWake());
       return;
     }
-    if (this.#overdueRetryAt === undefined) this.#recordOverdue(stuck);
+    if (this.#overdueRetryAt === undefined) this.#recordOverdue(stuck, now);
     if (this.#overdueRetryAt === undefined || this.#overdueRetryAt <= now)
       this.#overdueRetryAt = monoAfterMs(now, this.#deps.rules.loop.overdueRetryMs);
     const ahead = this.#ahead(now);
@@ -470,13 +479,14 @@ export class HubLoop {
    * hub event written now), naming the owner and the timer; never counted towards the faults that
    * stop the hub, since the hub goes on.
    */
-  #recordOverdue(stuck: readonly OverdueDeadline[]): void {
+  #recordOverdue(stuck: readonly OverdueDeadline[], armAt?: Mono): void {
     this.#overdueLog.push(...stuck);
     const first = stuck[0];
     if (first === undefined || this.#stopped) return;
     const message =
       `a deadline was left at or before its time: ${first.owner} ${first.timer}; turns for it ` +
-      `at most every ${String(this.#deps.rules.loop.overdueRetryMs)} ms until it moves`;
+      `at most every ${String(this.#deps.rules.loop.overdueRetryMs)} ms until it moves` +
+      ` [diag ${JSON.stringify({ stuck: stuck.map((x) => ({ owner: x.owner, timer: x.timer, at: String(x.at), by: String(x.by) })), turnAt: String(this.diagTurnAt), flushAt: String(this.diagFlushAt), dueAtFlush: String(this.diagDueAtFlush), armAt: String(armAt), lastStepAt: String(this.#lastStepAt), inputs: this.diagInputs, openJobs: this.#open.length })}]`;
     this.#ports.report({ kind: "internal", origin: ORIGIN, message });
     this.#queue.push({
       kind: "inputRejected",

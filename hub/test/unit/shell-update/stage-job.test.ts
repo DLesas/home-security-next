@@ -273,19 +273,53 @@ function tree(folder: string): Map<string, string> {
   return files;
 }
 
-/** A thread's gaps: a 10 ms timer's lateness, in ms, while `ms` pass. */
-async function lateness(ms: number, each: () => void): Promise<number> {
+/**
+ * A thread's gaps: a 10 ms timer's lateness, in ms, while `ms` pass. Diagnostic only: each gap
+ * over 15 ms written at once to standard error (beside JSC's own collection log), with its time,
+ * thread CPU and heap.
+ */
+async function lateness(ms: number, each: () => void, label = "test"): Promise<number> {
+  const cpuNow = () => {
+    const u = process.threadCpuUsage();
+    return (u.user + u.system) / 1000;
+  };
+  process.stderr.write(`DIAG-WINDOW start ${label} heap ${(process.memoryUsage().heapUsed / 2 ** 20).toFixed(0)} MB\n`);
   let last = performance.now();
+  const t0 = last;
+  let lastCpu = cpuNow();
   let worst = 0;
   const end = last + ms;
   while (performance.now() < end) {
     await Bun.sleep(10);
     const now = performance.now();
-    worst = Math.max(worst, now - last - 10);
-    last = now;
+    const c = cpuNow();
+    const late = now - last - 10;
+    if (late > 15)
+      process.stderr.write(
+        `DIAG-GAP ${label}: ${late.toFixed(1)} ms late at ${(now - t0).toFixed(0)} ms, thread CPU ${(c - lastCpu).toFixed(1)} ms, heap ${(process.memoryUsage().heapUsed / 2 ** 20).toFixed(0)} MB\n`,
+      );
+    worst = Math.max(worst, late);
     each();
+    last = performance.now();
+    lastCpu = cpuNow();
   }
+  process.stderr.write(`DIAG-WINDOW end ${label}: worst ${worst.toFixed(1)} ms\n`);
   return worst;
+}
+
+/** Diagnostic only: the same window with no worker, and with a worker that posts once and ends. */
+function controls(when: string): void {
+  describe(`DIAG controls ${when}`, () => {
+    test("no worker", async () => {
+      await lateness(1000, () => undefined, `no worker ${when}`);
+    });
+    test("an empty worker", async () => {
+      const { Worker } = await import("node:worker_threads");
+      const worker = new Worker(new URL("../../../diag/empty-worker.ts", import.meta.url));
+      await lateness(1000, () => undefined, `an empty worker ${when}`);
+      await worker.terminate();
+    });
+  });
 }
 
 const startWith =
@@ -366,11 +400,15 @@ describe.each(STUCK)("a worker stuck with every file copied, %s", (_name, way) =
     const drive = driven(inputs(release(), prefix), { start: way.start, stopWaitMs: 300 });
     await stuck(prefix);
     // For half a second the loop takes a turn every 10 ms.
-    const late = await lateness(500, () => {
-      const start = performance.now();
-      expect(drive.job.next()).toBeUndefined();
-      drive.calls.push(performance.now() - start);
-    });
+    const late = await lateness(
+      500,
+      () => {
+        const start = performance.now();
+        expect(drive.job.next()).toBeUndefined();
+        drive.calls.push(performance.now() - start);
+      },
+      `stuck ${_name}`,
+    );
     expect(drive.job.waiting()).toBe(true);
     expect(Math.max(...drive.calls)).toBeLessThan(5);
     expect(late).toBeLessThan(50);
@@ -453,15 +491,20 @@ describe.each(STUCK)("a worker stuck with every file copied, %s", (_name, way) =
   });
 });
 
+controls("before");
 describe("a worker held before it stages", () => {
   test("a stand-in held 1.5 s: the loop free all the while, then the outcome", async () => {
     const prefix = programTree();
     const drive = driven(inputs(release(), prefix), { start: startWith("holds.ts") });
-    const late = await lateness(1000, () => {
-      const start = performance.now();
-      expect(drive.job.next()).toBeUndefined();
-      drive.calls.push(performance.now() - start);
-    });
+    const late = await lateness(
+      1000,
+      () => {
+        const start = performance.now();
+        expect(drive.job.next()).toBeUndefined();
+        drive.calls.push(performance.now() - start);
+      },
+      "holds.ts",
+    );
     expect(late).toBeLessThan(50);
     expect(Math.max(...drive.calls)).toBeLessThan(5);
     expect(await drive.end()).toEqual({ kind: "updateStaged", version: "9.0.0" });
@@ -499,6 +542,8 @@ describe("a worker held before it stages", () => {
     expect(readdirSync(join(prefix, "staged"))).toEqual(["0.1.0"]);
   });
 });
+
+controls("after");
 
 describe("a stop", () => {
   test("after the worker's outcome came, before the loop took it: no outcome for the core; the next staging removes the version", async () => {

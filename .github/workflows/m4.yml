@@ -9,7 +9,6 @@
 name: M4 (bun run m4)
 
 on:
-  push:
   workflow_dispatch:
 
 permissions:

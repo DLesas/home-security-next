@@ -1,0 +1,41 @@
+# Diagnostic only, on throwaway branches: the M4 run and a fetch-and-stage loop against a real hub,
+# with any loop guard line kept whole.
+name: Diag M4 guard
+
+on:
+  push:
+    branches: ["diag-windows-staging-*"]
+
+permissions:
+  contents: read
+
+jobs:
+  m4:
+    strategy:
+      fail-fast: false
+      matrix:
+        machine: [1, 2, 3, 4, 5, 6]
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.2
+      - run: bun install --frozen-lockfile
+      - name: bun run m4, as the M4 workflow runs it, with the fetch-and-stage loop beside it
+        continue-on-error: true
+        shell: bash
+        env: { DIAG_ROUNDS: "30", DIAG_LABEL: "6551620-${{ matrix.machine }}" }
+        run: |
+          bun run m4 > "$RUNNER_TEMP/m4.txt" 2>&1 < /dev/null
+          echo "exit $?"
+          grep -E "^  (FAIL) |GUARD|DIAG-FS|a deadline was left|^\s*\(fail\)|^\s*[0-9]+ (pass|fail|skip)$" "$RUNNER_TEMP/m4.txt" | cut -c1-1500
+      - name: The fetch-and-stage loop alone, twice more
+        continue-on-error: true
+        shell: bash
+        env: { DIAG_ROUNDS: "40", DIAG_LABEL: "6551620-${{ matrix.machine }}-alone" }
+        run: |
+          for i in 1 2; do bun test --timeout 900000 ./hub/test/relay/diag-fetch-stage.test.ts 2>&1 | grep -E "GUARD|DIAG-FS .*(summary|guards [1-9])|\(fail\)" | cut -c1-1500; done

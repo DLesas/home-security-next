@@ -1,0 +1,105 @@
+# Diagnostic only, on throwaway branches: what holds the thread in stage-job's gaps (JSC's own
+# collection log beside them), and a real hub's thread through 60 real stagings, from source and
+# compiled, Defender off and on.
+name: Diag what holds the thread
+
+on:
+  push:
+    branches: ["diag-windows-staging-*"]
+
+permissions:
+  contents: read
+
+jobs:
+  suite:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 75
+    steps:
+      - run: git config --global core.autocrlf false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.2
+      - run: bun install --frozen-lockfile
+      - name: The stage-job test alone, with JSC's collection log
+        continue-on-error: true
+        shell: bash
+        run: BUN_JSC_logGC=1 bun test ./hub/test/unit/shell-update/stage-job.test.ts 2>&1 < /dev/null | GCFILTER_ALL=1 bun hub/diag/gcfilter.ts | grep -E "DIAG|GC .*pause ([1-9][0-9]|[5-9])\.|fail|pass"
+      - name: The whole suite as check runs it, with JSC's collection log
+        continue-on-error: true
+        shell: bash
+        run: |
+          BUN_JSC_logGC=1 bun test 2>&1 < /dev/null | bun hub/diag/gcfilter.ts > "$RUNNER_TEMP/gc.txt"
+          echo "== stage-job.test.ts, every collection and every gap, in order:"
+          awk '/stage-job\.test\.ts:$/ {p=1; print; next} /\.test\.ts:$/ {p=0} p' "$RUNNER_TEMP/gc.txt" | cut -c1-300
+          echo "== elsewhere: the 15 longest pauses"
+          grep -E "^GC " "$RUNNER_TEMP/gc.txt" | sort -t' ' -k1,1 | awk '{for(i=1;i<=NF;i++) if($i=="pause") print $(i+1), $0}' | sort -rn | head -15 | cut -d' ' -f2-
+          grep -E "^\s*[0-9]+ (pass|fail|skip)$|\(fail\)" "$RUNNER_TEMP/gc.txt" | head -10
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: gc-${{ strategy.job-index }}
+          path: ${{ runner.temp }}/gc.txt
+          if-no-files-found: warn
+
+  hub:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    env:
+      DIAG_STAGINGS: "60"
+    steps:
+      - run: git config --global core.autocrlf false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.2
+      - run: bun install --frozen-lockfile
+      - name: Build the compiled test-key hub
+        shell: bash
+        run: bun hub/diag/build-hub.ts "$RUNNER_TEMP/lag-hub${{ runner.os == 'Windows' && '.exe' || '' }}"
+      - name: Defender as the runner has it
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: Get-MpComputerStatus | Select-Object RealTimeProtectionEnabled | Format-List
+      - name: Off, source
+        continue-on-error: true
+        shell: bash
+        env: { DIAG_LABEL: "${{ runner.os }}-${{ strategy.job-index }}-defender-off" }
+        run: bun hub/diag/stagings.ts source | grep -v "^DIAG-STAGING"
+      - name: Off, compiled
+        continue-on-error: true
+        shell: bash
+        env: { DIAG_LABEL: "${{ runner.os }}-${{ strategy.job-index }}-defender-off" }
+        run: bun hub/diag/stagings.ts compiled "$RUNNER_TEMP/lag-hub${{ runner.os == 'Windows' && '.exe' || '' }}" | grep -v "^DIAG-STAGING"
+      - name: Defender on
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Remove-MpPreference -ExclusionPath "C:\","D:\"
+          Set-MpPreference -DisableRealtimeMonitoring $false -DisableIOAVProtection $false -DisableBehaviorMonitoring $false -DisableScriptScanning $false
+          Start-Sleep -Seconds 5
+          Get-MpComputerStatus | Select-Object RealTimeProtectionEnabled | Format-List
+      - name: On, source
+        if: runner.os == 'Windows'
+        continue-on-error: true
+        shell: bash
+        env: { DIAG_LABEL: "${{ runner.os }}-${{ strategy.job-index }}-defender-on" }
+        run: bun hub/diag/stagings.ts source | grep -v "^DIAG-STAGING"
+      - name: On, compiled
+        if: runner.os == 'Windows'
+        continue-on-error: true
+        shell: bash
+        env: { DIAG_LABEL: "${{ runner.os }}-${{ strategy.job-index }}-defender-on" }
+        run: bun hub/diag/stagings.ts compiled "$RUNNER_TEMP/lag-hub${{ runner.os == 'Windows' && '.exe' || '' }}" | grep -v "^DIAG-STAGING"
