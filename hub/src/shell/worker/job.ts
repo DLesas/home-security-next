@@ -34,7 +34,8 @@ import { rm } from "node:fs/promises";
 import { ResultAsync, type Result } from "neverthrow";
 import type { FileOutcome } from "../../core/model/events.ts";
 import { type JobThreadEvents, startJobThread } from "../safe/job-thread.ts";
-import { JOB_CANCEL, JOB_STOP, jobControl, type JobControl } from "./control.ts";
+import { JOB_CANCEL, JOB_STOP, jobControl } from "./control.ts";
+import type { JobKindData, WorkerData } from "./kinds.ts";
 
 /**
  * How long a stop waits for the worker to end and remove what it wrote ‡: a piece's longest wait
@@ -48,24 +49,20 @@ export const CANCEL_WAIT_MS = 10_000;
 /** How long a job waits for an earlier one of its gate to be over ‡. */
 export const QUEUE_WAIT_MS = 10_000;
 
-/** What starts a job's worker: the real thread but in a test. */
-export type StartWorker = (data: WorkerData, events: JobThreadEvents) => Result<void, string>;
-
-/** What the worker is started with: the kind's data and the shared word. */
-export interface WorkerData {
-  readonly kind: string;
-  readonly control: JobControl;
-  readonly [field: string]: unknown;
-}
+/** What starts a job's worker with its kind's data: the real thread but in a test. */
+export type StartWorker<D extends JobKindData> = (
+  data: WorkerData<D>,
+  events: JobThreadEvents,
+) => Result<void, string>;
 
 /** What a kind of job gives the mechanism. */
-export interface WorkerJobKind {
+export interface WorkerJobKind<D extends JobKindData> {
   /** The job, in a word, for its outcomes' messages: "staging" ("the staging worker did not start"). */
   readonly name: string;
   /** The kind's jobs sharing it run one at a time (they share temporary files); undefined: none. */
   readonly gate: string | undefined;
   /** The worker's data but the control word: data only, as a worker's `workerData` must be. */
-  readonly data: { readonly kind: string; readonly [field: string]: unknown };
+  readonly data: D;
   /** Whether the core still wants the job, asked on every turn; undefined: always. */
   readonly wanted?: () => boolean;
   /** A cancel's outcome message. */
@@ -76,11 +73,11 @@ export interface WorkerJobKind {
   readonly placed: (outcome: FileOutcome) => readonly string[];
 }
 
-export interface WorkerJobOptions {
+export interface WorkerJobOptions<D extends JobKindData> {
   /** Asks the loop for a turn: the outcome has come. Without it the job never says it waits. */
   readonly wake?: () => void;
   /** Starts the worker: the real one but in a test. */
-  readonly start?: StartWorker;
+  readonly start?: StartWorker<D>;
   readonly stopWaitMs?: number;
   readonly cancelWaitMs?: number;
   readonly queueWaitMs?: number;
@@ -124,9 +121,9 @@ export function removed(paths: readonly string[]): Promise<void> {
 }
 
 /** One file job on its worker thread, as the loop's job in pieces. */
-export class WorkerJob {
-  readonly #kind: WorkerJobKind;
-  readonly #options: WorkerJobOptions;
+export class WorkerJob<D extends JobKindData> {
+  readonly #kind: WorkerJobKind<D>;
+  readonly #options: WorkerJobOptions<D>;
   readonly #gate: Gate | undefined;
   readonly #control = jobControl();
   #phase: "queued" | "running" | "over" = "queued";
@@ -145,7 +142,7 @@ export class WorkerJob {
   /** This job holds its gate (it began), until it is over. */
   #holdsGate = false;
 
-  constructor(kind: WorkerJobKind, options: WorkerJobOptions = {}) {
+  constructor(kind: WorkerJobKind<D>, options: WorkerJobOptions<D> = {}) {
     this.#kind = kind;
     this.#options = options;
     this.#gate = kind.gate === undefined ? undefined : gateOf(kind.gate);
@@ -229,7 +226,8 @@ export class WorkerJob {
       this.#holdsGate = true;
     }
     this.#phase = "running";
-    const started = (this.#options.start ?? startJobThread)(
+    const start: StartWorker<D> = this.#options.start ?? startJobThread;
+    const started = start(
       { ...this.#kind.data, control: this.#control },
       {
         ended: (outcome) => {

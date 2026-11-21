@@ -22,7 +22,7 @@ import { releaseOfFiles } from "../../../packaging/shared/make-release.ts";
 import { HUB_VERSION } from "../../../src/shell/hub-facts.ts";
 import { programName } from "../../../src/shell/update/program-name.ts";
 import { platformOf } from "../../../src/shell/update/release.ts";
-import { STOP_WAIT_MS } from "../../../src/shell/update/stage-job.ts";
+import { STOP_WAIT_MS } from "../../../src/shell/worker/job.ts";
 import {
   endProcesses,
   spawnTestHub,

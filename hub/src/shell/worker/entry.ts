@@ -5,16 +5,48 @@
  * each kind's module is small, so a worker loading them all costs its start little.
  */
 import { parentPort, workerData } from "node:worker_threads";
-import { serveStaging, type StagingWorkerData } from "../update/stage-serve.ts";
+import { serveStaging } from "../update/stage-serve.ts";
+import type { JobKind, JobKindData, KindData, WorkerData } from "./kinds.ts";
+import type { WorkerReply } from "./serve.ts";
 
-/** The data a job's worker is started with: its kind, and that kind's own. */
-export type WorkerJobData = StagingWorkerData & { readonly kind: "stageUpdate" };
-
-/** Whether `data` names an update's staging. */
-function isStaging(data: unknown): data is WorkerJobData {
-  return typeof data === "object" && data !== null && "kind" in data && data.kind === "stageUpdate";
+interface Port {
+  postMessage(reply: WorkerReply): void;
 }
 
-// A kind it does not know posts nothing: the job ends failed, the worker having stopped first.
+/**
+ * Each kind's server, by kind: a kind of `kinds.ts` missing here, or served with another kind's
+ * data, does not compile (the mapped type is the dispatch's exhaustive check).
+ */
+const SERVERS: { readonly [K in JobKind]: (port: Port, data: WorkerData<KindData<K>>) => void } = {
+  stageUpdate: serveStaging,
+};
+
+function served(kind: unknown): kind is JobKind {
+  return typeof kind === "string" && Object.hasOwn(SERVERS, kind);
+}
+
+/** Whether `data` is what a job's worker is started with: a kind served, its data, the word. */
+function isWorkerData(data: unknown): data is WorkerData<JobKindData> {
+  if (typeof data !== "object" || data === null) return false;
+  if (!("kind" in data) || !served(data.kind)) return false;
+  if (!("inputs" in data) || typeof data.inputs !== "object" || data.inputs === null) return false;
+  if (!("control" in data)) return false;
+  const control = data.control;
+  return (
+    control instanceof Int32Array &&
+    control.buffer instanceof SharedArrayBuffer &&
+    control.length === 2
+  );
+}
+
+/** Serves the job `data` names, by its kind's own module. */
+function serve<K extends JobKind>(
+  port: Port,
+  data: WorkerData<KindData<K>> & { readonly kind: K },
+) {
+  SERVERS[data.kind](port, data);
+}
+
+// Data it does not take posts nothing: the job ends failed, the worker having stopped first.
 const data: unknown = workerData;
-if (parentPort !== null && isStaging(data)) serveStaging(parentPort, data);
+if (parentPort !== null && isWorkerData(data)) serve(parentPort, data);

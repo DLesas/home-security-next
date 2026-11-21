@@ -14,7 +14,9 @@
  */
 import { existsSync } from "node:fs";
 import type { FileOutcome } from "../../../src/core/model/events.ts";
-import { startStagingThread } from "../../../src/shell/safe/staging-thread.ts";
+import { startJobThread } from "../../../src/shell/safe/job-thread.ts";
+import type { StartWorker } from "../../../src/shell/worker/job.ts";
+import type { KindData } from "../../../src/shell/worker/kinds.ts";
 import { TEST_PUBLISHER_KEY } from "../../../src/shell/update/publisher-keys.ts";
 import type { ReleasePlatform } from "../../../src/shell/update/release.ts";
 import { StagingJob } from "../../../src/shell/update/stage-job.ts";
@@ -57,12 +59,8 @@ const options = {
   ...(args.entry === "real"
     ? {}
     : {
-        start: (...[data, events]: Parameters<typeof startStagingThread>) =>
-          startStagingThread(
-            data,
-            events,
-            new URL(`./staging-workers/${args.entry}`, import.meta.url),
-          ),
+        start: (...[data, events]: Parameters<StartWorker<KindData<"stageUpdate">>>) =>
+          startJobThread(data, events, new URL(`./staging-workers/${args.entry}`, import.meta.url)),
       }),
 };
 

@@ -3,7 +3,9 @@
  * for a worker stuck in a slow file call, on every system (`stage-job.test.ts`).
  */
 import { parentPort, workerData } from "node:worker_threads";
-import { serveStaging, type StagingWorkerData } from "../../../../src/shell/update/stage-serve.ts";
+import { serveStaging } from "../../../../src/shell/update/stage-serve.ts";
+import type { KindData, WorkerData } from "../../../../src/shell/worker/kinds.ts";
 
 Bun.sleepSync(1500);
-if (parentPort !== null) serveStaging(parentPort, workerData as StagingWorkerData);
+if (parentPort !== null)
+  serveStaging(parentPort, workerData as WorkerData<KindData<"stageUpdate">>);

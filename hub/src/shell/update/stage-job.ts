@@ -16,22 +16,12 @@ import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { ResultAsync } from "neverthrow";
 import { installPaths } from "../../../launcher/src/layout.ts";
-import type { startStagingThread } from "../safe/staging-thread.ts";
 import { gateBusy, WorkerJob, type WorkerJobOptions } from "../worker/job.ts";
-import type { StageInputs } from "./stage.ts";
-import { STAGING_CANCELLED, type StagingWorkerData } from "./stage-serve.ts";
-
-export { CANCEL_WAIT_MS, QUEUE_WAIT_MS, STOP_WAIT_MS } from "../worker/job.ts";
-
-export const CANCELLED = STAGING_CANCELLED;
+import type { KindData } from "../worker/kinds.ts";
+import { CANCELLED, type StageInputs } from "./stage.ts";
 
 /** Staging's gate: its jobs one at a time. */
 const GATE = "stageUpdate";
-
-export interface StagingJobOptions extends Omit<WorkerJobOptions, "start"> {
-  /** Starts the worker: the real one but in a test. */
-  readonly start?: typeof startStagingThread;
-}
 
 /** Whether a staging is running or not yet over (its thread, its removals): for the tests. */
 export function stagingBusy(): boolean {
@@ -48,9 +38,8 @@ function stagingFolders(prefix: string): Promise<readonly string[]> {
 }
 
 /** One release being staged on the worker thread, as the loop's job in pieces. */
-export class StagingJob extends WorkerJob {
-  constructor(inputs: StageInputs, options: StagingJobOptions = {}) {
-    const { start, ...rest } = options;
+export class StagingJob extends WorkerJob<KindData<"stageUpdate">> {
+  constructor(inputs: StageInputs, options: WorkerJobOptions<KindData<"stageUpdate">> = {}) {
     // Everything but `wanted`, a function, which the worker sees as the control word.
     const { path, prefix, runningVersion, platform, keys, wanted } = inputs;
     super(
@@ -66,12 +55,7 @@ export class StagingJob extends WorkerJob {
             ? [join(installPaths(prefix).staged, outcome.version)]
             : [],
       },
-      {
-        ...rest,
-        ...(start === undefined
-          ? {}
-          : { start: (data, events) => start(data as unknown as StagingWorkerData, events) }),
-      },
+      options,
     );
   }
 }

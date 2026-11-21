@@ -36,23 +36,23 @@ import { err } from "neverthrow";
 import { installPaths } from "../../../launcher/src/layout.ts";
 import { releaseOfFiles } from "../../../packaging/shared/make-release.ts";
 import type { FileOutcome } from "../../../src/core/model/events.ts";
-import {
-  startStagingThread,
-  type StagingThreadEvents,
-} from "../../../src/shell/safe/staging-thread.ts";
+import { type JobThreadEvents, startJobThread } from "../../../src/shell/safe/job-thread.ts";
 import { programName } from "../../../src/shell/update/program-name.ts";
 import { TEST_PUBLISHER_KEY } from "../../../src/shell/update/publisher-keys.ts";
 import { platformOf, type ReleasePlatform } from "../../../src/shell/update/release.ts";
-import { Staging, type StageInputs } from "../../../src/shell/update/stage.ts";
-import { stagingControl, type StagingWorkerData } from "../../../src/shell/update/stage-serve.ts";
-import type { ChildArgs, ChildNumbers } from "./loop-timing-child.ts";
+import { CANCELLED, Staging, type StageInputs } from "../../../src/shell/update/stage.ts";
+import { jobControl } from "../../../src/shell/worker/control.ts";
 import {
-  CANCELLED,
   STOP_WAIT_MS,
-  StagingJob,
-  type StagingJobOptions,
-  stagingBusy,
-} from "../../../src/shell/update/stage-job.ts";
+  type StartWorker,
+  type WorkerJobOptions,
+} from "../../../src/shell/worker/job.ts";
+import type { KindData, WorkerData } from "../../../src/shell/worker/kinds.ts";
+import type { ChildArgs, ChildNumbers } from "./loop-timing-child.ts";
+import { StagingJob, stagingBusy } from "../../../src/shell/update/stage-job.ts";
+
+/** A staging's worker data. */
+type Staged = KindData<"stageUpdate">;
 
 const HERE: ReleasePlatform = platformOf(process.platform, process.arch) ?? "linux-x64";
 const OTHER: ReleasePlatform = HERE === "linux-x64" ? "darwin-arm64" : "linux-x64";
@@ -129,14 +129,14 @@ function writeLater(path: string, data: string, afterMs: number): void {
 interface StuckWay {
   /** A program tree whose staging will be stuck. */
   readonly tree: () => string;
-  readonly start: typeof startStagingThread;
+  readonly start: StartWorker<Staged>;
   /** Lets it go on, after `afterMs`. */
   readonly letGo: (prefix: string, afterMs?: number) => void;
 }
 
 const FIFO: StuckWay = {
   tree: () => programTree(true),
-  start: (data, events) => startStagingThread(data, events),
+  start: (data, events) => startJobThread(data, events),
   letGo: (prefix, afterMs = 0) => {
     writeLater(installPaths(prefix).launcherFile, LAUNCHER_STATE, afterMs);
   },
@@ -145,7 +145,7 @@ const FIFO: StuckWay = {
 const HELD: StuckWay = {
   tree: () => programTree(),
   start: (data, events) =>
-    startStagingThread(data, events, new URL("./staging-workers/held.ts", import.meta.url)),
+    startJobThread(data, events, new URL("./staging-workers/held.ts", import.meta.url)),
   letGo: (prefix, afterMs = 0) => {
     writeLater(`${installPaths(prefix).launcherFile}.go`, "", afterMs);
   },
@@ -237,7 +237,10 @@ interface Drive {
 }
 
 /** A job with a wake, driven as the loop drives it. */
-function driven(stageInputs: StageInputs, options: Omit<StagingJobOptions, "wake"> = {}): Drive {
+function driven(
+  stageInputs: StageInputs,
+  options: Omit<WorkerJobOptions<Staged>, "wake"> = {},
+): Drive {
   let woken = Promise.withResolvers<undefined>();
   const drive: Drive = {
     job: new StagingJob(stageInputs, {
@@ -281,9 +284,9 @@ function tree(folder: string): Map<string, string> {
 }
 
 const startWith =
-  (entry: string): typeof startStagingThread =>
+  (entry: string): StartWorker<Staged> =>
   (data, events) =>
-    startStagingThread(data, events, new URL(`./staging-workers/${entry}`, import.meta.url));
+    startJobThread(data, events, new URL(`./staging-workers/${entry}`, import.meta.url));
 
 describe("staging on its worker", () => {
   test("the same outcome and folder as Staging on the thread; one wake", async () => {
@@ -336,12 +339,12 @@ const CANCELLED_OUTCOME = { kind: "failed", reason: "io", message: CANCELLED } a
 const STOPPED = { kind: "failed", reason: "io", message: "the hub is stopping" } as const;
 
 /** A staging that counts its worker's starts. */
-function counted(starts: number[], start: typeof startStagingThread = startStagingThread) {
+function counted(starts: number[], start: StartWorker<Staged> = startJobThread) {
   return {
     start: ((data, events) => {
       starts.push(performance.now());
       return start(data, events);
-    }) satisfies typeof startStagingThread,
+    }) satisfies StartWorker<Staged>,
   };
 }
 
@@ -536,7 +539,7 @@ describe("a cancel (the core no longer wants it)", () => {
       inputs(release(), prefix, () => wanted),
       {
         start: (data, events) =>
-          startStagingThread(data, {
+          startJobThread(data, {
             ...events,
             exited: () => {
               exited = true;
@@ -600,10 +603,10 @@ describe("a worker that fails", () => {
 
   test("whose entry Bun refuses at once (a bare name): failed, saying so, nothing written", async () => {
     const prefix = programTree();
-    const refused = (data: StagingWorkerData, events: StagingThreadEvents) =>
-      startStagingThread(data, events, "stage-worker.ts");
+    const refused = (data: WorkerData<Staged>, events: JobThreadEvents) =>
+      startJobThread(data, events, "stage-worker.ts");
     const said = refused(
-      { inputs: inputs(release(), prefix), control: stagingControl() },
+      { kind: "stageUpdate", inputs: inputs(release(), prefix), control: jobControl() },
       { ended: () => undefined, failed: () => undefined, exited: () => undefined },
     );
     expect(said._unsafeUnwrapErr()).toContain("absolute path or a relative path");
@@ -649,7 +652,7 @@ describe("one staging at a time", () => {
     const second = driven(inputs(release(), prefix), {
       start: (data, events) => {
         started.push(performance.now());
-        return startStagingThread(data, events);
+        return startJobThread(data, events);
       },
     });
     expect(second.job.waiting()).toBe(true);

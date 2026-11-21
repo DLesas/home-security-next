@@ -97,6 +97,9 @@ interface Writing {
 export type Phase = "start" | "hash" | "copy" | "place";
 
 /** One release being staged, a bounded piece at a time. */
+/** A staging the core no longer wants ends so (`wanted`), on the worker or off it. */
+export const CANCELLED = "staging was cancelled";
+
 export class Staging {
   readonly #inputs: StageInputs;
   #phase: Phase = "start";
@@ -132,7 +135,7 @@ export class Staging {
   /** One piece; the outcome once staging has ended, undefined while there is more. */
   next(): FileOutcome | undefined {
     if (this.#ended !== undefined) return this.#ended;
-    if (this.#inputs.wanted?.() === false) return this.abort("staging was cancelled");
+    if (this.#inputs.wanted?.() === false) return this.abort(CANCELLED);
     const done = Result.fromThrowable(() => this.#piece(), fileError("stage the release"))();
     if (done.isErr()) return this.#fail(done.error);
     const step = done.value;

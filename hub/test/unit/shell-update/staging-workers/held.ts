@@ -8,7 +8,7 @@
  */
 import { readFileSync } from "node:fs";
 import { parentPort, workerData } from "node:worker_threads";
-import type { StagingWorkerData } from "../../../../src/shell/update/stage-serve.ts";
+import type { KindData, WorkerData } from "../../../../src/shell/worker/kinds.ts";
 
 const HELD = `
 export function readHead(path: string, length: number) {
@@ -37,4 +37,5 @@ Bun.plugin({
 });
 
 const { serveStaging } = await import("../../../../src/shell/update/stage-serve.ts");
-if (parentPort !== null) serveStaging(parentPort, workerData as StagingWorkerData);
+if (parentPort !== null)
+  serveStaging(parentPort, workerData as WorkerData<KindData<"stageUpdate">>);

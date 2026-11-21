@@ -6,6 +6,7 @@
 import { Worker } from "node:worker_threads";
 import { err, ok, type Result } from "neverthrow";
 import type { FileOutcome } from "../../core/model/events.ts";
+import type { JobKindData, WorkerData } from "../worker/kinds.ts";
 import type { WorkerReply } from "../worker/serve.ts";
 
 /**
@@ -33,8 +34,8 @@ function described(thrown: unknown): string {
 }
 
 /** Starts a job's worker thread with `data`; why not, if it could not even be started. */
-export function startJobThread(
-  data: object,
+export function startJobThread<D extends JobKindData>(
+  data: WorkerData<D>,
   events: JobThreadEvents,
   entry: string | URL = jobEntry(),
 ): Result<void, string> {
