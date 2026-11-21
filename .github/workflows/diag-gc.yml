@@ -4,8 +4,7 @@
 name: Diag what holds the thread
 
 on:
-  push:
-    branches: ["diag-windows-staging-*"]
+  workflow_dispatch:
 
 permissions:
   contents: read
