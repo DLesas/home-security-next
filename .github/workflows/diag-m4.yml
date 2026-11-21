@@ -14,7 +14,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        machine: [1, 2, 3, 4, 5, 6]
+        machine: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -25,17 +25,22 @@ jobs:
         with:
           bun-version: 1.4.2
       - run: bun install --frozen-lockfile
-      - name: bun run m4, as the M4 workflow runs it, with the fetch-and-stage loop beside it
+      - name: bun run m4, as the M4 workflow runs it, twice
         continue-on-error: true
         shell: bash
-        env: { DIAG_ROUNDS: "30", DIAG_LABEL: "ef015e4-${{ matrix.machine }}" }
+        env: { DIAG_ROUNDS: "0", DIAG_LABEL: "ef015e4-${{ matrix.machine }}" }
         run: |
-          bun run m4 > "$RUNNER_TEMP/m4.txt" 2>&1 < /dev/null
-          echo "exit $?"
-          grep -E "^  (FAIL) |GUARD|DIAG-FS|a deadline was left|^\s*\(fail\)|^\s*[0-9]+ (pass|fail|skip)$" "$RUNNER_TEMP/m4.txt" | cut -c1-1500
-      - name: The fetch-and-stage loop alone, twice more
-        continue-on-error: true
-        shell: bash
-        env: { DIAG_ROUNDS: "40", DIAG_LABEL: "ef015e4-${{ matrix.machine }}-alone" }
-        run: |
-          for i in 1 2; do bun test --timeout 900000 ./hub/test/relay/diag-fetch-stage.test.ts 2>&1 | grep -E "GUARD|DIAG-FS .*(summary|guards [1-9])|\(fail\)" | cut -c1-1500; done
+          set +e
+          mkdir -p "$RUNNER_TEMP/out"
+          for i in 1 2; do
+            bun run m4 > "$RUNNER_TEMP/out/m4-$i.txt" 2>&1 < /dev/null
+            echo "ef015e4 machine ${{ matrix.machine }} run $i: exit $?"
+            grep -E "^  (FAIL) |GUARD|a deadline was left|^\s*\(fail\)|^\s*[0-9]+ (pass|fail|skip)$" "$RUNNER_TEMP/out/m4-$i.txt" | cut -c1-2500
+          done
+          exit 0
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: m4-ef015e4-${{ matrix.machine }}
+          path: ${{ runner.temp }}/out/
+          if-no-files-found: warn
