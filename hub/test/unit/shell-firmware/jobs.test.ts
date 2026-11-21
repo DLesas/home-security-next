@@ -225,19 +225,65 @@ describe("stageFirmware", () => {
 });
 
 describe("removeFirmware", () => {
-  test("an image's file, and image 0's (a staged file refused storeFull), each at once", () => {
+  test("an image's file, and image 0's (a staged file refused storeFull), each off the loop: waiting, then removed", async () => {
     const hub = rig();
     const a = imageFileName(sha256(Uint8Array.of(1)));
     const b = imageFileName(sha256(Uint8Array.of(2)));
     mkdirSync(storeFolder(hub.dataDir), { recursive: true });
     writeFileSync(join(storeFolder(hub.dataDir), a), "a");
     writeFileSync(join(storeFolder(hub.dataDir), b), "b");
+    let wakes = 0;
+    const deps = { ...hub.deps(), wake: () => (wakes += 1) };
+    for (const [image, file] of [
+      [imageId(3), a],
+      [imageId(0), b],
+    ] as const) {
+      const started = firmwareJob(JOB, { kind: "removeFirmware", image, file }, deps);
+      expect(started.kind).toBe("pieces");
+      if (started.kind !== "pieces") return;
+      // Nothing for the loop to do until the unlink and the folder's sync have settled.
+      expect(started.pieces.waiting?.()).toBe(true);
+      expect(started.pieces.next()).toBeUndefined();
+      expect(await staged(started)).toEqual({ kind: "firmwareRemoved", image });
+      expect(started.pieces.waiting?.()).toBe(false);
+    }
+    expect(wakes).toBe(2);
+    expect(readdirSync(storeFolder(hub.dataDir))).toEqual([]);
+    hub.store.db.close(true);
+  });
+
+  test("a file an image in the index names when the job starts: kept, removed at once", () => {
+    const hub = rig();
+    const file = imageFileName(sha256(Uint8Array.of(4)));
+    mkdirSync(storeFolder(hub.dataDir), { recursive: true });
+    writeFileSync(join(storeFolder(hub.dataDir), file), "kept");
+    hub.store.db.run(
+      `INSERT INTO firmware_images (id, image_id, sha256, version, kind, roles, bytes, header, manifest, file, added_ms, added_by, removed_ms)
+       VALUES (5, x'0102030405060708', zeroblob(32), 65536, 1, 14, 4, zeroblob(128), NULL, ?, 1, 'console', NULL)`,
+      [file],
+    );
     expect(
-      firmwareJob(JOB, { kind: "removeFirmware", image: imageId(3), file: a }, hub.deps()),
+      firmwareJob(JOB, { kind: "removeFirmware", image: imageId(3), file }, hub.deps()),
     ).toEqual({ kind: "ready", outcome: { kind: "firmwareRemoved", image: imageId(3) } });
+    expect(readdirSync(storeFolder(hub.dataDir))).toEqual([file]);
+    hub.store.db.close(true);
+  });
+
+  test("on the thread when asked (the lockstep hub's `onThread`): at once, as before", () => {
+    const hub = rig();
+    const file = imageFileName(sha256(Uint8Array.of(1)));
+    mkdirSync(storeFolder(hub.dataDir), { recursive: true });
+    writeFileSync(join(storeFolder(hub.dataDir), file), "a");
     expect(
-      firmwareJob(JOB, { kind: "removeFirmware", image: imageId(0), file: b }, hub.deps()),
-    ).toEqual({ kind: "ready", outcome: { kind: "firmwareRemoved", image: imageId(0) } });
+      firmwareJob(
+        JOB,
+        { kind: "removeFirmware", image: imageId(3), file },
+        {
+          ...hub.deps(),
+          onThread: true,
+        },
+      ),
+    ).toEqual({ kind: "ready", outcome: { kind: "firmwareRemoved", image: imageId(3) } });
     expect(readdirSync(storeFolder(hub.dataDir))).toEqual([]);
     hub.store.db.close(true);
   });

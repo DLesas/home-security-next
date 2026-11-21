@@ -5,9 +5,10 @@
  * - `stageFirmware`: an upload checked and staged, in pieces (`stage.ts`) on a worker thread
  *   (`stage-job.ts`), ending `firmwareStaged` or a refusal; a job whose upload is not there is
  *   `noUpload`.
- * - `removeFirmware`: the image's file removed, at once (`firmwareRemoved`), unless an image in
- *   the index names it when it is deleted (`store.ts`). Image 0 is a staged file the core refused
- *   as `storeFull`, which has no row: its file goes the same way.
+ * - `removeFirmware`: the image's file removed (`firmwareRemoved`), unless an image in the index
+ *   names it when the job starts (`store.ts`), asked at once on the loop; the unlink and the
+ *   folder's sync off the loop (`remove-job.ts`). Image 0 is a staged file the core refused as
+ *   `storeFull`, which has no row: its file goes the same way.
  * - `sendFirmware` (`firmware.download`): the header and the payload streamed to the session that
  *   asked as `fileChunk`s, as `backup.export` streams (m2-design.md section 6), in pieces; the last
  *   chunk, which carries the end mark and the whole stream's SHA-256, is held back until the
@@ -29,7 +30,8 @@ import { PUBLISHER_KEYS } from "../update/publisher-keys.ts";
 import { hubSigner, hubSigningKeys } from "./sign.ts";
 import { FIRMWARE_PIECE_BYTES, FirmwareStaging } from "./stage.ts";
 import { FirmwareStagingJob } from "./stage-job.ts";
-import { imagePath, indexedFile, removeImageFile } from "./store.ts";
+import { FileRemoval } from "./remove-job.ts";
+import { imagePath, indexedFile, removeImageFile, storeFolder } from "./store.ts";
 
 /** The firmware store's file work. */
 export type FirmwareWork = Extract<
@@ -80,12 +82,29 @@ export function firmwareJob(job: JobId, work: FirmwareWork, deps: FirmwareJobDep
       };
     }
     case "removeFirmware": {
-      const removed = removeImageFile(deps.dataDir, work.file, indexedFile(deps.db));
-      return ready(
-        removed.isOk()
-          ? { kind: "firmwareRemoved", image: work.image }
-          : { kind: "failed", reason: removed.error.reason, message: removed.error.message },
-      );
+      if (deps.onThread === true) {
+        const removed = removeImageFile(deps.dataDir, work.file, indexedFile(deps.db));
+        return ready(
+          removed.isOk()
+            ? { kind: "firmwareRemoved", image: work.image }
+            : { kind: "failed", reason: removed.error.reason, message: removed.error.message },
+        );
+      }
+      // The guard at once, on the loop, on the committed index: then the unlink off it.
+      const path = imagePath(deps.dataDir, work.file);
+      if (path === undefined)
+        return ready({
+          kind: "failed",
+          reason: "badFile",
+          message: `"${work.file}" is not a file of the firmware store`,
+        });
+      const indexed = indexedFile(deps.db)(work.file);
+      if (indexed.isErr()) return ready({ kind: "failed", reason: "io", message: indexed.error });
+      if (indexed.value) return ready({ kind: "firmwareRemoved", image: work.image });
+      return {
+        kind: "pieces",
+        pieces: new FileRemoval(path, storeFolder(deps.dataDir), work.image, deps.wake),
+      };
     }
     case "sendFirmware":
       return {

@@ -1,6 +1,6 @@
 /**
  * A removal held back by a failing commit (`shell/loop.ts` holds a turn's file jobs until a commit
- * succeeds) runs when the commit recovers, by which time the index may have changed: the real loop,
+ * succeeds; its unlink off the loop, awaited here) runs when the commit recovers, by which time the index may have changed: the real loop,
  * a real database whose commits fail on demand, and the real firmware jobs. A removal never
  * deletes a file an image in the index then names (the same image staged again has the same file,
  * named by its hash), and the store's check at the next start then finds nothing wrong; with no
@@ -290,13 +290,13 @@ describe("a removal held back by a failing commit", () => {
     r.store.db.close(true);
   });
 
-  test("no image staged again: the held removal deletes the file", () => {
+  test("no image staged again: the held removal deletes the file", async () => {
     const r = rig();
     r.failing = true;
     tick(r, [writeRow(row(1, 5)), remove(1)]);
     expect(existsSync(join(storeFolder(r.dataDir), FILE))).toBe(true);
     r.failing = false;
-    tick(r, []);
+    await settled(r, []);
     expect(r.ready.map((e) => (e.kind === "fileReady" ? e.outcome.kind : ""))).toEqual([
       "firmwareRemoved",
     ]);
@@ -305,9 +305,9 @@ describe("a removal held back by a failing commit", () => {
     r.store.db.close(true);
   });
 
-  test("not held at all: the removal deletes the file at once", () => {
+  test("not held at all: the removal deletes the file (off the loop)", async () => {
     const r = rig();
-    tick(r, [writeRow(row(1, 5)), remove(1)]);
+    await settled(r, [writeRow(row(1, 5)), remove(1)]);
     expect(existsSync(join(storeFolder(r.dataDir), FILE))).toBe(false);
     r.store.db.close(true);
   });

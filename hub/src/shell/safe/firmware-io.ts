@@ -24,6 +24,7 @@ import {
   statSync,
   writeSync,
 } from "node:fs";
+import { open, rm } from "node:fs/promises";
 import { err, ok, type Result } from "neverthrow";
 import type { FileFailure } from "../../core/model/events.ts";
 import { thrownCode } from "./thrown.ts";
@@ -165,6 +166,35 @@ export function removeQuietly(path: string): void {
     rmSync(path, { force: true });
   } catch {
     // What could not be removed is found again by the store's check at the next start.
+  }
+}
+
+/**
+ * `removeFile` off the hub's thread (`node:fs/promises`, on libuv's pool): settles with the
+ * result, never rejects. For a removal the loop must not wait in (`firmware/remove-job.ts`).
+ */
+export async function removeFileOffLoop(path: string): Promise<Result<void, IoError>> {
+  try {
+    await rm(path, { force: true });
+    return ok(undefined);
+  } catch (thrown) {
+    return err(ioError(`remove ${path}`, thrown));
+  }
+}
+
+/** `syncFolder` off the hub's thread: settles with the result, never rejects. */
+export async function syncFolderOffLoop(path: string): Promise<Result<void, IoError>> {
+  if (process.platform === "win32") return ok(undefined);
+  try {
+    const folder = await open(path, "r");
+    try {
+      await folder.sync();
+    } finally {
+      await folder.close();
+    }
+    return ok(undefined);
+  } catch (thrown) {
+    return err(ioError(`sync ${path}`, thrown));
   }
 }
 
