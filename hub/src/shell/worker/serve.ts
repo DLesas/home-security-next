@@ -25,12 +25,16 @@ export interface WorkerReply {
   readonly outcome: FileOutcome;
 }
 
-/** Runs `job` to its end on this thread, then marks `control` and posts the outcome. */
+/**
+ * Runs `job` to its end on this thread, then marks `control` and posts the outcome. `cancelled`:
+ * a cancel's message, for a kind the core can cancel; the loop never tells another kind's worker
+ * to cancel.
+ */
 export function serveJob(
   port: { postMessage(reply: WorkerReply): void },
   control: JobControl,
   job: WorkerPieces,
-  cancelled: string,
+  cancelled?: string,
 ): void {
   let outcome: FileOutcome | undefined;
   while (outcome === undefined) {
@@ -38,7 +42,7 @@ export function serveJob(
     outcome =
       word === JOB_STOP
         ? job.abort(STOPPING)
-        : word === JOB_CANCEL
+        : word === JOB_CANCEL && cancelled !== undefined
           ? job.abort(cancelled)
           : job.next();
   }

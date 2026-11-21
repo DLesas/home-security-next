@@ -20,12 +20,12 @@
  *   files fell on the loop, in the `hub.db` commit that records `update_staged` (the hub's thread
  *   waiting in it, measured on hosted runners through 60 real stagings a machine: Linux up to 221
  *   ms, run 44915548026; in run 44918706591, 23 of 240 stagings over 20 ms on Linux, Windows up to
- *   114 ms, 16 of 240), and with it that commit no longer waits for them (the longest gap a staging:
- *   Linux 7.6 to 9.9 ms, Windows 11 to 16 ms, 4 of 480 over 20 ms, each the commit's own write). It
- *   is also what makes the record true of the bytes and not only of the names: the core records the
- *   version staged only once its folder is in place, and with the sync its files' contents are on
- *   the disk by then. It costs the staging, on the worker, 11 to 22 ms on Linux and 150 to 230 ms on
- *   Windows for a release of 42 files.
+ *   114 ms, 16 of 240), and with it that commit no longer waits for them (the longest gap a
+ *   staging: Linux 7.6 to 9.9 ms, Windows 11 to 16 ms, 4 of 480 over 20 ms, each the commit's own
+ *   write). It is also what makes the record true of the bytes and not only of the names: the core
+ *   records the version staged only once its folder is in place, and with the sync its files'
+ *   contents are on the disk by then. It costs the staging, on the worker, 11 to 22 ms on Linux and
+ *   150 to 230 ms on Windows for a release of 42 files.
  * - **Then** any version but the current one is removed, one a piece (at most two, section 9;
  *   never before the hashes, so a refused release costs the rollback nothing), and the folder is
  *   renamed to `staged/<version>/` in the hub's program tree (section 9, "The privilege boundary").

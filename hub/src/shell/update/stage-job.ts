@@ -47,8 +47,7 @@ export class StagingJob extends WorkerJob<KindData<"stageUpdate">> {
         name: "staging",
         gate: GATE,
         data: { kind: "stageUpdate", inputs: { path, prefix, runningVersion, platform, keys } },
-        ...(wanted === undefined ? {} : { wanted }),
-        cancelled: CANCELLED,
+        ...(wanted === undefined ? {} : { cancel: { wanted, message: CANCELLED } }),
         leftovers: () => (prefix === undefined ? undefined : stagingFolders(prefix)),
         placed: (outcome) =>
           outcome.kind === "updateStaged" && prefix !== undefined

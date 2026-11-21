@@ -10,14 +10,14 @@
  *   outcome has come the job says it is waiting, so the loop asks no turn for it, and the
  *   outcome's arrival asks for one (`wake`); the outcome becomes the job's `fileReady` on the
  *   loop's own turn, so the core sees one order of events, as before.
- * - **A cancel** (the core no longer wants it, looked at on every turn, for a kind that has
- *   `wanted`): the worker is told and sees it before its next piece, and the job removes what it
- *   wrote. Whatever the worker ended with, a job the core no longer wants when its outcome is
- *   taken ends cancelled, with nothing left: what the worker had already put in place before it
- *   was told (`placed`) is removed first, off the loop. On the loop the cancel was seen one piece
- *   earlier; the core cannot tell the two apart. When the worker has not answered within
- *   `CANCEL_WAIT_MS` ‡ (it is in a file call), what it left (`leftovers`) is removed off the loop
- *   and the job ends; the worker ends on its own once the call returns.
+ * - **A cancel** (the core no longer wants it, looked at on every turn, for a kind that can be
+ *   cancelled, `cancel`): the worker is told and sees it before its next piece, and the job
+ *   removes what it wrote. Whatever the worker ended with, a job the core no longer wants when
+ *   its outcome is taken ends cancelled, with nothing left: what the worker had already put in
+ *   place before it was told (`placed`) is removed first, off the loop. On the loop the cancel
+ *   was seen one piece earlier; the core cannot tell the two apart. When the worker has not
+ *   answered within `CANCEL_WAIT_MS` ‡ (it is in a file call), what it left (`leftovers`) is
+ *   removed off the loop and the job ends; the worker ends on its own once the call returns.
  * - **A stop** (`abort`): the worker is told and waited for, at most `STOP_WAIT_MS` ‡, so that what
  *   it wrote is gone before the hub exits; that wait is the job's only one, and the loop is
  *   stopping. A worker still in a file call then is ended by the hub's exit, and the kind's next
@@ -57,16 +57,17 @@ export type StartWorker<D extends JobKindData> = (
 
 /** What a kind of job gives the mechanism. */
 export interface WorkerJobKind<D extends JobKindData> {
-  /** The job, in a word, for its outcomes' messages: "staging" ("the staging worker did not start"). */
+  /** The job in a word, for its outcomes' messages ("the staging worker did not start"). */
   readonly name: string;
   /** The kind's jobs sharing it run one at a time (they share temporary files); undefined: none. */
   readonly gate: string | undefined;
   /** The worker's data but the control word: data only, as a worker's `workerData` must be. */
   readonly data: D;
-  /** Whether the core still wants the job, asked on every turn; undefined: always. */
-  readonly wanted?: () => boolean;
-  /** A cancel's outcome message. */
-  readonly cancelled: string;
+  /**
+   * A kind the core can cancel: whether it still wants the job, asked on every turn, and the
+   * outcome's message once it does not. Undefined: the core never cancels the kind's jobs.
+   */
+  readonly cancel?: { readonly wanted: () => boolean; readonly message: string };
   /** What a worker given up or ended without an outcome may have left; undefined: nothing. */
   readonly leftovers: () => Promise<readonly string[]> | undefined;
   /** What an outcome the core no longer wants left in place, removed before the job ends. */
@@ -180,15 +181,16 @@ export class WorkerJob<D extends JobKindData> {
     if (this.#taken !== undefined) return this.#taken;
     if (this.#removing > 0) return undefined;
     const outcome = this.#outcome;
-    if (this.#wanted()) return outcome === undefined ? undefined : this.#take(outcome);
+    const cancelled = this.#unwanted();
+    if (cancelled === undefined) return outcome === undefined ? undefined : this.#take(outcome);
     if (outcome === undefined) {
-      this.#cancel();
+      this.#cancel(cancelled);
       return this.#outcome === undefined ? undefined : this.#take(this.#outcome);
     }
     // Unwanted when it ended: cancelled, and what was already in place removed first.
     const placed = this.#kind.placed(outcome);
-    if (placed.length === 0) return this.#take(failed(this.#kind.cancelled));
-    this.#outcome = failed(this.#kind.cancelled);
+    if (placed.length === 0) return this.#take(failed(cancelled));
+    this.#outcome = failed(cancelled);
     this.#removing += 1;
     void removed(placed).then(() => {
       this.#removing -= 1;
@@ -214,8 +216,10 @@ export class WorkerJob<D extends JobKindData> {
     return this.#taken;
   }
 
-  #wanted(): boolean {
-    return this.#kind.wanted?.() !== false;
+  /** A cancel's message, once the core no longer wants the job; undefined while it does. */
+  #unwanted(): string | undefined {
+    const cancel = this.#kind.cancel;
+    return cancel === undefined || cancel.wanted() ? undefined : cancel.message;
   }
 
   #begin(): void {
@@ -248,11 +252,11 @@ export class WorkerJob<D extends JobKindData> {
     }
   }
 
-  #cancel(): void {
+  #cancel(message: string): void {
     if (this.#phase === "queued") {
       this.#unqueue();
       this.#exited = true;
-      this.#endWith(failed(this.#kind.cancelled));
+      this.#endWith(failed(message));
       return;
     }
     if (this.#phase !== "running" || this.#cancelling) return;
@@ -261,7 +265,7 @@ export class WorkerJob<D extends JobKindData> {
     this.#timer = setTimeout(() => {
       // The worker is still in a file call: what it left removed off the loop. When the call
       // returns, it sees the cancel before its next piece and ends on its own.
-      this.#removeLeftovers(failed(this.#kind.cancelled));
+      this.#removeLeftovers(failed(message));
     }, this.#options.cancelWaitMs ?? CANCEL_WAIT_MS);
   }
 
@@ -319,7 +323,10 @@ export class WorkerJob<D extends JobKindData> {
     if (at !== -1) this.#gate.queue.splice(at, 1);
   }
 
-  /** The gate opened for the next job, once this one is over: taken or aborted, its thread gone, nothing being removed. */
+  /**
+   * The gate opened for the next job, once this one is over: taken or aborted, its thread gone,
+   * nothing being removed.
+   */
   #maybeRelease(): void {
     const gate = this.#gate;
     if (gate === undefined || !this.#holdsGate) return;
