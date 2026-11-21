@@ -5,9 +5,12 @@
  * hub's signing key's columns come as data, read from `hub.db` by the loop as the job started; the
  * worker makes the signer of them (the key parsed and checked against its public half, which on a
  * hub's first header costs 20 to 60 ms of CPU) where `FirmwareStaging` asks for it, after pass 1,
- * or gives why there was none there, so the refusals keep their order. Before every piece the worker looks at the loop's word: a stop ends
- * the job through `FirmwareStaging.abort`, which removes the temporary file. The core never
- * cancels a firmware staging, so no cancel comes. It never touches `hub.db`.
+ * or gives why there was none there, so the refusals keep their order. Before every piece the
+ * worker looks at the loop's word: a stop ends the job through `FirmwareStaging.abort`, which
+ * removes the temporary file. The core never cancels a firmware staging, so no cancel comes. It
+ * never touches `hub.db`. The key's columns are in its data and nowhere else: nothing the worker
+ * posts but the outcome, and an error it throws reaches a message only scrubbed of them
+ * (`safe/job-thread.ts`).
  */
 import { err } from "neverthrow";
 import type { KindData, WorkerData } from "../worker/kinds.ts";
