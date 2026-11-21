@@ -411,7 +411,12 @@ export async function runHub(
         if (timer !== undefined) clearTimeout(timer);
         timer = undefined;
         if (at === undefined) return;
-        const delayMs = Math.max(0, (at - clock.now().mono) / 1000);
+        // Whole milliseconds, rounded up: `setTimeout` keeps its own clock, and a fractional
+        // delay fires up to 0.95 ms before `at` by this one, which costs the deadline a second
+        // turn (hosted runners, run 44921398327: 86% of deadlines on Linux, 16 to 19% on Windows;
+        // 5.6% on a Mac) and, for the writer's flush, looked stuck to the loop's guard. Rounded
+        // up, none came early on any of them.
+        const delayMs = Math.ceil(Math.max(0, (at - clock.now().mono) / 1000));
         timer = setTimeout(() => {
           timer = undefined;
           holder.loop?.enqueue({ kind: "tick" });

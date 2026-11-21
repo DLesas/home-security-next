@@ -25,10 +25,13 @@
  *    jobs (`ended`), which free its upload.
  * 6. The writer's own upkeep, then the one system timer for the earliest of the core's wake and
  *    the writer's flush deadline. A deadline left at or before the time it should have run by
- *    (the core's: its last step's time; the writer's: now) would make that timer fire at once, for
- *    ever, and keep the hub's one thread busy: the loop then arms the deadlines still ahead as
- *    ever, and the stuck one at most every `HubRules.loop.overdueRetryMs`, records it once (a
- *    core fault, critical), and goes back to normal at the first turn that leaves none.
+ *    (the core's: its last step's time; the writer's: due when step 3 asked, and still due now)
+ *    would make that timer fire at once, for ever, and keep the hub's one thread busy: the loop
+ *    then arms the deadlines still ahead as ever, and the stuck one at most every
+ *    `HubRules.loop.overdueRetryMs`, records it once (a core fault, critical), and goes back to
+ *    normal at the first turn that leaves none. A writer deadline that comes due during the turn,
+ *    after step 3 asked (a tick a fraction of a millisecond early), is not stuck: the timer is
+ *    armed for it as for any other, and the next turn flushes.
  *
  * M2's channel effects (`appSend`, `closeClient`, `closeConn`, `linkSecret`, `hubStatusRead`) and
  * `historyRead` go to the app side in step 4, held after a failed "now" commit exactly as
@@ -240,6 +243,8 @@ export class HubLoop {
   #open: { readonly job: JobId; readonly work: FileWork; readonly pieces: JobPieces }[] = [];
   /** The time of the last step the core took, which its deadlines must all be after. */
   #lastStepAt: Mono | undefined;
+  /** Whether the writer was due when this turn's step 3 asked it (`flushIfDue`). */
+  #writerDueWhenAsked = false;
   /** While a deadline is stuck: when the next turn for it may run. */
   #overdueRetryAt: Mono | undefined;
   /** Each stuck deadline the loop found, once per occurrence (`overdue`). */
@@ -358,7 +363,10 @@ export class HubLoop {
 
     // Step 3: flush when due; at once for anything "now".
     const needsNow = staged.some((item) => item.durability === "now");
-    const flushed = writer.flushIfDue(clock.now().mono);
+    const askedAt = clock.now().mono;
+    const dueWhenAsked = writer.due(askedAt);
+    this.#writerDueWhenAsked = dueWhenAsked !== undefined && dueWhenAsked <= askedAt;
+    const flushed = writer.flushIfDue(askedAt);
     if (flushed.isErr()) {
       this.#failing = true;
       this.#ports.report(flushed.error);
@@ -447,8 +455,10 @@ export class HubLoop {
         for (const timer of timers) if (timer.at <= stepAt) core.push(overdueOf(timer, stepAt));
       }
     }
+    // Stuck only if it was due when step 3 asked and is still due: one that came due since is
+    // armed (`nextWake`) and flushed by the next turn.
     const due = this.#ports.writer.due(now);
-    return due !== undefined && due <= now
+    return this.#writerDueWhenAsked && due !== undefined && due <= now
       ? [...core, { owner: "writer", timer: "due", at: due, by: now }]
       : core;
   }
