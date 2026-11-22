@@ -17,6 +17,7 @@
 import {
   APP_PROTO_VERSION,
   clientHello,
+  type ClientHello,
   type HubHello,
   hubHello,
   linkHubPayload,
@@ -110,6 +111,7 @@ export async function openSession(
   timers: Timers,
   proto: ProtoRange = PROTO_RANGE,
   keys: ClientKeys<PlatformSecret> = PLATFORM_KEYS,
+  firstRequest?: ClientHello["first"],
 ): Promise<Outcome<OpenedSession, SessionFailure>> {
   const identity = parseIdentity(stored.hub.identity);
   if (identity === undefined) return fail("protocol");
@@ -122,7 +124,7 @@ export async function openSession(
   });
   if (!started.ok) return fail("protocol");
   const handshake = started.value;
-  const hello = clientHello.parse({ proto, app });
+  const hello = clientHello.parse({ proto, app, first: firstRequest });
   const first = await handshake.writeMessage(encodeJson(hello));
   if (!first.ok) return fail(first.error === "allZeroDh" ? "keyFailed" : "protocol");
 

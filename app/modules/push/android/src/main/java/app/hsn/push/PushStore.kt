@@ -89,7 +89,7 @@ internal class PushStore private constructor(context: Context) : SQLiteOpenHelpe
     }
     /** Remembers foreground state without replacing receiver-owned history or sequence fields. */
     fun arm(hub: String, armed: Boolean) = transaction { db ->
-        db.execSQL("INSERT INTO home(hub,armed) VALUES(?,?) ON CONFLICT(hub) DO UPDATE SET armed=excluded.armed",arrayOf(hub,if(armed) 1 else 0))
+        db.execSQL("INSERT INTO home(hub,armed) VALUES(?,?) ON CONFLICT(hub) DO UPDATE SET armed=excluded.armed",arrayOf<Any>(hub,if(armed) 1 else 0))
     }
     /** Applies the phone's authoritative home names atomically. */
     fun homes(names: Map<String,String>) = transaction { db ->
@@ -112,8 +112,8 @@ internal class PushStore private constructor(context: Context) : SQLiteOpenHelpe
         val seen = db.rawQuery("SELECT 1 FROM shown WHERE hub=? AND seq=?",arrayOf(alert.hub,alert.seq.toString())).use { it.moveToFirst() }
         val decision = display(alert,armed,seen,relay) ?: return@transaction
         post(decision)
-        db.execSQL("INSERT OR REPLACE INTO home VALUES(?,?,?,?)",arrayOf(alert.hub, if(alert.armed) 1 else 0,alert.seq,if(alert.seq==0L) alert.kind else relay))
-        db.execSQL("INSERT OR IGNORE INTO shown VALUES(?,?)",arrayOf(alert.hub,alert.seq))
+        db.execSQL("INSERT OR REPLACE INTO home VALUES(?,?,?,?)",arrayOf<Any?>(alert.hub, if(alert.armed) 1 else 0,alert.seq,if(alert.seq==0L) alert.kind else relay))
+        db.execSQL("INSERT OR IGNORE INTO shown VALUES(?,?)",arrayOf<Any>(alert.hub,alert.seq))
     }
 }
 

@@ -38,7 +38,7 @@ import {
   type RestoreOffer,
 } from "@hsn/protocol/app";
 import { createStore, type StoreApi } from "zustand/vanilla";
-import { Channel, type ChannelListener, type RequestOutcome } from "./channel";
+import { finishFirstDisarm, Channel, type ChannelListener, type RequestOutcome } from "./channel";
 import type { CodeSource, HubClient, LocalState, Version2Channel } from "./client";
 import { storeListener } from "./client";
 import {
@@ -52,7 +52,13 @@ import {
   storedHubConnect,
   targetsConnect,
 } from "./finder";
-import { type LinkFailure, type LinkSecret, linkClient, type ProtoRange } from "./handshake";
+import {
+  openSession,
+  type LinkFailure,
+  type LinkSecret,
+  linkClient,
+  type ProtoRange,
+} from "./handshake";
 import { fromBase64url } from "./files";
 import { type pushLifecycle, pushVault } from "./push";
 import { BackupKeyKeeper, restoreHub, type RestoreOutcome, snapshotEpoch } from "./restore";
@@ -69,7 +75,13 @@ import {
 } from "./relay";
 import type { Connect, Timers } from "./wire";
 import { createLiveStore, EMPTY_LIVE } from "../state/live";
-import type { ClientKeys, RecordStore, Stored, StoredClient } from "../platform/client-key";
+import {
+  reserveSeq,
+  type ClientKeys,
+  type RecordStore,
+  type Stored,
+  type StoredClient,
+} from "../platform/client-key";
 import type { FinderFault, HubFinder } from "../platform/finder";
 import type { PlatformSecret } from "../platform/keys";
 import type { HeldBackupKey, HubReach } from "../platform/records";
@@ -732,4 +744,54 @@ export function arrivals(source: LinkSource): {
       };
     },
   };
+}
+
+/** Sends one lock-screen action to its own home, sharing the vault's sequence queue with the UI. */
+export async function disarmFromNotification(
+  identity: string,
+  deadline: number,
+  records: PhoneRecords,
+  deps: PhoneDeps,
+): Promise<boolean> {
+  const store = records.hub(identity);
+  const read = await store.read();
+  if (!read.ok || !read.value || deps.timers.now() >= deadline) return false;
+  const record = read.value;
+  const seq = await reserveSeq(store);
+  if (seq === undefined) return false;
+  const reach = record.reach ?? emptyReach();
+  const local = storedHubConnect(
+    hubSocketConnect(deps.makeSocket, deps.timers),
+    deps.finder,
+    () => ({ identity, reach }),
+    {
+      answered: () => undefined,
+      localNetworkDenied: () => undefined,
+    },
+  );
+  const connect = homeThenRelay(local, () => {
+    const relay = deps.relay;
+    if (!relay) return undefined;
+    const relayUrl = relayUrlFor(reach.relayUrl, relay.defaultUrl);
+    if (!relayUrl) return undefined;
+    const made = relayConnect(relay.make, deps.timers, relay.build)({ identity, relayUrl });
+    return made.ok ? made.value : undefined;
+  });
+  const beforeDeadline: Connect = async (path, handlers) => {
+    const wire = await connect(path, handlers);
+    if (deps.timers.now() < deadline) return wire;
+    wire?.close();
+    return undefined;
+  };
+  const opened = await openSession(
+    beforeDeadline,
+    record as unknown as StoredClient,
+    deps.app,
+    deps.timers,
+    deps.proto,
+    platformKeys(deps.keys),
+    { t: "req", id: 1, seq, op: "disarm", body: { target: "mine" } },
+  );
+  if (!opened.ok) return false;
+  return finishFirstDisarm(opened.value, deadline, deps.timers);
 }

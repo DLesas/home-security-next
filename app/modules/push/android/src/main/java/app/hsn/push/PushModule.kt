@@ -14,6 +14,7 @@ class PushModule : Module() {
             val id = context.resources.getIdentifier("google_app_id","string",context.packageName)
             android.os.Build.VERSION.SDK_INT >= 28 && id != 0 && context.getString(id).isNotBlank()
         }
+        AsyncFunction("finish") { tag: String, tapMs: Double, ok: Boolean -> Outcomes.finish(context,tag,tapMs.toLong(),ok) }
         AsyncFunction("keys") { hub: String -> store.keys(hub) }
         AsyncFunction("writeKeys") { hub: String, keys: Map<String,Any?> -> store.put(hub,keys) }
         AsyncFunction("arm") { hub: String, armed: Boolean -> store.arm(hub,armed) }

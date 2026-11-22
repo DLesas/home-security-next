@@ -1,6 +1,9 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
   <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+  <uses-permission android:name="android.permission.WAKE_LOCK" />
   <application>
+    <receiver android:name=".DisarmTap" android:exported="false" />
+    <service android:name=".DisarmTask" android:exported="false" />
     <meta-data android:name="firebase_messaging_auto_init_enabled" android:value="false" />
     <service android:name=".MessagingService" android:exported="false">
       <intent-filter><action android:name="com.google.firebase.MESSAGING_EVENT" /></intent-filter>

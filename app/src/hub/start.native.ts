@@ -27,7 +27,14 @@ import * as phoneKeys from "../platform/keys.native";
 import { secureItems } from "../platform/vault-items.native";
 import { hubNet } from "../../modules/hub-net";
 import type { SocketLike } from "./finder";
-import { arrivals, type PhoneClient, startPhoneClient } from "./phone-client";
+import { installPushAction } from "../platform/push-action.native";
+import {
+  arrivals,
+  disarmFromNotification,
+  type PhoneClient,
+  type PhoneDeps,
+  startPhoneClient,
+} from "./phone-client";
 import { PHONE_PROTO } from "./restore";
 import type { ArrivedCode, StartedClient } from "./start-types";
 import { APP_VERSION } from "./version";
@@ -73,8 +80,9 @@ export function onArrivedCode(listener: (code: ArrivedCode) => void): () => void
   return links.on(listener);
 }
 
-export function startClient(): StartedClient {
-  const phone = startPhoneClient({
+/** Creates the one vault and transport configuration shared by foreground and headless sessions. */
+function nativePhone() {
+  const deps: PhoneDeps = {
     items: secureItems,
     ...(Platform.OS === "android"
       ? { push: pushLifecycle(pushStorage, pushTokens, realTimers) }
@@ -90,7 +98,23 @@ export function startClient(): StartedClient {
       defaultUrl: defaultRelayUrl(DEPLOYMENT),
       build: { development: __DEV__ },
     },
+  };
+  return { phone: startPhoneClient(deps), deps };
+}
+let shared: ReturnType<typeof nativePhone> | undefined;
+/** Reuses the same record queues when a notification is tapped while the app is also running. */
+function sharedPhone() {
+  return (shared ??= nativePhone());
+}
+
+if (Platform.OS === "android")
+  installPushAction((hub, deadline) => {
+    const { phone, deps } = sharedPhone();
+    return disarmFromNotification(hub, deadline, phone.records, deps);
   });
+
+export function startClient(): StartedClient {
+  const { phone } = sharedPhone();
   started = phone;
   phone.client.start();
   AppState.addEventListener("change", (state) => {
