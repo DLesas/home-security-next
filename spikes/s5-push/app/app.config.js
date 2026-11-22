@@ -1,7 +1,6 @@
 // Spike S5's Expo configuration. Identifiers are the deployment's placeholders with a spike suffix
 // (packages/deployment/deployment.json: invalid.hsn.app), so the spike never replaces the app's own
-// development build on the simulators. S5_CRITICAL=1 declares the critical-alerts entitlement
-// (the simulator does not check it against a profile; a real iPhone would need AS3).
+// development build on the simulators.
 module.exports = () => ({
   name: "HSN S5",
   slug: "s5-push-spike",
@@ -22,6 +21,6 @@ module.exports = () => ({
   },
   plugins: [
     ["expo-notifications", {}],
-    ["./plugins/with-hsn-push.js", { critical: process.env.S5_CRITICAL === "1" }],
+    "./plugins/with-hsn-push.js",
   ],
 });

@@ -59,3 +59,29 @@ ls -l "$GROUP"/*.jsonl
 The last two fields of the iOS 27 archive reader are interruption level and critical sound. Read the latest dated rows after SpringBoard persists them. The file format is specific to this simulator runtime.
 
 A clean native prebuild, pod install and simulator build then succeeded with the standalone extension and bundled JS. The embedded executable was 303,824 bytes and both JSON resources were present. After reinstalling this build and repeating the pair, the two new OS records at 09:57:27.365 and .475 again held the placeholder, level 1, critical sound false. Only the app journal existed. Four injections across two builds, zero extension starts.
+
+## 2. Can the extension choose loudness?
+
+**Cannot be decided with local simulator delivery.** The built app's simulated entitlements included time-sensitive and omitted critical-alerts. Four pushes in one installation produced these OS delivery records. The extension's first instruction never journaled a start.
+
+| Requested in | Requested level | UTC | Stored level | Stored critical sound |
+| --- | --- | --- | ---: | --- |
+| Extension only, uniform APS | Time Sensitive | 09:57:41.693 | 1 (active) | false |
+| Extension only, uniform APS | Critical | 09:57:41.806 | 1 | false |
+| Outer APS | Time Sensitive | 09:57:41.918 | 2 | false |
+| Outer APS | Critical with critical sound | 09:57:42.026 | 3 | true |
+
+The archive records the requested outer critical payload even without AS3. It does not measure audible interruption, entitlement enforcement on a signed device, or a rejection from an extension. There was no system answer to an extension-originated request because it never ran. The app's separate authorization button required the blocked device session. Envelope A versus B remains open. Use real delivery to an AS3-entitled client and compare the same decrypted alert with uniform and critical outer APS, including sound under silent mode.
+
+```sh
+for level in timeSensitive critical; do
+  xcrun simctl push "$IOS" "$APP" "$OUT/vectors/$level.apns"
+done
+for level in time-sensitive critical; do
+  jq --arg l "$level" '.aps["interruption-level"]=$l |
+    if $l=="critical" then .aps.sound={"critical":1,"name":"default","volume":1} else . end' \
+    "$OUT/vectors/v0.apns" | xcrun simctl push "$IOS" "$APP" -
+done
+python3 "$SPIKE/harness/delivered.py" "$IOS"
+plutil -p "$SPIKE/app/ios/HSNS5/HSNS5.entitlements"
+```

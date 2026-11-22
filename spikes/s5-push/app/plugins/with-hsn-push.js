@@ -4,8 +4,7 @@
 // iOS: the notification service extension as a target of its own (`HsnPushExtension`, bundle id
 // `<app>.push`), embedded in the app; its Swift, Info.plist and entitlements copied from
 // `extension/`; the app's translation file (`app/locales/en/common.json`) copied into it; the App
-// Group on both targets; the Time Sensitive entitlement on the app (and, with `critical`, the
-// critical-alerts one); the placeholder's `push.placeholder` in the app's Localizable.strings.
+// Group on both targets; the Time Sensitive entitlement on the app; the placeholder's `push.placeholder` in the app's Localizable.strings.
 // Android: the words as assets of the app (the service runs with no JavaScript), and cleartext for
 // the relay on this Mac in every build of the spike.
 const fs = require("node:fs");
@@ -52,12 +51,10 @@ const withFiles = (config) =>
     },
   ]);
 
-const withEntitlements = (config, critical) =>
+const withEntitlements = (config) =>
   withEntitlementsPlist(config, (mod) => {
     mod.modResults["com.apple.security.application-groups"] = [GROUP];
     mod.modResults["com.apple.developer.usernotifications.time-sensitive"] = true;
-    if (critical) mod.modResults["com.apple.developer.usernotifications.critical-alerts"] = true;
-    else delete mod.modResults["com.apple.developer.usernotifications.critical-alerts"];
     return mod;
   });
 
@@ -125,5 +122,5 @@ const withAndroidPieces = (config) =>
     },
   );
 
-module.exports = (config, { critical = false } = {}) =>
-  withAndroidPieces(withExtensionTarget(withEntitlements(withFiles(config), critical)));
+module.exports = (config) =>
+  withAndroidPieces(withExtensionTarget(withEntitlements(withFiles(config))));
