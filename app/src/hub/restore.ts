@@ -38,6 +38,7 @@ import { decodeJson, encodeJson } from "./codec";
 import { lookupOfSecret, pskOfSecret } from "./digest";
 import type { RestoreCode } from "./finder";
 import { HANDSHAKE_WAIT_MS, type ProtoRange } from "./handshake";
+import { isRelayOwnClose } from "./relay";
 import type { Stored } from "../platform/client-key";
 import type { HeldBackupKey } from "../platform/records";
 import type { PhoneBackupKeys } from "../platform/vault";
@@ -191,7 +192,7 @@ export function snapshotEpoch(snapshot: unknown): number | null {
 
 /** Why a restore did not happen, each said in words by the restore page (M2 9's words). */
 export type RestoreFailure =
-  /** No socket at the code's addresses. */
+  /** No socket at the code's addresses nor through the relay, or the relay's own close before message 2. */
   | "unreachable"
   /** Closed before message 2: the code is used, expired or unknown, or no version is shared. */
   | "refused"
@@ -281,7 +282,8 @@ export async function restoreHub(code: RestoreCode, deps: RestoreDeps): Promise<
   wire.send(first.value);
 
   const second = await inbox.next(HANDSHAKE_WAIT_MS);
-  if (second.kind === "closed") return { ok: false, fault: "refused" };
+  if (second.kind === "closed")
+    return { ok: false, fault: isRelayOwnClose(second.code) ? "unreachable" : "refused" };
   if (second.kind === "timeout") return stop("timeout");
   const read = await handshake.readMessage(second.data);
   if (!read.ok) return stop("protocol");

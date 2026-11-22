@@ -35,6 +35,7 @@ import {
 } from "@hsn/protocol/app";
 import { identityOf, lookupOfSecret, pskOfSecret, pskOfTypedSecret } from "./digest";
 import { decodeJson, encodeJson } from "./codec";
+import { isRelayOwnClose } from "./relay";
 import type { ClientKeys, KeyFault, StoredClient } from "../platform/client-key";
 import { makeClientKey, type PlatformSecret, staticKeyOf } from "../platform/keys";
 import { type ChannelPath, CLOSE, type Connect, Inbox, type Timers, type Wire } from "./wire";
@@ -59,7 +60,7 @@ export const PLATFORM_KEYS: ClientKeys<PlatformSecret> = { makeClientKey, static
 export const HANDSHAKE_WAIT_MS = 10_000;
 
 export type SessionFailure =
-  /** No socket: the hub is not reachable. */
+  /** No socket, or the relay closed it before message 2 (`isRelayOwnClose`): the hub is not reachable. */
   | "unreachable"
   /** Closed before message 2: the key is unknown or removed, no version is shared, or the hub is full. */
   | "refused"
@@ -132,7 +133,7 @@ export async function openSession(
   wire.send(first.value);
 
   const next = await inbox.next(HANDSHAKE_WAIT_MS);
-  if (next.kind === "closed") return fail("refused");
+  if (next.kind === "closed") return fail(isRelayOwnClose(next.code) ? "unreachable" : "refused");
   if (next.kind === "timeout") return fail("timeout", wire);
   const second = await handshake.readMessage(next.data);
   if (!second.ok) return fail("notOurHub", wire);
@@ -230,7 +231,8 @@ export async function linkClient(
   wire.send(first.value);
 
   const second = await inbox.next(HANDSHAKE_WAIT_MS);
-  if (second.kind === "closed") return fail("refused");
+  if (second.kind === "closed")
+    return fail(isRelayOwnClose(second.code) ? "unreachable" : "refused");
   if (second.kind === "timeout") return fail("timeout", wire);
   const read = await handshake.readMessage(second.data);
   if (!read.ok) return fail("protocol", wire);
