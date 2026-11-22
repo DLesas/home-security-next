@@ -644,6 +644,51 @@ describe("a worker that fails", () => {
   });
 });
 
+describe("the entry's check of the data it is given (worker/entry.ts)", () => {
+  /** The real entry, given what `alter` makes of the staging's data: what it ended with. */
+  async function given(alter: (data: WorkerData<Staged>) => unknown): Promise<{
+    readonly outcome: FileOutcome;
+    readonly prefix: string;
+  }> {
+    const prefix = programTree();
+    const start: StartWorker<Staged> = (data, events) =>
+      startJobThread(alter(data) as WorkerData<Staged>, events);
+    return { outcome: await driven(inputs(release(), prefix), { start }).end(), prefix };
+  }
+
+  /** Served nothing: the worker stopped without a message, and nothing was staged. */
+  function servedNothing({ outcome, prefix }: { outcome: FileOutcome; prefix: string }): void {
+    expect(outcome).toEqual({
+      kind: "failed",
+      reason: "io",
+      message: "the staging worker ended without an outcome: it stopped first (exit code 0)",
+    });
+    expect(readdirSync(join(prefix, "staged"))).toEqual(["0.1.0"]);
+  }
+
+  test("no control word: nothing served", async () => {
+    servedNothing(await given((data) => ({ ...data, control: undefined })));
+  });
+
+  test("a control word not shared with the loop (an Int32Array of its own): nothing served", async () => {
+    servedNothing(await given((data) => ({ ...data, control: new Int32Array(2) })));
+  });
+
+  test("a control word of the wrong length: nothing served", async () => {
+    servedNothing(
+      await given((data) => ({ ...data, control: new Int32Array(new SharedArrayBuffer(4)) })),
+    );
+  });
+
+  test("a kind the entry does not serve: nothing served", async () => {
+    servedNothing(await given((data) => ({ ...data, kind: "notAKind" })));
+  });
+
+  test("a kind without its data: nothing served", async () => {
+    servedNothing(await given((data) => ({ ...data, inputs: undefined })));
+  });
+});
+
 describe("one staging at a time", () => {
   test("a second waits for the first to be over, then stages", async () => {
     const first = driven(inputs(release(), programTree()), { start: startWith("holds.ts") });

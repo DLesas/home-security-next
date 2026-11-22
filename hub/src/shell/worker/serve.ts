@@ -3,14 +3,22 @@
  * class the loop would run, called one after another on the worker's thread until it ends, so the
  * work per piece and every outcome and refusal are what they were on the loop. Before every piece
  * the worker looks at the loop's word (`control.ts`): a stop ends the job (`abort`, which removes
- * what it wrote), a cancel ends it as the job ends a cancel. Then it marks itself ended, wakes a
- * stop that waits for it, and posts the outcome, its one message. It never touches `hub.db`.
+ * what it wrote), and so does a cancel, whose outcome the loop makes itself. Then it marks itself
+ * ended, wakes a stop that waits for it, and posts the outcome, its one message. It never touches
+ * `hub.db`.
  */
 import type { FileOutcome } from "../../core/model/events.ts";
 import { JOB_CANCEL, JOB_STOP, type JobControl } from "./control.ts";
 
 /** What a stop ends a job with. */
 export const STOPPING = "the hub is stopping";
+
+/**
+ * What a cancel ends a job with, on the worker. Never the outcome the core sees: the loop's side
+ * makes a cancelled job's outcome itself, with its kind's message (`job.ts`, `cancel`), whatever
+ * the worker ended with.
+ */
+export const CANCELLING = "cancelled";
 
 /** A job in pieces, as the loop would run it. */
 export interface WorkerPieces {
@@ -25,16 +33,11 @@ export interface WorkerReply {
   readonly outcome: FileOutcome;
 }
 
-/**
- * Runs `job` to its end on this thread, then marks `control` and posts the outcome. `cancelled`:
- * a cancel's message, for a kind the core can cancel; the loop never tells another kind's worker
- * to cancel.
- */
+/** Runs `job` to its end on this thread, then marks `control` and posts the outcome. */
 export function serveJob(
   port: { postMessage(reply: WorkerReply): void },
   control: JobControl,
   job: WorkerPieces,
-  cancelled?: string,
 ): void {
   let outcome: FileOutcome | undefined;
   while (outcome === undefined) {
@@ -42,8 +45,8 @@ export function serveJob(
     outcome =
       word === JOB_STOP
         ? job.abort(STOPPING)
-        : word === JOB_CANCEL && cancelled !== undefined
-          ? job.abort(cancelled)
+        : word === JOB_CANCEL
+          ? job.abort(CANCELLING)
           : job.next();
   }
   Atomics.store(control, 1, 1);

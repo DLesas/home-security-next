@@ -12,16 +12,16 @@
  */
 import type { KindData, WorkerData } from "../worker/kinds.ts";
 import { serveJob, type WorkerReply } from "../worker/serve.ts";
-import { CANCELLED, Staging } from "./stage.ts";
+import { Staging } from "./stage.ts";
 
 /**
  * Stages to the end on this thread, then marks the control word and posts the outcome
- * (`worker/serve.ts`): a cancel, looked at before every piece, ends it as `Staging` ends one the
- * core no longer wants (`CANCELLED`, its folder removed).
+ * (`worker/serve.ts`): a cancel, looked at before every piece, ends it through `Staging`, which
+ * removes its folder; the outcome the core sees is the loop's own (`stage-job.ts`, `CANCELLED`).
  */
 export function serveStaging(
   port: { postMessage(reply: WorkerReply): void },
   data: WorkerData<KindData<"stageUpdate">>,
 ): void {
-  serveJob(port, data.control, new Staging(data.inputs), CANCELLED);
+  serveJob(port, data.control, new Staging(data.inputs));
 }
