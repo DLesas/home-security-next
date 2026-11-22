@@ -11,6 +11,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const {
   withAndroidManifest,
+  withAppBuildGradle,
   withDangerousMod,
   withEntitlementsPlist,
   withXcodeProject,
@@ -117,10 +118,17 @@ const withAndroidPieces = (config) =>
       },
     ]),
     (mod) => {
-      for (const app of mod.modResults.manifest.application ?? []) app.$["android:usesCleartextTraffic"] = "true";
+      for (const app of mod.modResults.manifest.application ?? []) {
+        // A simulator-only, bundled-JS build. run-as streams fixture keys into private storage.
+        app.$["android:usesCleartextTraffic"] = "true";
+      }
       return mod;
     },
   );
 
 module.exports = (config) =>
-  withAndroidPieces(withExtensionTarget(withEntitlements(withFiles(config))));
+  withAppBuildGradle(withAndroidPieces(withExtensionTarget(withEntitlements(withFiles(config)))), (mod) => {
+    // Allow adb run-as provisioning in the bundled-JS simulator build.
+    mod.modResults.contents = mod.modResults.contents.replace(/(buildTypes\s*\{[\s\S]*?release\s*\{)(?!\s*debuggable true)/u, "$1\n            debuggable true");
+    return mod;
+  });

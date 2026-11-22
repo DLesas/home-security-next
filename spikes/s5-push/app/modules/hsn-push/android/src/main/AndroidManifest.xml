@@ -1,0 +1,18 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+  <uses-permission android:name="android.permission.WAKE_LOCK" />
+  <application>
+    <meta-data android:name="firebase_messaging_auto_init_enabled" android:value="false" />
+    <meta-data android:name="firebase_analytics_collection_enabled" android:value="false" />
+    <!-- Our messaging service, beside expo-notifications' (which declares priority -1). -->
+    <service android:name=".HsnMessagingService" android:exported="false">
+      <intent-filter>
+        <action android:name="com.google.firebase.MESSAGING_EVENT" />
+      </intent-filter>
+    </service>
+    <!-- The spike's stand-in for FCM's delivery (adb shell am broadcast). Never in a real build. -->
+    <receiver android:name=".StandInFcmReceiver" android:permission="android.permission.DUMP" android:exported="true" />
+    <receiver android:name=".DisarmActionReceiver" android:exported="false" />
+    <service android:name=".DisarmTaskService" android:exported="false" />
+  </application>
+</manifest>

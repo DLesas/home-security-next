@@ -105,3 +105,66 @@ wait "$SCENE"
 ```
 
 For a delivery path that dispatches the extension, repeat in a fresh scene and tap Disarm before expiry. Compare the native action's tapMs and backgroundTimeRemaining, JS reply's disarmed array, outcome posting time and independent hub.arming event. Expo 58's NotificationCenterManager calls completionHandler immediately after dispatch to delegates. The spike includes a background task and a windowless React start for this case. Neither path executed in this iOS run.
+
+## 4. Android with the app swiped away
+
+**Passes for local data delivery on API 37.** In each of two fresh scenes I opened the bundled app, allowed notifications, displayed Recents and swiped its card away. Recents then showed Settings and the previous card. The spike had no PID immediately after dismissal. The stand-in sent only the sealed data field into Android's service resolver. The OS-created HsnMessagingService received it in a new process. Airplane mode was on, Wi-Fi was off, and the WebSocket used an adb reverse to the loopback relay.
+
+The notification shade showed “Countdown: front” with Disarm. I tapped the actual action. Both runs started JS in the background and both IK replies reported sensor 2 disarmed. A separately linked observer saw that sensor go from armed to disarmed. The shade showed “Disarmed.” The device tool reported `press label="Disarm" left invalid.hsn.app.s5spike and foregrounded com.google.android.apps.nexuslauncher`; the screenshot, native action timestamp, reply and observer confirmed the background action. No second tap was needed in either run.
+
+| Milliseconds from native action receipt, phone clock | DND on | DND off, fresh scene |
+| --- | ---: | ---: |
+| JS Disarm starts | 2,050 | 1,280 |
+| WebSocket open | 2,338 | 1,588 |
+| Hub message 2 | 2,342 | 1,596 |
+| Companion sent | 2,374 | 1,629 |
+| Successful reply to first | **2,420** | **1,678** |
+| Outcome posted | **2,425** | **1,689** |
+
+NotificationManager's action PendingIntent showed a **+30s0ms temporary allowlist**. React Native's task timeout was independently configured to 30,000 ms. Both outcomes landed inside those windows. The observed allowlist is specific to this emulator. We did not measure the OS killing an overrun or the interval from finger contact to receiver dispatch. In the first run the tap arrived near countdown expiry and the alarm appeared before the hub replied. In the second run the hub disarmed during the countdown.
+
+**Replacement.** In run 1 the countdown was shown for hub/device 2. The alarm handler found one matching delivered countdown. The OS changed from countdown ID 100002 to alarm ID 200002, and the shade showed “Alarm: front”. The published test pair for device 7 independently replaced ID 100007 with 200007. Its one-bit corrupt control journaled decryptFailed and posted nothing.
+
+**Do Not Disturb.** The alarm channel had importance 4 (HIGH), category alarm and alarm audio usage. At setup its persisted canBypassDnd was false despite the app asking for true. The priority filter was 2. With alarms permitted in the mode, the countdown's record had mIntercept=false and the shade marked it Alerted. The ordinary notification had mIntercept=true. With alarms disabled and no channel exception, both alarm records settled at mIntercept=true while remaining posted. Enabling only “Alarms and countdowns” under the mode's allowed apps changed both to false at the same importance. These are OS interception decisions. Acoustic output was not measured. The channel exception, alarms filter, DND and connectivity were restored to their original settings. [Android's channel API](https://developer.android.com/reference/android/app/NotificationChannel#setBypassDnd(boolean))
+
+### Repeat
+
+```sh
+export ANDROID_HOME="$HOME/Library/Android/sdk" JAVA_HOME=$(/usr/libexec/java_home -v 17)
+export ADB="$ANDROID_HOME/platform-tools/adb"
+cd "$SPIKE/app"
+node node_modules/expo/bin/cli prebuild --clean --platform android --no-install
+(cd android && ./gradlew --no-daemon --max-workers=4 :app:assembleRelease -PreactNativeArchitectures=arm64-v8a)
+# Use the serial reported by device_open for Medium_Phone_API_37.0.
+ANDROID=emulator-5554
+"$ADB" -s "$ANDROID" install -r android/app/build/outputs/apk/release/app-release.apk
+cd "$ROOT"
+```
+
+Use the command returned by device_open to open the app, allow notifications, open app-switcher, and swipe its centered card up. Confirm it is gone. Use the same command for settings, including airplane on and Wi-Fi off. The bundled release configuration enables run-as specifically for this fixture. The app's private provision file travels over stdin. Capture only new phone journal rows per trial.
+
+```sh
+N=$("$ADB" -s "$ANDROID" shell run-as "$APP" cat files/app.jsonl | wc -l)
+bun "$SPIKE/harness/safe/scene.ts" android "$ANDROID" "$OUT/android-scene" >"$OUT/android.log" &
+SCENE=$!
+# Once $OUT/android-scene/ready exists, pull down the notification shade and trigger the door.
+touch "$OUT/android-scene/door"
+# Tap Disarm on the countdown, or let the alarm replace it and tap its Disarm.
+"$ADB" -s "$ANDROID" shell dumpsys notification --package "$APP" | \
+  rg 'NotificationRecord\(|"Disarm" ->|mIntercept='
+"$ADB" -s "$ANDROID" shell run-as "$APP" cat files/app.jsonl | tail -n +$((N+1)) >"$OUT/phone.jsonl"
+python3 "$SPIKE/harness/check-disarm.py" "$OUT/phone.jsonl" "$OUT/android.log"
+touch "$OUT/android-scene/finish"
+wait "$SCENE"
+```
+
+For the DND controls use Settings → Modes → Do Not Disturb. Toggle Alarms under “Alarms & other interruptions”, then the single channel under Apps → Selected apps (gear) → Add apps → HSN S5. Repeat the dumpsys inspection after ranking settles. The following delivers the published countdown, refusal control and alarm without an active scene or any token. Set up in the app once to store the public vector key.
+
+```sh
+for f in v0 changed-byte v1; do
+  "$ADB" -s "$ANDROID" shell am broadcast --receiver-foreground \
+    -n "$APP/expo.modules.hsnpush.StandInFcmReceiver" -a invalid.hsn.s5.FCM \
+    --es h "$(jq -r .h "$OUT/vectors/$f.apns")"
+done
+"$ADB" -s "$ANDROID" shell run-as "$APP" cat files/app.jsonl | tail -10
+```

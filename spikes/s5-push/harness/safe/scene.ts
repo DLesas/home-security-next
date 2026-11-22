@@ -80,9 +80,8 @@ try {
   const r = stored.value;
   const provision = JSON.stringify({
     relayUrl: relay.url, identity: r.hub.identity, client: r.hub.client, lastSeq: r.lastSeq,
-    hubStatic: Buffer.from(r.hub.staticKey).toString("base64"),
-    clientPrivate: Buffer.from(r.key.privateKey).toString("base64"),
-    clientPublic: Buffer.from(r.key.publicKey).toString("base64"),
+    hubStatic: Buffer.from(r.hub.staticKey).toString("hex"),
+    clientPrivate: Buffer.from(r.key.privateKey).toString("hex"),
     pushKeyId: Buffer.from(phone.push.keyId).toString("hex"),
     pushKey: Buffer.from(phone.push.key).toString("base64url"),
   });

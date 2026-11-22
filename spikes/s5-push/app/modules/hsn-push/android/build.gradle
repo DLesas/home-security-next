@@ -1,0 +1,24 @@
+// Spike S5's `push` module, Android side. Throwaway. Built as app/modules/hub-net is.
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'expo.modules.hsnpush'
+version = '0.0.1'
+
+android {
+  namespace "expo.modules.hsnpush"
+  defaultConfig {
+    versionCode 1
+    versionName "0.0.1"
+  }
+}
+
+dependencies {
+  implementation 'com.facebook.react:react-android'
+  // Compile against the runtime Expo already ships. The spike adds no packaged SDK.
+  compileOnly('host.exp.exponent:expo.modules.notifications:58.1.9') {
+    attributes { attribute(Usage.USAGE_ATTRIBUTE, objects.named(Usage, Usage.JAVA_RUNTIME)) }
+  }
+}

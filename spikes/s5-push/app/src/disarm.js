@@ -25,11 +25,9 @@ const decodeJson = (b) => {
   }
 };
 
-function fromBase64(text) {
-  const bin = globalThis.atob(text);
-  const out = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
-  return out;
+/** Decode the scene's 32-byte static key from its fixture-only hex representation. */
+function fromHex(text) {
+  return Uint8Array.from(text.match(/../gu), (pair) => Number.parseInt(pair, 16));
 }
 
 /** A queue of a socket's messages, with a deadline per read. */
@@ -66,7 +64,7 @@ function inbox(socket) {
 export async function disarmFirst(p, seq, mark) {
   const identity = parseIdentity(p.identity);
   if (identity === undefined) return { failed: "identity" };
-  const secret = fromBase64(p.clientPrivate);
+  const secret = fromHex(p.clientPrivate);
   const key = x25519StaticKey(secret);
   if (!key.ok) return { failed: "client key" };
   const first = { t: "req", id: 1, seq, op: "disarm", body: { target: "mine" } };
@@ -75,8 +73,8 @@ export async function disarmFirst(p, seq, mark) {
     pattern: NOISE_PATTERNS.session,
     initiator: true,
     prologue: sessionPrologue(identity),
-    staticKey: { publicKey: fromBase64(p.clientPublic), dh: (theirs) => key.value.dh(theirs) },
-    remoteStatic: fromBase64(p.hubStatic),
+    staticKey: key.value,
+    remoteStatic: fromHex(p.hubStatic),
   });
   if (!started.ok) return { failed: "handshake" };
   const m1 = await started.value.writeMessage(encodeJson(hello));
@@ -97,11 +95,11 @@ export async function disarmFirst(p, seq, mark) {
       resolve(false);
     };
   });
-  if (!opened) return { failed: "socket" };
+  if (!opened) { socket.close(); return { failed: "socket" }; }
   mark("js.socketOpen");
   socket.send(m1.value.slice().buffer);
   const second = await next(10_000);
-  if (second.kind !== "message") return { failed: `message 2: ${second.kind}` };
+  if (second.kind !== "message") { socket.close(); return { failed: `message 2: ${second.kind}` }; }
   mark("js.message2");
   const read = await started.value.readMessage(second.data);
   const back = read.ok ? hubHello.safeParse(decodeJson(read.value)) : undefined;
@@ -111,7 +109,7 @@ export async function disarmFirst(p, seq, mark) {
     return { failed: "hub hello" };
   }
   const companion = transport.value.encrypt(encodeJson({ t: "req", id: 2, op: "pong", body: {} }));
-  if (!companion.ok) return { failed: "companion" };
+  if (!companion.ok) { socket.close(); return { failed: "companion" }; }
   socket.send(companion.value.slice().buffer);
   mark("js.companionSent");
   const end = Date.now() + 10_000;

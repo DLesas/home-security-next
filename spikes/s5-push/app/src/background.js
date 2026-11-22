@@ -17,7 +17,7 @@ export async function runDisarm(event) {
   running = true;
   mark("js.disarm.start", { tapMs: event?.tapMs ?? 0, state: HsnPush.appState() });
   const p = HsnPush.provision();
-  if (!p.ok || typeof p.relayUrl !== "string") {
+  if (!p.ok || p.identity !== event?.hub || !/^ws:\/\/127\.0\.0\.1:\d+$/u.test(p.relayUrl)) {
     mark("js.disarm.noProvision");
     await HsnPush.finishDisarm(false, "Could not reach the hub. Open the app to disarm.");
     running = false;
