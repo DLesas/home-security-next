@@ -33,6 +33,7 @@ import { manualTimers } from "./support/timers";
 const { PhoneProvider } = await import("../src/ui/phone-parts");
 const { standInPhoneParts } = await import("../src/ui/stand-ins");
 const { ThisPhoneScreen, afterLinking, removeFaultKey } = await import("../src/ui/this-phone");
+const { StateField } = await import("../src/ui/state-field");
 const { backTarget, placeOf } = await import("../src/ui/navigation");
 
 function hubOf(seed: number): { identity: string; staticKey: Uint8Array } {
@@ -380,6 +381,39 @@ describe("the pages", () => {
     );
     expect(removeFaultKey({ step: "storage" })).toBe("homes.storage");
     expect(removeFaultKey({ step: "client", failure: { ok: false, local: "offline" } })).toBeNull();
+  });
+
+  test("Home names the chosen home above the state sentence, with Change, only with more than one; never in the sentence", async () => {
+    const two = await phoneWith(2);
+    await two.homes.rename(A, "Grandma's");
+    const screen = await shown(two.homes, createElement(StateField), { ...OPEN, modes: {} });
+    const html = screen.html();
+    const text = textOf(html);
+    expect(text.indexOf("Grandma's Change")).toBeGreaterThanOrEqual(0);
+    expect(text.indexOf("Grandma's")).toBeLessThan(text.indexOf("Disarmed"));
+    expect(html).toContain('href="/this-phone"');
+    const sentence = /data-testid="current-mode"[^>]*>([^<]*)</u.exec(html)?.[1];
+    expect(sentence).toBe("Disarmed");
+    await screen.close();
+    const one = await phoneWith(1);
+    const alone = await shown(one.homes, createElement(StateField), { ...OPEN, modes: {} });
+    expect(alone.html()).not.toContain("home-line");
+    expect(textOf(alone.html())).not.toContain("Change");
+    await alone.close();
+  });
+
+  test("the home name stays outside the alarm heading and announcement", async () => {
+    const phone = await phoneWith(2);
+    const screen = await shown(phone.homes, createElement(StateField), {
+      ...OPEN,
+      alarm: { startedMs: 1, triggers: [], sirens: [] },
+    });
+    const html = screen.html();
+    const text = textOf(html);
+    expect(text).toContain("Home Change Alarm");
+    expect(html.match(/<[^>]+role="alert"[^>]*>(.*?)<\/div>/u)?.[1]).not.toContain("Change");
+    expect(html).toMatch(/<[^>]+aria-level="1"[^>]*>Alarm</u);
+    await screen.close();
   });
 
   test("This phone and Link another home belong to Settings; once linked, back to This phone", () => {

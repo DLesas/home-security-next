@@ -4,6 +4,7 @@
  *
  * - **Day** (nothing armed): `sage`, dark text. **Night** (anything armed): `spruce`, pale text, the
  *   armed mark in `lamp`. The alarm and a countdown are `AlarmField` (red, or night with the time).
+ * - With more than one home on a phone, the chosen one's name above the sentence (`home-line.tsx`).
  * - Every mode this browser knows is offered (but the one already on, unchanged): the hub decides
  *   who may switch (HB5a) and the result is said in words, with the confirmation for open doors and
  *   low batteries (D50, AL12). "Disarm what I manage" is `disarm mine` (D76).
@@ -23,6 +24,7 @@ import {
   type Look,
   useAlarmRunning,
 } from "./banners";
+import { HomeLine } from "./home-line";
 import { type Action, useAction, useLive } from "./hub-context";
 import { Actions, Body, Button, Dialog, Failure, Notice, NoticeText, Stack } from "./parts";
 
@@ -99,7 +101,11 @@ export function StateField() {
   }, [running, clear]);
   return (
     <View testID="state-field" className="gap-6">
-      {running ? <AlarmField large disarm={disarm} /> : <QuietField disarm={disarm} />}
+      {running ? (
+        <AlarmField large disarm={disarm} above={<HomeLine look="alarm" />} />
+      ) : (
+        <QuietField disarm={disarm} />
+      )}
       {disarm.outcome === undefined ? null : <DisarmOutcome outcome={disarm.outcome} />}
     </View>
   );
@@ -155,6 +161,7 @@ function QuietField({ disarm }: { readonly disarm: Action<"disarm"> }) {
     <>
       <FieldSurface look={state.look}>
         <View className="gap-3">
+          <HomeLine look={state.look} />
           {state.look === "night" ? <View aria-hidden className="h-1 w-12 bg-lamp" /> : null}
           <Text
             role="heading"

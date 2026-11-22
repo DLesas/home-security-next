@@ -124,9 +124,12 @@ export function FieldSurface({
 export function AlarmField({
   large,
   disarm,
+  above,
 }: {
   readonly large: boolean;
   readonly disarm: Action<"disarm">;
+  /** Above the sentence, outside what is announced: the chosen home's name on a phone's Home. */
+  readonly above?: ReactNode;
 }) {
   const { t, i18n } = useTranslation();
   const alarm = useLive((s) => s.alarm);
@@ -171,21 +174,24 @@ export function AlarmField({
   return (
     <View role="region" aria-label={headline} {...(large ? {} : { testID: "alarm-banner" })}>
       <FieldSurface look={look}>
-        <View role="alert" aria-live="assertive" className="gap-3">
-          <Text
-            {...(large ? { role: "heading", "aria-level": 1 } : {})}
-            className={`font-heavy ${large ? "text-state md:text-state-wide" : "text-section"} ${text}`}
-          >
-            {headline}
-          </Text>
-          <Text className={`max-w-line font-text text-body ${text}`}>{cause}</Text>
-          {alarm !== null && alarm.sirens.length > 0 ? (
-            <Text className={`max-w-line font-text text-body ${text}`}>
-              {t("banner.alarmSirens", {
-                sirens: deviceNames(t, i18n.language, { devices }, alarm.sirens),
-              })}
+        <View className="gap-3">
+          {above}
+          <View role="alert" aria-live="assertive" className="gap-3">
+            <Text
+              {...(large ? { role: "heading", "aria-level": 1 } : {})}
+              className={`font-heavy ${large ? "text-state md:text-state-wide" : "text-section"} ${text}`}
+            >
+              {headline}
             </Text>
-          ) : null}
+            <Text className={`max-w-line font-text text-body ${text}`}>{cause}</Text>
+            {alarm !== null && alarm.sirens.length > 0 ? (
+              <Text className={`max-w-line font-text text-body ${text}`}>
+                {t("banner.alarmSirens", {
+                  sirens: deviceNames(t, i18n.language, { devices }, alarm.sirens),
+                })}
+              </Text>
+            ) : null}
+          </View>
         </View>
         {alarm === null ? (
           <>

@@ -119,22 +119,27 @@ export function Copyable({
   );
 }
 
-/** A link in running text or under a notice: words, underlined, at least 48 px high. */
+/**
+ * A link in running text or under a notice: words, underlined, at least 48 px high. `onDark`: on
+ * the night and alarm fields, `limewash` with the pale ring.
+ */
 export function TextLink({
   href,
   label,
   testID,
+  onDark = false,
 }: {
   readonly href: string;
   readonly label: string;
   readonly testID?: string;
+  readonly onDark?: boolean;
 }) {
   return (
     <Link
       href={href}
       testID={testID}
       maxFontSizeMultiplier={TEXT_SCALE_MAX}
-      className={`min-h-target self-start py-3 font-strong text-body text-ink underline ${RING_PALE}`}
+      className={`min-h-target self-start py-3 font-strong text-body underline ${onDark ? `text-limewash ${RING_DARK}` : `text-ink ${RING_PALE}`}`}
     >
       {label}
     </Link>
