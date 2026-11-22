@@ -34,7 +34,7 @@ import {
 } from "react-native";
 import { hasPairingCode } from "../pairing/code-arrival";
 import { AlarmBanner, ShellNotices, useAlarmRunning } from "./banners";
-import { useHub, useLive, useLocal, Version2Provider } from "./hub-context";
+import { useHub, useLive, useLocal } from "./hub-context";
 import { needsLinkGate } from "./link-gate";
 import { backTarget, BottomBar, LINK_HOME, Pages, THIS_PHONE } from "./navigation";
 import { Column } from "./parts";
@@ -42,7 +42,7 @@ import { PhoneLinkGate } from "./phone-link";
 import { PhoneProvider } from "./phone-parts";
 import { REVEAL_BELOW, revealOffset } from "./keyboard";
 import { phonePartsFor } from "./stand-ins";
-import { livePhoneParts, liveVersion2 } from "./phone-wiring.native";
+import { livePhoneParts } from "./phone-wiring.native";
 import { BAND, statusBarStyle, type Top, topOf } from "./top";
 import { useStore } from "zustand";
 import { LockGate } from "./lock-page";
@@ -151,9 +151,7 @@ export function Shell() {
   return (
     <PhoneProvider parts={parts}>
       <LockGate lock={parts.lock} os={parts.os} frame={lockedFrame}>
-        <Version2Provider client={liveVersion2(hub)}>
-          <UnlockedShell parts={parts} />
-        </Version2Provider>
+        <UnlockedShell parts={parts} />
       </LockGate>
     </PhoneProvider>
   );

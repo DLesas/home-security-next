@@ -15,7 +15,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { deviceName, type Translate } from "../state/words";
 import { formatTime } from "./format";
-import { useHub, useLive, useRead, useVersion2 } from "./hub-context";
+import { useHub, useLive, useRead } from "./hub-context";
 import { Actions, Body, Button, Choice, Failure, Heading, List, ListItem } from "./parts";
 import { recordedPause } from "./rollout-words";
 
@@ -145,11 +145,11 @@ function timeOf(
 }
 
 export function HistoryScreen() {
-  const version2 = useVersion2();
+  const hub = useHub();
+  const version2 = hub.v2;
   const system = useRead("update.status", {}, "people", version2 !== undefined);
   const rolloutDetails = version2 !== undefined && system.data?.ok === true;
   const { t, i18n } = useTranslation();
-  const hub = useHub();
   const devices = useLive((s) => s.devices);
   const groups = useLive((s) => s.groups);
   const info = useLive((s) => s.hub);

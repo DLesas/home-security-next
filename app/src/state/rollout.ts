@@ -2,20 +2,14 @@
 import {
   APP_OPS_V2,
   type AppEventBodyV2,
-  type AppEventV2,
   type AppOpBodyV2,
   type AppOpReplyV2,
 } from "@hsn/protocol/app";
 import { createStore } from "zustand/vanilla";
-import type { AnyOutcome, Channel } from "../hub/channel";
-import type { HubClient } from "../hub/client";
+import type { AnyOutcome } from "../hub/channel";
+import type { HubClient, Version2Channel } from "../hub/client";
 import { realTimers, type Timers } from "../hub/wire";
 import type { LiveState } from "./live";
-
-export interface Version2Client {
-  readonly forward: Channel["forward"];
-  readonly onNewEvent: (listener: (event: AppEventV2) => void) => () => void;
-}
 
 type Status = AppOpReplyV2<"rollout.status">;
 type FirmwareList = AppOpReplyV2<"firmware.list">;
@@ -42,7 +36,7 @@ interface RolloutView {
 
 /** Uses the operation's schema to keep the reply typed even through a forwarded request. */
 async function request<Op extends ReadOp | ChangeOp>(
-  client: Version2Client,
+  client: Version2Channel,
   op: Op,
   body: AppOpBodyV2<Op>,
 ): Promise<Outcome<Op>> {
@@ -90,7 +84,7 @@ const CATALOGUE_RECORDS = new Set([
 /** Keeps the Updates section current for one app session and drops replies after it ends. */
 export function rolloutView(
   hub: Pick<HubClient, "live" | "onEvent">,
-  client: Version2Client,
+  client: Version2Channel,
   timers: Timers = realTimers,
 ) {
   const store = createStore<RolloutView>()(() => ({}));

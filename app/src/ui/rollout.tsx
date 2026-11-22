@@ -1,12 +1,13 @@
-/** The device rollout on Updates, using the version 2 channel supplied by the shell. */
+/** The device rollout on Updates, using the shared hub client's version 2 channel. */
 import type { AppOpReplyV2, RolloutDeviceObject, RolloutObject } from "@hsn/protocol/app";
 import { useEffect, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { useStore } from "zustand";
-import { rolloutView, type RolloutCommand, type Version2Client } from "../state/rollout";
+import type { Version2Channel } from "../hub/client";
+import { rolloutView, type RolloutCommand } from "../state/rollout";
 import { deviceName } from "../state/words";
 import { formatTime } from "./format";
-import { useHub, useLive, useVersion2 } from "./hub-context";
+import { useHub, useLive } from "./hub-context";
 import {
   Actions,
   Body,
@@ -29,14 +30,14 @@ type Run = (command: RolloutCommand) => void;
 
 /** Mounts the rollout only for a linked session that can send version 2 requests. */
 export function RolloutSection() {
-  const client = useVersion2();
+  const client = useHub().v2;
   const session = useLive((s) => s.session);
   if (client === undefined || session === null) return null;
   return <RolloutPanel key={`${session.hub}/${session.client}`} client={client} />;
 }
 
 /** Shows the latest accepted status and the commands available for its stage. */
-function RolloutPanel({ client }: { readonly client: Version2Client }) {
+function RolloutPanel({ client }: { readonly client: Version2Channel }) {
   const { t, i18n } = useTranslation();
   const hub = useHub();
   const model = useMemo(() => rolloutView(hub, client), [hub, client]);
