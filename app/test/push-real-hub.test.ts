@@ -15,13 +15,13 @@ import {
 import { pushLifecycle } from "../src/hub/push";
 import { PHONE_PROTO } from "../src/hub/restore";
 import { realTimers } from "../src/hub/wire";
-import { memoryRecordStore } from "../src/platform/client-key";
+import { memoryRecordStore, reserveSeq } from "../src/platform/client-key";
 import * as keys from "../src/platform/keys.native";
 import { S1, siteSnapshot } from "../../hub/test/unit/firmware/support";
 import { seedPairingSite } from "./support/pairing-site";
 import { hasStoredTarget } from "../src/platform/push-types";
 import { fakePush } from "../src/platform/push-device.fake";
-import { memorySecureItems } from "../src/platform/vault";
+import { itemsOf, memorySecureItems } from "../src/platform/vault";
 import { manualTimers } from "./support/timers";
 import { HubEnd } from "./support/hub-end";
 import { phoneSockets } from "./support/phone-sockets";
@@ -461,5 +461,38 @@ test("a sweep excludes the chosen home before its first snapshot", async () => {
   phone.client.start();
   expect(await enumerated.promise).toEqual([]);
   phone.client.stop();
+  push.stop();
+});
+
+test("reserving a sequence reads no other home record, while a rename refreshes names", async () => {
+  const { hub, deps, timers } = scriptedPhone();
+  const other = new HubEnd(crypto.getRandomValues(new Uint8Array(32)));
+  const fake = fakePush(),
+    push = pushLifecycle(fake.storage, fake.tokens, timers);
+  const reads: string[] = [];
+  const items = {
+    ...deps.items,
+    get: (name: string) => {
+      reads.push(name);
+      return deps.items.get(name);
+    },
+  };
+  const { records } = startPhoneClient({ ...deps, items, push });
+  await addScriptedLink(hub, records);
+  await addScriptedLink(other, records);
+  const names = itemsOf(other.identity);
+  assert(names);
+  const store = records.hub(hub.identity);
+  reads.length = 0;
+  expect(await reserveSeq(store)).toBe(1);
+  expect(reads).not.toContain(names.record);
+  expect(reads).not.toContain(names.key);
+  const changed = await store.update((record) => {
+    assert(record.reach);
+    return { ...record, reach: { ...record.reach, homeName: "Cottage" } };
+  });
+  expect(changed.ok).toBe(true);
+  expect(reads).toContain(names.record);
+  expect(fake.names()[hub.identity]).toBe("Cottage");
   push.stop();
 });

@@ -578,11 +578,13 @@ export function phoneRecords(items: SecureItems, hooks?: PhoneRecordHooks): Phon
           ? add(record, null)
           : Promise.resolve(failed("failed", identity)),
       update: async (change) => {
+        let nameChanged = false;
         const result = await inQueue(identity)<Stored<StoredClient<Uint8Array> | undefined>>(
           async () => {
             const read = await readHub(identity);
             if (!read.ok) return failed(read.fault, identity);
             if (read.value === undefined) return ok(undefined);
+            const previousName = read.value.reach?.homeName ?? "";
             const next = change(read.value);
             if (next.hub.identity !== identity || !validRecord(next))
               return failed("failed", identity);
@@ -590,11 +592,12 @@ export function phoneRecords(items: SecureItems, hooks?: PhoneRecordHooks): Phon
               toBase64url(next.key.privateKey) !== toBase64url(read.value.key.privateKey);
             const wrote = await writeHub(next, keyChanged);
             if (!wrote.ok) return failed(wrote.fault, identity);
+            nameChanged = (next.reach?.homeName ?? "") !== previousName;
             cleared(identity, "write");
             return ok(next);
           },
         );
-        if (result.ok && result.value) await hooks?.changed();
+        if (nameChanged) await hooks?.changed();
         return result;
       },
       clear: () => remove(identity),
