@@ -10,7 +10,7 @@
  * again when it is next heard), what each device was last told, what its last Started and update
  * query said, the `deviceUpdate` body last sent, and which gateway a person forced.
  */
-import type { DeviceUpdateObject, ReleaseOffer } from "@hsn/protocol/app";
+import type { ReleaseOffer } from "@hsn/protocol/app";
 import type { UpdateAction } from "@hsn/protocol";
 import {
   type DeviceId,
@@ -21,7 +21,7 @@ import {
   type RolloutId,
   type Seq,
 } from "../model/ids.ts";
-import type { AnswerTo } from "../model/messages.ts";
+import type { AnswerTo, DeviceUpdateEventBody } from "../model/messages.ts";
 import type { DeviceUpdateRow, FirmwareImageRow, RolloutRow, UpdateHeld } from "../model/rows.ts";
 import type { Mono } from "../model/time.ts";
 import type { TimerOf } from "../model/timers.ts";
@@ -45,35 +45,8 @@ export interface Told {
 }
 
 /** A device's `deviceUpdate` event body (m3-updates section 4), as last published. */
-export interface DeviceUpdateEvent {
-  readonly device: number;
-  readonly image: number;
-  readonly state: DeviceUpdateObject["state"];
-  readonly held: DeviceUpdateObject["held"];
-  readonly method: DeviceUpdateObject["method"];
-  readonly bytes: number;
-  readonly of: number;
-  readonly reason?: DeviceUpdateEventReason;
-}
-export type DeviceUpdateEventReason =
-  | "battery"
-  | "armed"
-  | "noWifi"
-  | "hubNotFound"
-  | "linkLost"
-  | "badHeader"
-  | "wrongHub"
-  | "wrongRole"
-  | "tooLarge"
-  | "badSignature"
-  | "hashMismatch"
-  | "flash"
-  | "imageCheck"
-  | "windowEnded"
-  | "sessionRefused"
-  | "onTrial"
-  | "radioBusy"
-  | "noContact";
+export type DeviceUpdateEvent = DeviceUpdateEventBody;
+export type DeviceUpdateEventReason = NonNullable<DeviceUpdateEvent["reason"]>;
 
 /** One device's update: its row, and what is kept in memory beside it. */
 export interface DeviceEntry {
