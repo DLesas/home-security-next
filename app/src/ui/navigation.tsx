@@ -16,7 +16,10 @@ interface Destination {
   /** Where the destination leads, when it is an index of its pages rather than its first page. */
   readonly index?: string;
   readonly pages: readonly (readonly [href: string, label: string])[];
-  /** Pages that belong here but are not listed: the phone's "Restore a hub" (m3-design.md section 4). */
+  /**
+   * Pages that belong here but are not listed: the phone's "Restore a hub" (m3-design.md section 4),
+   * and "This phone" (section 6).
+   */
   readonly unlisted?: readonly string[];
 }
 
@@ -53,7 +56,7 @@ export const DESTINATIONS: readonly Destination[] = [
       ["/status", "nav.status"],
       ["/setup", "nav.setup"],
     ],
-    unlisted: ["/restore"],
+    unlisted: ["/restore", "/this-phone"],
   },
 ];
 

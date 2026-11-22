@@ -51,6 +51,9 @@
     },
     "settings": {
       "title": "Settings"
+    },
+    "thisPhone": {
+      "title": "This phone"
     }
   },
   "nav": {
@@ -72,7 +75,8 @@
     "activity": "Activity",
     "settings": "Settings",
     "within": "Pages in {{destination}}",
-    "restore": "Restore a hub"
+    "restore": "Restore a hub",
+    "thisPhone": "This phone"
   },
   "common": {
     "busy": "Working…",
@@ -1022,7 +1026,8 @@
     "link": "Make a code to link another phone or browser.",
     "status": "What the hub is running and how it is doing.",
     "setup": "The first steps: your name, the Wi-Fi and the first devices.",
-    "restore": "Restore a new hub from a backup, with the key this phone holds."
+    "restore": "Restore a new hub from a backup, with the key this phone holds.",
+    "thisPhone": "The homes this phone is linked to, and the app lock."
   },
   "bluetooth": {
     "title": "Allow Bluetooth",
@@ -1348,5 +1353,8 @@
     "gone_one": "{{siren}} was removed or reset, so {{groups}} has none of its own sirens left, and every siren will sound for it.",
     "gone_other": "{{siren}} was removed or reset, so {{groups}} have none of their own sirens left, and every siren will sound for them.",
     "goneNoGroups": "{{siren}} was removed or reset, so a group was left with none of its own sirens, and every siren sounds for it. Groups says which sirens sound for each."
+  },
+  "thisPhone": {
+    "phoneOnly": "Homes and the app lock are set on each phone, in the phone app."
   }
 }

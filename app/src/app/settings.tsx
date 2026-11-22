@@ -1,7 +1,8 @@
 /**
  * Settings (docs/app-design.md "Layout"): an index of its eight pages, one row each with a line
- * saying what the page is for. The whole row opens the page. On a phone that holds a backup key,
- * a ninth: "Restore a hub" (m3-design.md section 4).
+ * saying what the page is for. The whole row opens the page. On a phone, "This phone" (its homes
+ * and the app lock, m3-design.md section 6); on one that holds a backup key, "Restore a hub"
+ * (section 4).
  */
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -30,6 +31,7 @@ export default function Screen() {
   const { t } = useTranslation();
   const settings = DESTINATIONS.find((d) => d.index === "/settings");
   const restore = useHoldsBackupKey();
+  const phone = usePhone();
   return (
     <Page title={t("screens.settings.title")}>
       <List label={t("screens.settings.title")}>
@@ -42,6 +44,14 @@ export default function Screen() {
             detail={t(`settingsIndex${href.replace("/", ".")}`)}
           />
         ))}
+        {phone === undefined ? null : (
+          <LinkRow
+            href="/this-phone"
+            testID="settings-this-phone"
+            name={t("nav.thisPhone")}
+            detail={t("settingsIndex.thisPhone")}
+          />
+        )}
         {restore ? (
           <LinkRow
             href="/restore"

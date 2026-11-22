@@ -108,6 +108,17 @@ const linkQr = (purpose: "link" | "restore") =>
   );
 const QR = linkQr("link");
 
+test("Settings opens This phone on a phone, and omits it in a browser", async () => {
+  const { default: Settings } = await import("../src/app/settings");
+  const { default: ThisPhone } = await import("../src/app/this-phone");
+  const { backTarget } = await import("../src/ui/navigation");
+  const settings = createElement(Settings);
+  expect(await renderWith(onPhone(settings), {})).toContain('href="/this-phone"');
+  expect(await renderWith(settings, {})).not.toContain('href="/this-phone"');
+  expect(textOf(await renderWith(onPhone(createElement(ThisPhone)), {}))).toContain("This phone");
+  expect(backTarget("/this-phone")).toBe("/settings");
+});
+
 describe("the camera screen (rule 8) and the camera's permission (rule 7)", () => {
   const render = (initial: ScanState) =>
     renderWith(
