@@ -2,10 +2,10 @@
 package expo.modules.hsnpush
 
 import android.content.Intent
-import com.google.firebase.messaging.FirebaseMessagingService
+import expo.modules.notifications.service.ExpoFirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
 
-class HsnMessagingService : FirebaseMessagingService() {
+class HsnMessagingService : ExpoFirebaseMessagingService() {
   companion object { const val LOCAL_DATA = "invalid.hsn.s5.LOCAL_DATA" }
 
   /** Adapt the local stand-in to the same data callback as a delivered message. */

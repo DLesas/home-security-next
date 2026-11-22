@@ -71,7 +71,7 @@ A clean native prebuild, pod install and simulator build then succeeded with the
 | Outer APS | Time Sensitive | 09:57:41.918 | 2 | false |
 | Outer APS | Critical with critical sound | 09:57:42.026 | 3 | true |
 
-The archive records the requested outer critical payload even without AS3. It does not measure audible interruption, entitlement enforcement on a signed device, or a rejection from an extension. There was no system answer to an extension-originated request because it never ran. The app's separate authorization button required the blocked device session. Envelope A versus B remains open. Use real delivery to an AS3-entitled client and compare the same decrypted alert with uniform and critical outer APS, including sound under silent mode.
+The archive records the requested outer critical payload even without AS3. It does not measure audible interruption, entitlement enforcement on a signed device, or a rejection from an extension. There was no system answer to an extension-originated request because it never ran. There is a separate OS answer for the **app's** permission request. SpringBoard's retained log from the inherited build at 09:50:16 says it requested critical authorization. Its settings after the request were authorizationStatus Authorized, criticalAlertSetting NotSupported, timeSensitiveSetting Enabled and soundSetting Enabled. The occupied session prevented a fresh button tap. Envelope A versus B remains open. Use real delivery to an AS3-entitled client and compare the same decrypted alert with uniform and critical outer APS, including sound under silent mode.
 
 ```sh
 for level in timeSensitive critical; do
@@ -84,6 +84,10 @@ for level in time-sensitive critical; do
 done
 python3 "$SPIKE/harness/delivered.py" "$IOS"
 plutil -p "$SPIKE/app/ios/HSNS5/HSNS5.entitlements"
+# After using Ask critical, inspect the OS settings for this app:
+xcrun simctl spawn "$IOS" log show --last 2m --style compact --predicate \
+  'process == "SpringBoard" AND eventMessage CONTAINS "invalid.hsn.app.s5spike" AND eventMessage CONTAINS[c] "critical"' | \
+  rg -o 'Requesting critical alert authorization|(criticalAlertSetting|timeSensitiveSetting|authorizationStatus): [A-Za-z]+' | sort -u
 ```
 
 ## 3. Closed-app Disarm and countdown replacement on iOS
@@ -168,3 +172,47 @@ for f in v0 changed-byte v1; do
 done
 "$ADB" -s "$ANDROID" shell run-as "$APP" cat files/app.jsonl | tail -10
 ```
+
+## 5. Expo prebuild and service ownership
+
+The replay started with no spike node_modules, ios or android directory, and an empty Xcode derived-data directory. Bun restored **452 packages** from its cache with the frozen standalone lockfile. Expo regenerated both projects. CocoaPods installed 103 pods. The repository's ordinary workspace dependencies were already present for the protocol imports and local hub. On a fresh machine those are the repository bootstrap prerequisite (`bun install --frozen-lockfile` at the repository root). The native commands above then run entirely within the spike. On this Mac the standalone install also worked with `--offline`.
+
+- **iOS.** Expo autolinks the local pod and its app-delegate subscriber. The plugin uses Expo's Xcode project API to create the embedded target. The main app has one copy phase entry for HsnPushExtension.appex and the localized placeholder. The extension alone compiles NotificationService.swift. Its two resources are the app's English translations and the spike's push words. Both targets have the same app group. The extension's installed identifier is invalid.hsn.app.s5spike.push and its extension point is com.apple.usernotifications.service.
+- **Android.** Expo autolinks the Kotlin library. Its manifest merges into the app, and the plugin copies the translation assets. The stand-in receiver requires android.permission.DUMP, which the emulator shell has. It uses the messaging library already shipped by expo-notifications to bind to the selected service with a **local action**. That action calls our service's onMessageReceived directly, so Google's remote delivery and acknowledgement code is never invoked. JS receives the Disarm tap through React Native's headless service. The bundled-JS build enables run-as via Gradle's release build type. Android lint rejected setting debuggable directly in the manifest.
+- **Dispatch.** The installed package advertised three handlers for MESSAGING_EVENT, ranked **0** (ours), **−1** (Expo), **−500** (SDK default). The Android journal named our service on actual incoming data. The working app also used Expo's notification permission and category APIs. One message selects one service. The final Kotlin class extends ExpoFirebaseMessagingService to retain its inherited token callback and overrides sealed-message handling. Token acquisition and refresh require the future account-backed test.
+- **Dependencies.** Expo 58.0.25's own version map selects expo-notifications 58.1.9 and expo-task-manager 58.0.14. The app also used React Native 0.88.1 and expo-crypto 58.0.8. Expo's Android release artifact is published in its local Maven repository. Our Gradle compile-only classpath uses that artifact's runtime variant. Expo already includes the native messaging SDK transitively. No separate Firebase library or React Native Firebase wrapper was added. The measured action uses React Native Headless JS on Android and the proposed native delegate on iOS. The spike installed expo-task-manager but registered no Expo background task. Its necessity for another integration was not tested.
+
+To repeat the clean build, run the step 1 and 4 build commands sequentially in a clean checkout. Inspect the generated target graph and installed manifest with:
+
+```sh
+python3 "$SPIKE/harness/check-prebuild.py"
+"$ADB" -s "$ANDROID" shell cmd package query-services --brief \
+  -a com.google.firebase.MESSAGING_EVENT -p "$APP"
+```
+
+SDK API references used for the local injector and iOS control are the installed Expo source and the platform documentation. The injector's custom action goes through the package-scoped binding path. [Messaging service dispatch source](https://github.com/firebase/firebase-android-sdk/blob/main/firebase-messaging/src/main/java/com/google/firebase/messaging/FcmBroadcastProcessor.java) · [Apple's extension API](https://developer.apple.com/documentation/usernotifications/unnotificationserviceextension)
+
+**Passes for native integration and local dispatch.** The clean Xcode build succeeded. The freshly generated Android project built offline with 203 Gradle tasks executed and installed on API 37. The final service subclass received the real hub's countdown and subsequent alarm. With the app swiped away, the alarm's Disarm action returned success for sensor 2 in **1,397 ms**, and the outcome posted at **1,401 ms**. The separate hub observer confirmed the transition. Reinstalling the clean iOS build and injecting the good vector reproduced the placeholder at 10:09:57 UTC.
+
+## Verification
+
+The spike includes executable checks for fixture integrity, native target registration and the action evidence. The action checker passed all three measured runs. Removing the successful reply from a copy of the second journal caused it to fail. The harness type check uses the repository's strict options and its SQL module declaration.
+
+```sh
+# From the repository root, after native builds
+node_modules/.bin/tsc -p spikes/s5-push/harness/tsconfig.json
+bun test spikes/s5-push/harness/vectors.test.ts
+python3 spikes/s5-push/harness/check-prebuild.py
+bun run check:own spikes/s5-push/harness
+bun run check
+```
+
+The exact-path fixture test passed (1 test, 3 assertions). The ownership check reported 1 own test and 119 separate lint probes passing. The generated-project check found both targets, the expected resource membership, both app-group declarations, the protected injector and the two app-service priorities. The full repository check exited 0. Type checking, lint and formatting passed. Bun reported 6,891 passes, 66 skips and 0 failures across 391 files (700.55 s). The protocol verifier reported 1,758 checks, 0 mismatches and 10 notes. No product files changed.
+
+## Five conclusions
+
+1. **Envelope — undecided.** Keep uniform A provisionally as M4 specifies. The simulator stored explicit outer time-sensitive and critical levels. Its app settings reported critical alerts unsupported. To decide on B, compare uniform and critical outer APS with the same sealed alert through actual APNs to an entitled installation. S10 must verify audible critical delivery through silent mode.
+2. **Background Disarm.** Android received a successful hub reply in **2,420, 1,678 and 1,397 ms** and posted the outcomes within **2,425, 1,689 and 1,401 ms**. Each fit the observed 30,000 ms action allowlist and the configured 30,000 ms JS task deadline. iOS had **zero** action callbacks, so its latency and available time remain unmeasured. Neither simulator establishes locked-device behavior on hardware.
+3. **Replacement.** Android removed the already shown countdown for the same hub and sensor when the alarm arrived. On iOS the two injected placeholders remained. Removal from a dispatched extension or a running app remains open.
+4. **Dependencies.** The custom Expo plugin built and embedded the Swift target without @bacons/apple-targets. The local Android service, Expo permissions/categories and background RN action ran together without @react-native-firebase/messaging. One native service consumes a given data message. Real token registration/rotation, authenticated delivery and production signing remain untested.
+5. **Corrections to ‡.** M4 §5 S5.1's assumption that simctl push can exercise the NSE was contradicted on iOS 27. This blocks the proposed local evidence for phone-side elevation, category assignment and countdown removal. Android's alarm exception is a distinct DND permission path: allowing alarms can let this category through even with channel bypass false. HIGH alone did not bypass an active rule. No evidence here settles the extension's time or memory budget, real high-priority FCM wakeup, or locked-phone Disarm. Real APNs, real FCM and S10 were outside this run.

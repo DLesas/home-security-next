@@ -3,14 +3,16 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import vectors from "../../../packages/protocol/vectors/relay-push.json";
 
-const out = process.argv[2];
-if (!out) process.exit(2);
+const out = process.argv[2] || process.exit(2);
 mkdirSync(out, { recursive: true });
 
 /** Give simctl the unmodified relay alert and optional step 2 instrumentation. */
 function save(name: string, h: string, level?: string) {
   const aps = { alert: { "loc-key": "push.placeholder" }, "mutable-content": 1, sound: "default" };
-  writeFileSync(join(out, name + ".apns"), JSON.stringify({ aps, h, ...(level && { s5: { level } }) }));
+  writeFileSync(
+    join(out, name + ".apns"),
+    JSON.stringify({ aps, h, ...(level && { s5: { level } }) }),
+  );
 }
 
 const h = vectors.seal[0]!.h;

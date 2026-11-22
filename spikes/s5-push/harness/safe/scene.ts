@@ -7,7 +7,13 @@ import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { HomeGateway, SENSOR, seedHome } from "../../../../hub/test/relay/home.ts";
 import { AwayPhone } from "../../../../hub/test/relay/phone.ts";
-import { HubProcess, PushRole, RelayProgram, shortFolder, waitFor } from "../../../../hub/test/relay/processes.ts";
+import {
+  HubProcess,
+  PushRole,
+  RelayProgram,
+  shortFolder,
+  waitFor,
+} from "../../../../hub/test/relay/processes.ts";
 import { apnsToken, fcmToken, openedFor, standIns } from "../../../../hub/test/relay/pushes.ts";
 import { endProcesses } from "../../../../hub/test/world/processes.ts";
 
@@ -30,8 +36,12 @@ const adb = process.env.ADB ?? "adb";
 let reverse = false;
 let iosProvision: string | undefined;
 let stopping = false;
-process.on("SIGINT", () => { stopping = true; });
-process.on("SIGTERM", () => { stopping = true; });
+process.on("SIGINT", () => {
+  stopping = true;
+});
+process.on("SIGTERM", () => {
+  stopping = true;
+});
 
 /** Stop a failed setup without including arguments or private fixture data in diagnostics. */
 function requireOk(ok: boolean, step: string): asserts ok {
@@ -68,7 +78,10 @@ try {
   await hub.start();
   requireOk(await gateway.connect(hub.devicePort), "gateway");
   requireOk((await hub.op("relay.set", { url: relay.url })).ok, "relay.set");
-  requireOk(await waitFor(async () => (await hub.relayStatus()).state === "up", 15000), "relay link");
+  requireOk(
+    await waitFor(async () => (await hub.relayStatus()).state === "up", 15000),
+    "relay link",
+  );
   const phone = await link("Phone");
   const observer = await link("Observer");
   requireOk((await phone.registerPush(ios ? "apns" : "fcm", token)).ok, "register");
@@ -79,7 +92,10 @@ try {
   requireOk(stored.ok && stored.value !== undefined, "phone record");
   const r = stored.value;
   const provision = JSON.stringify({
-    relayUrl: relay.url, identity: r.hub.identity, client: r.hub.client, lastSeq: r.lastSeq,
+    relayUrl: relay.url,
+    identity: r.hub.identity,
+    client: r.hub.client,
+    lastSeq: r.lastSeq,
     hubStatic: Buffer.from(r.hub.staticKey).toString("hex"),
     clientPrivate: Buffer.from(r.key.privateKey).toString("hex"),
     pushKeyId: Buffer.from(phone.push.keyId).toString("hex"),
@@ -93,7 +109,20 @@ try {
     const port = "tcp:" + relay.port;
     run(adb, ["-s", device, "reverse", "--no-rebind", port, port]);
     reverse = true;
-    run(adb, ["-s", device, "shell", "run-as", app, "sh", "-c", "'mkdir -p files && cat > files/provision.json'"], provision);
+    run(
+      adb,
+      [
+        "-s",
+        device,
+        "shell",
+        "run-as",
+        app,
+        "sh",
+        "-c",
+        "'mkdir -p files && cat > files/provision.json'",
+      ],
+      provision,
+    );
   }
   let opened = false;
   let seen = 0;
@@ -108,9 +137,27 @@ try {
     const arrivals = openedFor(s, token, phone);
     for (const item of arrivals.slice(seen)) {
       if (ios) run("xcrun", ["simctl", "push", device, app, "-"], item.body);
-      else run(adb, ["-s", device, "shell", "am", "broadcast", "--receiver-foreground",
-        "-n", app + "/expo.modules.hsnpush.StandInFcmReceiver", "-a", "invalid.hsn.s5.FCM", "--es", "h", item.h]);
-      note("forwarded", { kind: item.content.n.kind, actions: item.content.actions, serviceAtMs: item.atMs });
+      else
+        run(adb, [
+          "-s",
+          device,
+          "shell",
+          "am",
+          "broadcast",
+          "--receiver-foreground",
+          "-n",
+          app + "/expo.modules.hsnpush.StandInFcmReceiver",
+          "-a",
+          "invalid.hsn.s5.FCM",
+          "--es",
+          "h",
+          item.h,
+        ]);
+      note("forwarded", {
+        kind: item.content.n.kind,
+        actions: item.content.actions,
+        serviceAtMs: item.atMs,
+      });
     }
     seen = arrivals.length;
     for (const e of observer.events.splice(0)) {
