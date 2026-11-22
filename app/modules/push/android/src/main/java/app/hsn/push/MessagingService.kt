@@ -31,7 +31,10 @@ open class SealedMessagingService : ExpoFirebaseMessagingService() {
                 decision.cancel?.let { nm.cancel(it,1) }
                 nm.notify(decision.tag,1,builder.build())
             }
-        } }
+        } }.onFailure { failure ->
+            if (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0)
+                android.util.Log.w("HomePush","Delivery failed: " + failure.javaClass.simpleName)
+        }
     }
 }
 

@@ -10,7 +10,7 @@ internal class AlertWords(private val common: Fields, private val push: Fields, 
 
     /** Replaces only template tokens, never tokens in a person's name or in substituted text. */
     private fun fill(template: String, values: Map<String,String>) =
-        Regex("\\{\\{([a-z]+)}}").replace(template) { values[it.groupValues[1]] ?: it.value }
+        Regex("""\{\{([a-z]+)\}\}""").replace(template) { values[it.groupValues[1]] ?: it.value }
 
     /** Formats ordinary and delayed alerts, and uses arrival time for the relay's pre-sealed outage. */
     fun text(a: Alert, home: String?, received: Long): Pair<String,String> {
