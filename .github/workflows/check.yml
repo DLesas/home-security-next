@@ -118,9 +118,20 @@ jobs:
             echo "::group::$stage"
             start=$SECONDS
             if [ "$RUNNER_OS" = Windows ]; then
+              # The test stage's temporary folders (`os.tmpdir()`) on the runner's local disk,
+              # D: (`RUNNER_TEMP`), not the system disk C:, whose network-backed writes held a
+              # hub's commit 250 to 740 ms: on C: 22 slow hub turns in 10 runs of the suite, on
+              # D: none, and 5 minutes less a run (run 44970018725). D: is the nearer of the
+              # runner's disks to a real computer's.
+              if [ "$name" = test ]; then
+                was_temp=$TEMP was_tmp=$TMP
+                mkdir -p "$RUNNER_TEMP/test-tmp"
+                export TEMP="$RUNNER_TEMP\\test-tmp" TMP="$RUNNER_TEMP\\test-tmp"
+              fi
               # Keep the last test in the log even if a runner times out mid-stage.
               bash -c "$stage" 2>&1 < /dev/null | tee "$log"
               code=${PIPESTATUS[0]}
+              if [ "$name" = test ]; then export TEMP="$was_temp" TMP="$was_tmp"; fi
             else
               bash -c "$stage" > "$log" 2>&1 < /dev/null
               code=$?
