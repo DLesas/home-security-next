@@ -11,8 +11,26 @@ import { useStore } from "zustand";
 import type { RequestOutcome } from "../hub/channel";
 import type { HubClient, LocalState } from "../hub/client";
 import type { LiveState } from "../state/live";
+import type { Version2Client } from "../state/rollout";
 
 const HubContext = createContext<HubClient | undefined>(undefined);
+const Version2Context = createContext<Version2Client | undefined>(undefined);
+
+/** The web shell can supply its channel here when its version 2 client is ready. */
+export function Version2Provider({
+  client,
+  children,
+}: {
+  readonly client: Version2Client | undefined;
+  readonly children: ReactNode;
+}) {
+  return <Version2Context.Provider value={client}>{children}</Version2Context.Provider>;
+}
+
+/** Reads the optional version 2 channel for shared screens. */
+export function useVersion2(): Version2Client | undefined {
+  return useContext(Version2Context);
+}
 
 export function HubProvider({
   client,

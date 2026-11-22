@@ -11,6 +11,7 @@ import { FileInput } from "./file-input";
 import { formatTime } from "./format";
 import { useAction, useHub, useLive, useRead } from "./hub-context";
 import { OfferedUpdate, useOfferedUpdate } from "./offered-update";
+import { RolloutSection } from "./rollout";
 import {
   Actions,
   Body,
@@ -62,6 +63,7 @@ export function UpdatesScreen() {
   };
   return (
     <>
+      <RolloutSection />
       <Section label={t("updates.statusTitle")}>
         <Heading level={2}>{t("updates.statusTitle")}</Heading>
         {status.data !== undefined && !status.data.ok ? <Failure outcome={status.data} /> : null}

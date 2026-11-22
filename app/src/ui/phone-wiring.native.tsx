@@ -20,6 +20,13 @@ import { followHomes, type Homes, phoneHomes, pushRegistrationOf } from "./homes
 import type { PhoneParts } from "./phone-parts";
 import { reachFaultOf } from "./phone-words";
 import { standInPhoneParts } from "./stand-ins";
+import type { Version2Client } from "../state/rollout";
+
+/** Gives shared screens the same version 2 channel that the phone's own pages use. */
+export function liveVersion2(hub: HubClient): Version2Client | undefined {
+  const phone = phoneClient();
+  return phone?.client === hub ? phone : undefined;
+}
 
 /** Keeps the phone's screen lock alive across route changes. */
 const lock = appLock({

@@ -15,8 +15,9 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { deviceName, type Translate } from "../state/words";
 import { formatTime } from "./format";
-import { useHub, useLive } from "./hub-context";
+import { useHub, useLive, useRead, useVersion2 } from "./hub-context";
 import { Actions, Body, Button, Choice, Failure, Heading, List, ListItem } from "./parts";
+import { recordedPause } from "./rollout-words";
 
 /** Rows a page asks for ‡ (the hub allows up to 500). */
 export const PAGE_ROWS = 100;
@@ -62,11 +63,19 @@ export function rowWords(
   devices: Devices & { readonly groups?: Readonly<Record<number, GroupObject>> },
   record: HistoryRow,
   language = "en",
+  rolloutDetails = false,
 ): string {
   const name = (id: number | null) => (id === null ? undefined : deviceName(t, devices, id));
   const r = record.row;
   switch (r.kind) {
     case "decision": {
+      if (rolloutDetails) {
+        if (r.row.kind === "rollout_paused") return recordedPause(t, devices, r.row.detail);
+        if (r.row.kind === "rollout_started") return t("rollout.outcome.rollout_start");
+        if (r.row.kind === "rollout_resumed") return t("rollout.outcome.rollout_resume");
+        if (r.row.kind === "rollout_done") return t("rollout.stage.done");
+        if (r.row.kind === "rollout_cancelled") return t("rollout.stage.cancelled");
+      }
       // D144's record: the siren gone, and the groups it names, by name.
       if (r.row.kind === SIRENS_GONE && r.row.deviceId !== null)
         return sirensGoneWords(
@@ -136,6 +145,9 @@ function timeOf(
 }
 
 export function HistoryScreen() {
+  const version2 = useVersion2();
+  const system = useRead("update.status", {}, "people", version2 !== undefined);
+  const rolloutDetails = version2 !== undefined && system.data?.ok === true;
   const { t, i18n } = useTranslation();
   const hub = useHub();
   const devices = useLive((s) => s.devices);
@@ -220,7 +232,9 @@ export function HistoryScreen() {
           return (
             <ListItem key={`${record.kind}-${String(i)}`}>
               <Body muted>{time}</Body>
-              <Body>{rowWords(t, exists, { devices, groups }, record, i18n.language)}</Body>
+              <Body>
+                {rowWords(t, exists, { devices, groups }, record, i18n.language, rolloutDetails)}
+              </Body>
             </ListItem>
           );
         })}
