@@ -6,7 +6,7 @@
  * restoring a hub, and the shared screens' phone words. The pages take the phone's parts from a
  * context, given here as stand-ins.
  */
-import { testRouter } from "./support/render";
+import "./support/render";
 import { afterEach, describe, expect, mock, spyOn, test } from "bun:test";
 import { createElement, type ReactElement } from "react";
 import { readdirSync, readFileSync } from "node:fs";
@@ -115,15 +115,14 @@ const QR = linkQr("link");
 
 test("Settings opens This phone on a phone, and omits it in a browser", async () => {
   const { default: Settings } = await import("../src/app/settings");
-  const { backTarget, THIS_PHONE } = await import("../src/ui/navigation");
+  const { default: ThisPhone } = await import("../src/app/this-phone");
+  const { backTarget } = await import("../src/ui/navigation");
   const settings = createElement(Settings);
-  expect(await renderWith(onPhone(settings), {})).toContain(`href="${THIS_PHONE}"`);
-  expect(await renderWith(settings, {})).not.toContain(`href="${THIS_PHONE}"`);
-  testRouter.params = { phone: "homes" };
-  const page = await renderWith(onPhone(settings), {});
-  testRouter.params = {};
+  expect(await renderWith(onPhone(settings), {})).toContain('href="/this-phone"');
+  expect(await renderWith(settings, {})).not.toContain('href="/this-phone"');
+  const page = await renderWith(onPhone(createElement(ThisPhone)), {});
   expect(textOf(page)).toContain("This phone Homes");
-  expect(backTarget(THIS_PHONE)).toBe("/settings");
+  expect(backTarget("/this-phone")).toBe("/settings");
 });
 
 describe("the camera screen (rule 8) and the camera's permission (rule 7)", () => {

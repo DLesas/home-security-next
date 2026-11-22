@@ -21,7 +21,7 @@
  *   one is dropped, so nothing of one home is shown as the other's.
  */
 import { useQueryClient } from "@tanstack/react-query";
-import { router, Slot, useGlobalSearchParams, usePathname } from "expo-router";
+import { router, Slot, usePathname } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { type ComponentRef, type ReactNode, useCallback, useEffect, useMemo, useRef } from "react";
 import {
@@ -36,14 +36,7 @@ import { hasPairingCode } from "../pairing/code-arrival";
 import { AlarmBanner, ShellNotices, useAlarmRunning } from "./banners";
 import { useHub, useLive, useLocal } from "./hub-context";
 import { needsLinkGate } from "./link-gate";
-import {
-  backTarget,
-  BottomBar,
-  LINK_HOME,
-  Pages,
-  phoneSettingsPath,
-  THIS_PHONE,
-} from "./navigation";
+import { backTarget, BottomBar, LINK_HOME, Pages, THIS_PHONE } from "./navigation";
 import { Column } from "./parts";
 import { PhoneLinkGate } from "./phone-link";
 import { PhoneProvider } from "./phone-parts";
@@ -181,7 +174,7 @@ function lockedFrame(page: ReactNode) {
 function UnlockedShell({ parts }: { readonly parts: PhoneParts }) {
   const connection = useLive((s) => s.connection);
   const link = useLocal((s) => s.link);
-  const path = phoneSettingsPath(usePathname(), useGlobalSearchParams().phone);
+  const path = usePathname();
   const home = path === "/";
   const top = useTop(home);
   const removing = useStore(parts.homes.store, (s) => s.removing);
@@ -219,7 +212,7 @@ function UnlockedShell({ parts }: { readonly parts: PhoneParts }) {
               <>
                 <AlarmBanner />
                 <ShellNotices />
-                <Pages path={path} />
+                <Pages />
               </>
             )}
             <Slot />

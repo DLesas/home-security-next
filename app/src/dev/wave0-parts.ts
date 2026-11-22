@@ -15,6 +15,8 @@ export const ROUTES = [
   "/history",
   "/notifications",
   "/settings",
+  "/this-phone",
+  "/link-home",
   "/people",
   "/schedules",
   "/site",

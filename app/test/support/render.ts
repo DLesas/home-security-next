@@ -12,7 +12,6 @@ import { nativeWeb } from "./native-web";
 export const testRouter = {
   push: mock<(path: string) => void>(),
   replace: mock<(path: string) => void>(),
-  params: {} as Record<string, string>,
 };
 
 await mock.module("react-native", () => nativeWeb);
@@ -22,8 +21,7 @@ await mock.module("expo-router", () => ({
   Link: ({ href, children }: { href: string; children: React.ReactNode }) =>
     createElement("a", { href }, children),
   /** The stand-in has no route parameters. */
-  useLocalSearchParams: () => testRouter.params,
-  useGlobalSearchParams: () => testRouter.params,
+  useLocalSearchParams: () => ({}),
   /** The stand-in serves the root route. */
   usePathname: () => "/",
 }));
