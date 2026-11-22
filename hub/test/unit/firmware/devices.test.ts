@@ -7,8 +7,9 @@
  */
 import { describe, expect, test } from "bun:test";
 import { UpdateAction, UpdateHolding, UpdateReason, UpdateStage } from "@hsn/protocol";
+import { APP_OPS_V2 } from "@hsn/protocol/app";
 import { linkId } from "../../../src/core/model/ids.ts";
-import { DEFAULT_RULES } from "../../../src/core/model/rules.ts";
+import { DEFAULT_RULES, type HubRules } from "../../../src/core/model/rules.ts";
 import { mono } from "../../../src/core/model/time.ts";
 import {
   ArmState,
@@ -458,8 +459,9 @@ describe("after the go-ahead", () => {
 });
 
 describe("a gateway always busy (section 5)", () => {
-  function gatewayFetching() {
-    const made = siteRunner();
+  /** Starts the gateway's rollout and opens its own link for fetching. */
+  function gatewayFetching(rules?: HubRules) {
+    const made = siteRunner(rules);
     made.runner.op({ op: "rollout.start", body: { image: made.image.id, devices: [G1] } });
     made.runner.gatewaySession(G1, linkId(700));
     made.runner.send({ kind: "gatewayUp", gateway: G1, link: linkId(700) });
@@ -467,9 +469,15 @@ describe("a gateway always busy (section 5)", () => {
     return made;
   }
 
+  /** Reads the version 2 status as an app sees it. */
+  function statusOf(runner: Runner) {
+    const reply = runner.op({ op: "rollout.status", body: {} });
+    return APP_OPS_V2["rollout.status"].reply.parse(okBody(reply.answer));
+  }
+
   test("held, offered again after an hour at its edge; after the third hold it waits for a person", () => {
     const { runner, image } = gatewayFetching();
-    for (let hold = 1; hold < DEFAULT_RULES.firmware.gatewayBusyMaxHolds; hold++) {
+    for (const hold of [1, 2]) {
       const busy = runner.status(
         G1,
         image.imageId,
@@ -479,6 +487,11 @@ describe("a gateway always busy (section 5)", () => {
         wifi(700),
       );
       expect(rowOf(runner, G1)?.held).toBe(UpdateHeld.GatewayBusy);
+      expect(runner.slice.updates.get(G1)?.busyHolds).toBe(hold);
+      expect(statusOf(runner).devices[0]).not.toHaveProperty("forceAvailable");
+      const events = updateEvents(busy, G1);
+      expect(events.at(-1)).toMatchObject({ held: "gatewayBusy" });
+      expect(events.every((body) => !Object.hasOwn(body, "forceAvailable"))).toBe(true);
       expect(decisions(busy).find((d) => d.kind === "firmware_held")?.value).toBe(
         UpdateHeld.GatewayBusy,
       );
@@ -489,7 +502,18 @@ describe("a gateway always busy (section 5)", () => {
       const retry = runner.run(1);
       expect(offerTo(retry, G1)?.offer.action).toBe(UpdateAction.Fetch);
     }
-    runner.status(G1, image.imageId, UpdateStage.Refused, UpdateReason.RadioBusy, 0, wifi(700));
+    const third = runner.status(
+      G1,
+      image.imageId,
+      UpdateStage.Refused,
+      UpdateReason.RadioBusy,
+      0,
+      wifi(700),
+    );
+    expect(statusOf(runner).devices).toMatchObject([{ device: G1, forceAvailable: true }]);
+    expect(
+      updateEvents(third, G1).filter((body) => Object.hasOwn(body, "forceAvailable")),
+    ).toMatchObject([{ held: "gatewayBusy", forceAvailable: true }]);
     expect(offerTo(runner.run(10 * HOUR_US), G1)).toBeUndefined();
     expect(rowOf(runner, G1)?.held).toBe(UpdateHeld.GatewayBusy);
     // "Update now anyway".
@@ -501,6 +525,135 @@ describe("a gateway always busy (section 5)", () => {
     expect(offerTo(forced, G1)?.offer.action).toBe(UpdateAction.ForcedFetch);
     expect(effectsOf(forced, "transferGrant").map((g) => g.link)).toEqual([linkId(700)]);
     expect(rowOf(runner, G1)?.held).toBe(UpdateHeld.No);
+    expect(statusOf(runner).devices[0]).not.toHaveProperty("forceAvailable");
+    const events = updateEvents(forced, G1);
+    expect(events.at(-1)).toMatchObject({ held: null });
+    expect(events.every((body) => !Object.hasOwn(body, "forceAvailable"))).toBe(true);
+  });
+
+  test("the configured busy limit publishes force availability even if the held row stays the same", () => {
+    const { runner, image } = gatewayFetching({
+      ...DEFAULT_RULES,
+      firmware: { ...DEFAULT_RULES.firmware, gatewayBusyMaxHolds: 2 },
+    });
+    const first = runner.status(
+      G1,
+      image.imageId,
+      UpdateStage.Refused,
+      UpdateReason.RadioBusy,
+      0,
+      wifi(700),
+    );
+    expect(updateEvents(first, G1).at(-1)).not.toHaveProperty("forceAvailable");
+    const before = rowOf(runner, G1);
+    const second = runner.status(
+      G1,
+      image.imageId,
+      UpdateStage.Refused,
+      UpdateReason.RadioBusy,
+      0,
+      wifi(700),
+    );
+    expect(rowOf(runner, G1)).toBe(before);
+    expect(updateEvents(second, G1)).toMatchObject([{ held: "gatewayBusy", forceAvailable: true }]);
+    const extra = runner.status(
+      G1,
+      image.imageId,
+      UpdateStage.Refused,
+      UpdateReason.RadioBusy,
+      0,
+      wifi(700),
+    );
+    expect(updateEvents(extra, G1)).toEqual([]);
+    expect(statusOf(runner).devices).toMatchObject([{ forceAvailable: true }]);
+  });
+
+  test.each(["cancelled", "done"] as const)(
+    "a busy gateway loses force availability when its rollout is %s",
+    (stage) => {
+      const { runner, image } = gatewayFetching();
+      for (let hold = 0; hold < runner.rules.firmware.gatewayBusyMaxHolds; hold++) {
+        runner.status(G1, image.imageId, UpdateStage.Refused, UpdateReason.RadioBusy, 0, wifi(700));
+      }
+      expect(statusOf(runner).devices).toMatchObject([{ forceAvailable: true }]);
+      const held = runner.slice.updates.get(G1) ?? expect.unreachable("missing held gateway");
+      const paused = runner.op({ op: "rollout.pause", body: { rollout: 1 } });
+      okBody(paused.answer);
+      expect(statusOf(runner).devices).toMatchObject([{ forceAvailable: true }]);
+      okBody(runner.op({ op: "rollout.resume", body: { rollout: 1 } }).answer);
+
+      const cleared =
+        stage === "cancelled"
+          ? runner.op({ op: "rollout.cancel", body: { rollout: 1 } })
+          : runner.status(G1, image.imageId, UpdateStage.Verified, 0, fileBytes(image), wifi(700));
+      const events = updateEvents(cleared, G1);
+      expect(events.at(-1)).toMatchObject({ held: null });
+      expect(events.every((body) => !Object.hasOwn(body, "forceAvailable"))).toBe(true);
+      expect(statusOf(runner).devices[0]).not.toHaveProperty("forceAvailable");
+      if (stage === "done") runner.started(G1, NEW_VERSION, CONFIRMED_IMAGE, {}, wifi(700));
+      expect(statusOf(runner).rollout?.stage).toBe(stage);
+      expect(statusOf(runner).devices[0]).not.toHaveProperty("forceAvailable");
+
+      // Isolate the ended-rollout guard from the hold cleared by the normal transitions.
+      runner.view = {
+        ...runner.view,
+        firmware: { ...runner.slice, updates: new Map([[G1, held]]) },
+      };
+      expect(statusOf(runner).devices[0]).not.toHaveProperty("forceAvailable");
+    },
+  );
+
+  test("a busy gateway already forced has no force availability even if the hold remains", () => {
+    const { runner, image } = gatewayFetching();
+    for (let hold = 0; hold < runner.rules.firmware.gatewayBusyMaxHolds; hold++) {
+      runner.status(G1, image.imageId, UpdateStage.Refused, UpdateReason.RadioBusy, 0, wifi(700));
+    }
+    expect(statusOf(runner).devices).toMatchObject([{ forceAvailable: true }]);
+    const held = runner.slice.updates.get(G1) ?? expect.unreachable("missing held gateway");
+    runner.view = {
+      ...runner.view,
+      firmware: { ...runner.slice, updates: new Map([[G1, { ...held, forced: true }]]) },
+    };
+    expect(statusOf(runner).devices[0]).not.toHaveProperty("forceAvailable");
+  });
+
+  test.each([
+    ["sensor", S1],
+    ["siren", R1],
+  ] as const)(
+    "a %s never gains force availability even when it reports RadioBusy up to the limit",
+    (_, device) => {
+      const { runner, image } = siteRunner();
+      runner.op({ op: "rollout.start", body: { image: image.id, devices: [device] } });
+      for (let hold = 0; hold < runner.rules.firmware.gatewayBusyMaxHolds; hold++) {
+        const busy = runner.status(
+          device,
+          image.imageId,
+          UpdateStage.Refused,
+          UpdateReason.RadioBusy,
+        );
+        expect(
+          updateEvents(busy, device).every((body) => !Object.hasOwn(body, "forceAvailable")),
+        ).toBe(true);
+      }
+      expect(runner.slice.updates.get(device)?.busyHolds).toBe(
+        runner.rules.firmware.gatewayBusyMaxHolds,
+      );
+      expect(statusOf(runner).devices).toMatchObject([{ device, held: "gatewayBusy" }]);
+      expect(statusOf(runner).devices[0]).not.toHaveProperty("forceAvailable");
+    },
+  );
+
+  test("the existing forced resume is still accepted before the button is available", () => {
+    const { runner, image } = gatewayFetching();
+    runner.status(G1, image.imageId, UpdateStage.Refused, UpdateReason.RadioBusy, 0, wifi(700));
+    expect(statusOf(runner).devices[0]).not.toHaveProperty("forceAvailable");
+    const forced = runner.op({
+      op: "rollout.resume",
+      body: { rollout: 1, device: G1, force: true },
+    });
+    okBody(forced.answer);
+    expect(offerTo(forced, G1)?.offer.action).toBe(UpdateAction.ForcedFetch);
   });
 
   /** G1 held busy three times, then forced; G2 planned beside it. */
