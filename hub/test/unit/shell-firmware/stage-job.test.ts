@@ -25,7 +25,7 @@ import {
   setDefaultTimeout,
   test,
 } from "bun:test";
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { verifyImageHeader } from "@hsn/protocol/update";
 import { err, ok, type Result } from "neverthrow";
@@ -461,9 +461,10 @@ const FIFO: StuckWay = {
 const HELD: StuckWay = {
   rig: () => rig(release({ payload: PAYLOAD })),
   start: startWith("held.ts"),
+  // Held when the stand-in says so (its `held` file), not when the file looks whole: the copy's
+  // last piece and the hold are two steps, and a stop between them finds the worker not held.
   reached: async (at) => {
-    const temporary = stagingFile(at.dataDir, at.job);
-    await until(() => existsSync(temporary) && statSync(temporary).size === PAYLOAD.length);
+    await until(() => existsSync(join(at.dataDir, "held")));
   },
   letGo: (at, afterMs = 0) => {
     writeLater(join(at.dataDir, "go"), "", afterMs);
