@@ -144,7 +144,7 @@ export function pushVault(items: SecureItems, push: ReturnType<typeof pushLifecy
 
 /** Follows a live phone session, including OS token changes and a rotation while it stays open. */
 export function pushLifecycle(store: PushStorage, tokens: TokenSource, timers: Timers) {
-  const registration = pushRegistration(store, tokens, timers.now);
+  const registration = pushRegistration(store, tokens, () => timers.now());
   let current: PushSession | undefined;
   let cancel: (() => void) | undefined;
   let revision = 0;
@@ -166,7 +166,13 @@ export function pushLifecycle(store: PushStorage, tokens: TokenSource, timers: T
       target,
       token,
     );
-    if (result.isErr()) return err(result.error);
+    if (result.isErr()) {
+      if (version === revision && current === session)
+        cancel = timers.after(60_000, () => {
+          void update(session, target);
+        });
+      return err(result.error);
+    }
     if (result.value === null || version !== revision || current !== session) return done;
     // JS timer delays above 2^31-1 overflow. Wake once before that limit, then at the deadline.
     const delay = Math.min(0x7fffffff, Math.max(1, result.value - timers.now()));
@@ -187,7 +193,7 @@ export function pushLifecycle(store: PushStorage, tokens: TokenSource, timers: T
   }
   return {
     registration,
-    homes: store.homes,
+    homes: (names: Readonly<Record<string, string>>) => store.homes(names),
     closed,
     /** Writes the snapshot's armed state even when the build has no token. */
     snapshot: async (

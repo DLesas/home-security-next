@@ -34,6 +34,7 @@ def rules = tasks.register('pushJvmTest', JavaExec) {
     [tasks.named('compileDebugKotlin').get().destinationDirectory.get().asFile,
      tasks.named('compileDebugUnitTestKotlin').get().destinationDirectory.get().asFile]
   }), files(fileTree(new File(gradle.gradleHomeDir, 'lib')) { include 'kotlin-stdlib-*.jar', 'groovy-*.jar' })
-  args vectors.get().asFile.absolutePath
+  args vectors.get().asFile.absolutePath, file('../../../locales/en/common.json').absolutePath,
+       file('../locales/en/push.json').absolutePath
 }
 tasks.matching { it.name == 'testDebugUnitTest' }.configureEach { dependsOn rules }

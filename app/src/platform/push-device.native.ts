@@ -3,7 +3,8 @@ import { ok, err } from "neverthrow";
 import { requireOptionalNativeModule } from "expo";
 import { getDevicePushTokenAsync } from "expo-notifications/build/getDevicePushTokenAsync";
 import { addPushTokenListener } from "expo-notifications/build/TokenEmitter";
-import type { DeviceToken, PushKeys, PushStorage, StoredPush, TokenSource } from "./push-types";
+import { androidTokenSource, hasStoredTarget } from "./push-types";
+import type { PushKeys, PushStorage, StoredPush } from "./push-types";
 
 interface Bridge {
   configured: boolean;
@@ -35,28 +36,11 @@ export const pushStorage: PushStorage = {
 
 /** Includes pending keys because the hub may have accepted a request whose reply was lost. */
 export async function hasPushRegistration(hub: string): Promise<boolean> {
-  const r = await pushStorage.keys(hub);
-  // A failed read on Android leaves a possible target: ask the hub to unregister it.
-  return r.isOk() ? r.value.active !== null || r.value.pending !== null : bridge !== null;
+  return bridge !== null && hasStoredTarget(pushStorage, hub);
 }
 
-/** FCM registrations always use the production environment in the hub protocol. */
-function fcm(token: string): DeviceToken {
-  return { platform: "fcm", environment: "production", token };
-}
-export const pushTokens: TokenSource = {
-  read: async () => {
-    if (!bridge?.configured) return err("notAvailable" as const);
-    return getDevicePushTokenAsync().then(
-      (t) => (t.type === "android" ? ok(fcm(t.data)) : err("notAvailable" as const)),
-      () => err("failed" as const),
-    );
-  },
-  listen: (receive) => {
-    if (!bridge?.configured) return () => undefined;
-    const listener = addPushTokenListener((t) => {
-      if (t.type === "android") receive(fcm(t.data));
-    });
-    return () => listener.remove();
-  },
-};
+export const pushTokens = androidTokenSource(
+  bridge?.configured === true,
+  getDevicePushTokenAsync,
+  addPushTokenListener,
+);

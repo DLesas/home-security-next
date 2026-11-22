@@ -9,7 +9,7 @@ private fun hex(s: String) = s.chunked(2).map { it.toInt(16).toByte() }.toByteAr
 /** JVM test entry invoked by Gradle without an emulator, Firebase, JUnit or another dependency. */
 fun main(args: Array<String>) {
     val json = JsonSlurper()
-    val vectors = json.parse(File(args.single())) as Map<*,*>
+    val vectors = json.parse(File(args[0])) as Map<*,*>
     val good = vectors["seal"] as List<*>
     val bad = vectors["open"] as List<*>
     val categories = good.map { (((it as Fields)["content"] as Fields)["n"] as Fields)["category"] as String }.toSet()
@@ -18,7 +18,7 @@ fun main(args: Array<String>) {
         val content = v["content"] as Fields
         val n = content["n"] as Fields
         val a = Envelope.open(v["h"] as String, { id -> if(id == v["keyId"]) Target(content["hub"] as String,hex(v["key"] as String)) else null },
-            { json.parseText(it) as? Fields }, categories)
+            { (json.parseText(it) as? Fields).also { opened -> check(opened == content) } }, categories)
         check(a != null && a.hub == content["hub"] && a.seq == (n["seq"] as Number).toLong() && a.kind == n["kind"] &&
             a.time == (n["atMs"] as Number).toLong() && a.category == n["category"] && a.device == (n["device"] as? Number)?.toLong() &&
             a.critical == n["critical"] && a.armed == content["armed"] && a.delayed == content["delayed"] &&
@@ -48,5 +48,13 @@ fun main(args: Array<String>) {
     check(display(alarm.copy(device=999),false,false,null)?.cancel!=tag)
     check(display(alarm.copy(hub="other"),false,false,null)?.cancel!=tag)
     check(display(countdown,false,false,null)?.cancel==null)
-    println("Passed ${good.size} opening vectors, ${bad.size} refusals and 12 notification rules.")
+    val words = AlertWords(json.parse(File(args[1])) as Fields,json.parse(File(args[2])) as Fields) { it.toString() }
+    check(words.text(countdown,null,0) == ("Countdown" to "${countdown.names["device"]} opened at ${countdown.time}."))
+    val late = words.text(alarm.copy(detail=mapOf("endedAtMs" to 42)), "Cottage", 70).second
+    check(late.startsWith("Cottage. ") && late.endsWith("Delayed: happened at 42."))
+    check(!words.text(countdown.copy(delayed=false),null,0).second.contains("Delayed"))
+    check(words.text(unreachable,null,180010).second.contains("since about 10."))
+    check(words.text(back,null,0).first == "Home hub is back")
+    check(words.text(alarm.copy(kind="new_kind"),null,0).second.startsWith("Something happened at home."))
+    println("Passed ${good.size} opening vectors, ${bad.size} refusals and 18 notification rules.")
 }

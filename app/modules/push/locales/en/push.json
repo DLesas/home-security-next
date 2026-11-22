@@ -6,16 +6,67 @@
   "device": "A door",
   "delayed": "Delayed: happened at {{time}}.",
   "home": "{{home}}. {{body}}",
-  "hub_unreachable": {"title":"Home hub cannot be reached","body":"No contact since about {{time}}. Alerts from home will not reach this phone until it is back. It may be the home's internet or the hub itself."},
-  "hub_back": {"title":"Home hub is back","body":"In contact again. Alerts reach this phone as usual. Anything that happened meanwhile follows, marked late."},
-  "push_test": {"title":"Test alert","body":"Your phone received the test alert."},
-  "presence_offer_disarm": {"title":"Disarm","body":"Open the app or disarm your sensors."},
-  "presence_offer_away": {"title":"Arm away","body":"Open Home to arm away."},
-  "disarm":"Disarm",
-  "armAway":"Arm away",
-  "succeeded":"Disarmed.",
-  "failed":"Could not reach the hub. Open the app to disarm.",
-  "criticalChannel":"Alarms and countdowns",
-  "ordinaryChannel":"Other notifications",
-  "outcomeChannel":"Disarm results"
+  "hub_unreachable": {
+    "title": "Home hub cannot be reached",
+    "body": "No contact since about {{time}}. Alerts from home will not reach this phone until it is back. It may be the home's internet or the hub itself."
+  },
+  "hub_back": {
+    "title": "Home hub is back",
+    "body": "In contact again. Alerts reach this phone as usual. Anything that happened meanwhile follows, marked late."
+  },
+  "push_test": {
+    "title": "Test alert",
+    "body": "Your phone received the test alert."
+  },
+  "presence_offer_disarm": {
+    "title": "Disarm",
+    "body": "Open the app or disarm your sensors."
+  },
+  "presence_offer_away": {
+    "title": "Arm away",
+    "body": "Open Home to arm away."
+  },
+  "disarm": "Disarm",
+  "armAway": "Arm away",
+  "succeeded": "Disarmed.",
+  "failed": "Could not reach the hub. Open the app to disarm.",
+  "criticalChannel": "Alarms and countdowns",
+  "ordinaryChannel": "Other notifications",
+  "outcomeChannel": "Disarm results",
+  "update_offered": {
+    "title": "Hub update",
+    "body": "A hub update is available."
+  },
+  "firmware_release_offered": {
+    "title": "Device update",
+    "body": "A device update is available."
+  },
+  "firmware_refused": {
+    "title": "Update refused",
+    "body": "{{device}} did not accept the update."
+  },
+  "firmware_rolled_back": {
+    "title": "Update undone",
+    "body": "{{device}} returned to its previous software."
+  },
+  "firmware_reminder": {
+    "title": "Device update",
+    "body": "An armed sensor is waiting for its update."
+  },
+  "rollout_paused": {
+    "title": "Updates paused",
+    "body": "Device updates paused."
+  },
+  "commit_failed": {
+    "title": "Hub storage",
+    "body": "The hub could not save a change."
+  },
+  "history_shortened": {
+    "title": "Hub storage",
+    "body": "The hub shortened its history to make space."
+  },
+  "firmware_store_damaged": {
+    "title": "Device updates",
+    "body": "The hub could not read a stored device update."
+  }
 }

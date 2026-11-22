@@ -7,6 +7,7 @@ import {
   pushRegistration,
   type PushSession,
 } from "../src/hub/push";
+import { androidTokenSource, hasStoredTarget } from "../src/platform/push-types";
 import { fakePush } from "../src/platform/push-device.fake";
 
 const fcm = { platform: "fcm", environment: "production", token: "local-one" } as const;
@@ -178,4 +179,49 @@ test("an open session handles OS refresh, snapshot and arming writes, and its ow
   timers.advance(KEY_LIFETIME_MS);
   await settle(1);
   expect(sent.count).toBe(3);
+});
+
+test("unconfigured Android neither queries the OS nor subscribes to token changes", async () => {
+  let reads = 0,
+    subscriptions = 0;
+  const source = androidTokenSource(
+    false,
+    () => {
+      reads++;
+      return Promise.resolve({ type: "android", data: "token" });
+    },
+    () => {
+      subscriptions++;
+      return { remove: () => undefined };
+    },
+  );
+  expect((await source.read())._unsafeUnwrapErr()).toBe("notAvailable");
+  source.listen(() => undefined)();
+  expect([reads, subscriptions]).toEqual([0, 0]);
+});
+
+test("a staged registration counts for removal even if the hub reply was lost", async () => {
+  const { registration, session, fake, sent } = setup();
+  expect(await hasStoredTarget(fake.storage, session.hub)).toBe(false);
+  fake.token(fcm);
+  sent.ok = false;
+  await registration.reconcile(session, null);
+  expect(await hasStoredTarget(fake.storage, session.hub)).toBe(true);
+});
+
+test("a transient registration failure retries the staged key on the same open session", async () => {
+  const { session, fake, sent } = setup();
+  fake.token(fcm);
+  sent.ok = false;
+  const timers = manualTimers();
+  const lifecycle = pushLifecycle(fake.storage, fake.tokens, timers);
+  await lifecycle.snapshot(session, null, []);
+  const staged = fake.keys.get(session.hub)?.pending;
+  expect(staged != null).toBe(true);
+  sent.ok = true;
+  timers.advance(60_000);
+  await settle(1);
+  expect(sent.count).toBe(2);
+  expect(fake.keys.get(session.hub)?.active?.body.key === staged?.body.key).toBe(true);
+  lifecycle.stop();
 });
