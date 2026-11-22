@@ -1192,12 +1192,15 @@ export class AppChannel {
       reply({ t: "res", id, ok: false, error: { code: "unavailable", detail: {} } });
       return;
     }
-    const outcome = uploads.chunk(conn.id, body);
-    reply(
-      outcome.ok
-        ? { t: "res", id, ok: true, body: {} }
-        : { t: "res", id, ok: false, error: outcome.error },
-    );
+    // Answered once its file call has settled, off the loop (`uploads.ts`): the app awaits each
+    // chunk's answer before it sends the next (`app/src/hub/files.ts`, `sendFile`).
+    void uploads.chunk(conn.id, body).then((outcome) => {
+      reply(
+        outcome.ok
+          ? { t: "res", id, ok: true, body: {} }
+          : { t: "res", id, ok: false, error: outcome.error },
+      );
+    });
   }
 
   // ----- Sending -----

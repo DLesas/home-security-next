@@ -40,8 +40,13 @@ function file(length: number, seed = 1): Uint8Array {
   return Uint8Array.from({ length }, (_, i) => (i * 31 + seed) % 251);
 }
 
-function store(limits = { maxChunkBytes: 10, maxUploadBytes: 40 }): UploadStore {
-  const made = new UploadStore(data, limits);
+/**
+ * A store whose file calls are made at once (`onThread`, the lockstep hub's driver), so the rules
+ * are tested a call at a time: the same logic the hub runs off its thread (`uploads.ts`,
+ * `#chunkLogic`), whose own behaviour is `upload-offloop.test.ts`'s.
+ */
+function store(limits = { maxChunkBytes: 10, maxUploadBytes: 40 }, onThread = true): UploadStore {
+  const made = new UploadStore(data, limits, { onThread });
   expect(made.clearAll().isOk()).toBe(true);
   return made;
 }
@@ -52,7 +57,7 @@ function upload(s: UploadStore, conn: typeof A, job: number, bytes: Uint8Array, 
   for (let n = 0; n < chunks; n++) {
     const part = bytes.subarray(n * size, (n + 1) * size);
     outcomes.push(
-      s.chunk(conn, {
+      s.chunkNow(conn, {
         job,
         n,
         data: b64(part),
@@ -78,20 +83,20 @@ describe("an upload", () => {
   test("a gap is refused; a chunk sent again with the same bytes changes nothing; with others, refused", () => {
     const s = store();
     const bytes = file(30);
-    expect(s.chunk(A, { job: 1, n: 1, data: b64(bytes.subarray(0, 10)) })).toEqual({
+    expect(s.chunkNow(A, { job: 1, n: 1, data: b64(bytes.subarray(0, 10)) })).toEqual({
       ok: false,
       error: { code: "invalid", detail: { field: "n", reason: "range" } },
     });
-    expect(s.chunk(A, { job: 1, n: 0, data: b64(bytes.subarray(0, 10)) }).ok).toBe(true);
-    expect(s.chunk(A, { job: 1, n: 0, data: b64(bytes.subarray(0, 10)) })).toEqual({
+    expect(s.chunkNow(A, { job: 1, n: 0, data: b64(bytes.subarray(0, 10)) }).ok).toBe(true);
+    expect(s.chunkNow(A, { job: 1, n: 0, data: b64(bytes.subarray(0, 10)) })).toEqual({
       ok: true,
       done: false,
     });
-    expect(s.chunk(A, { job: 1, n: 0, data: b64(bytes.subarray(10, 20)) }).ok).toBe(false);
-    expect(s.chunk(A, { job: 1, n: 2, data: b64(bytes.subarray(20, 30)) }).ok).toBe(false);
-    expect(s.chunk(A, { job: 1, n: 1, data: b64(bytes.subarray(10, 20)) }).ok).toBe(true);
+    expect(s.chunkNow(A, { job: 1, n: 0, data: b64(bytes.subarray(10, 20)) }).ok).toBe(false);
+    expect(s.chunkNow(A, { job: 1, n: 2, data: b64(bytes.subarray(20, 30)) }).ok).toBe(false);
+    expect(s.chunkNow(A, { job: 1, n: 1, data: b64(bytes.subarray(10, 20)) }).ok).toBe(true);
     expect(
-      s.chunk(A, {
+      s.chunkNow(A, {
         job: 1,
         n: 2,
         data: b64(bytes.subarray(20, 30)),
@@ -104,9 +109,9 @@ describe("an upload", () => {
   test("a wrong total or a wrong hash voids it", () => {
     const s = store();
     const bytes = file(20);
-    s.chunk(A, { job: 1, n: 0, data: b64(bytes.subarray(0, 10)) });
+    s.chunkNow(A, { job: 1, n: 0, data: b64(bytes.subarray(0, 10)) });
     expect(
-      s.chunk(A, {
+      s.chunkNow(A, {
         job: 1,
         n: 1,
         data: b64(bytes.subarray(10)),
@@ -117,9 +122,9 @@ describe("an upload", () => {
       error: { code: "invalid", detail: { field: "end.chunks", reason: "range" } },
     });
     expect(s.held).toBe(0);
-    s.chunk(A, { job: 2, n: 0, data: b64(bytes.subarray(0, 10)) });
+    s.chunkNow(A, { job: 2, n: 0, data: b64(bytes.subarray(0, 10)) });
     expect(
-      s.chunk(A, {
+      s.chunkNow(A, {
         job: 2,
         n: 1,
         data: b64(bytes.subarray(10)),
@@ -132,14 +137,14 @@ describe("an upload", () => {
 
   test("a chunk over 48 KB ‡ or a whole over 256 MB ‡ is refused, before it is written", () => {
     const s = store();
-    expect(s.chunk(A, { job: 1, n: 0, data: b64(file(11)) })).toEqual({
+    expect(s.chunkNow(A, { job: 1, n: 0, data: b64(file(11)) })).toEqual({
       ok: false,
       error: { code: "invalid", detail: { field: "data", reason: "range" } },
     });
     expect(readdirSync(join(data, UPLOADS_FOLDER))).toEqual([]);
     for (let n = 0; n < 4; n++)
-      expect(s.chunk(A, { job: 2, n, data: b64(file(10)) }).ok).toBe(true);
-    expect(s.chunk(A, { job: 2, n: 4, data: b64(file(1)) })).toEqual({
+      expect(s.chunkNow(A, { job: 2, n, data: b64(file(10)) }).ok).toBe(true);
+    expect(s.chunkNow(A, { job: 2, n: 4, data: b64(file(1)) })).toEqual({
       ok: false,
       error: { code: "invalid", detail: { field: "data", reason: "range" } },
     });
@@ -149,24 +154,24 @@ describe("an upload", () => {
   test("data that is not base64url without padding is refused", () => {
     const s = store();
     for (const text of ["AAA=", "A", "AB+/"]) {
-      expect(s.chunk(A, { job: 1, n: 0, data: text }).ok).toBe(false);
+      expect(s.chunkNow(A, { job: 1, n: 0, data: text }).ok).toBe(false);
     }
   });
 
   test("one at a time per connection; other connections are independent", () => {
     const s = store();
-    expect(s.chunk(A, { job: 1, n: 0, data: b64(file(10)) }).ok).toBe(true);
-    expect(s.chunk(A, { job: 2, n: 0, data: b64(file(10)) })).toEqual({
+    expect(s.chunkNow(A, { job: 1, n: 0, data: b64(file(10)) }).ok).toBe(true);
+    expect(s.chunkNow(A, { job: 2, n: 0, data: b64(file(10)) })).toEqual({
       ok: false,
       error: { code: "busy", detail: { because: "upload" } },
     });
-    expect(s.chunk(B, { job: 2, n: 0, data: b64(file(10)) }).ok).toBe(true);
+    expect(s.chunkNow(B, { job: 2, n: 0, data: b64(file(10)) }).ok).toBe(true);
   });
 
   test("a finished job's number is not used again on its connection", () => {
     const s = store();
     upload(s, A, 1, file(10));
-    expect(s.chunk(A, { job: 1, n: 0, data: b64(file(10, 4)) })).toEqual({
+    expect(s.chunkNow(A, { job: 1, n: 0, data: b64(file(10, 4)) })).toEqual({
       ok: false,
       error: { code: "invalid", detail: { field: "job", reason: "taken" } },
     });
@@ -179,7 +184,7 @@ describe("an upload", () => {
     s.release({ conn: A, job: 1 });
     expect(existsSync(path)).toBe(false);
     upload(s, B, 1, file(10));
-    s.chunk(B, { job: 2, n: 0, data: b64(file(10)) });
+    s.chunkNow(B, { job: 2, n: 0, data: b64(file(10)) });
     s.closed(B);
     expect(readdirSync(join(data, UPLOADS_FOLDER))).toEqual([]);
     writeFileSync(join(data, UPLOADS_FOLDER, "left-from-before"), "x");
@@ -206,7 +211,8 @@ describe("an upload", () => {
 describe("an upload over a console session", () => {
   test("its chunks are answered by the shell, never reach the core, and go when the session closes", async () => {
     const key = staticKey(30);
-    const uploads = store({ maxChunkBytes: 48_000, maxUploadBytes: 1_000_000 });
+    // Off the loop, as the hub's: the session's chunks answered once their file calls settle.
+    const uploads = store({ maxChunkBytes: 48_000, maxUploadBytes: 1_000_000 }, false);
     const side = openHub({
       clients: [clientRow(9, key.key.publicKey, ClientKind.Console)],
       uploads,
@@ -214,6 +220,7 @@ describe("an upload over a console session", () => {
     const { ws, ik } = await session(side, key.key, "console");
     const bytes = file(70_000);
     const chunks = [bytes.subarray(0, 48_000), bytes.subarray(48_000)];
+    // As the app sends them (`app/src/hub/files.ts`, `sendFile`): each after the last's answer.
     ws.send(
       ik.seal({
         t: "req",
@@ -222,6 +229,12 @@ describe("an upload over a console session", () => {
         body: { job: 3, n: 0, data: b64(chunks[0] ?? new Uint8Array(0)) },
       }),
     );
+    expect(ik.open((await ws.next()) ?? new Uint8Array(0))).toEqual({
+      t: "res",
+      id: 2,
+      ok: true,
+      body: {},
+    });
     ws.send(
       ik.seal({
         t: "req",
@@ -235,12 +248,6 @@ describe("an upload over a console session", () => {
         },
       }),
     );
-    expect(ik.open((await ws.next()) ?? new Uint8Array(0))).toEqual({
-      t: "res",
-      id: 2,
-      ok: true,
-      body: {},
-    });
     expect(ik.open((await ws.next()) ?? new Uint8Array(0))).toEqual({
       t: "res",
       id: 3,

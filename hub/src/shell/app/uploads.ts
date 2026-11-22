@@ -17,6 +17,24 @@
  *
  * A release fetched over the relay link is kept here too, as an upload of the relay link's own
  * connection (`beginFetch`, m4-design section 6), under the same cap and the same deletions.
+ *
+ * **The file calls off the hub's thread** (D145, design P): the rules, the numbering, the hash and
+ * the final check stay here on the loop, as they were; only the upload file's create, writes,
+ * close and removal go through `node:fs/promises` (`safe/off-loop.ts`), since one create took
+ * 513 ms on a hosted Windows C: with the antivirus on and one close 130 ms. The logic is written
+ * once (`#chunkLogic`, a generator that asks for its file calls) and run by one of two drivers:
+ * off the loop, the hub's (`chunk`, which settles when its calls have), or at once, the lockstep
+ * hub's, whose runs are the simulated clock's (`chunkNow`, `onThread`).
+ *
+ * - **One chunk in flight per upload.** The sender is answered when its chunk's write has
+ *   settled, the last chunk's when the close has. A chunk for an upload whose last chunk is still
+ *   being written is a client breaking the protocol (`hsn` and the app each await every answer):
+ *   it is answered `busy {because: "upload"}`, the protocol's answer for an upload already being
+ *   received on the connection, and never written.
+ * - **Voided while a call is in flight** (its connection closed, its job ended, a check failed):
+ *   the upload is gone from the store at once; when the call settles its file is closed and
+ *   removed off the loop, and the sender, if any, is answered `unavailable`.
+ * - **A stop awaits nothing**: every start empties `uploads/` (`clearAll`).
  */
 import { join } from "node:path";
 import { FILE_CHUNKS, type AppError, type AppOpBody } from "@hsn/protocol/app";
@@ -26,6 +44,14 @@ import type { HubError } from "../../core/model/errors.ts";
 import type { UploadRef } from "../../core/model/effects.ts";
 import type { ConnId } from "../../core/model/ids.ts";
 import { ensureDir, folderNames, removeFile } from "../safe/fs.ts";
+import {
+  closeOffLoop,
+  type FileHandle,
+  openNewOffLoop,
+  removeOffLoop,
+  writeAllOffLoop,
+} from "../safe/off-loop.ts";
+import { errorFrom } from "../safe/thrown.ts";
 import { closeUploadFile, createUploadFile, writeUploadFile } from "../safe/upload-files.ts";
 
 const ORIGIN = "shell/app/uploads";
@@ -47,15 +73,15 @@ export interface UploadLimits {
 
 /** A release being fetched into the store (`beginFetch`). */
 export interface FetchedFile {
-  /** Writes the next bytes at the end, hashing them. */
-  append(bytes: Uint8Array): Result<void, HubError>;
+  /** Writes the next bytes at the end, hashing them; settles once they are written. */
+  append(bytes: Uint8Array): Promise<Result<void, HubError>>;
   /** Bytes written so far. */
   bytes(): number;
   /**
    * The whole is in: true, and the upload finished, when it is `bytes` long and hashes to `sha256`;
-   * false, and the file deleted, otherwise.
+   * false, and the file deleted, otherwise. Settles once the file is closed.
    */
-  finish(bytes: number, sha256: Uint8Array): boolean;
+  finish(bytes: number, sha256: Uint8Array): Promise<boolean>;
 }
 
 /** A finished upload, for the file job that names it. */
@@ -65,16 +91,35 @@ export interface FinishedUpload {
   readonly sha256: Uint8Array;
 }
 
+/** An upload's open file: a descriptor at once (the lockstep hub's), a handle off the loop. */
+type UploadFile = number | FileHandle;
+
+/** A file call the upload's logic asks for; a driver makes it, at once or off the loop. */
+type FileCall =
+  | { readonly kind: "open"; readonly path: string }
+  | { readonly kind: "write"; readonly file: UploadFile; readonly bytes: Uint8Array }
+  | { readonly kind: "close"; readonly file: UploadFile };
+
+/** What a file call came to: the file opened (or nothing more), or the thrown value. */
+type CallResult = Result<UploadFile | undefined, unknown>;
+
+/** The upload's logic for one chunk: it yields its file calls and returns the chunk's answer. */
+type ChunkLogic = Generator<FileCall, ChunkOutcome, CallResult>;
+
 interface Upload {
   readonly job: number;
   readonly path: string;
-  fd: number | undefined;
+  file: UploadFile | undefined;
   next: number;
   bytes: number;
   readonly hash: ReturnType<typeof sha256.create>;
-  /** The hash of the last chunk taken, so a repeat of it can be told from a different chunk. */
+  /** The last chunk taken, so a repeat of it can be told from a different chunk. */
   lastChunk: Uint8Array | undefined;
   finished: FinishedUpload | undefined;
+  /** A file call is in flight (one at a time). */
+  busy: boolean;
+  /** Gone from the store while a call was in flight: its file is closed and removed when it settles. */
+  voided: boolean;
 }
 
 function invalid(field: string, reason: "range" | "format" | "taken"): ChunkOutcome {
@@ -99,16 +144,75 @@ function decodeData(text: string): Uint8Array | undefined {
   return Buffer.from(bytes).toString("base64url") === text ? bytes : undefined;
 }
 
+/** A file call made at once, on this thread: the lockstep hub's. */
+function callNow(call: FileCall): CallResult {
+  switch (call.kind) {
+    case "open":
+      return createUploadFile(call.path);
+    case "write":
+      return typeof call.file === "number"
+        ? writeUploadFile(call.file, call.bytes).map(() => undefined)
+        : err("an open file of the other kind");
+    case "close":
+      return typeof call.file === "number"
+        ? closeUploadFile(call.file).map(() => undefined)
+        : err("an open file of the other kind");
+  }
+}
+
+/** A file call made off the hub's thread (`safe/off-loop.ts`). */
+async function callOffLoop(call: FileCall): Promise<CallResult> {
+  switch (call.kind) {
+    case "open":
+      return openNewOffLoop(call.path);
+    case "write":
+      return typeof call.file === "number"
+        ? err("an open file of the other kind")
+        : (await writeAllOffLoop(call.file, call.bytes)).map(() => undefined);
+    case "close":
+      return typeof call.file === "number"
+        ? err("an open file of the other kind")
+        : (await closeOffLoop(call.file)).map(() => undefined);
+  }
+}
+
+/**
+ * Whether the upload was voided while one of its file calls was in flight: read through a call,
+ * since the logic's own checks before the call cannot see what changed during it.
+ */
+function voided(upload: Upload): boolean {
+  return upload.voided;
+}
+
+function runNow<T>(logic: Generator<FileCall, T, CallResult>): T {
+  let step = logic.next();
+  while (step.done !== true) step = logic.next(callNow(step.value));
+  return step.value;
+}
+
+async function runOffLoop<T>(logic: Generator<FileCall, T, CallResult>): Promise<T> {
+  let step = logic.next();
+  while (step.done !== true) step = logic.next(await callOffLoop(step.value));
+  return step.value;
+}
+
 export class UploadStore {
   readonly #folder: string;
   readonly #limits: UploadLimits;
+  /** The lockstep hub's: every file call at once, on this thread. */
+  readonly #onThread: boolean;
   /** Every upload, by connection, then job. */
   readonly #uploads = new Map<ConnId, Map<number, Upload>>();
   #nextFile = 1;
 
-  constructor(dataDir: string, limits: UploadLimits = FILE_CHUNKS) {
+  constructor(
+    dataDir: string,
+    limits: UploadLimits = FILE_CHUNKS,
+    options: { readonly onThread?: boolean } = {},
+  ) {
     this.#folder = join(dataDir, UPLOADS_FOLDER);
     this.#limits = limits;
+    this.#onThread = options.onThread === true;
   }
 
   /** At every start: the folder exists and holds nothing (section 6). */
@@ -124,8 +228,18 @@ export class UploadStore {
     return ok(undefined);
   }
 
-  /** Takes one chunk of `conn`'s upload `chunk.job`. */
-  chunk(conn: ConnId, chunk: FileChunk): ChunkOutcome {
+  /** Takes one chunk of `conn`'s upload `chunk.job`, its file calls off the loop; its answer. */
+  chunk(conn: ConnId, chunk: FileChunk): Promise<ChunkOutcome> {
+    return runOffLoop(this.#chunkLogic(conn, chunk));
+  }
+
+  /** `chunk`, every file call at once on this thread: the lockstep hub's (`onThread`). */
+  chunkNow(conn: ConnId, chunk: FileChunk): ChunkOutcome {
+    return runNow(this.#chunkLogic(conn, chunk));
+  }
+
+  /** The rules, the numbering, the hash and the final check; the file calls yielded to a driver. */
+  *#chunkLogic(conn: ConnId, chunk: FileChunk): ChunkLogic {
     const mine = this.#uploads.get(conn) ?? new Map<number, Upload>();
     const data = decodeData(chunk.data);
     if (data === undefined) return invalid("data", "format");
@@ -134,30 +248,42 @@ export class UploadStore {
     if (upload === undefined) {
       if ([...mine.values()].some((u) => u.finished === undefined)) return BUSY;
       if (chunk.n !== 0) return invalid("n", "range");
-      const started = this.#start(chunk.job);
-      if (started === undefined) return FAILED;
-      upload = started;
+      upload = this.#start(chunk.job);
       mine.set(chunk.job, upload);
       this.#uploads.set(conn, mine);
+      upload.busy = true;
+      const opened = yield { kind: "open", path: upload.path };
+      upload.busy = false;
+      if (opened.isErr() || opened.value === undefined) {
+        this.#void(conn, upload);
+        return FAILED;
+      }
+      upload.file = opened.value;
+      if (voided(upload)) return this.#settledVoid(upload);
+    } else if (upload.busy) {
+      // A chunk while the last one's write is in flight: the client did not wait for its answer.
+      return BUSY;
     } else if (upload.finished !== undefined) {
       return chunk.n === upload.next - 1 &&
         upload.lastChunk !== undefined &&
-        same(sha256(data), upload.lastChunk)
+        same(data, upload.lastChunk)
         ? { ok: true, done: true }
         : invalid("job", "taken");
     }
     if (chunk.n === upload.next - 1 && upload.lastChunk !== undefined && chunk.end === undefined) {
-      return same(sha256(data), upload.lastChunk)
-        ? { ok: true, done: false }
-        : invalid("n", "range");
+      return same(data, upload.lastChunk) ? { ok: true, done: false } : invalid("n", "range");
     }
     if (chunk.n !== upload.next) return invalid("n", "range");
     if (upload.bytes + data.length > this.#limits.maxUploadBytes) {
       this.#void(conn, upload);
       return invalid("data", "range");
     }
-    if (upload.fd === undefined) return FAILED;
-    const written = writeUploadFile(upload.fd, data);
+    const file = upload.file;
+    if (file === undefined) return FAILED;
+    upload.busy = true;
+    const written = yield { kind: "write", file, bytes: data };
+    upload.busy = false;
+    if (voided(upload)) return this.#settledVoid(upload);
     if (written.isErr()) {
       this.#void(conn, upload);
       return FAILED;
@@ -165,7 +291,7 @@ export class UploadStore {
     upload.hash.update(data);
     upload.bytes += data.length;
     upload.next += 1;
-    upload.lastChunk = sha256(data);
+    upload.lastChunk = data;
     if (chunk.end === undefined) return { ok: true, done: false };
     if (chunk.end.chunks !== upload.next) {
       this.#void(conn, upload);
@@ -176,8 +302,11 @@ export class UploadStore {
       this.#void(conn, upload);
       return invalid("end.sha256", "format");
     }
-    const closed = closeUploadFile(upload.fd);
-    upload.fd = undefined;
+    upload.busy = true;
+    const closed = yield { kind: "close", file };
+    upload.busy = false;
+    upload.file = undefined;
+    if (voided(upload)) return this.#settledVoid(upload);
     if (closed.isErr()) {
       this.#void(conn, upload);
       return FAILED;
@@ -191,42 +320,96 @@ export class UploadStore {
    * link's own connection, its job the fetch's, written in order by the relay client as the pieces
    * come and hashed as it goes, under the same cap as any upload. Refused when that job already
    * has one. `finish` checks the whole against the offer's length and SHA-256: then it is finished
-   * like an upload, for the staging that follows; otherwise it is deleted.
+   * like an upload, for the staging that follows; otherwise it is deleted. Its file calls are off
+   * the loop, one at a time: the relay client awaits each `append` before the next.
    */
   beginFetch(ref: UploadRef): Result<FetchedFile, HubError> {
     const mine = this.#uploads.get(ref.conn) ?? new Map<number, Upload>();
     if (mine.has(ref.job))
       return err({ kind: "storage", origin: ORIGIN, message: `upload ${ref.job} exists already` });
     const upload = this.#start(ref.job);
-    if (upload === undefined)
-      return err({ kind: "storage", origin: ORIGIN, message: "cannot create the fetched file" });
     mine.set(ref.job, upload);
     this.#uploads.set(ref.conn, mine);
+    const closedError = (): HubError => ({
+      kind: "storage",
+      origin: ORIGIN,
+      message: "the fetched file is closed",
+    });
     return ok({
-      append: (bytes) => {
-        if (upload.fd === undefined || upload.finished !== undefined)
-          return err({ kind: "storage", origin: ORIGIN, message: "the fetched file is closed" });
-        if (upload.bytes + bytes.length > this.#limits.maxUploadBytes)
-          return err({ kind: "storage", origin: ORIGIN, message: "past the upload cap" });
-        const written = writeUploadFile(upload.fd, bytes);
-        if (written.isErr()) return err(written.error);
-        upload.hash.update(bytes);
-        upload.bytes += bytes.length;
-        return ok(undefined);
-      },
+      append: (bytes) =>
+        this.#run(
+          function* (this: UploadStore): Generator<FileCall, Result<void, HubError>, CallResult> {
+            if (upload.voided || upload.finished !== undefined || upload.busy)
+              return err(closedError());
+            if (upload.bytes + bytes.length > this.#limits.maxUploadBytes)
+              return err({ kind: "storage", origin: ORIGIN, message: "past the upload cap" });
+            if (upload.file === undefined) {
+              upload.busy = true;
+              const opened = yield { kind: "open", path: upload.path };
+              upload.busy = false;
+              if (voided(upload)) {
+                this.#discard(upload, opened.isOk() ? opened.value : undefined);
+                return err(closedError());
+              }
+              if (opened.isErr() || opened.value === undefined) {
+                this.#void(ref.conn, upload);
+                return err(
+                  errorFrom(
+                    "storage",
+                    ORIGIN,
+                    "create the fetched file",
+                    opened.isErr() ? opened.error : undefined,
+                  ),
+                );
+              }
+              upload.file = opened.value;
+            }
+            const file = upload.file;
+            upload.busy = true;
+            const written = yield { kind: "write", file, bytes };
+            upload.busy = false;
+            if (voided(upload)) {
+              this.#discard(upload, file);
+              return err(closedError());
+            }
+            if (written.isErr()) {
+              this.#void(ref.conn, upload);
+              return err(errorFrom("storage", ORIGIN, "write the fetched file", written.error));
+            }
+            upload.hash.update(bytes);
+            upload.bytes += bytes.length;
+            return ok(undefined);
+          }.call(this),
+        ),
       bytes: () => upload.bytes,
-      finish: (bytes, sha) => {
-        if (upload.fd === undefined || upload.finished !== undefined) return false;
-        const closed = closeUploadFile(upload.fd);
-        upload.fd = undefined;
-        const whole = upload.hash.digest();
-        if (closed.isErr() || upload.bytes !== bytes || !same(whole, sha)) {
-          this.#void(ref.conn, upload);
-          return false;
-        }
-        upload.finished = { path: upload.path, bytes: upload.bytes, sha256: whole };
-        return true;
-      },
+      finish: (bytes, sha) =>
+        this.#run(
+          function* (this: UploadStore): Generator<FileCall, boolean, CallResult> {
+            if (upload.voided || upload.finished !== undefined || upload.busy) return false;
+            const whole = upload.hash.digest();
+            const file = upload.file;
+            if (file !== undefined) {
+              upload.busy = true;
+              const closed = yield { kind: "close", file };
+              upload.busy = false;
+              upload.file = undefined;
+              if (voided(upload)) {
+                this.#discard(upload, undefined);
+                return false;
+              }
+              if (closed.isErr()) {
+                this.#void(ref.conn, upload);
+                return false;
+              }
+            }
+            if (upload.bytes !== bytes || !same(whole, sha)) {
+              this.#void(ref.conn, upload);
+              return false;
+            }
+            upload.finished = { path: upload.path, bytes: upload.bytes, sha256: whole };
+            return true;
+          }.call(this),
+        ),
     });
   }
 
@@ -252,34 +435,73 @@ export class UploadStore {
     return [...this.#uploads.values()].reduce((n, m) => n + m.size, 0);
   }
 
-  #start(job: number): Upload | undefined {
-    const path = join(this.#folder, `upload-${process.pid}-${this.#nextFile++}`);
-    const fd = createUploadFile(path);
-    if (fd.isErr()) return undefined;
+  /** A logic run by this store's driver: off the loop, or at once for the lockstep hub. */
+  #run<T>(logic: Generator<FileCall, T, CallResult>): Promise<T> {
+    return this.#onThread ? Promise.resolve(runNow(logic)) : runOffLoop(logic);
+  }
+
+  #start(job: number): Upload {
     return {
       job,
-      path,
-      fd: fd.value,
+      path: join(this.#folder, `upload-${process.pid}-${this.#nextFile++}`),
+      file: undefined,
       next: 0,
       bytes: 0,
       hash: sha256.create(),
       lastChunk: undefined,
       finished: undefined,
+      busy: false,
+      voided: false,
     };
   }
 
+  /**
+   * The upload gone from the store. Its file is closed and removed now, or, while one of its file
+   * calls is in flight, by that call's logic when it settles (`#settledVoid`).
+   */
   #void(conn: ConnId, upload: Upload): void {
-    if (upload.fd !== undefined)
-      closeUploadFile(upload.fd).match(
+    this.#uploads.get(conn)?.delete(upload.job);
+    if (upload.busy) {
+      upload.voided = true;
+      return;
+    }
+    upload.voided = true;
+    this.#discard(upload, upload.file);
+  }
+
+  /** After a call that settled on a voided upload: its file closed and removed; `unavailable`. */
+  #settledVoid(upload: Upload): ChunkOutcome {
+    this.#discard(upload, upload.file);
+    return FAILED;
+  }
+
+  /** The file closed if open, then removed: at once for the lockstep hub, else off the loop. */
+  #discard(upload: Upload, file: UploadFile | undefined): void {
+    upload.file = undefined;
+    if (this.#onThread || typeof file === "number") {
+      if (typeof file === "number")
+        closeUploadFile(file).match(
+          () => undefined,
+          () => undefined,
+        );
+      removeFile(CALLER, upload.path).match(
         () => undefined,
         () => undefined,
       );
-    upload.fd = undefined;
-    removeFile(CALLER, upload.path).match(
-      () => undefined,
-      () => undefined,
-    );
-    this.#uploads.get(conn)?.delete(upload.job);
+      return;
+    }
+    void (async () => {
+      // Each settles with a result; a file left behind goes at the next start (`clearAll`).
+      if (file !== undefined)
+        (await closeOffLoop(file)).match(
+          () => undefined,
+          () => undefined,
+        );
+      (await removeOffLoop(upload.path)).match(
+        () => undefined,
+        () => undefined,
+      );
+    })();
   }
 }
 

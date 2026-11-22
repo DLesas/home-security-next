@@ -413,13 +413,20 @@ export class UnixControlServer implements Control {
       const { job, n, data, end } = line.command;
       const chunk = end === undefined ? { job, n, data } : { job, n, data, end };
       const uploads = this.#options.uploads;
-      this.#reply(
-        connection,
-        line.id,
-        uploads === undefined
-          ? FILE_CHUNK_NOT_BUILT
-          : controlChunkReply(uploads.chunk(connection.conn, chunk)),
-      );
+      if (uploads === undefined) {
+        this.#reply(connection, line.id, FILE_CHUNK_NOT_BUILT);
+        return;
+      }
+      // In hand until its file call has settled, off the loop (`uploads.ts`), so the connection's
+      // next line waits for this answer as for any request's: one chunk in flight, in order.
+      const request = requestId(this.#nextRequest++);
+      connection.inHand = request;
+      void uploads.chunk(connection.conn, chunk).then((outcome) => {
+        if (connection.inHand !== request || this.#find(connection.conn) === undefined) return;
+        connection.inHand = undefined;
+        this.#reply(connection, line.id, controlChunkReply(outcome));
+        this.#next(connection);
+      });
       return;
     }
     const command = typedCommand(line.command);

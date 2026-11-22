@@ -245,7 +245,8 @@ export class LockstepHub {
     const keys = MemoryKeyStore.load(store.db);
     if (keys.isErr()) return err(keys.error);
     keysHolder.keys = keys.value;
-    const uploads = new UploadStore(options.dataDir);
+    // Every file call at once, on this thread: a lockstep run is the simulated clock's.
+    const uploads = new UploadStore(options.dataDir, undefined, { onThread: true });
     const cleared = uploads.clearAll();
     if (cleared.isErr()) return err(cleared.error);
     const registry = new LinkRegistry();
@@ -557,7 +558,7 @@ export class LockstepHub {
       const chunk = end === undefined ? { job, n, data } : { job, n, data, end };
       this.#replies.push({
         id,
-        reply: controlChunkReply(this.#files.uploads.chunk(LOCKSTEP_CONTROL_CONN, chunk)),
+        reply: controlChunkReply(this.#files.uploads.chunkNow(LOCKSTEP_CONTROL_CONN, chunk)),
       });
       return;
     }

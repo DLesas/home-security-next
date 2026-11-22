@@ -122,7 +122,7 @@ async function appSide(
 }
 
 /** A release for this computer, newer than the running hub, uploaded as the console's upload 1. */
-function uploaded(start: AppStart): void {
+async function uploaded(start: AppStart): Promise<void> {
   const data = new TextEncoder().encode("a program\n".repeat(10_000));
   const bytes = releaseOfFiles(
     [{ path: `bin/${programName(PLATFORM ?? "linux-x64")}`, data, executable: true }],
@@ -136,7 +136,7 @@ function uploaded(start: AppStart): void {
   const size = 48_000;
   const chunks = Math.ceil(bytes.length / size);
   for (let n = 0; n < chunks; n++) {
-    const taken = start.uploads.chunk(CONN, {
+    const taken = await start.uploads.chunk(CONN, {
       job: 1,
       n,
       data: Buffer.from(bytes.subarray(n * size, (n + 1) * size)).toString("base64url"),
@@ -156,7 +156,7 @@ describe.skipIf(PLATFORM === undefined)("a staging through the app side's file j
       wakes += 1;
       woken.resolve(undefined);
     });
-    uploaded(start);
+    await uploaded(start);
     const started = side.job(JOB, WORK);
     expect(started.kind).toBe("pieces");
     if (started.kind !== "pieces") return;
@@ -178,7 +178,7 @@ describe.skipIf(PLATFORM === undefined)("a staging through the app side's file j
   test("without a wake it never says it waits, and the loop turns for it until it ends", async () => {
     const root = folder();
     const { side, start } = await appSide(root, programTree(root));
-    uploaded(start);
+    await uploaded(start);
     const started = side.job(JOB, WORK);
     if (started.kind !== "pieces") return;
     const end = performance.now() + STAGING_MS;

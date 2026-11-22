@@ -113,13 +113,18 @@ async function newHub(root: string): Promise<{ readonly side: AppSide; readonly 
 }
 
 /** The console's upload `job` of `bytes`, in chunks of 48 KB ‡, as `fileChunk` requests send it. */
-function upload(start: AppStart, conn: ConnId, job: number, bytes: Uint8Array): void {
+async function upload(
+  start: AppStart,
+  conn: ConnId,
+  job: number,
+  bytes: Uint8Array,
+): Promise<void> {
   const size = 48_000;
   const chunks = Math.max(1, Math.ceil(bytes.length / size));
   const sha256 = createHash("sha256").update(bytes).digest("hex");
   for (let n = 0; n < chunks; n++) {
     const data = Buffer.from(bytes.subarray(n * size, (n + 1) * size)).toString("base64url");
-    const taken = start.uploads.chunk(conn, {
+    const taken = await start.uploads.chunk(conn, {
       job,
       n,
       data,
@@ -155,7 +160,7 @@ describe("a restore's upload and a wrong key (section 9)", () => {
     const root = mkdtempSync(join(tempDir("restore-retry").path, "r-"));
     const file = backupFile(root);
     const { side, start } = await newHub(root);
-    upload(start, CONSOLE, 5, file);
+    await upload(start, CONSOLE, 5, file);
     const ref = { conn: CONSOLE, job: 5 };
 
     expect(await run(side, jobId(10), { kind: "readRestore", upload: ref })).toMatchObject({
@@ -182,7 +187,7 @@ describe("a restore's upload and a wrong key (section 9)", () => {
   test("an applyRestore cut off by a stop (no outcome): its upload freed", async () => {
     const root = mkdtempSync(join(tempDir("restore-stop").path, "r-"));
     const { side, start } = await newHub(root);
-    upload(start, CONSOLE, 6, new Uint8Array(100).fill(1));
+    await upload(start, CONSOLE, 6, new Uint8Array(100).fill(1));
     const ref = { conn: CONSOLE, job: 6 };
     side.ended(jobId(1), { kind: "applyRestore", upload: ref, key: KEY }, undefined);
     expect(start.uploads.finished(ref)).toBeUndefined();
@@ -193,7 +198,7 @@ describe("a restore's upload and a wrong key (section 9)", () => {
     const file = backupFile(root);
     file[file.length - 1] = (file[file.length - 1] ?? 0) ^ 1;
     const { side, start } = await newHub(root);
-    upload(start, CONSOLE, 7, file);
+    await upload(start, CONSOLE, 7, file);
     const ref = { conn: CONSOLE, job: 7 };
     expect(
       await run(side, jobId(20), { kind: "applyRestore", upload: ref, key: KEY }),
@@ -206,7 +211,7 @@ describe("a restore's upload and a wrong key (section 9)", () => {
   test("as before: a header read that failed frees its upload, one that succeeded keeps it; a staging frees its upload however it ended", async () => {
     const root = mkdtempSync(join(tempDir("restore-others").path, "r-"));
     const { side, start } = await newHub(root);
-    upload(start, CONSOLE, 8, new Uint8Array(100).fill(2));
+    await upload(start, CONSOLE, 8, new Uint8Array(100).fill(2));
     const notBackup = { conn: CONSOLE, job: 8 };
     expect(await run(side, jobId(30), { kind: "readRestore", upload: notBackup })).toMatchObject({
       kind: "failed",
@@ -214,7 +219,7 @@ describe("a restore's upload and a wrong key (section 9)", () => {
     });
     expect(start.uploads.finished(notBackup)).toBeUndefined();
 
-    upload(start, CONSOLE, 9, new Uint8Array(100).fill(3));
+    await upload(start, CONSOLE, 9, new Uint8Array(100).fill(3));
     const release = { conn: CONSOLE, job: 9 };
     side.ended(
       jobId(31),
@@ -227,7 +232,7 @@ describe("a restore's upload and a wrong key (section 9)", () => {
   test("a release fetched over the relay is not the app side's to free: ended leaves the uploads alone", async () => {
     const root = mkdtempSync(join(tempDir("restore-fetch").path, "r-"));
     const { side, start } = await newHub(root);
-    upload(start, CONSOLE, 4, new Uint8Array(100).fill(4));
+    await upload(start, CONSOLE, 4, new Uint8Array(100).fill(4));
     side.ended(
       jobId(4),
       {

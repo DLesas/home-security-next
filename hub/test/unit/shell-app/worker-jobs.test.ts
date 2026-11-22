@@ -103,12 +103,12 @@ async function appSide(root: string, wake?: () => void): Promise<Side> {
 }
 
 /** `bytes` uploaded as the console's upload `job`, in chunks of 48 KB ‡ as `fileChunk` sends it. */
-function upload(start: AppStart, job: number, bytes: Uint8Array): void {
+async function upload(start: AppStart, job: number, bytes: Uint8Array): Promise<void> {
   const hash = createHash("sha256").update(bytes).digest("hex");
   const size = 48_000;
   const chunks = Math.max(1, Math.ceil(bytes.length / size));
   for (let n = 0; n < chunks; n++) {
-    const taken = start.uploads.chunk(CONN, {
+    const taken = await start.uploads.chunk(CONN, {
       job,
       n,
       data: Buffer.from(bytes.subarray(n * size, (n + 1) * size))
@@ -123,7 +123,7 @@ function upload(start: AppStart, job: number, bytes: Uint8Array): void {
 /** A job given with the wake: it waits, wakes the loop once, then gives its outcome. */
 async function withWake(
   root: string,
-  prepare: (side: Side) => FileWork,
+  prepare: (side: Side) => FileWork | Promise<FileWork>,
 ): Promise<{ readonly outcome: FileOutcome; readonly side: Side }> {
   const woken = Promise.withResolvers<undefined>();
   let wakes = 0;
@@ -131,7 +131,7 @@ async function withWake(
     wakes += 1;
     woken.resolve(undefined);
   });
-  const work = prepare(side);
+  const work = await prepare(side);
   const job = jobId(7);
   const started = side.side.job(job, work);
   expect(started.kind).toBe("pieces");
@@ -158,9 +158,12 @@ async function withWake(
 }
 
 /** The same job given without a wake: it never says it waits; turned for until it ends. */
-async function withoutWake(root: string, prepare: (side: Side) => FileWork): Promise<FileOutcome> {
+async function withoutWake(
+  root: string,
+  prepare: (side: Side) => FileWork | Promise<FileWork>,
+): Promise<FileOutcome> {
   const side = await appSide(root);
-  const work = prepare(side);
+  const work = await prepare(side);
   const job = jobId(8);
   const started = side.side.job(job, work);
   expect(started.kind).toBe("pieces");
@@ -179,8 +182,8 @@ async function withoutWake(root: string, prepare: (side: Side) => FileWork): Pro
 }
 
 /** An owner's own build uploaded as upload 1: `stageFirmware`. */
-function firmware(side: Side): FileWork {
-  upload(side.start, 1, espImage({ size: 300_000, seed: 3 }));
+async function firmware(side: Side): Promise<FileWork> {
+  await upload(side.start, 1, espImage({ size: 300_000, seed: 3 }));
   return { kind: "stageFirmware", upload: { conn: CONN, job: 1 }, own: { version: "1.4.0" } };
 }
 
@@ -221,13 +224,13 @@ describe("the jobs off the hub's thread, through the app side's file jobs", () =
   async function restoreWork(
     root: string,
     kind: "applyRestore" | "readRestore" = "applyRestore",
-  ): Promise<(side: Side) => FileWork> {
+  ): Promise<(side: Side) => Promise<FileWork>> {
     const { side } = await withWake(join(root, "old"), backup);
     const folderPath = join(side.data, "..", "backups");
     const [name] = readdirSync(folderPath).filter((n) => n.endsWith(".hsnb"));
     const bytes = new Uint8Array(readFileSync(join(folderPath, name ?? "")));
-    return (target) => {
-      upload(target.start, 2, bytes);
+    return async (target) => {
+      await upload(target.start, 2, bytes);
       return kind === "applyRestore"
         ? { kind, upload: { conn: CONN, job: 2 }, key: KEY }
         : { kind, upload: { conn: CONN, job: 2 } };

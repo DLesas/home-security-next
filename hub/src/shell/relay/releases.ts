@@ -259,6 +259,16 @@ export class ReleaseFetch implements JobPieces {
   /** The first byte not yet asked for. */
   #nextOffset = 0;
   readonly #inFlight = new Map<number, { readonly offset: number; readonly length: number }>();
+  /**
+   * A file call in flight off the loop (`app/uploads.ts`): a piece's `append` (it counts as a
+   * piece in flight until it has resolved, so no further piece is asked for while a write is
+   * slow) or the whole's `finish`. One at a time.
+   */
+  #writing = false;
+  /** The bytes of the piece being appended (0 when none): held, though not yet written. */
+  #appendingBytes = 0;
+  /** The whole's `finish`: undefined until it has settled, then whether the file is the one offered. */
+  #wholeChecked: boolean | undefined;
   /** Pieces in, by offset, not yet written. */
   readonly #received = new Map<number, Uint8Array>();
   #failure: FileOutcome | undefined;
@@ -296,6 +306,8 @@ export class ReleaseFetch implements JobPieces {
   waiting(): boolean {
     if (this.#phase === "staging") return this.#staging?.waiting?.() === true;
     if (this.#phase !== "fetching" || this.#failure !== undefined || !this.#wanted()) return false;
+    // A file call in flight wakes the loop when it settles.
+    if (this.#writing) return true;
     return !this.#received.has(this.written) && this.written < this.#work.bytes;
   }
 
@@ -314,12 +326,24 @@ export class ReleaseFetch implements JobPieces {
       return { done: true, outcome: UNWANTED };
     }
     if (this.#failure !== undefined) return this.#end(this.#failure);
+    if (this.#writing) return { done: false };
     const at = this.written;
     const piece = this.#received.get(at);
     if (piece !== undefined) {
       this.#received.delete(at);
-      const appended = this.#file.append(piece);
-      if (appended.isErr()) return this.#end(failed("io", appended.error.message));
+      this.#writing = true;
+      this.#appendingBytes = piece.length;
+      void this.#file.append(piece).then((appended) => {
+        this.#writing = false;
+        this.#appendingBytes = 0;
+        if (appended.isErr()) {
+          this.#fail(failed("io", appended.error.message));
+          return;
+        }
+        this.#ask();
+        this.#owner.options.wake();
+      });
+      return { done: false };
     }
     if (this.written >= this.#work.bytes) return this.#whole();
     this.#ask();
@@ -344,7 +368,8 @@ export class ReleaseFetch implements JobPieces {
   /** The link is down: ask again later from the first byte not held, for up to 10 minutes ‡. */
   linkLost(): void {
     this.#inFlight.clear();
-    let held = this.written;
+    // What is held: what is written, the piece being written, and what came in order after it.
+    let held = this.written + this.#appendingBytes;
     for (
       let piece = this.#received.get(held);
       piece !== undefined;
@@ -393,13 +418,15 @@ export class ReleaseFetch implements JobPieces {
   // ----- Inside -----
 
   /**
-   * Asks for the next pieces: at most 4 ‡ asked for or held unwritten at once, so a fetch holds at
-   * most 1 MiB in memory whatever order the pieces come in.
+   * Asks for the next pieces: at most 4 ‡ asked for, held unwritten or being written at once (a
+   * piece counts until its `append` has resolved), so a fetch holds at most 1 MiB in memory
+   * whatever order the pieces come in and however slow the disk.
    */
   #ask(): void {
     if (this.#phase !== "fetching" || this.#failure !== undefined || !this.#wanted()) return;
     while (
-      this.#inFlight.size + this.#received.size < RELAY_LIMITS.maxReleasePiecesInFlight &&
+      this.#inFlight.size + this.#received.size + (this.#writing ? 1 : 0) <
+        RELAY_LIMITS.maxReleasePiecesInFlight &&
       this.#nextOffset < this.#work.bytes
     ) {
       const length = Math.min(this.#owner.pieceBytes, this.#work.bytes - this.#nextOffset);
@@ -419,7 +446,17 @@ export class ReleaseFetch implements JobPieces {
   #whole(): { readonly done: false } | { readonly done: true; readonly outcome: FileOutcome } {
     this.#waitTimer?.();
     this.#waitTimer = undefined;
-    if (!this.#file.finish(this.#work.bytes, this.#work.sha256))
+    if (this.#wholeChecked === undefined) {
+      // Closed and checked off the loop; the loop is woken when it has settled.
+      this.#writing = true;
+      void this.#file.finish(this.#work.bytes, this.#work.sha256).then((whole) => {
+        this.#writing = false;
+        this.#wholeChecked = whole;
+        this.#owner.options.wake();
+      });
+      return { done: false };
+    }
+    if (!this.#wholeChecked)
       return this.#end(failed("badFile", "the fetched file is not the one offered"));
     this.#phase = "staging";
     const started = this.#owner.options.stage(

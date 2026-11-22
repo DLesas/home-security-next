@@ -22,6 +22,7 @@ import type { FileOutcome } from "../../../src/core/model/events.ts";
 import { jobId, type JobId } from "../../../src/core/model/ids.ts";
 import { emptyState } from "../../../src/core/step.ts";
 import type { JobPieces, JobStarted } from "../../../src/shell/loop.ts";
+import { UploadStore } from "../../../src/shell/app/uploads.ts";
 import { hubReleaseWanted } from "../../../src/shell/relay/releases.ts";
 import { TEST_PUBLISHER_KEY } from "../../../src/shell/update/publisher-keys.ts";
 import { Staging } from "../../../src/shell/update/stage.ts";
@@ -386,7 +387,13 @@ describe("fetching", () => {
         return;
       }
       sendPiece(link, get.id, bytes);
-      if (startedStaging) expect(fetch.pieces.next()).toEqual({ done: false });
+      // The piece's append and the whole's finish settle off the loop (`app/uploads.ts`): turns
+      // as the loop gives them, until the staging is asked for.
+      if (startedStaging)
+        await until(() => {
+          if (stages === 0) expect(fetch.pieces.next()).toEqual({ done: false });
+          return stages === 1;
+        }, "the staging asked for");
       wanted = false;
       expect(fetch.pieces.next()).toMatchObject({ done: true, outcome: { kind: "failed" } });
       expect(stages).toBe(Number(startedStaging));
@@ -488,6 +495,98 @@ describe("fetching", () => {
     expect(started.pieces.waiting?.()).toBe(true);
     expect(started.pieces.next()).toEqual({ done: false });
     expect(relay.last?.sent("release.get")).toHaveLength(4);
+  });
+
+  test("a piece counts in flight until its write has resolved: with a write held, no fifth piece is asked for", async () => {
+    // A store whose fetched file's writes wait on a gate the test opens: a slow disk.
+    const gate = Promise.withResolvers<undefined>();
+    let writesAsked = 0;
+    class HeldStore extends UploadStore {
+      override beginFetch(ref: Parameters<UploadStore["beginFetch"]>[0]) {
+        return super.beginFetch(ref).map((file) => ({
+          ...file,
+          append: async (bytes: Uint8Array) => {
+            writesAsked += 1;
+            await gate.promise;
+            return file.append(bytes);
+          },
+        }));
+      }
+    }
+    const relay = new ScriptedRelay();
+    const folder = mkdtempSync(join(root, "held-"));
+    const client = makeClient({
+      key: staticKeyOf(72),
+      connect: relay.connect,
+      uploads: new HeldStore(folder),
+    });
+    client.client.perform({ kind: "relayConnect", url: "ws://127.0.0.1:1" });
+    await until(() => client.client.state.kind === "up", "up");
+    const started = client.client.fetch(jobId(4), hubWork({ bytes: 8 * 262_144 }));
+    const link = relay.last;
+    if (started.kind !== "pieces" || link === undefined) return expect.unreachable("no fetch");
+    const gets = link.sent("release.get");
+    expect(gets).toHaveLength(4);
+    // All four pieces come; the first is taken, its write held.
+    gets.forEach((get, i) => {
+      sendPiece(link, get.id, hubBytes.slice(i * 262_144, (i + 1) * 262_144));
+    });
+    expect(started.pieces.next()).toEqual({ done: false });
+    expect(writesAsked).toBe(1);
+    // Held: the job waits, and asks for no fifth piece whatever turns come.
+    expect(started.pieces.waiting?.()).toBe(true);
+    for (let i = 0; i < 5; i++) {
+      expect(started.pieces.next()).toEqual({ done: false });
+      await settle(2);
+    }
+    expect(writesAsked).toBe(1);
+    expect(link.sent("release.get")).toHaveLength(4);
+    // The disk answers: the write resolves, and a fifth piece is asked for.
+    gate.resolve(undefined);
+    await until(() => link.sent("release.get").length === 5, "a fifth piece asked for");
+  });
+
+  test("the link lost while a piece is being written: resumed after that piece, the write still counted", async () => {
+    const gate = Promise.withResolvers<undefined>();
+    class HeldStore extends UploadStore {
+      override beginFetch(ref: Parameters<UploadStore["beginFetch"]>[0]) {
+        return super.beginFetch(ref).map((file) => ({
+          ...file,
+          append: async (bytes: Uint8Array) => {
+            await gate.promise;
+            return file.append(bytes);
+          },
+        }));
+      }
+    }
+    const relay = new ScriptedRelay();
+    const client = makeClient({
+      key: staticKeyOf(73),
+      connect: relay.connect,
+      uploads: new HeldStore(mkdtempSync(join(root, "held-"))),
+    });
+    client.client.perform({ kind: "relayConnect", url: "ws://127.0.0.1:1" });
+    await until(() => client.client.state.kind === "up", "up");
+    // Eight pieces' length (only the first four are sent), so the asking is not cut short by the
+    // file's end.
+    const started = client.client.fetch(jobId(5), hubWork({ bytes: 8 * 262_144 }));
+    const link = relay.last;
+    if (started.kind !== "pieces" || link === undefined) return expect.unreachable("no fetch");
+    const gets = link.sent("release.get");
+    // Pieces 0, 2 and 3 come, not 1; piece 0 is taken, its write held.
+    for (const i of [0, 2, 3])
+      sendPiece(link, gets[i]?.id ?? 0, hubBytes.slice(i * 262_144, (i + 1) * 262_144));
+    expect(started.pieces.next()).toEqual({ done: false });
+    // The relay closes the link; the client comes back on a new one.
+    link.close(1001);
+    await until(() => client.client.state.kind !== "up", "the link lost");
+    client.timers.advance(60_000);
+    await until(() => client.client.state.kind === "up" && relay.last !== link, "a new link");
+    // Asked again from the first byte not held, after the piece being written, and three at most:
+    // the write in flight counts as the fourth.
+    const again = relay.last?.sent("release.get") ?? [];
+    expect(again.map((g) => g.offset)).toEqual([262_144, 524_288, 786_432]);
+    gate.resolve(undefined);
   });
 
   test("cut half-way and resumed: asked again from the first byte it did not hold", async () => {
@@ -628,7 +727,7 @@ describe("fetching", () => {
     const client = makeClient({ key: staticKeyOf(73), connect: relay.connect });
     client.client.perform({ kind: "relayConnect", url: "ws://127.0.0.1:1" });
     await until(() => client.client.state.kind === "up", "up");
-    const started = client.client.fetch(jobId(4), hubWork());
+    const started = client.client.fetch(jobId(4), hubWork({ bytes: 8 * 262_144 }));
     if (started.kind !== "pieces") return;
     const first = relay.last?.sent("release.get")[0];
     const frame = new Uint8Array(5 + 10);
@@ -655,7 +754,9 @@ describe("fetching", () => {
       const client = makeClient({ key: staticKeyOf(74), connect: relay.connect });
       client.client.perform({ kind: "relayConnect", url: "ws://127.0.0.1:1" });
       await until(() => client.client.state.kind === "up", "up");
-      const started = client.client.fetch(jobId(5), hubWork());
+      // Eight pieces' length (only the first four are sent), so the asking is not cut short by the
+      // file's end.
+      const started = client.client.fetch(jobId(5), hubWork({ bytes: 8 * 262_144 }));
       if (started.kind !== "pieces") return;
       const first = relay.last?.sent("release.get")[0];
       relay.last?.send({ t: "release.error", id: first?.id ?? 0, reason });
