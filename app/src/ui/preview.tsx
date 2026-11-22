@@ -413,6 +413,8 @@ export function startPreview(real: HubClient): HubClient {
       reach: createStore<ReachState>()(() => ({
         localNetworkDenied: settings.get("denied") === "1",
         browse: null,
+        path: null,
+        relayClosed: null,
       })),
     };
   });

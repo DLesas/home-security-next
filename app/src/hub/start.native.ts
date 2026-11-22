@@ -7,13 +7,18 @@
  * - React Native's own WebSocket, which takes the hub's certificate for a home host only
  *   (`plugins/hub-tls`, D132), sending `Origin` itself;
  * - the browse: P1's `hub-net` (`modules/hub-net`), so a typed code needs no address;
+ * - away from home, React Native's own WebSocket to the relay (`relay.ts`), whose certificate is
+ *   an ordinary one; the deployment's default relay, none while its domain is the placeholder;
+ *   `ws://` relays in a development build only (`__DEV__`);
  * - links opened in the app (expo-linking): `hsn://link/1`, `hsn://restore/1` and `hsn://pair/1`
  *   codes, held in memory until the root layout claims them; nothing else of a link is kept;
  * - the app coming to the front (`AppState`): a vault that could not be read (the phone restarted
- *   and not yet unlocked) or a hub not reached is tried again.
+ *   and not yet unlocked) or a hub not reached is tried again, and a session on the relay tries
+ *   home.
  *
  * The channel speaks version 2 only (`PHONE_PROTO`, m3-design.md section 3).
  */
+import { DEPLOYMENT, defaultRelayUrl } from "@hsn/deployment";
 import * as Linking from "expo-linking";
 import { AppState } from "react-native";
 import * as phoneKeys from "../platform/keys.native";
@@ -35,6 +40,9 @@ type NativeSocket = new (
 
 const makeSocket = (url: string, origin: string): SocketLike =>
   new (WebSocket as unknown as NativeSocket)(url, undefined, { headers: { Origin: origin } });
+
+/** The relay's socket: React Native's own, with the platform's TLS and no header of ours. */
+const makeRelaySocket = (url: string): SocketLike => new WebSocket(url) as unknown as SocketLike;
 
 const links = arrivals({
   initial: () => Linking.getInitialURL(),
@@ -72,6 +80,11 @@ export function startClient(): StartedClient {
     app: APP_VERSION,
     proto: PHONE_PROTO,
     keys: phoneKeys,
+    relay: {
+      make: makeRelaySocket,
+      defaultUrl: defaultRelayUrl(DEPLOYMENT),
+      build: { development: __DEV__ },
+    },
   });
   started = phone;
   phone.client.start();
