@@ -23,6 +23,7 @@ import { memoryRecordStore } from "../src/platform/client-key";
 import * as phoneKeys from "../src/platform/keys.native";
 import { memorySecureItems } from "../src/platform/vault";
 import { realTimers } from "../src/hub/wire";
+import { phoneRequest } from "../src/pairing/hub";
 import {
   connectFrom,
   homeAddress,
@@ -119,6 +120,16 @@ describe("a phone at version 2 against the real hub", () => {
     expect(body.addresses).toContain(HOME ?? "");
     expect(body.addresses.some((a) => a.toLowerCase().startsWith("fe80"))).toBe(false);
   }, 30_000);
+
+  test("the shared hub client exposes the phone's version 2 channel", async () => {
+    const v2 = phone.client.v2 ?? expect.unreachable();
+    expect(v2.forward).toBe(phone.forward);
+    expect(v2.onNewEvent).toBe(phone.onNewEvent);
+    expect(await phoneRequest(v2, "firmware.list", {})).toEqual({
+      ok: true,
+      value: { images: [], devices: [] },
+    });
+  }, 20_000);
 
   test("makes a change and receives its event", async () => {
     const events: string[] = [];
