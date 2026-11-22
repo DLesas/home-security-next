@@ -183,6 +183,8 @@ export class HubEnd {
   helloProtoOverride: number | undefined = undefined;
   /** A fault: message 4 carries this in place of `LinkResult`. */
   linkResultOverride: unknown = undefined;
+  /** Lets a test send frames before the hub answers the snapshot request. */
+  beforeSnapshot?: () => void;
   /** The backup key a phone's `LinkResult` carries (m2-design.md section 5), when set. */
   backupKey: { readonly key: string; readonly epoch: number } | undefined = undefined;
   /** What a version 2 snapshot adds (m3-design.md sections 2 and 4). */
@@ -219,7 +221,10 @@ export class HubEnd {
     this.identity = formatIdentity(this.identityBytes);
     this.snapshot = emptySnapshot(this);
     // A version 2 session's snapshot is version 1's with fields added (`snapshotFor`).
-    this.handleV2("snapshot", (_body, client) => ({ ok: true, body: this.snapshotFor(client) }));
+    this.handleV2("snapshot", (_body, client) => {
+      this.beforeSnapshot?.();
+      return { ok: true, body: this.snapshotFor(client) };
+    });
     this.handle("subscribe", (body) => ({ ok: true, body: { topics: body.topics } }));
     this.handle("pong", () => ({ ok: true, body: {} }));
   }
