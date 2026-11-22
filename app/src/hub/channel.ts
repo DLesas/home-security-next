@@ -51,7 +51,7 @@ import {
 } from "@hsn/protocol/app";
 import type { LocalFault } from "./faults";
 import { decodeJson, encodeJson } from "./codec";
-import { openSession, type ProtoRange, type SessionFailure } from "./handshake";
+import { type OpenedSession, openSession, type ProtoRange, type SessionFailure } from "./handshake";
 import type { ClientKeys } from "../platform/client-key";
 import type { PlatformSecret } from "../platform/keys";
 import { raiseSeq, type RecordStore, reserveSeq, type StoredClient } from "../platform/client-key";
@@ -323,14 +323,7 @@ export class Channel implements Requester {
     const record = this.record;
     if (record === undefined || this.stopped || this.removed) return;
     this.deps.listener.status({ kind: "connecting", attempt: this.attempt });
-    const opened = await openSession(
-      this.deps.connect,
-      record,
-      this.deps.app,
-      this.deps.timers,
-      this.deps.proto,
-      this.deps.keys,
-    );
+    const opened = await this.handshake(this.deps.connect, record);
     if (this.isStopped()) {
       if (opened.ok) opened.value.wire.close(CLOSE.normal);
       return;
@@ -339,16 +332,33 @@ export class Channel implements Requester {
       this.waitThenConnect(opened.fault);
       return;
     }
+    this.adopt(opened.value);
+  }
+
+  /** Opens an authenticated session on the specified path. */
+  private handshake(connect: Connect, record: StoredClient) {
+    return openSession(
+      connect,
+      record,
+      this.deps.app,
+      this.deps.timers,
+      this.deps.proto,
+      this.deps.keys,
+    );
+  }
+
+  /** Starts receiving on the authenticated wire and replays changes awaiting a reply. */
+  private adopt(opened: OpenedSession): void {
     this.attempt = 0;
     this.refusals = undefined;
-    const session = new Session(opened.value.hello, opened.value.transport, opened.value.wire);
+    const session = new Session(opened.hello, opened.transport, opened.wire);
     this.session = session;
     this.nextId = 1;
     this.snapshotRev = undefined;
     this.early = [];
     this.lastHeard = this.deps.timers.now();
     this.deps.listener.status({ kind: "open", hello: session.hello });
-    opened.value.inbox.forward({
+    opened.inbox.forward({
       message: (data) => {
         this.receive(session, data);
       },
@@ -507,15 +517,21 @@ export class Channel implements Requester {
   }
 
   /**
-   * Ends the open session and opens another at once, by the `Connect`'s order: a phone on the
-   * relay whose home answers again (m3-design.md section 6). As after a drop, a change in flight
-   * goes again with its `seq` on the new session and a read in flight fails (`lost`); nothing
-   * waits first, since the hub was not lost.
+   * Moves the live channel after the hub authenticates on the new path (m3-design.md section 6).
+   * Changes in flight go again with their original `seq`, as after a drop.
    */
-  reconnect(): void {
+  async moveTo(connect: Connect, moved: () => void): Promise<void> {
     const session = this.session;
-    if (session === undefined || !this.drop(session)) return;
-    void this.connect();
+    const record = this.record;
+    if (session === undefined || record === undefined) return;
+    const opened = await this.handshake(connect, record);
+    if (!opened.ok) return;
+    if (!this.drop(session)) {
+      opened.value.wire.close(CLOSE.normal);
+      return;
+    }
+    moved();
+    this.adopt(opened.value);
   }
 
   private ended(session: Session): void {
@@ -525,8 +541,8 @@ export class Channel implements Requester {
   /** Closes `session` and settles what was in flight on it; true when the channel goes on. */
   private drop(session: Session): boolean {
     if (this.session !== session) return false;
-    session.close(CLOSE.normal);
     this.session = undefined;
+    session.close(CLOSE.normal);
     this.cancelLiveness?.();
     for (const pending of this.pending.values()) {
       // A change's reply may have been lost after the hub made it: the same `seq` again (section 5).

@@ -50,7 +50,8 @@ import {
   storedHubConnect,
   targetsConnect,
 } from "./finder";
-import { type LinkSecret, linkClient, type ProtoRange } from "./handshake";
+import { type LinkFailure, type LinkSecret, linkClient, type ProtoRange } from "./handshake";
+import { fromBase64url } from "./files";
 import { BackupKeyKeeper, restoreHub, type RestoreOutcome, snapshotEpoch } from "./restore";
 import type { ArrivedCode } from "./start-types";
 import {
@@ -63,7 +64,7 @@ import {
   relayConnect,
   relayUrlFor,
 } from "./relay";
-import { CLOSE, type Connect, type Timers } from "./wire";
+import type { Connect, Timers } from "./wire";
 import { createLiveStore } from "../state/live";
 import type { ClientKeys, RecordStore, StoredClient } from "../platform/client-key";
 import type { FinderFault, HubFinder } from "../platform/finder";
@@ -179,16 +180,8 @@ function backupKeyOf(
   payload: { readonly key: string; readonly epoch: number } | undefined,
 ): HeldBackupKey | null {
   if (payload === undefined) return null;
-  const binary = (() => {
-    try {
-      return atob(payload.key.replaceAll("-", "+").replaceAll("_", "/") + "=");
-    } catch {
-      return undefined;
-    }
-  })();
-  if (binary === undefined) return null;
-  const key = Uint8Array.from(binary, (c) => c.charCodeAt(0));
-  return key.length === 32 ? { epoch: payload.epoch, key } : null;
+  const key = fromBase64url(payload.key);
+  return key?.length === 32 ? { epoch: payload.epoch, key } : null;
 }
 
 export function startPhoneClient(deps: PhoneDeps): PhoneClient {
@@ -306,20 +299,24 @@ export function startPhoneClient(deps: PhoneDeps): PhoneClient {
     });
   }
 
-  /**
-   * On the relay: whether home answers (a socket at home, in section 2's order, closed at once);
-   * if it does, the session moves there (`Channel.reconnect`, home first); if not, again later.
-   */
+  /** Tries home while the relay is live, then either moves to home or schedules another try. */
   async function tryHome(): Promise<void> {
     if (tryingHome || reach.getState().path !== "relay") return;
     tryingHome = true;
     stopHomeAgain();
-    const wire = await home("session", { message: () => undefined, closed: () => undefined });
+    let answered: { address: string; port: number } | undefined;
+    const homeProbe = storedHubConnect(socket, deps.finder, () => current, {
+      localNetworkDenied: reaching.localNetworkDenied,
+      answered: (address, port) => {
+        answered = { address, port };
+      },
+    });
+    await channel.moveTo(homeProbe, () => {
+      lastPath = "home";
+      if (answered !== undefined) reaching.answered(answered.address, answered.port);
+    });
     tryingHome = false;
-    wire?.close(CLOSE.normal);
-    if (reach.getState().path !== "relay") return;
-    if (wire === undefined) homeAgainLater();
-    else channel.reconnect();
+    if (reach.getState().path === "relay") homeAgainLater();
   }
 
   const tap = (event: AppEvent) => {
@@ -407,14 +404,28 @@ export function startPhoneClient(deps: PhoneDeps): PhoneClient {
     void channel.start();
   };
 
-  async function targetsFor(secret: LinkSecret): Promise<readonly HubTarget[]> {
+  /** Tries the code's addresses before browsing for the same hub, and uses the relay last. */
+  async function* linkWays(secret: LinkSecret): AsyncGenerator<HubTarget | Connect> {
     const code = reachOf(secret);
     const identity = secret.kind === "secret" ? (secret.identity ?? null) : null;
-    if (code !== undefined && code.addresses.length > 0)
-      return [{ identity, addresses: code.addresses, port: code.port }];
+    if (code !== undefined && code.addresses.length > 0) {
+      yield { identity, addresses: code.addresses, port: code.port };
+      // An explicit address for a typed code is the only address it tries.
+      if (identity === null) return;
+    }
     const found = await browseFor(deps.finder, identity, reaching);
     reach.setState({ browse: found.ok ? null : found.fault });
-    return found.ok ? found.value : [];
+    if (found.ok) {
+      for (const target of found.value) {
+        const addresses =
+          target.port === code?.port
+            ? target.addresses.filter((address) => !code.addresses.includes(address))
+            : target.addresses;
+        if (addresses.length > 0) yield { ...target, addresses };
+      }
+    }
+    const away = relayFor(identity, code?.relay);
+    if (away !== undefined) yield away;
   }
 
   async function link(secret: LinkSecret, from: CodeSource, request: LinkRequest): Promise<void> {
@@ -422,30 +433,17 @@ export function startPhoneClient(deps: PhoneDeps): PhoneClient {
     // A phone always links as one, so the hub gives it the backup key (m2-design.md section 5).
     const asPhone: LinkRequest = { ...request, kind: "phone" };
     const code = reachOf(secret);
-    const targets = await targetsFor(secret);
-    // The relay last, to the hub the code names: a typed code names none, so it links at home only.
-    const away = relayFor(secret.kind === "secret" ? secret.identity : undefined, code?.relay);
-    const ways: readonly (HubTarget | "relay")[] = [
-      ...targets,
-      ...(away === undefined ? [] : ["relay" as const]),
-    ];
-    if (ways.length === 0) {
-      local.setState({ link: { kind: "failed", from, failure: "unreachable" } });
-      return;
-    }
-    for (const [n, way] of ways.entries()) {
-      let answered: { readonly address: string; readonly port: number } | undefined;
-      const target: HubTarget =
-        way === "relay"
-          ? { identity: null, addresses: code?.addresses ?? [], port: code?.port ?? 0 }
-          : way;
+    let failure: LinkFailure = "unreachable";
+    for await (const way of linkWays(secret)) {
+      let answered: string | null = null;
+      const target = typeof way === "function" ? code : way;
       const connect =
-        way === "relay" && away !== undefined
-          ? away
-          : targetsConnect(socket, [target], {
-              answered: (address, port) => {
-                answered = { address, port };
-                reaching.answered(address, port);
+        typeof way === "function"
+          ? way
+          : targetsConnect(socket, [way], {
+              answered: (address) => {
+                answered = address;
+                reach.setState({ localNetworkDenied: false });
               },
               localNetworkDenied: reaching.localNetworkDenied,
             });
@@ -457,10 +455,11 @@ export function startPhoneClient(deps: PhoneDeps): PhoneClient {
         deps.proto,
         platformKeys(deps.keys),
       );
-      const last = n === ways.length - 1;
       // A hub that does not hold the code closes before message 2, which costs no try: the next.
-      if (!linked.ok && !last && (linked.fault === "refused" || linked.fault === "unreachable"))
+      if (!linked.ok && (linked.fault === "refused" || linked.fault === "unreachable")) {
+        failure = linked.fault;
         continue;
+      }
       if (!linked.ok && linked.fault === "needsName") {
         // Kept here, in memory only, until the name comes.
         asked = { secret, from, request };
@@ -479,9 +478,9 @@ export function startPhoneClient(deps: PhoneDeps): PhoneClient {
       const kept: StoredClient<Uint8Array> = {
         ...record,
         reach: {
-          addresses: target.addresses,
-          appsPort: target.port,
-          lastAddress: answered?.address ?? null,
+          addresses: target?.addresses ?? [],
+          appsPort: target?.port ?? 0,
+          lastAddress: answered,
           relayUrl: code?.relay ?? null,
           // Named by the person on this phone (M5); empty until then.
           homeName: "",
@@ -496,6 +495,7 @@ export function startPhoneClient(deps: PhoneDeps): PhoneClient {
       restart();
       return;
     }
+    local.setState({ link: { kind: "failed", from, failure } });
   }
 
   const client: HubClient = {
@@ -552,22 +552,22 @@ export function startPhoneClient(deps: PhoneDeps): PhoneClient {
       else void tryHome();
     },
     restore: async (code, offered) => {
-      // The code's addresses; without any, the hubs a browse finds of the new hub's identity.
-      const found =
-        code.reach.addresses.length > 0
-          ? undefined
-          : await browseFor(deps.finder, code.identity, reaching);
-      const targets: readonly HubTarget[] =
-        found === undefined
-          ? [{ identity: code.identity, addresses: code.reach.addresses, port: code.reach.port }]
-          : found.ok
-            ? found.value
-            : [];
+      const restoreHome = storedHubConnect(
+        socket,
+        deps.finder,
+        () => ({
+          identity: code.identity,
+          reach: { ...emptyReach(), addresses: code.reach.addresses, appsPort: code.reach.port },
+        }),
+        {
+          answered: () => {
+            reach.setState({ localNetworkDenied: false });
+          },
+          localNetworkDenied: reaching.localNetworkDenied,
+        },
+      );
       const outcome = await restoreHub(code, {
-        // At the code's addresses, then through the relay to the new hub the code names.
-        connect: homeThenRelay(targetsConnect(socket, targets, reaching), () =>
-          relayFor(code.identity, code.reach.relay),
-        ),
+        connect: homeThenRelay(restoreHome, () => relayFor(code.identity, code.reach.relay)),
         timers: deps.timers,
         app: deps.app,
         proto: deps.proto,

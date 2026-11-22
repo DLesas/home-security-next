@@ -31,6 +31,7 @@ import type { FinderFault, FoundHub, HubFinder } from "../platform/finder";
 import type { HubReach } from "../platform/records";
 import { NOT_BUILT, type Outcome } from "../platform/split";
 import type { LinkSecret } from "./handshake";
+import { openSocket } from "./safe/socket";
 import { CLOSE, type Connect, type Timers, type Wire, type WireHandlers } from "./wire";
 
 /** Each address is given this long to connect † (m3-design.md section 2). */
@@ -377,10 +378,11 @@ function attempt(
 ): Promise<Attempt> {
   return new Promise((resolve) => {
     const host = `${urlHost(address)}:${String(port)}`;
-    let socket: SocketLike;
-    try {
-      socket = make(`wss://${host}${APP_PATHS[path]}`, `https://${host}`);
-    } catch {
+    const socket = openSocket(
+      (url) => make(url, `https://${host}`),
+      `wss://${host}${APP_PATHS[path]}`,
+    );
+    if (socket === undefined) {
       resolve({ kind: "failed" });
       return;
     }
