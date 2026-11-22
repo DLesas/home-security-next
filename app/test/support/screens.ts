@@ -5,7 +5,7 @@
 import "./render";
 import type { ReactElement } from "react";
 import type { LiveState } from "../../src/state/live";
-import type { LinkView, LocalState } from "../../src/hub/client";
+import type { HubClient, LinkView, LocalState } from "../../src/hub/client";
 import { manualTimers } from "./timers";
 
 /** Provides the same test context for static and interactive screen rendering. */
@@ -37,14 +37,14 @@ export async function screenWorld(live: Partial<LiveState>, link?: LinkView) {
   return {
     client,
     /** Wraps the page in the test's hub, query client and English translations. */
-    wrap: (element: ReactElement) =>
+    wrap: (element: ReactElement, hub: HubClient = client) =>
       createElement(
         I18nextProvider,
         { i18n },
         createElement(
           QueryClientProvider,
           { client: queries },
-          createElement(HubProvider, { client, children: element }),
+          createElement(HubProvider, { client: hub, children: element }),
         ),
       ),
   };

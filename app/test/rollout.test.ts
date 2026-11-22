@@ -15,13 +15,13 @@ import {
 } from "@hsn/protocol/app";
 import { createElement } from "react";
 import type { AnyOutcome } from "../src/hub/channel";
-import { rolloutView, type Version2Client } from "../src/state/rollout";
+import type { HubClient, Version2Channel } from "../src/hub/client";
+import { rolloutView } from "../src/state/rollout";
 import { clientScreen, screenAct } from "./support/client-screen";
 import { screenWorld, textOf } from "./support/screens";
 import { snapshotOf } from "./support/snapshots";
 import { manualTimers } from "./support/timers";
 
-const { Version2Provider } = await import("../src/ui/hub-context");
 const { RolloutSection } = await import("../src/ui/rollout");
 const { UpdatesScreen } = await import("../src/ui/updates");
 const { rowWords } = await import("../src/ui/history");
@@ -144,7 +144,7 @@ afterEach(async () => {
   screen = undefined;
 });
 
-/** Mounts Updates with independent version 1 and 2 test clients and exposes their event feeds. */
+/** Mounts Updates with a stand-in hub client and exposes its event feeds. */
 async function mount(
   initial: Status | AnyOutcome,
   {
@@ -176,7 +176,7 @@ async function mount(
       legacy.delete(listener);
     };
   };
-  const channel: Version2Client = {
+  const channel: Version2Channel = {
     forward: async (op, body) => {
       calls.push({ op, body });
       if (op === "rollout.status") return current;
@@ -191,15 +191,11 @@ async function mount(
       };
     },
   };
+  const client: HubClient = { ...world.client, ...(v2 ? { v2: channel } : {}) };
   const shown = clientScreen();
   screen = shown;
   await shown.render(
-    world.wrap(
-      createElement(Version2Provider, {
-        client: v2 ? channel : undefined,
-        children: createElement(fullScreen ? UpdatesScreen : RolloutSection),
-      }),
-    ),
+    world.wrap(createElement(fullScreen ? UpdatesScreen : RolloutSection), client),
   );
   // The unrelated hub-update query notifies through a timer; flush it before removing the DOM.
   if (fullScreen) await screenAct(() => Bun.sleep(10));
