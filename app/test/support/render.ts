@@ -8,8 +8,15 @@ import { mock } from "bun:test";
 import { createElement } from "react";
 import { nativeWeb } from "./native-web";
 
+/** Records destinations requested by the route components under Bun. */
+export const testRouter = {
+  push: mock<(path: string) => void>(),
+  replace: mock<(path: string) => void>(),
+};
+
 await mock.module("react-native", () => nativeWeb);
 await mock.module("expo-router", () => ({
+  router: testRouter,
   /** Render the router's link as the web build does. */
   Link: ({ href, children }: { href: string; children: React.ReactNode }) =>
     createElement("a", { href }, children),

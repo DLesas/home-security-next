@@ -23,7 +23,7 @@ import { PHONE_PROTO } from "../src/hub/restore";
 import { realTimers } from "../src/hub/wire";
 import { memoryRecordStore } from "../src/platform/client-key";
 import * as phoneKeys from "../src/platform/keys.native";
-import { memorySecureItems, type MemoryItems } from "../src/platform/vault";
+import { memorySecureItems, type SecureItems } from "../src/platform/vault";
 import { followHomes, type Homes, type HomesDeps, phoneHomes } from "../src/ui/homes";
 import {
   connectFrom,
@@ -94,7 +94,7 @@ async function qrCode(console: HubClient, name: string): Promise<PhoneLinkSecret
 }
 
 /** The phone as the app builds it, over real sockets and memory storage. */
-function phoneOn(items: MemoryItems): PhoneClient {
+function phoneOn(items: SecureItems): PhoneClient {
   return startPhoneClient({
     items,
     makeSocket: bunSocket,
@@ -177,6 +177,25 @@ afterAll(async () => {
 
 describe("two homes on one phone", () => {
   const items = memorySecureItems();
+  let heldWrite:
+    | {
+        readonly item: string;
+        readonly release: ReturnType<typeof Promise.withResolvers<undefined>>;
+        entered: boolean;
+      }
+    | undefined;
+  const gatedItems: SecureItems = {
+    ...items,
+    /** Can pause a sequence reservation before its vault write, across a home switch. */
+    set: async (name, value) => {
+      const held = heldWrite;
+      if (held?.item === name) {
+        held.entered = true;
+        await held.release.promise;
+      }
+      return items.set(name, value);
+    },
+  };
   let phone: PhoneClient;
   let homes: Homes;
   const log: string[] = [];
@@ -184,7 +203,7 @@ describe("two homes on one phone", () => {
   let identityB = "";
 
   test("linked to both, the Homes list shows both, in the order linked; the newest is chosen", async () => {
-    phone = phoneOn(items);
+    phone = phoneOn(gatedItems);
     phone.client.start();
     await phone.client.link(await qrCode(consoleA, "Pat"), "qr", {
       name: "Pat's phone",
@@ -233,6 +252,34 @@ describe("two homes on one phone", () => {
     expect(await until(() => openTo(hubA.lanPort) === 0 && openTo(hubB.lanPort) === 1)).toBe(true);
     expect(phone.client.live.getState().session?.client).toBe(await clientAt(phone, identityB));
   }, 60_000);
+
+  test("a change still reserving its sequence cannot reach the next home", async () => {
+    const release = Promise.withResolvers<undefined>();
+    const pendingWrite = { item: `hub.${identityB}.record`, release, entered: false };
+    const clientsA = await clientNames(consoleA);
+    const clientsB = await clientNames(consoleB);
+    const b = await clientAt(phone, identityB);
+    heldWrite = pendingWrite;
+    const change = phone.client.request("client.rename", { client: b, name: "Wrong home" });
+    const entered = await until(() => pendingWrite.entered, 3_000);
+    if (!entered) release.resolve(undefined);
+    expect(entered).toBe(true);
+    const chosen = await phone.choose(identityA);
+    const switched = await until(() => openTo(hubA.lanPort) === 1 && sessionOpen(phone)(), 5_000);
+    heldWrite = undefined;
+    release.resolve(undefined);
+    expect(chosen.ok).toBe(true);
+    expect(switched).toBe(true);
+    expect(await Promise.race([change, Bun.sleep(1_000).then(() => "pending")])).toEqual({
+      ok: false,
+      local: "lost",
+    });
+    expect(await clientNames(consoleA)).toEqual(clientsA);
+    expect(await clientNames(consoleB)).toEqual(clientsB);
+    expect((await phone.choose(identityB)).ok).toBe(true);
+    await homes.refresh();
+    expect(await until(() => openTo(hubB.lanPort) === 1 && sessionOpen(phone)())).toBe(true);
+  }, 20_000);
 
   test("a name given on this phone is kept across a restart, with the chosen home", async () => {
     const beforeRename = await clientNames(consoleB);

@@ -3,10 +3,10 @@
  * phone's real vault in memory and a stand-in of its session: the names on this phone ("Home",
  * "Home 2", kept when another goes, kept across a restart, a bad one refused); choosing another;
  * removing a home, its three steps in order and each step's failure, which leaves the home as it
- * was; then This phone's homes, the line on Home, the Settings row, and the way back after "Link
+ * was; then This phone's homes, the line on Home, and the way back after "Link
  * another home". Against two real hubs: `homes-real-hub.test.ts`.
  */
-import "./support/render";
+import { testRouter } from "./support/render";
 import { describe, expect, test } from "bun:test";
 import { createElement } from "react";
 import assert from "node:assert/strict";
@@ -33,9 +33,12 @@ import { manualTimers } from "./support/timers";
 const { PhoneProvider } = await import("../src/ui/phone-parts");
 const { standInPhoneParts } = await import("../src/ui/stand-ins");
 const { ThisPhoneScreen, afterLinking, removeFaultKey } = await import("../src/ui/this-phone");
+const { default: ThisPhone } = await import("../src/app/this-phone");
+const { default: LinkHome } = await import("../src/app/link-home");
 const { StateField } = await import("../src/ui/state-field");
 const { backTarget, placeOf } = await import("../src/ui/navigation");
 
+/** Generates a hub identity and key for the in-memory records. */
 function hubOf(seed: number): { identity: string; staticKey: Uint8Array } {
   const key = x25519StaticKey(new Uint8Array(32).fill(seed));
   assert(key.ok, "hub test key");
@@ -46,8 +49,9 @@ function hubOf(seed: number): { identity: string; staticKey: Uint8Array } {
 }
 
 const HUBS = [hubOf(7), hubOf(8), hubOf(9), hubOf(10)] as const;
-const [A, B, C, D] = HUBS.map((h) => h.identity) as [string, string, string, string];
+const [A, B, C] = HUBS.map((h) => h.identity) as [string, string, string, string];
 
+/** Creates a test phone record with independent hub and phone keys. */
 function recordFor(hub: { identity: string; staticKey: Uint8Array }, client: number) {
   const pair = keyPairOf(new Uint8Array(32).fill(client + 40));
   assert(pair !== undefined, "phone test key");
@@ -131,6 +135,7 @@ async function phoneWith(
   return { homes, records, items, live, timers, log, unreachable, removedByHub, deps };
 }
 
+/** Lists the visible names in link order. */
 const names = (homes: Homes) => homes.store.getState().homes.map((h) => h.name);
 
 describe("names on this phone", () => {
@@ -155,7 +160,11 @@ describe("names on this phone", () => {
     const records = phoneRecords(items);
     await records.add(recordFor(HUBS[0], 4), null, true);
     await records.add({ ...recordFor(HUBS[1], 5) }, null);
-    await records.hub(B).update((r) => ({ ...r, reach: { ...r.reach!, homeName: "Home" } }));
+    await records
+      .hub(B)
+      .update((r) =>
+        r.reach === undefined ? r : { ...r, reach: { ...r.reach, homeName: "Home" } },
+      );
     const phone = await phoneWith(0, { items });
     expect(names(phone.homes)).toEqual(["Home 2", "Home"]);
   });
@@ -168,6 +177,19 @@ describe("names on this phone", () => {
     expect(phone.log).toEqual([]);
     const restarted = await phoneWith(0, { items: memorySecureItems(phone.items.disk) });
     expect(names(restarted.homes)).toEqual(["Home", "The flat"]);
+  });
+
+  test("a stored home without reach details can still be named and reloaded", async () => {
+    const items = memorySecureItems();
+    const records = phoneRecords(items);
+    const { key, hub, lastSeq } = recordFor(HUBS[0], 4);
+    const legacy = { key, hub, lastSeq };
+    expect((await records.add(legacy, null, true)).ok).toBe(true);
+    const phone = await phoneWith(0, { items });
+    expect(names(phone.homes)).toEqual(["Home"]);
+    expect((await phone.homes.rename(A, "The flat")).ok).toBe(true);
+    const restarted = await phoneWith(0, { items: memorySecureItems(items.disk) });
+    expect(names(restarted.homes)).toEqual(["The flat"]);
   });
 
   test("a name the hub would not take either is refused, and nothing is written", async () => {
@@ -195,6 +217,7 @@ describe("choosing a home", () => {
 });
 
 describe("removing a home from this phone", () => {
+  /** Formats the expected self-removal request in the fake log. */
   const removal = (client: number) => `client.remove {"client":${String(client)},"also":[]}`;
 
   test("with a push registration: push.unregister, then client.remove for itself, then the record; the first home left is chosen", async () => {
@@ -246,11 +269,11 @@ describe("removing a home from this phone", () => {
     });
     await Bun.sleep(5);
     expect(phone.homes.store.getState().removing).toBe(B);
-    phone.timers.advance(REMOVAL_REACH_MS - 1);
+    phone.timers.advance(14_999);
     await Bun.sleep(5);
     expect(done).toBeUndefined();
     phone.timers.advance(1);
-    await running;
+    await Promise.race([running, Bun.sleep(250)]);
     expect(done).toEqual({ ok: false, fault: { step: "reach" } });
     expect(phone.log).toEqual([`choose ${B}`, `choose ${A}`]);
     expect(names(phone.homes)).toEqual(["Home", "Home 2"]);
@@ -312,6 +335,7 @@ describe("following the phone client", () => {
 });
 
 describe("the pages", () => {
+  /** Mounts an app page with phone parts and the selected test state. */
   async function shown(
     homes: Homes,
     page: ReturnType<typeof createElement>,
@@ -349,6 +373,21 @@ describe("the pages", () => {
     await screen.close();
   });
 
+  test("renaming opens the local name field and saves through the vault", async () => {
+    const phone = await phoneWith(1);
+    const screen = await shown(
+      phone.homes,
+      createElement(ThisPhoneScreen, { onLinkAnother: () => undefined }),
+    );
+    const writes = phone.items.writes.length;
+    expect(await screen.press("Rename Home")).toBe(true);
+    expect(textOf(screen.html())).toContain("Name on this phone");
+    expect(await screen.press("Save changes")).toBe(true);
+    expect(phone.items.writes.slice(writes)).toContain(`hub.${A}.record`);
+    expect(phone.log).toEqual([]);
+    await screen.close();
+  });
+
   test("removing from the page asks twice, then says it; a removal that could not reach the home says so", async () => {
     const phone = await phoneWith(2);
     const screen = await shown(
@@ -361,7 +400,7 @@ describe("the pages", () => {
     expect(textOf(screen.html())).toContain("Home was removed from this phone.");
     expect(names(phone.homes)).toEqual(["Home 2"]);
     phone.unreachable.add(B);
-    phone.live.setState({ ...EMPTY_LIVE, connection: { kind: "connecting", attempt: 0 } }, true);
+    phone.live.setState({ ...EMPTY_LIVE, connection: { kind: "connecting" } }, true);
     await screen.press("Remove this home from this phone");
     const removing = screen.press("Remove Home 2");
     await Bun.sleep(5);
@@ -411,9 +450,22 @@ describe("the pages", () => {
     const html = screen.html();
     const text = textOf(html);
     expect(text).toContain("Home Change Alarm");
-    expect(html.match(/<[^>]+role="alert"[^>]*>(.*?)<\/div>/u)?.[1]).not.toContain("Change");
+    expect(/<[^>]+role="alert"[^>]*>(.*?)<\/div>/u.exec(html)?.[1]).not.toContain("Change");
     expect(html).toMatch(/<[^>]+aria-level="1"[^>]*>Alarm</u);
     await screen.close();
+  });
+
+  test("Link another home opens the same flow used to link the first phone", async () => {
+    const phone = await phoneWith(1);
+    const screen = await shown(phone.homes, createElement(ThisPhone));
+    expect(await screen.press("Link another home")).toBe(true);
+    expect(testRouter.push).toHaveBeenLastCalledWith("/link-home");
+    await screen.close();
+    const linking = await shown(phone.homes, createElement(LinkHome));
+    expect(textOf(linking.html())).toContain("Link this phone");
+    expect(textOf(linking.html())).toContain("Scan the code");
+    expect(textOf(linking.html())).toContain("Type the code");
+    await linking.close();
   });
 
   test("This phone and Link another home belong to Settings; once linked, back to This phone", () => {

@@ -98,6 +98,20 @@ describe("when the app locks", () => {
     expect(phase(w.lock)).toBe("locked");
   });
 
+  test("duplicate background signals keep the start of the same absence", async () => {
+    const w = world({ on: true });
+    await w.lock.start();
+    await w.lock.unlock(WORDS);
+    w.app("background");
+    w.time.wall += 30_000;
+    w.time.steady += 30_000;
+    w.app("background");
+    w.time.wall += 31_000;
+    w.time.steady += 31_000;
+    w.app("active");
+    expect(phase(w.lock)).toBe("locked");
+  });
+
   test("the time away is by the wall clock or the steady one, whichever says more; a wall clock set back locks", () => {
     const left = { wall: 0, steady: 0 };
     expect(awayTooLong(left, { wall: 60_000, steady: 60_000 })).toBe(false);
@@ -410,7 +424,9 @@ describe("the pages", () => {
     expect(textOf(screen.html())).toBe("Locked Unlock with Face ID");
     expect(await screen.press("Unlock with Face ID")).toBe(true);
     expect(textOf(screen.html())).toBe("Disarmed Home Settings");
-    await screenAct(() => w.away(61_000));
+    await screenAct(() => {
+      w.away(61_000);
+    });
     expect(textOf(screen.html())).toBe("Locked Unlock with Face ID");
     await screen.close();
   });
