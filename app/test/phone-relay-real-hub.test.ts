@@ -6,12 +6,18 @@
 import "./support/render";
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import assert from "node:assert/strict";
-import { rmSync } from "node:fs";
+import { mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { parseConsoleFragment, SESSION_LIMITS } from "@hsn/protocol/app";
 import { createElement } from "react";
 import { createStore } from "zustand/vanilla";
-import { RelayProgram, shortFolder } from "../../hub/test/relay/processes";
+import {
+  HUB_TEST_ENTRY,
+  programTree,
+  RelayProgram,
+  shortFolder,
+} from "../../hub/test/relay/processes";
+import { RELEASE_VERSION, writeTestRelease } from "../../hub/test/relay/pushes";
 import { endProcesses } from "../../hub/test/world/processes";
 import { freePort } from "../../hub/test/world/test-ports";
 import { createHubClient, type HubClient } from "../src/hub/client";
@@ -30,11 +36,16 @@ import {
   startRealHub,
   stopAllHubs,
 } from "./support/real-hub";
-import { renderWith, textOf } from "./support/screens";
+import { phoneRequest } from "../src/pairing/hub";
+import { clientScreen, screenAct } from "./support/client-screen";
+import { renderWith, screenWorld, textOf } from "./support/screens";
 
 const { PhoneProvider } = await import("../src/ui/phone-parts");
 const { SiteScreen } = await import("../src/ui/site");
 const { standInPhoneParts } = await import("../src/ui/stand-ins");
+const { HubProvider } = await import("../src/ui/hub-context");
+const { UpdatesScreen } = await import("../src/ui/updates");
+const { VersionTwoProvider } = await import("../src/ui/version-two");
 
 const home = homeAddress();
 const clients: HubClient[] = [];
@@ -48,6 +59,8 @@ let hubA: RealHub;
 let consoleA: HubClient;
 let refusedPort: number;
 let away = false;
+let release: ReturnType<typeof writeTestRelease>;
+let mountedUpdate: ReturnType<typeof clientScreen> | undefined;
 
 /** Opens the hub LAN socket with Bun's per-connection TLS and Origin options. */
 function lanSocket(url: string, origin: string): WebSocket {
@@ -197,14 +210,22 @@ beforeAll(async () => {
   assert(home !== undefined, "These tests need a home-network IPv4 address.");
   refusedPort = await freePort();
   root = shortFolder("hsn-m5r-");
-  relay = new RelayProgram(root, { pushUrl: `ws+unix://${join(root, "no-push.sock")}:/v1/relay` });
+  const releases = join(root, "releases");
+  mkdirSync(releases);
+  release = writeTestRelease(releases);
+  relay = new RelayProgram(root, {
+    pushUrl: `ws+unix://${join(root, "no-push.sock")}:/v1/relay`,
+    releases: { folder: releases },
+  });
   await relay.start();
-  hubA = await startRealHub();
+  hubA = await startRealHub(undefined, { entry: HUB_TEST_ENTRY, program: programTree(root) });
   consoleA = await linkConsole(hubA);
   await joinRelay(hubA);
 }, 45_000);
 
-afterEach(() => {
+afterEach(async () => {
+  await mountedUpdate?.close();
+  mountedUpdate = undefined;
   releaseHandshakes();
   for (const client of clients.splice(1)) client.stop();
   away = false;
@@ -302,6 +323,52 @@ test("real relay 4404 shows the hub is disconnected, and the phone opens when it
   ).toBe(true);
   await joinRelay(hubA);
   await expectPath(phone, "relay");
+}, 45_000);
+
+test("the app reads the real relay status, downloads its offer and shows it ready to approve", async () => {
+  away = true;
+  const phone = startPhone(null);
+  await linkPhone(phone, "Lee");
+  await expectPath(phone, "relay");
+  const relayStatus = await phoneRequest(phone, "relay.status", {});
+  expect(relayStatus).toMatchObject({ ok: true, value: { state: "up", url: relay.url } });
+  expect(
+    await until(async () => {
+      const offer = await phoneRequest(phone, "update.offers", {});
+      return offer.ok && offer.value.offer?.version === RELEASE_VERSION;
+    }, 10_000),
+  ).toBe(true);
+
+  const world = await screenWorld({});
+  const screen = clientScreen();
+  mountedUpdate = screen;
+  await screen.render(
+    world.wrap(
+      createElement(HubProvider, {
+        client: phone.client,
+        children: createElement(VersionTwoProvider, {
+          client: { forward: phone.forward, testAlert: true },
+          children: createElement(UpdatesScreen),
+        }),
+      }),
+    ),
+  );
+  /** Waits for a real hub reply and its React render, with a bounded assertion on the text. */
+  async function visible(words: string) {
+    const untilMs = performance.now() + 15_000;
+    while (!textOf(screen.html()).includes(words) && performance.now() < untilMs) {
+      await screenAct(() => Bun.sleep(25));
+    }
+    expect(textOf(screen.html())).toContain(words);
+  }
+  await visible(
+    `Version ${RELEASE_VERSION} is available (${release.size.toLocaleString("en")} bytes).`,
+  );
+  expect(await screen.press("Download")).toBe(true);
+  await visible(`Version ${RELEASE_VERSION} is ready.`);
+  expect(screen.html()).toContain(`aria-label="Approve version ${RELEASE_VERSION}"`);
+  const status = await phone.client.request("update.status", {});
+  expect(status).toMatchObject({ ok: true, body: { staged: RELEASE_VERSION, approvedBy: null } });
 }, 45_000);
 
 test("restores a second real hub through the relay, then reaches the restored hub by relay and at home on resume", async () => {

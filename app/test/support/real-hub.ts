@@ -75,7 +75,10 @@ function portOpen(port: number): Promise<boolean> {
 }
 
 /** Starts an app test hub and gives each subsequent start the same ports. */
-export async function startRealHub(prepare?: (dataDir: string) => void): Promise<RealHub> {
+export async function startRealHub(
+  prepare?: (dataDir: string) => void,
+  releaseFixture?: { readonly entry: string; readonly program: string },
+): Promise<RealHub> {
   // Short, so the control socket's path stays under 104 bytes (HD 9).
   const dataDir = shortTempFolder("hsn-a7-");
   folders.add(dataDir);
@@ -141,7 +144,7 @@ export async function startRealHub(prepare?: (dataDir: string) => void): Promise
           };
           const proc = spawnTestHub(
             [
-              MAIN,
+              releaseFixture?.entry ?? MAIN,
               "--data",
               dataDir,
               "--port",
@@ -151,6 +154,9 @@ export async function startRealHub(prepare?: (dataDir: string) => void): Promise
               `${String(chosen.lan)},${String(chosen.console)}`,
             ],
             "pipe",
+            releaseFixture === undefined
+              ? process.env
+              : { ...process.env, HSN_PROGRAM: releaseFixture.program },
           );
           live.add(proc);
           void proc.exited.then(() => live.delete(proc));

@@ -55,6 +55,14 @@ function documentForReact() {
   /** Supplies the browser properties React sets on an element. */
   function element(node: Element) {
     events(node);
+    if (node.tagName === "input") {
+      // React's fallback listens for key events as well as legacy property changes.
+      Object.assign(node, {
+        type: "text",
+        attachEvent: () => undefined,
+        detachEvent: () => undefined,
+      });
+    }
     return Object.assign(node, { style: {}, focus: () => undefined });
   }
   Object.assign(document, {
@@ -74,22 +82,19 @@ function documentForReact() {
   };
   const window = { document, HTMLElement: Object, HTMLIFrameElement: Array };
   Object.defineProperty(document, "defaultView", { value: window });
-  return {
-    container,
-    window,
-    /** Dispatches a click through React's root event listeners. */
-    click(target: Element) {
-      const event = new Event("click", { bubbles: true, cancelable: true });
-      Object.defineProperty(event, "target", { value: target });
-      Object.assign(event, { button: 0, altKey: false });
-      for (const key of ["click:capture", "click"]) {
-        for (const listener of rootEvents.get(key) ?? []) {
-          if (typeof listener === "function") listener.call(container, event);
-          else listener.handleEvent(event);
-        }
+  /** Dispatches a synthetic DOM event through React's root event listeners. */
+  function dispatch(type: string, target: Element) {
+    const event = new Event(type, { bubbles: true, cancelable: true });
+    Object.defineProperty(event, "target", { value: target });
+    Object.assign(event, { button: 0, altKey: false });
+    for (const key of [`${type}:capture`, type]) {
+      for (const listener of rootEvents.get(key) ?? []) {
+        if (typeof listener === "function") listener.call(container, event);
+        else listener.handleEvent(event);
       }
-    },
-  };
+    }
+  }
+  return { container, window, dispatch };
 }
 
 /** Runs a test action and flushes React's effects and their promise continuations. */
@@ -128,7 +133,23 @@ export function clientScreen() {
       );
       if (button === undefined) return false;
       await screenAct(() => {
-        dom.click(button);
+        dom.dispatch("click", button);
+      });
+      return true;
+    },
+    /** Changes the value of a text input using React's delegated browser events. */
+    enter: async (label: string, value: string) => {
+      const input = Array.from(dom.container.getElementsByTagName("input")).find(
+        (node) => node.getAttribute("aria-label") === label,
+      );
+      if (input === undefined) return false;
+      await screenAct(() => {
+        dom.dispatch("focusin", input);
+        Object.assign(input, { value });
+        dom.dispatch("input", input);
+        // React DOM falls back to key events when it is loaded without a document.
+        dom.dispatch("keyup", input);
+        dom.dispatch("focusout", input);
       });
       return true;
     },
