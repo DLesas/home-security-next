@@ -19,6 +19,7 @@ import { learnPrefs, markRead } from "../state/live";
 import { deviceName, type Translate } from "../state/words";
 import { formatTime } from "./format";
 import { HERE } from "./words-here";
+import { PhoneAlertsSection } from "./phone-alerts";
 import { TestAlert } from "./test-alert";
 import { useAction, useHub, useLive, useRead } from "./hub-context";
 import {
@@ -220,7 +221,7 @@ export function NotificationsScreen() {
         </List>
       </Section>
       <Categories />
-      <BrowserNotifications />
+      <PhoneAlertsSection fallback={<BrowserNotifications />} />
       <TestAlert />
     </>
   );
