@@ -13,6 +13,8 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useStore } from "zustand";
 import type { LinkView } from "../hub/client";
+import { type AppLock, lockOffered, type SetFault } from "./app-lock";
+import { PermissionAsk, PermissionRefused } from "./permission";
 import { type Home, type Homes, type RemoveFault, type RenameFault } from "./homes";
 import {
   Actions,
@@ -29,6 +31,7 @@ import {
   NoticeText,
   Section,
   Stack,
+  Toggle,
 } from "./parts";
 import { usePhone } from "./phone-parts";
 
@@ -60,7 +63,12 @@ export function ThisPhoneScreen({ onLinkAnother }: { readonly onLinkAnother: () 
   const { t } = useTranslation();
   const phone = usePhone();
   if (phone === undefined) return <Body>{t("thisPhone.phoneOnly")}</Body>;
-  return <HomesSection homes={phone.homes} onLinkAnother={onLinkAnother} />;
+  return (
+    <>
+      <HomesSection homes={phone.homes} onLinkAnother={onLinkAnother} />
+      <LockSection lock={phone.lock} os={phone.os} openSettings={phone.openSettings} />
+    </>
+  );
 }
 
 /** Lists existing homes and opens the phone’s link flow. */
@@ -233,5 +241,70 @@ function HomeItem({
         </Notice>
       )}
     </ListRow>
+  );
+}
+
+/** Offers enablement only where the phone can authenticate, and explains Face ID before asking. */
+function LockSection({
+  lock,
+  os,
+  openSettings,
+}: {
+  readonly lock: AppLock;
+  readonly os: "ios" | "android";
+  readonly openSettings: () => void;
+}) {
+  const { t } = useTranslation();
+  const state = useStore(lock.store);
+  const [askFaceId, setAskFaceId] = useState(false);
+  const [fault, setFault] = useState<SetFault | null>(null);
+  useEffect(() => {
+    void lock.recheck();
+  }, [lock]);
+  if (!lockOffered(state)) return null;
+  const faceId = os === "ios" && state.ability.kinds.includes("face");
+
+  /** Runs the single system check to enable the setting, or clears the enabled setting. */
+  function setEnabled(on: boolean): void {
+    if (state.checking) return;
+    setAskFaceId(false);
+    setFault(null);
+    const words = { prompt: t("lock.turnOn"), cancel: t("editing.cancel") };
+    void (on ? lock.turnOn(words) : lock.turnOff()).then((outcome) => {
+      if (!outcome.ok && outcome.fault !== "cancelled") setFault(outcome.fault);
+    });
+  }
+
+  return (
+    <Section label={t("lock.title")}>
+      <Heading level={2}>{t("lock.title")}</Heading>
+      <Body>{t("lock.why")}</Body>
+      {askFaceId ? (
+        <PermissionAsk
+          sentence={t("permissions.faceId")}
+          allow={t("lock.allowFaceId")}
+          onAllow={() => setEnabled(true)}
+        />
+      ) : (
+        <Toggle
+          label={t("lock.turnOn")}
+          value={state.on}
+          testID="lock-the-app"
+          onChange={(on) => {
+            if (on && faceId) {
+              setFault(null);
+              setAskFaceId(true);
+            } else setEnabled(on);
+          }}
+        />
+      )}
+      {faceId && fault === "unavailable" ? (
+        <PermissionRefused sentence={t("lock.not.faceId")} onOpenSettings={openSettings} />
+      ) : fault === null ? null : (
+        <Notice kind="danger" live="polite" testID="lock-said">
+          <NoticeText kind="danger">{t(`lock.not.${fault}`)}</NoticeText>
+        </Notice>
+      )}
+    </Section>
   );
 }

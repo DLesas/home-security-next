@@ -34,6 +34,7 @@ import { renderWith, screenWorld, textOf } from "./support/screens";
 import { clientScreen, screenAct } from "./support/client-screen";
 import { ManualClock } from "../../tools/ble-bench/src/clock";
 
+import { NO_LOCK } from "../src/ui/app-lock";
 import { NO_HOMES } from "../src/ui/homes";
 
 const { PhoneProvider } = await import("../src/ui/phone-parts");
@@ -89,6 +90,7 @@ function phoneParts(overrides: Partial<PhoneParts> = {}): PhoneParts {
     reach: createStore<ReachState>()(() => NO_REACH),
     os: "ios",
     homes: NO_HOMES,
+    lock: NO_LOCK,
     ...overrides,
   };
 }

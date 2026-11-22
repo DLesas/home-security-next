@@ -118,11 +118,11 @@ export function clientScreen() {
       screenAct(() => {
         root.render(page);
       }),
-    /** Presses an enabled button by its accessible label. */
-    press: async (label: string) => {
+    /** Presses an enabled button (or another control, by its role) by its accessible label. */
+    press: async (label: string, role = "button") => {
       const button = Array.from(dom.container.getElementsByTagName("*")).find(
         (node) =>
-          node.getAttribute("role") === "button" &&
+          node.getAttribute("role") === role &&
           node.getAttribute("aria-label") === label &&
           node.getAttribute("aria-disabled") !== "true",
       );

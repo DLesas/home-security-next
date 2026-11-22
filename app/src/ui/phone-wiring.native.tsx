@@ -6,6 +6,10 @@
  *
  * M5: the homes (`homes.ts`) over the phone client's records and its switch.
  */
+import { AppState } from "react-native";
+import { personCheck } from "../platform/app-lock.native";
+import { secureItems } from "../platform/vault-items.native";
+import { appLock } from "./app-lock";
 import type { HubClient } from "../hub/client";
 import type { PhoneClient } from "../hub/phone-client";
 import { realTimers } from "../hub/wire";
@@ -16,6 +20,21 @@ import { followHomes, type Homes, phoneHomes, pushRegistrationOf } from "./homes
 import type { PhoneParts } from "./phone-parts";
 import { reachFaultOf } from "./phone-words";
 import { standInPhoneParts } from "./stand-ins";
+
+/** Keeps the phone's screen lock alive across route changes. */
+const lock = appLock({
+  check: personCheck,
+  setting: secureItems,
+  foreground: {
+    /** Connects the lock timer to native background and foreground changes. */
+    listen: (changed) => {
+      if (AppState.currentState === "background") changed("background");
+      const subscription = AppState.addEventListener("change", changed);
+      return () => subscription.remove();
+    },
+  },
+  clock: { wall: () => Date.now(), steady: () => performance.now() },
+});
 
 let homesOf: { readonly phone: PhoneClient; readonly homes: Homes } | undefined;
 
@@ -79,5 +98,6 @@ export function livePhoneParts(hub: HubClient): PhoneParts | undefined {
     vault: phone.vault,
     reach: phone.reach,
     homes: homesFor(phone),
+    lock,
   };
 }

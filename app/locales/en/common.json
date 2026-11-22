@@ -1375,5 +1375,35 @@
     "pushRefused": "{{name}} did not stop its notifications to this phone, so it is still on this phone. Try again.",
     "storage": "This phone could not change what it keeps, so nothing changed. Try again.",
     "change": "Change"
+  },
+  "lock": {
+    "title": "App lock",
+    "why": "When it is on, the app asks for your face, your fingerprint or the phone's passcode each time it starts, and when you come back to it after more than a minute.",
+    "turnOn": "Lock the app",
+    "prompt": "Unlock the app",
+    "allowFaceId": "Allow Face ID",
+    "lockedTitle": "Locked",
+    "unlock": {
+      "plain": "Unlock",
+      "faceId": "Unlock with Face ID",
+      "touchId": "Unlock with Touch ID",
+      "face": "Unlock with your face",
+      "fingerprint": "Unlock with your fingerprint",
+      "iris": "Unlock with your eyes",
+      "passcode": "Unlock with passcode",
+      "screenLock": "Unlock with screen lock"
+    },
+    "said": {
+      "unavailable": "The phone could not unlock the app. Check the phone’s screen lock in Settings, then try again.",
+      "failed": "The phone could not check that it is you. Try again, or use the phone's passcode.",
+      "lockedOut": "Too many tries. Unlock the phone itself with its passcode, then try again."
+    },
+    "not": {
+      "faceId": "Face ID could not check that it is you. Allow Face ID in Settings or use the passcode in the phone’s prompt.",
+      "failed": "The phone could not check that it is you, so the app lock is still off. Try again.",
+      "lockedOut": "Too many tries, so the app lock is still off. Unlock the phone itself with its passcode, then try again.",
+      "unavailable": "This phone has no face, fingerprint or passcode to check with, so the app cannot be locked.",
+      "notSaved": "This phone could not keep the setting, so it did not change. Try again."
+    }
   }
 }

@@ -45,6 +45,8 @@ import { phonePartsFor } from "./stand-ins";
 import { livePhoneParts } from "./phone-wiring.native";
 import { BAND, statusBarStyle, type Top, topOf } from "./top";
 import { useStore } from "zustand";
+import { LockGate } from "./lock-page";
+import type { PhoneParts } from "./phone-parts";
 import { afterLinking } from "./this-phone";
 
 /** What meets the top on the screen at `home` (`top.ts`). */
@@ -134,9 +136,43 @@ function KeyboardFrame({
   );
 }
 
+/** Keeps the lock outside the router, state field, notices and navigation. */
 export function Shell() {
   const hub = useHub();
   const parts = useMemo(() => phonePartsFor(hub, livePhoneParts), [hub]);
+  const queries = useQueryClient();
+  useEffect(
+    () =>
+      hub.live.subscribe((state, before) => {
+        if (before.session !== null && state.session === null) void queries.resetQueries();
+      }),
+    [hub, queries],
+  );
+  return (
+    <PhoneProvider parts={parts}>
+      <LockGate lock={parts.lock} os={parts.os} frame={lockedFrame}>
+        <UnlockedShell parts={parts} />
+      </LockGate>
+    </PhoneProvider>
+  );
+}
+
+/** Shows the normal phone surface with only the lock page in its content column. */
+function lockedFrame(page: ReactNode) {
+  return (
+    <View className="flex-1 bg-limewash">
+      <StatusBar style={statusBarStyle("page")} />
+      <View testID="status-band" className="pt-safe bg-limewash" />
+      <KeyboardFrame page="lock">
+        <Column first={false}>{page}</Column>
+      </KeyboardFrame>
+    </View>
+  );
+}
+
+/** Shows the existing phone frame and routes while the app's screens are open. */
+function UnlockedShell({ parts }: { readonly parts: PhoneParts }) {
+  const hub = useHub();
   const connection = useLive((s) => s.connection);
   const link = useLocal((s) => s.link);
   const path = usePathname();
@@ -148,14 +184,8 @@ export function Shell() {
     !(path === "/this-phone" && removing !== null) &&
     needsLinkGate(connection, link);
   const running = useAlarmRunning();
-  const queries = useQueryClient();
   const linkBefore = useRef(link.kind);
   useBackRule(path, !gate);
-  useEffect(() => {
-    return hub.live.subscribe((state, before) => {
-      if (before.session !== null && state.session === null) void queries.resetQueries();
-    });
-  }, [hub, queries]);
   useEffect(() => {
     const to = afterLinking(linkBefore.current, link.kind, path);
     linkBefore.current = link.kind;
@@ -166,33 +196,31 @@ export function Shell() {
   }, [gate, path]);
   const shown: Top = gate ? "page" : top;
   return (
-    <PhoneProvider parts={parts}>
-      <View className="flex-1 bg-limewash">
-        <StatusBar style={statusBarStyle(shown)} />
-        <View
-          testID="status-band"
-          className={`pt-safe transition-colors duration-400 motion-reduce:transition-none ${BAND[shown]}`}
-        />
-        <KeyboardFrame page={gate ? "link" : path}>
-          {gate ? (
-            <Column first={false}>
-              <PhoneLinkGate />
-            </Column>
-          ) : (
-            <Column first={home || running}>
-              {home ? null : (
-                <>
-                  <AlarmBanner />
-                  <ShellNotices />
-                  <Pages />
-                </>
-              )}
-              <Slot />
-            </Column>
-          )}
-        </KeyboardFrame>
-        <View className="bg-limewash pb-safe">{gate ? null : <BottomBar />}</View>
-      </View>
-    </PhoneProvider>
+    <View className="flex-1 bg-limewash">
+      <StatusBar style={statusBarStyle(shown)} />
+      <View
+        testID="status-band"
+        className={`pt-safe transition-colors duration-400 motion-reduce:transition-none ${BAND[shown]}`}
+      />
+      <KeyboardFrame page={gate ? "link" : path}>
+        {gate ? (
+          <Column first={false}>
+            <PhoneLinkGate />
+          </Column>
+        ) : (
+          <Column first={home || running}>
+            {home ? null : (
+              <>
+                <AlarmBanner />
+                <ShellNotices />
+                <Pages />
+              </>
+            )}
+            <Slot />
+          </Column>
+        )}
+      </KeyboardFrame>
+      <View className="bg-limewash pb-safe">{gate ? null : <BottomBar />}</View>
+    </View>
   );
 }

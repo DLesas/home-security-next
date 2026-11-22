@@ -23,6 +23,7 @@ import { claimArrivedCode, onArrivedCode } from "../hub/start";
 import { ask, permission } from "../platform/local-network";
 import type { Scanner } from "../platform/scanner";
 import type { PhoneParts } from "./phone-parts";
+import { NO_LOCK } from "./app-lock";
 import { NO_HOMES } from "./homes";
 
 const UNDETERMINED = { state: "undetermined", canAskAgain: true } as const;
@@ -59,6 +60,7 @@ export function standInPhoneParts(hub: HubClient): PhoneParts {
     })),
     os: Platform.OS === "ios" ? "ios" : "android",
     homes: NO_HOMES,
+    lock: NO_LOCK,
   };
 }
 

@@ -32,6 +32,7 @@ import type { ArrivedCode } from "../hub/start-types";
 import type { LocalNetwork } from "../platform/local-network-types";
 import type { VaultStatus } from "../platform/vault";
 import type { Scanner } from "../platform/scanner";
+import type { AppLock } from "./app-lock";
 import type { Homes } from "./homes";
 
 /** Why linking reached no hub, beyond the link view's `unreachable` (section 3). */
@@ -82,6 +83,7 @@ export interface PhoneParts {
   /** "ios" or "android": names the phone when it links ("iPhone", "Android phone"). */
   readonly os: "ios" | "android";
   readonly homes: Homes;
+  readonly lock: AppLock;
 }
 
 const PhoneContext = createContext<PhoneParts | undefined>(undefined);
