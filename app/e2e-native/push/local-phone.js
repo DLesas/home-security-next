@@ -2,12 +2,39 @@
 import { AppState } from "react-native";
 import { phoneClient } from "../../src/hub/start.native";
 import { readCode } from "../../src/hub/finder";
-import { pushTokens } from "../../src/platform/push-device.native";
+import { pushStorage, pushTokens } from "../../src/platform/push-device.native";
 const origin = "http://127.0.0.1:17643";
 pushTokens.read = async () => ({
   ok: true,
   value: { platform: "fcm", environment: "production", token: "local-android-scene-phone" },
 });
+
+/** Checks the real Android write/read round trip as registration stages and confirms its key. */
+const writeKeys = pushStorage.writeKeys.bind(pushStorage);
+pushStorage.writeKeys = async (hub, expected) => {
+  const saved = await writeKeys(hub, expected);
+  if (!saved.ok) return saved;
+  const read = await pushStorage.keys(hub);
+  if (!read.ok) return read;
+  for (const field of ["active", "pending"]) {
+    const before = expected[field];
+    const after = read.value[field];
+    if (before === null && after === null) continue;
+    if (
+      !before ||
+      !after ||
+      before.client !== after.client ||
+      before.madeMs !== after.madeMs ||
+      !Object.entries(before.body).every(([k, value]) => after.body[k] === value)
+    ) {
+      globalThis.console.error("Notification registration readback failed");
+      return { ok: false, fault: "storage" };
+    }
+  }
+  if (expected.active && !expected.pending)
+    globalThis.console.info("Notification registration readback passed");
+  return saved;
+};
 
 /** Link through the actual foreground client once it has mounted; a headless start never links. */
 async function link() {
