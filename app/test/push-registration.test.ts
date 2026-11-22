@@ -368,8 +368,8 @@ test("a token sweep preserves an overdue home key until its own snapshot", async
 test("switching homes cancels a registration queued on the old session", async () => {
   const fake = fakePush(),
     lifecycle = pushLifecycle(fake.storage, fake.tokens, manualTimers());
-  const queued = Promise.withResolvers<void>(),
-    release = Promise.withResolvers<void>();
+  const queued = Promise.withResolvers<undefined>(),
+    release = Promise.withResolvers<undefined>();
   const sent: string[] = [];
   const session = (hub: string): PushSession => ({
     hub,
@@ -385,7 +385,7 @@ test("switching homes cancels a registration queued on the old session", async (
   const write = fake.storage.writeKeys.bind(fake.storage);
   fake.storage.writeKeys = async (hub, record) => {
     if (hub === "old") {
-      queued.resolve();
+      queued.resolve(undefined);
       await release.promise;
     }
     return write(hub, record);
@@ -394,7 +394,7 @@ test("switching homes cancels a registration queued on the old session", async (
   await queued.promise;
   lifecycle.closed();
   await lifecycle.snapshot(session("next"), valid, []);
-  release.resolve();
+  release.resolve(undefined);
   await old;
   expect(sent).toEqual([]);
   expect(fake.keys.get("old")?.active).toBeNull();
@@ -424,8 +424,8 @@ test.each(["environment", "platform"] as const)(
 test("a home selected during a token sweep registers only on the open channel", async () => {
   const fake = fakePush(),
     lifecycle = pushLifecycle(fake.storage, fake.tokens, manualTimers());
-  const paused = Promise.withResolvers<void>(),
-    advance = Promise.withResolvers<void>(),
+  const paused = Promise.withResolvers<undefined>(),
+    advance = Promise.withResolvers<undefined>(),
     calls: string[] = [];
   const replacement = { ...fcm, token: "replacement" };
   let applied = false;
@@ -451,7 +451,7 @@ test("a home selected during a token sweep registers only on the open channel", 
     client: 1,
     register: async (body) => {
       if (body.token === replacement.token) {
-        paused.resolve();
+        paused.resolve(undefined);
         await advance.promise;
       }
       return { ok: true };
@@ -465,7 +465,7 @@ test("a home selected during a token sweep registers only on the open channel", 
   await paused.promise;
   await lifecycle.snapshot(open, valid, []);
   expect(applied).toBe(true);
-  advance.resolve();
+  advance.resolve(undefined);
   await settle(1);
   expect(calls).toEqual(["open"]);
   lifecycle.stop();

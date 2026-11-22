@@ -346,7 +346,9 @@ test.each([
   await addScriptedLink(hub, records);
   hub.handle("pong", () => {
     // Its real encrypted pong reply is queued first, then the scripted first-request reply.
-    setTimeout(() => hub.emitFrame({ t: "res", id: 1, ok: true, body }), 0);
+    setTimeout(() => {
+      hub.emitFrame({ t: "res", id: 1, ok: true, body });
+    }, 0);
     return { ok: true, body: {} };
   });
   const answer = await disarmFromNotification(hub.identity, timers.now() + 5000, records, deps);
@@ -358,7 +360,7 @@ test("a connection opened after the deadline is closed without sending a message
   const { hub, deps, timers } = scriptedPhone();
   const { records } = startPhoneClient(deps);
   await addScriptedLink(hub, records);
-  const opening = Promise.withResolvers<void>();
+  const opening = Promise.withResolvers<undefined>();
   let sent = 0,
     closed = 0;
   const socket: SocketLike = {
@@ -384,7 +386,7 @@ test("a connection opened after the deadline is closed without sending a message
     {
       ...deps,
       makeSocket: () => {
-        opening.resolve();
+        opening.resolve(undefined);
         return socket;
       },
     },
@@ -402,9 +404,9 @@ test("a queued token sweep cannot register a replacement link", async () => {
   const fake = fakePush();
   fake.token({ platform: "fcm", environment: "production", token: "local" });
   const push = pushLifecycle(fake.storage, fake.tokens, timers);
-  const listed = Promise.withResolvers<void>(),
-    resume = Promise.withResolvers<void>(),
-    swept = Promise.withResolvers<void>();
+  const listed = Promise.withResolvers<undefined>(),
+    resume = Promise.withResolvers<undefined>(),
+    swept = Promise.withResolvers<undefined>();
   const phone = startPhoneClient({
     ...deps,
     push: {
@@ -412,11 +414,11 @@ test("a queued token sweep cannot register a replacement link", async () => {
       start: async (list) => {
         await push.start(async () => {
           const homes = await list();
-          listed.resolve();
+          listed.resolve(undefined);
           await resume.promise;
           return homes;
         });
-        swept.resolve();
+        swept.resolve(undefined);
       },
     },
   });
@@ -431,7 +433,7 @@ test("a queued token sweep cannot register a replacement link", async () => {
     hub.emitFrame({ t: "res", id: 1, ok: true, body: { registered: true } });
     return { ok: true, body: {} };
   });
-  resume.resolve();
+  resume.resolve(undefined);
   await swept.promise;
   const saved = await phone.records.hub(hub.identity).read();
   assert(saved.ok && saved.value);

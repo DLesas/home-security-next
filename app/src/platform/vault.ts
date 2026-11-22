@@ -578,27 +578,32 @@ export function phoneRecords(items: SecureItems, hooks?: PhoneRecordHooks): Phon
           ? add(record, null)
           : Promise.resolve(failed("failed", identity)),
       update: async (change) => {
-        let nameChanged = false;
-        const result = await inQueue(identity)<Stored<StoredClient<Uint8Array> | undefined>>(
-          async () => {
-            const read = await readHub(identity);
-            if (!read.ok) return failed(read.fault, identity);
-            if (read.value === undefined) return ok(undefined);
-            const previousName = read.value.reach?.homeName ?? "";
-            const next = change(read.value);
-            if (next.hub.identity !== identity || !validRecord(next))
-              return failed("failed", identity);
-            const keyChanged =
-              toBase64url(next.key.privateKey) !== toBase64url(read.value.key.privateKey);
-            const wrote = await writeHub(next, keyChanged);
-            if (!wrote.ok) return failed(wrote.fault, identity);
-            nameChanged = (next.reach?.homeName ?? "") !== previousName;
-            cleared(identity, "write");
-            return ok(next);
-          },
-        );
-        if (nameChanged) await hooks?.changed();
-        return result;
+        const result = await inQueue(identity)<
+          Stored<
+            | {
+                record: StoredClient<Uint8Array>;
+                nameChanged: boolean;
+              }
+            | undefined
+          >
+        >(async () => {
+          const read = await readHub(identity);
+          if (!read.ok) return failed(read.fault, identity);
+          if (read.value === undefined) return ok(undefined);
+          const previousName = read.value.reach?.homeName ?? "";
+          const next = change(read.value);
+          if (next.hub.identity !== identity || !validRecord(next))
+            return failed("failed", identity);
+          const keyChanged =
+            toBase64url(next.key.privateKey) !== toBase64url(read.value.key.privateKey);
+          const wrote = await writeHub(next, keyChanged);
+          if (!wrote.ok) return failed(wrote.fault, identity);
+          cleared(identity, "write");
+          return ok({ record: next, nameChanged: (next.reach?.homeName ?? "") !== previousName });
+        });
+        if (!result.ok) return result;
+        if (result.value?.nameChanged) await hooks?.changed();
+        return ok(result.value?.record);
       },
       clear: () => remove(identity),
     };
