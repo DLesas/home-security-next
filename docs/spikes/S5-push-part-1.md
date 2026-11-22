@@ -85,3 +85,23 @@ done
 python3 "$SPIKE/harness/delivered.py" "$IOS"
 plutil -p "$SPIKE/app/ios/HSNS5/HSNS5.entitlements"
 ```
+
+## 3. Closed-app Disarm and countdown replacement on iOS
+
+**Cannot be decided on this simulator delivery path.** A newly linked test phone armed sensor 2 in a real hub process through a real loopback relay. An independent observer saw it armed. After the door opened at 09:58:56.384, the local push service reached its stand-in with the countdown in 8 ms and the alarm 7,998 ms after the countdown. The opened payloads both contained `actions: ["disarm"]`. The simulator accepted the original APS bodies. SpringBoard retained both placeholders at 09:58:56.561 and 09:59:04.528. No extension assigned a category, no countdown was removed, and there were zero phone action or IK reply samples. The 8 ms is the path to the stand-in. There is no iOS Disarm latency or observed OS budget. App-assisted removal of a delivered notification also needs a running app with access to an identifiable countdown. The occupied UI session precluded a separate app-side observation.
+
+The harness now uses the same phone to arm the door and later request Disarm for “mine”. Its control is private files in a new run directory. It writes the spike credentials directly to the app group, logs only fixture states, forwards exactly the stand-in body and closes its processes. In a fresh shell, prepare the variables from step 1. Use Set up once the scene is ready to load its fixture into the shared keychain. Close the app via its device session before triggering the door.
+
+```sh
+bun "$SPIKE/harness/safe/scene.ts" ios "$IOS" "$OUT/ios-scene" >"$OUT/ios.log" &
+SCENE=$!
+# After ready exists and the app has been set up and closed:
+touch "$OUT/ios-scene/door"
+# Allow the eight-second countdown to finish for the replacement trial.
+cat "$OUT/ios.log"
+python3 "$SPIKE/harness/delivered.py" "$IOS"
+touch "$OUT/ios-scene/finish"
+wait "$SCENE"
+```
+
+For a delivery path that dispatches the extension, repeat in a fresh scene and tap Disarm before expiry. Compare the native action's tapMs and backgroundTimeRemaining, JS reply's disarmed array, outcome posting time and independent hub.arming event. Expo 58's NotificationCenterManager calls completionHandler immediately after dispatch to delegates. The spike includes a background task and a windowless React start for this case. Neither path executed in this iOS run.
