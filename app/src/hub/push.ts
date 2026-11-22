@@ -4,7 +4,7 @@ import { PUSH_H } from "@hsn/protocol/relay";
 import type { Timers } from "./wire";
 import { HUBS_ITEM, phoneRecords, type SecureItems } from "../platform/vault";
 import { decodeJson } from "./codec";
-import { err, ok, type Result as Outcome } from "neverthrow";
+import type { Outcome } from "../platform/split";
 import type {
   DeviceToken,
   PushKeyRecord,
@@ -18,8 +18,8 @@ import { toBase64url } from "./files";
 
 export const KEY_LIFETIME_MS = 30 * 24 * 60 * 60 * 1000;
 type Target = SnapshotObjectV2["push"];
-type Result<T = void> = Outcome<T, "storage" | "token" | "hub">;
-const done = ok(undefined);
+type PushOutcome<T = void> = Outcome<T, "storage" | "token" | "hub">;
+const done = { ok: true, value: undefined } as const;
 
 /** The session owns the sender so a home switch cannot send one home's key to another. */
 export interface PushSession {
@@ -56,7 +56,7 @@ export function pushRegistration(store: PushStorage, tokens: TokenSource, now = 
   }
 
   /** Orders key changes without making one unreachable hub block another. */
-  function ordered<T>(hub: string, work: () => Promise<Result<T>>): Promise<Result<T>> {
+  function ordered<T>(hub: string, work: () => Promise<PushOutcome<T>>): Promise<PushOutcome<T>> {
     const task = (queues.get(hub) ?? Promise.resolve(done)).then(work);
     queues.set(hub, task);
     void task.then(() => {
@@ -71,17 +71,21 @@ export function pushRegistration(store: PushStorage, tokens: TokenSource, now = 
     target?: Target,
     replacement?: DeviceToken,
     rotate = true,
-  ): Promise<Result<number | null>> {
+  ): Promise<PushOutcome<number | null>> {
     const hub = session.hub;
     const generation = generations.get(hub) ?? Symbol();
     generations.set(hub, generation);
     const removed = () => generations.get(hub) !== generation;
     return ordered<number | null>(hub, async () => {
-      const read = replacement === undefined ? await tokens.read() : ok(replacement);
-      if (read.isErr()) return read.error === "notAvailable" ? ok(null) : err("token" as const);
+      const read =
+        replacement === undefined ? await tokens.read() : { ok: true as const, value: replacement };
+      if (!read.ok)
+        return read.fault === "notAvailable"
+          ? { ok: true, value: null }
+          : { ok: false, fault: "token" };
       const keys = await store.keys(session.hub);
-      if (keys.isErr()) return err(keys.error);
-      if (removed()) return ok(null);
+      if (!keys.ok) return keys;
+      if (removed()) return { ok: true, value: null };
       const { active, pending } = keys.value;
       const token = read.value;
       // A previously staged rotation alone cannot open an unselected home's session.
@@ -91,7 +95,7 @@ export function pushRegistration(store: PushStorage, tokens: TokenSource, now = 
         sameToken(active.body, token) &&
         (!pending || sameToken(pending.body, token))
       )
-        return ok(active.madeMs + KEY_LIFETIME_MS);
+        return { ok: true, value: active.madeMs + KEY_LIFETIME_MS };
       const candidate = pending ?? active;
       const time = now();
       const sameLink = candidate?.client === session.client;
@@ -102,17 +106,17 @@ export function pushRegistration(store: PushStorage, tokens: TokenSource, now = 
         sameToken(candidate.body, token) &&
         (target === undefined || (target?.registered && target.valid))
       )
-        return ok(candidate.madeMs + KEY_LIFETIME_MS);
+        return { ok: true, value: candidate.madeMs + KEY_LIFETIME_MS };
       const next = fresh
         ? { ...candidate, body: { ...candidate.body, ...token } }
         : makeKey(token, session.client, time);
       const saved = await track(hub, store.writeKeys(hub, { active, pending: next }));
-      if (saved.isErr()) return err(saved.error);
-      if (removed()) return ok(null);
-      if (!(await session.register(next.body)).ok) return err("hub" as const);
-      if (removed()) return ok(null);
+      if (!saved.ok) return saved;
+      if (removed()) return { ok: true, value: null };
+      if (!(await session.register(next.body)).ok) return { ok: false, fault: "hub" };
+      if (removed()) return { ok: true, value: null };
       const confirmed = await track(hub, store.writeKeys(hub, { active: next, pending: null }));
-      return confirmed.map(() => next.madeMs + KEY_LIFETIME_MS);
+      return confirmed.ok ? { ok: true, value: next.madeMs + KEY_LIFETIME_MS } : confirmed;
     });
   }
 
@@ -157,7 +161,7 @@ export function pushVault(items: SecureItems, push: ReturnType<typeof pushLifecy
         if (!record.ok || !record.value) return;
         next[hub] = record.value.reach?.homeName ?? "";
       }
-      if ((await push.homes(next)).isOk()) names = next;
+      if ((await push.homes(next)).ok) names = next;
     });
     return serial;
   }
@@ -178,7 +182,7 @@ export function pushVault(items: SecureItems, push: ReturnType<typeof pushLifecy
     },
     delete: async (name) => {
       const match = /^hub\.([a-z2-7]{26})\.key$/u.exec(name);
-      if (match?.[1] !== undefined && (await push.registration.remove(match[1])).isErr())
+      if (match?.[1] !== undefined && !(await push.registration.remove(match[1])).ok)
         return { ok: false, fault: "failed" };
       return items.delete(name);
     },
@@ -197,7 +201,7 @@ export function pushLifecycle(store: PushStorage, tokens: TokenSource, timers: T
     session: PushSession,
     target?: Target,
     token?: DeviceToken,
-  ): Promise<Result> {
+  ): Promise<PushOutcome> {
     const version = ++revision;
     cancel?.();
     const result = await registration.reconcile(
@@ -209,12 +213,12 @@ export function pushLifecycle(store: PushStorage, tokens: TokenSource, timers: T
       target,
       token,
     );
-    if (result.isErr()) {
+    if (!result.ok) {
       if (version === revision && current === session)
         cancel = timers.after(60_000, () => {
           void update(session, target);
         });
-      return err(result.error);
+      return result;
     }
     if (result.value === null || version !== revision || current !== session) return done;
     // JS timer delays above 2^31-1 overflow. Wake once before that limit, then at the deadline.
@@ -265,7 +269,7 @@ export function pushLifecycle(store: PushStorage, tokens: TokenSource, timers: T
       unselected = list;
       const version = tokenRevision;
       const read = await tokens.read();
-      if (read.isOk() && version === tokenRevision) await refreshOthers(read.value);
+      if (read.ok && version === tokenRevision) await refreshOthers(read.value);
     },
     homes: (names: Readonly<Record<string, string>>) => store.homes(names),
     closed,
@@ -277,7 +281,7 @@ export function pushLifecycle(store: PushStorage, tokens: TokenSource, timers: T
     ) => {
       current = session;
       const armed = await registration.armed(session.hub, sensors);
-      return armed.isOk() && current === session ? update(session, target) : armed;
+      return armed.ok && current === session ? update(session, target) : armed;
     },
     /** Called after the live store applies the incoming arming delta. */
     arming: (sensors: Iterable<Pick<SnapshotObjectV2["sensors"][number], "arm">>) =>

@@ -1,12 +1,13 @@
 // The local stand-in issues a token and supplies a one-use link over adb reverse. Neither is logged.
-import { ok } from "neverthrow";
 import { AppState } from "react-native";
 import { phoneClient } from "../../src/hub/start.native";
 import { readCode } from "../../src/hub/finder";
 import { pushTokens } from "../../src/platform/push-device.native";
 const origin = "http://127.0.0.1:17643";
-pushTokens.read = async () =>
-  ok({ platform: "fcm", environment: "production", token: "local-android-scene-phone" });
+pushTokens.read = async () => ({
+  ok: true,
+  value: { platform: "fcm", environment: "production", token: "local-android-scene-phone" },
+});
 
 /** Link through the actual foreground client once it has mounted; a headless start never links. */
 async function link() {

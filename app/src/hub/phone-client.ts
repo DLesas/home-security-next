@@ -38,7 +38,7 @@ import {
   type LinkRequest,
   type RestoreOffer,
 } from "@hsn/protocol/app";
-import { ok as pushed, err as refused, type Result } from "neverthrow";
+import type { Outcome } from "../platform/split";
 import { createStore, type StoreApi } from "zustand/vanilla";
 import { finishFirstRequest, Channel, type ChannelListener, type RequestOutcome } from "./channel";
 import type { CodeSource, HubClient, LocalState, Version2Channel } from "./client";
@@ -615,7 +615,7 @@ export function startPhoneClient(deps: PhoneDeps): PhoneClient {
               { op: "push.register", body },
               client,
             )
-          ).isOk(),
+          ).ok,
         }),
       });
     }
@@ -791,16 +791,16 @@ async function phoneFirst(
     | { op: "disarm"; body: AppOpBodyV2<"disarm"> }
     | { op: "push.register"; body: AppOpBodyV2<"push.register"> },
   expectedClient?: number,
-): Promise<Result<void, "unreachable" | "storage" | "refused">> {
+): Promise<Outcome<void, "unreachable" | "storage" | "refused">> {
   const store = records.hub(identity);
   const read = await store.read();
-  if (!read.ok || !read.value) return refused("storage");
+  if (!read.ok || !read.value) return { ok: false, fault: "storage" };
   if (expectedClient !== undefined && read.value.hub.client !== expectedClient)
-    return refused("refused");
-  if (deps.timers.now() >= deadline) return refused("unreachable");
+    return { ok: false, fault: "refused" };
+  if (deps.timers.now() >= deadline) return { ok: false, fault: "unreachable" };
   const record = read.value;
   const seq = await reserveSeq(store);
-  if (seq === undefined) return refused("storage");
+  if (seq === undefined) return { ok: false, fault: "storage" };
   const reach = record.reach ?? emptyReach();
   const local = storedHubConnect(
     hubSocketConnect(deps.makeSocket, deps.timers),
@@ -834,10 +834,10 @@ async function phoneFirst(
     platformKeys(deps.keys),
     { t: "req", id: 1, seq, ...request },
   );
-  if (!opened.ok) return refused("unreachable");
+  if (!opened.ok) return { ok: false, fault: "unreachable" };
   return (await finishFirstRequest(opened.value, deadline, deps.timers, request.op))
-    ? pushed(undefined)
-    : refused("refused");
+    ? { ok: true, value: undefined }
+    : { ok: false, fault: "refused" };
 }
 
 /** Disarms the permitted sensors of the tapped notification's home without changing the chosen home. */
@@ -849,5 +849,5 @@ export async function disarmFromNotification(
 ): Promise<boolean> {
   return (
     await phoneFirst(identity, deadline, records, deps, { op: "disarm", body: { target: "mine" } })
-  ).isOk();
+  ).ok;
 }

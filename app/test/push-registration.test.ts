@@ -37,7 +37,7 @@ function setup() {
 
 test("unavailable token makes no request and stores no key", async () => {
   const { registration, session, sent, fake } = setup();
-  expect((await registration.reconcile(session, null)).isOk()).toBe(true);
+  expect((await registration.reconcile(session, null)).ok).toBe(true);
   expect(sent.count).toBe(0);
   expect(fake.keys.size).toBe(0);
 });
@@ -118,7 +118,7 @@ test("a lost reply retains both generations and retries the staged key", async (
   const first = fake.keys.get("home")?.active;
   clock.ms += KEY_LIFETIME_MS;
   sent.ok = false;
-  expect((await registration.reconcile(session, valid)).isOk()).toBe(false);
+  expect((await registration.reconcile(session, valid)).ok).toBe(false);
   const staged = fake.keys.get("home");
   expect(staged?.active?.body.key === first?.body.key).toBe(true);
   sent.ok = true;
@@ -198,7 +198,7 @@ test("unconfigured Android neither queries the OS nor subscribes to token change
       return { remove: () => undefined };
     },
   );
-  expect((await source.read())._unsafeUnwrapErr()).toBe("notAvailable");
+  expect(await source.read()).toEqual({ ok: false, fault: "notAvailable" });
   source.listen(() => undefined)();
   expect([reads, subscriptions]).toEqual([0, 0]);
 });
@@ -269,7 +269,7 @@ test("an old published alert opens throughout rotation until the new registratio
   await sent.promise;
   expect(opensOldAlert()).toBe(true);
   ack.resolve({ ok: true });
-  expect((await pending).isOk()).toBe(true);
+  expect((await pending).ok).toBe(true);
   expect(opensOldAlert()).toBe(false);
 });
 

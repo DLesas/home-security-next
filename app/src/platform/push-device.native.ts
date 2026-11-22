@@ -1,5 +1,4 @@
 /** The Android bridge and Expo's native device token (never an Expo push-service token). */
-import { ok, err } from "neverthrow";
 import { requireOptionalNativeModule } from "expo";
 import { getDevicePushTokenAsync } from "expo-notifications/build/getDevicePushTokenAsync";
 import { addPushTokenListener } from "expo-notifications/build/TokenEmitter";
@@ -18,12 +17,12 @@ const bridge = requireOptionalNativeModule<Bridge>("HomePush");
 
 /** Maps bridge failures to a storage result without exposing details about the stored item. */
 function access<T>(fn: (native: Bridge) => Promise<T>): StoredPush<T> {
-  if (!bridge) return Promise.resolve(err("storage" as const));
+  if (!bridge) return Promise.resolve({ ok: false, fault: "storage" });
   return Promise.resolve(bridge)
     .then(fn)
     .then(
-      (value) => ok(value),
-      () => err("storage" as const),
+      (value) => ({ ok: true as const, value }),
+      () => ({ ok: false as const, fault: "storage" as const }),
     );
 }
 export const pushStorage: PushStorage = {
