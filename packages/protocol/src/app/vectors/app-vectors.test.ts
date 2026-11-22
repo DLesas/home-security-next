@@ -10,6 +10,8 @@ import { join } from "node:path";
 import { sha256 } from "@noble/hashes/sha2.js";
 import { fromHex, toHex } from "../../bytes.ts";
 import { APP_VECTOR_DIRECTORY, appVectorFiles } from "./app-vectors.ts";
+import { APP_EVENTS_V2 } from "../events-v2.ts";
+import { rolloutDeviceObject } from "../objects-v2.ts";
 import {
   appIdentityBytes,
   formatIdentity,
@@ -54,6 +56,24 @@ describe("committed app vectors", () => {
 const typed = vectorFile(typedCodeVector).parse(read("app-typed-code.json"));
 const secrets = vectorFile(linkSecretVector).parse(read("app-link-secrets.json"));
 const noise = vectorFile(noiseVector).parse(read("app-noise.json"));
+const rolloutForceFile = "app-rollout-force.json";
+const rolloutForce = vectorFile(APP_VECTOR_FILES[rolloutForceFile]).parse(read(rolloutForceFile));
+
+describe("app-rollout-force.json (version 2)", () => {
+  for (const [name, key, schema] of [
+    ["rollout.status line", "statusLine", rolloutDeviceObject],
+    ["deviceUpdate body", "deviceUpdate", APP_EVENTS_V2.deviceUpdate],
+  ] as const) {
+    test.each(rolloutForce.vectors.map((v) => [v.name, v] as const))(
+      `${name} validates forceAvailable: %s`,
+      (_, vector) => {
+        const parsed = schema.safeParse(vector[key]);
+        expect(parsed.success).toBe(vector.valid);
+        if (parsed.success) expect(vector[key]).toEqual(parsed.data);
+      },
+    );
+  }
+});
 
 describe("app-typed-code.json (section 5)", () => {
   test.each(typed.vectors.map((v) => [v.code, v] as const))("%s", (_, v) => {

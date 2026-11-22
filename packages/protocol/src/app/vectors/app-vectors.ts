@@ -1137,6 +1137,37 @@ const SECRETS_DESCRIPTION =
 const BACKUP_DESCRIPTION =
   "Backup files (docs/m2-design.md section 9): a 64-byte header (integers little-endian), then the database in chunks of 64 KiB (the last holds the rest, 0 to 64 KiB), each sealed with ChaCha20-Poly1305 under HKDF-SHA256(ikm = backupKey, salt = the header's 8-byte salt, info = the ASCII text hsn-backup/1, 32 bytes); chunk i's nonce is four zero bytes then i as 8 bytes big-endian, its associated data the header and one byte, 1 on the last chunk and 0 on the others. Sealing `database` under `header` with `backupKey` must give exactly `file`; opening `file` must give `database`. Each `tamper` file must be refused with `expect`: badMagic, badFormat (format, an unknown flag bit, a nonzero reserved byte, a time past 2^53 − 1), truncated (shorter than the header, or no whole tag after it), decryptFailed (any change the tags catch, chunks reordered, dropped or added), cut (the file ends where a chunk that is not the last ends).";
 
+const ROLLOUT_FORCE_DESCRIPTION =
+  "Version 2 forceAvailable in a rollout.status device line and deviceUpdate body (docs/m3-updates-design.md section 5). Each body is valid when the field is absent or exactly true.";
+
+/** Varies only forceAvailable across the two version 2 objects. */
+function rolloutForceVectors() {
+  const line = {
+    device: 3,
+    state: "planned",
+    held: "gatewayBusy",
+    method: "ownLink",
+    bytes: 0,
+    of: 4096,
+  };
+  const cases = [
+    ["absent", {}, true],
+    ["true", { forceAvailable: true }, true],
+    ["false", { forceAvailable: false }, false],
+    ["null", { forceAvailable: null }, false],
+    ["number", { forceAvailable: 1 }, false],
+    ["string", { forceAvailable: "true" }, false],
+    ["array", { forceAvailable: [true] }, false],
+    ["object", { forceAvailable: { value: true } }, false],
+  ] as const;
+  return cases.map(([name, field, valid]) => ({
+    name,
+    valid,
+    statusLine: { ...line, lastReason: "radioBusy", ...field },
+    deviceUpdate: { ...line, image: 1, reason: "radioBusy", ...field },
+  }));
+}
+
 /** Every app vector file, as its text. */
 export async function appVectorFiles(): Promise<ReadonlyMap<string, string>> {
   return new Map([
@@ -1148,6 +1179,7 @@ export async function appVectorFiles(): Promise<ReadonlyMap<string, string>> {
     ["app-typed-code.json", file(TYPED_DESCRIPTION, typedCodeVectors())],
     ["app-link-secrets.json", file(SECRETS_DESCRIPTION, linkSecretVectors())],
     ["app-backup.json", file(BACKUP_DESCRIPTION, backupVectors())],
+    ["app-rollout-force.json", file(ROLLOUT_FORCE_DESCRIPTION, rolloutForceVectors())],
   ]);
 }
 
