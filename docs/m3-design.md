@@ -413,7 +413,7 @@ Passed when all six hold on both phones; reported in `docs/spikes/S9-bluetooth.m
 - One record and one key per hub (section 2). One session is open, the chosen home's; the others are reached when chosen, and by push.
 - Settings gains one page on the phone, "This phone": its homes, the app lock and presence. Homes lists each with the name the person gives it on this phone (first "Home", then "Home 2"), "Link another home", and "Remove this home from this phone", which sends `push.unregister` and then `client.remove` for itself, and then deletes the record.
 - With more than one home, Home names the chosen one in a line above the state sentence, with "Change" leading to Homes. The name never enters the state sentence (AD).
-- Whether the name lives on each phone (built now, no hub change) or is a hub setting everyone sees is a question for the product owner. RD 9's `hub.info.name` is the per-hub DNS name, not a home's name.
+- The name lives on each phone and nowhere else (D147; the product owner, 2026-11-22): each person names a home as they like, and the hub holds no name for itself. RD 9's `hub.info.name` is the per-hub DNS name, not a home's name.
 
 ### Home or relay (RA5, RA8)
 
@@ -437,7 +437,7 @@ The relay design owns the format and the path; this design builds the phone's si
 ### Presence offers
 
 - Opt-in per person, under This phone. Turning it on explains, asks for location "always" (rule 7), and asks "Set this place as home": the phone's location now, with a radius of 150 m †, kept on the phone only (D59, D98).
-- The phone tells the hub only that it left or arrived (`presence.set {away}`, version 2, through the relay when away). The hub's rule, new in M5 (H1, after the product owner's answer): when every opted-in person's phones are away, it offers Away; when a person arrives while armed, it offers Disarm. Each offer is a pushed notification with one action, `armAway` or `disarm` in `PushContent.actions` (RD 5, F16), shown as "Arm away" or "Disarm"; nothing changes without a tap (D25). "Arm away" opens the app on Home and asks there as any arming does, since arming may need a confirmation for an open door or a low battery (D50, AL12); only Disarm runs from the notification without opening the app.
+- The phone tells the hub only that it left or arrived (`presence.set {away}`, version 2, through the relay when away). The hub's rule, new in M5 (H1; D146, the product owner's answer of 2026-11-22): when every opted-in person's phones are away, it offers Away, whoever else in the household has not opted in; when a person arrives while armed, it offers Disarm. Each offer is a pushed notification with one action, `armAway` or `disarm` in `PushContent.actions` (RD 5, F16), shown as "Arm away" or "Disarm"; nothing changes without a tap (D25). "Arm away" opens the app on Home and asks there as any arming does, since arming may need a confirmation for an open door or a low battery (D50, AL12); only Disarm runs from the notification without opening the app.
 - Geofencing by region monitoring on iOS ‡ and by geofences that need background location on Android ‡, with Google Play's declaration for it ‡, through expo-location and expo-task-manager ‡.
 
 ### App lock (AP1a, D63)
@@ -648,7 +648,7 @@ What the product owner has, as of 2026-11-18: an Android phone; no iPhone; the d
 | Critical alerts | Not built | No | **The bundle id** (RD QP1), **AS1**, **AS3** (Apple's grant); **an iPhone** (S10); on Android the phone in hand, once FCM works |
 | Disarm on the lock screen | Not built | S5 on the simulators; the Android phone locked, through the local relay | **An iPhone** (S10) |
 | Home or relay | Not built | Against RD 11's local relay over `ws://`, from the simulators and the Android phone | The operated relay, which needs **the domain** (RD 14) |
-| Presence | Not built | Simulated locations ‡; real geofencing on the Android phone | The product owner's rule; push (above); **an iPhone** |
+| Presence | The hub's rule built (D146); the phone's half not built | Simulated locations ‡; real geofencing on the Android phone | Push (above); **an iPhone** |
 | A build on a real iPhone | | | **AS7**: the owner signs Xcode into the account; **an iPhone** |
 | A build on the Android phone | | Yes, now: no account needed ‡; USB debugging turned on in the phone's developer options ‡ | |
 
@@ -711,8 +711,8 @@ Nothing: the scheme and the owner of `backup.key`'s fix are settled (`hsn`; A8).
 1. **The bundle identifier and application id** (RD QP1): choose them now, so AS1 and AS3 can start; the critical-alert request is the longest wait.
 2. **An iPhone, and the oldest systems to support.** The Android phone in hand covers S9's Android half; the iPhone half, Face ID, iOS's local network question and S10 need an iPhone (UD P8 recommends buying now). Which Android version the phone in hand runs decides whether Android 17's local network permission can be tried on it. Supporting Android below 12 means the location permission for Bluetooth scanning ‡; React Native allows down to Android 7 (API 24) and iOS 15.1.
 3. **Approving the installs** of section 8 and the first runs' downloads (section 11).
-4. **Presence when only some people opt in**: offer Away only when everyone in the household has opted in, or when every opted-in person has left?
-5. **A home's name**: kept on each phone, or a hub setting everyone sees?
+4. **Presence when only some people opt in**: answered 2026-11-22: when every opted-in person has left (D146).
+5. **A home's name**: answered 2026-11-22: kept on each phone (D147).
 6. **Tablets**: in scope (the layout supports them)?
 7. **If S5 shows the lock-screen Disarm cannot run in the background in time**: a Disarm that opens the app (one unlock), or a second implementation of the channel in Swift and Kotlin?
 8. **A home Wi-Fi that changes after pairing**: is adding sirens and gateways again acceptable, or should a later milestone carry Wi-Fi details over the air?
