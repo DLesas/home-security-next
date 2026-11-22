@@ -6,7 +6,14 @@ internal class AlertWords(private val common: Fields, private val push: Fields, 
     val categoryNames = categories.keys.filterIsInstance<String>().toSet()
 
     /** Gets notification-specific text, including actions, outcomes and channel names. */
-    fun word(key: String): String = push[key] as String
+    fun word(key: String): String = resolve(push[key] as String)
+
+    /** Resolves a whole-string i18next reference against this locale's common dictionary. */
+    private fun resolve(text: String): String {
+        if (!text.startsWith("\$t(") || !text.endsWith(")")) return text
+        val path = text.substring(3, text.lastIndex)
+        return path.split('.').fold<String, Any?>(common) { node, key -> (node as Fields)[key] } as String
+    }
 
     /** Replaces only template tokens, never tokens in a person's name or in substituted text. */
     private fun fill(template: String, values: Map<String,String>) =
@@ -23,7 +30,7 @@ internal class AlertWords(private val common: Fields, private val push: Fields, 
         val kindText = (history["decision"] as Fields)[a.kind] ?: (history["event"] as Fields)[a.kind]
         val category = categories[a.category] as String
         val (title, template) = when {
-            custom != null -> (custom["title"] as String) to (custom["body"] as String)
+            custom != null -> resolve(custom["title"] as String) to resolve(custom["body"] as String)
             a.kind in setOf("countdown_started", "countdown") -> category to word("countdown")
             a.kind in setOf("alarm", "late_report_sirens", "late_report_notification") -> category to word("alarm")
             kindText is String -> category to (kindText.trimEnd('.') + if ("device" in a.names) ": {{device}}." else ".")

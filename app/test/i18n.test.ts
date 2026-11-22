@@ -40,3 +40,30 @@ describe("translation (HB27, D58)", () => {
     expect(used.filter((key) => !has(key))).toEqual([]);
   });
 });
+
+/** Lists all leaf keys so every locale covers both the app and closed-app notifications. */
+function leaves(node: Record<string, unknown>, prefix = ""): string[] {
+  return Object.entries(node)
+    .flatMap(([key, value]) => {
+      const path = prefix + key;
+      return typeof value === "object" && value !== null
+        ? leaves(value as Record<string, unknown>, path + ".")
+        : [path];
+    })
+    .sort();
+}
+
+test("each locale has all common and push keys and its push references resolve", () => {
+  const root = join(import.meta.dir, "..", "locales");
+  for (const file of ["common.json", "push.json"]) {
+    const expected = leaves(JSON.parse(readFileSync(join(root, "en", file), "utf8")));
+    for (const locale of readdirSync(root)) {
+      const text = readFileSync(join(root, locale, file), "utf8");
+      expect(leaves(JSON.parse(text))).toEqual(expected);
+      if (file === "push.json") {
+        const common = leaves(JSON.parse(readFileSync(join(root, locale, "common.json"), "utf8")));
+        for (const [, key] of text.matchAll(/"\$t\(([^)]+)\)"/gu)) expect(common).toContain(key);
+      }
+    }
+  }
+});

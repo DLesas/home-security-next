@@ -31,10 +31,10 @@ def generate = tasks.register('generatePushVectors', Exec) {
 tasks.withType(Test).configureEach {
   dependsOn generate
   inputs.file(vectors)
-  inputs.files(file('../../../locales/en/common.json'), file('../locales/en/push.json'))
+  inputs.files(file('../../../locales/en/common.json'), file('../../../locales/en/push.json'))
   systemProperty 'push.vectors', vectors.get().asFile.absolutePath
   systemProperty 'push.common', file('../../../locales/en/common.json').absolutePath
-  systemProperty 'push.words', file('../locales/en/push.json').absolutePath
+  systemProperty 'push.words', file('../../../locales/en/push.json').absolutePath
   // The repository lints all JavaScript, including Gradle's generated HTML viewer. Keep the XML.
   reports.html.required = false
 }

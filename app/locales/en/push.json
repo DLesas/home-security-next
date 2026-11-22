@@ -1,5 +1,5 @@
 {
-  "unknownTitle": "Home",
+  "unknownTitle": "$t(nav.home)",
   "unknown": "Something happened at home. Open the app to see it.",
   "countdown": "{{device}} opened at {{time}}.",
   "alarm": "Alarm at {{device}} at {{time}}.",
@@ -19,16 +19,16 @@
     "body": "Your phone received the test alert."
   },
   "presence_offer_disarm": {
-    "title": "Disarm",
+    "title": "$t(field.disarm)",
     "body": "Open the app or disarm your sensors."
   },
   "presence_offer_away": {
-    "title": "Arm away",
+    "title": "$t(field.armAway)",
     "body": "Open Home to arm away."
   },
-  "disarm": "Disarm",
-  "armAway": "Arm away",
-  "succeeded": "Disarmed.",
+  "disarm": "$t(field.disarm)",
+  "armAway": "$t(field.armAway)",
+  "succeeded": "$t(banner.disarmed)",
   "failed": "Could not reach the hub. Open the app to disarm.",
   "criticalChannel": "Alarms and countdowns",
   "ordinaryChannel": "Other notifications",
@@ -42,11 +42,11 @@
     "body": "A device update is available."
   },
   "firmware_refused": {
-    "title": "Update refused",
+    "title": "$t(history.event.update_refused)",
     "body": "{{device}} did not accept the update."
   },
   "firmware_rolled_back": {
-    "title": "Update undone",
+    "title": "$t(history.decision.update_rolled_back)",
     "body": "{{device}} returned to its previous software."
   },
   "firmware_reminder": {

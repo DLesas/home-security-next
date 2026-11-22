@@ -11,12 +11,9 @@ module.exports = (config) =>
       for (const locale of fs.readdirSync(path.join(projectRoot, "locales"))) {
         const dir = path.join(platformProjectRoot, "app/src/main/assets/push", locale);
         fs.mkdirSync(dir, { recursive: true });
-        fs.copyFileSync(
-          path.join(projectRoot, "locales", locale, "common.json"),
-          path.join(dir, "common.json"),
-        );
-        const words = path.join(projectRoot, "modules/push/locales", locale, "push.json");
-        if (fs.existsSync(words)) fs.copyFileSync(words, path.join(dir, "push.json"));
+        for (const name of ["common.json", "push.json"]) {
+          fs.copyFileSync(path.join(projectRoot, "locales", locale, name), path.join(dir, name));
+        }
       }
       return mod;
     },
