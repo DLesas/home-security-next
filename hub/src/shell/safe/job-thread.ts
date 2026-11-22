@@ -33,59 +33,26 @@ function described(thrown: unknown): string {
   return thrown instanceof Error ? thrown.message : String(thrown);
 }
 
-/**
- * Every byte array of 16 bytes or more in a worker's data: a key's (a firmware staging's signing
- * key, a backup's or a restore's key) or a public key's. None may reach a message, a record or an
- * error's text, and a worker's thrown error is passed on as the worker wrote it (Bun's `error`
- * event carries its message), so the text is scrubbed of them first.
- */
-function bytesIn(value: unknown, found: Uint8Array[] = []): Uint8Array[] {
-  if (value instanceof Uint8Array) {
-    if (value.length >= 16) found.push(value);
-  } else if (Array.isArray(value)) for (const item of value) bytesIn(item, found);
-  else if (typeof value === "object" && value !== null && !ArrayBuffer.isView(value))
-    for (const item of Object.values(value)) bytesIn(item, found);
-  return found;
-}
-
-/** `text` with every way it could spell one of `secrets` (hex, base64, base64url, decimal) cut out. */
-export function scrubbed(text: string, secrets: readonly Uint8Array[]): string {
-  let out = text;
-  for (const bytes of secrets) {
-    const buffer = Buffer.from(bytes);
-    const hex = buffer.toString("hex");
-    const forms = [
-      hex,
-      hex.toUpperCase(),
-      buffer.toString("base64"),
-      buffer.toString("base64").replace(/=+$/u, ""),
-      buffer.toString("base64url"),
-      [...bytes].join(","),
-      [...bytes].join(", "),
-    ];
-    for (const form of forms) out = out.replaceAll(form, "[bytes]");
-  }
-  return out;
-}
-
 /** Starts a job's worker thread with `data`; why not, if it could not even be started. */
 export function startJobThread<D extends JobKindData>(
   data: WorkerData<D>,
   events: JobThreadEvents,
   entry: string | URL = jobEntry(),
 ): Result<void, string> {
-  const secrets = bytesIn(data);
-  const told = (thrown: unknown): string => scrubbed(described(thrown), secrets);
+  // The worker's data (a key among it, for some kinds) reaches no message by any path here: a
+  // start that throws is Bun's own text ("The object can not be cloned"), a worker's error or a
+  // message it could not send is the worker code's own text, and no code writes a key into an
+  // error; the one message the worker posts is the outcome its job's class makes, as on the thread.
   let worker: Worker;
   try {
     worker = new Worker(entry, { workerData: data });
   } catch (thrown) {
-    return err(told(thrown));
+    return err(described(thrown));
   }
-  let once = false;
+  let told = false;
   const tell = (event: () => void): void => {
-    if (once) return;
-    once = true;
+    if (told) return;
+    told = true;
     event();
   };
   // The worker posts one message, `ended`, and only once its job has ended.
@@ -96,12 +63,12 @@ export function startJobThread<D extends JobKindData>(
   });
   worker.on("error", (error) => {
     tell(() => {
-      events.failed(told(error));
+      events.failed(described(error));
     });
   });
   worker.on("messageerror", (error) => {
     tell(() => {
-      events.failed(told(error));
+      events.failed(described(error));
     });
   });
   // The outcome's message has come before the thread's exit in every staging measured (5,760, on

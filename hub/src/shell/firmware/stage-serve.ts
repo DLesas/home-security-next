@@ -9,8 +9,7 @@
  * worker looks at the loop's word: a stop ends the job through `FirmwareStaging.abort`, which
  * removes the temporary file. The core never cancels a firmware staging, so no cancel comes. It
  * never touches `hub.db`. The key's columns are in its data and nowhere else: nothing the worker
- * posts but the outcome, and an error it throws reaches a message only scrubbed of them
- * (`safe/job-thread.ts`).
+ * posts but the outcome, and no code here writes a key into an error.
  */
 import { err } from "neverthrow";
 import type { KindData, WorkerData } from "../worker/kinds.ts";

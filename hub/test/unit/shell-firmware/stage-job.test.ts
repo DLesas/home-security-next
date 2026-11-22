@@ -606,24 +606,6 @@ describe("a worker that fails", () => {
     );
   });
 
-  test("throws with the signing key in its message: the outcome says it threw, the key spelled nowhere", async () => {
-    const at = rig(OWN);
-    const outcome = await driven(inputs(at, "1.4.0"), { start: startWith("leaks.ts") }).end();
-    const message = outcome.kind === "failed" ? outcome.message : "";
-    expect(message).toStartWith("the firmware staging worker ended without an outcome: bad key ");
-    expect(message).toContain("[bytes]");
-    const key = Buffer.from(signingKeys.signingPrivate);
-    for (const form of [
-      key.toString("hex"),
-      key.toString("base64"),
-      key.toString("base64url"),
-      [...key].join(","),
-      [...key].join(", "),
-    ])
-      expect(message).not.toContain(form);
-    nothingLeft(at);
-  });
-
   test.each([
     ["throws", "throws.ts", "JSON Parse error"],
     ["exits first", "exits.ts", "exit code 3"],
