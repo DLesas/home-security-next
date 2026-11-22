@@ -8,7 +8,7 @@
  * runs the same client against the real hub and the real relay as processes.
  */
 import "./support/render";
-import { describe, expect, test } from "bun:test";
+import { describe, expect, mock, spyOn, test } from "bun:test";
 import { createElement } from "react";
 import assert from "node:assert/strict";
 import { formatLinkQr } from "@hsn/protocol/app";
@@ -723,6 +723,56 @@ describe("coming home again (every 60 s †, and when the app comes to the front
     await away.pass(2 * HOME_AGAIN_MS, 5000);
     expect(homeTries(away)).toBe(awayTries);
     expect(away.phone.reach.getState().path).toBeNull();
+  }, 30_000);
+
+  test("switching homes cancels the outgoing relay retry and shows the newly chosen home's path", async () => {
+    const w = world({ hubRelay: RELAY });
+    const other = new HubEnd(KEY(8));
+    other.speaks = [2, 2];
+    w.homes.set(DISCOVERED_HOME, other);
+    await linkAtHome(w);
+    await finish(
+      w.client.link(qrFor(other, undefined, [DISCOVERED_HOME]), "qr", {
+        name: "Ana's phone",
+        kind: "phone",
+      }),
+    );
+    await settle(80);
+    expect(w.phone.reach.getState().path).toBe("home");
+    expect((await finish(w.phone.choose(w.hub.identity))).ok).toBe(true);
+    await settle(80);
+
+    // Observe cancellation itself, even if a leftover callback would see the new path and do nothing.
+    const cancelled = mock(() => undefined);
+    const after = w.timers.after.bind(w.timers);
+    spyOn(w.timers, "after").mockImplementation((ms, run) => {
+      const cancel = after(ms, run);
+      if (ms !== HOME_AGAIN_MS) return cancel;
+      return () => {
+        cancelled();
+        cancel();
+      };
+    });
+    await goAway(w);
+    expect(w.phone.reach.getState().path).toBe("relay");
+    const outgoing = w.relay.opened.at(-1);
+    expect(outgoing?.phoneClosed).toBeUndefined();
+    await w.pass(HOME_AGAIN_MS - 1, 5000);
+    const tried = homeTries(w);
+    expect(cancelled).toHaveBeenCalledTimes(0);
+
+    const switching = w.phone.choose(other.identity);
+    expect(cancelled).toHaveBeenCalledTimes(1);
+    expect(w.phone.reach.getState().path).toBeNull();
+    expect(outgoing?.phoneClosed).toBe(1000);
+    expect((await finish(switching)).ok).toBe(true);
+    await settle(80);
+    expect(w.phone.reach.getState().path).toBe("home");
+    expect(other.paths.at(-1)).toBe("session");
+    expect(await siteOnPhone(w.phone.reach.getState())).toStartWith(WORDS.home);
+    await w.pass(1);
+    expect(homeTries(w)).toBe(tried + 1);
+    w.client.stop();
   }, 30_000);
 });
 
