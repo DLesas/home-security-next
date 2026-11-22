@@ -62,7 +62,8 @@ test("each locale has all common and push keys and its push references resolve",
       expect(leaves(JSON.parse(text))).toEqual(expected);
       if (file === "push.json") {
         const common = leaves(JSON.parse(readFileSync(join(root, locale, "common.json"), "utf8")));
-        for (const [, key] of text.matchAll(/"\$t\(([^)]+)\)"/gu)) expect(common).toContain(key);
+        for (const [, key] of text.matchAll(/"\$t\(([^)]+)\)"/gu))
+          expect(common).toContain(key ?? "");
       }
     }
   }
