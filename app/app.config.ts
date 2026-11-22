@@ -158,6 +158,7 @@ export function appConfig(release: boolean, identity: AppIdentity = deployment):
     },
     plugins: [
       "expo-router",
+      "./plugins/push-words.cjs",
       // React Native's own WebSocket takes the hub's certificate at home only (D132; wave 0).
       "./plugins/hub-tls.cjs",
       // The app's storage stays out of Android's backups and device-to-device transfer, and the

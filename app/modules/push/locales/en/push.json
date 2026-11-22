@@ -1,0 +1,21 @@
+{
+  "unknownTitle": "Home",
+  "unknown": "Something happened at home. Open the app to see it.",
+  "countdown": "{{device}} opened at {{time}}.",
+  "alarm": "Alarm at {{device}} at {{time}}.",
+  "device": "A door",
+  "delayed": "Delayed: happened at {{time}}.",
+  "home": "{{home}}. {{body}}",
+  "hub_unreachable": {"title":"Home hub cannot be reached","body":"No contact since about {{time}}. Alerts from home will not reach this phone until it is back. It may be the home's internet or the hub itself."},
+  "hub_back": {"title":"Home hub is back","body":"In contact again. Alerts reach this phone as usual. Anything that happened meanwhile follows, marked late."},
+  "push_test": {"title":"Test alert","body":"Your phone received the test alert."},
+  "presence_offer_disarm": {"title":"Disarm","body":"Open the app or disarm your sensors."},
+  "presence_offer_away": {"title":"Arm away","body":"Open Home to arm away."},
+  "disarm":"Disarm",
+  "armAway":"Arm away",
+  "succeeded":"Disarmed.",
+  "failed":"Could not reach the hub. Open the app to disarm.",
+  "criticalChannel":"Alarms and countdowns",
+  "ordinaryChannel":"Other notifications",
+  "outcomeChannel":"Disarm results"
+}
