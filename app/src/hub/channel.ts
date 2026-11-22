@@ -24,6 +24,7 @@
  * answer would be no, and shows each refusal as the hub gave it.
  */
 import {
+  APP_EVENTS,
   APP_EVENTS_V2,
   APP_OPS,
   APP_OPS_V2,
@@ -76,6 +77,16 @@ export type AnyOutcome =
   | { readonly ok: false; readonly error: AppErrorV2 }
   | { readonly ok: false; readonly local: LocalFault };
 
+/** Gives legacy callers a typed reply and the refusals their screens understand. */
+export function legacyOutcome<N extends AppOpName>(outcome: AnyOutcome): RequestOutcome<N> {
+  const typed =
+    !outcome.ok && "error" in outcome && outcome.error.code !== "busy"
+      ? { ok: false, error: version1Error(outcome.error) }
+      : outcome;
+  // The session has already checked the reply against this request's operation.
+  return typed as RequestOutcome<N>;
+}
+
 export type ChannelStatus =
   | { readonly kind: "loading" }
   | { readonly kind: "notLinked" }
@@ -94,9 +105,9 @@ export type ChannelStatus =
   | { readonly kind: "removed" };
 
 /**
- * What the channel tells the store. On a version 2 session (a phone's, m3-design.md section 3) the
+ * What the channel tells the store. On a version 2 session the
  * snapshot and the events of version 1's names carry version 2's bodies, each version 1's with
- * fields added (but `hub`'s two new `what`s); an event only version 2 names goes to `newEvent`.
+ * fields added. An event only version 2 names, including `hub`'s new `what`s, goes to `newEvent`.
  */
 export interface ChannelListener {
   status(status: ChannelStatus): void;
@@ -104,6 +115,12 @@ export interface ChannelListener {
   event(event: AppEvent): void;
   newEvent?(event: AppEventV2): void;
 }
+
+type LiveEvent =
+  | { readonly kind: "shared"; readonly event: AppEvent }
+  | { readonly kind: "new"; readonly event: AppEventV2 };
+
+const LEGACY_HUB_WHATS: ReadonlySet<string> = new Set(APP_EVENTS.hub.unwrap().shape.what.options);
 
 /** A request's maker, as the screens see it: the channel, or another tab's (`tabs.ts`). */
 export interface Requester {
@@ -207,7 +224,7 @@ export class Channel implements Requester {
   private refusals: { count: number; since: number } | undefined;
   private attempt = 0;
   private snapshotRev: number | undefined;
-  private early: AppEvent[] = [];
+  private early: LiveEvent[] = [];
   private lastHeard = 0;
   private stopped = false;
   private run = 0;
@@ -224,7 +241,7 @@ export class Channel implements Requester {
       readonly timers: Timers;
       readonly app: string;
       readonly listener: ChannelListener;
-      /** The versions offered; `PROTO_RANGE` (the web build's) when not given. */
+      /** The versions offered; the original channel's range when none is given. */
       readonly proto?: ProtoRange;
       /** The key functions; the platform's when not given (`PLATFORM_KEYS`). */
       readonly keys?: ClientKeys<PlatformSecret>;
@@ -278,14 +295,7 @@ export class Channel implements Requester {
   }
 
   async request<N extends AppOpName>(op: N, body: AppOpBody<N>): Promise<RequestOutcome<N>> {
-    const outcome = await this.requestAny(op, body);
-    // The reply was checked against `op`'s reply schema before it resolves (`reply` below); an
-    // error the shared screens do not know becomes `protoUnsupported`.
-    const typed: AnyOutcome =
-      !outcome.ok && "error" in outcome && outcome.error.code !== "busy"
-        ? { ok: false, error: version1Error(outcome.error) }
-        : outcome;
-    return typed as RequestOutcome<N>;
+    return legacyOutcome<N>(await this.requestAny(op, body));
   }
 
   /**
@@ -444,14 +454,16 @@ export class Channel implements Requester {
     for (const event of this.early.splice(0)) this.deliver(event);
   }
 
-  private deliver(event: AppEvent): void {
+  /** Applies the same snapshot revision gate to both kinds of live event. */
+  private deliver(next: LiveEvent): void {
     if (this.snapshotRev === undefined) {
-      this.early.push(event);
+      this.early.push(next);
       return;
     }
     // At or below the snapshot's revision: already in it (section 5).
-    if (event.rev <= this.snapshotRev) return;
-    this.deps.listener.event(event);
+    if (next.event.rev <= this.snapshotRev) return;
+    if (next.kind === "new") this.deps.listener.newEvent?.(next.event);
+    else this.deps.listener.event(next.event);
   }
 
   private receive(session: Session, data: Uint8Array): void {
@@ -470,8 +482,11 @@ export class Channel implements Requester {
         session.close(CLOSE.protocol);
         return;
       }
-      if (!isVersion1Event(later.ev)) {
-        this.deps.listener.newEvent?.(later);
+      if (
+        !isVersion1Event(later.ev) ||
+        (later.ev === "hub" && !LEGACY_HUB_WHATS.has(later.body.what))
+      ) {
+        this.deliver({ kind: "new", event: later });
         return;
       }
     }
@@ -507,7 +522,7 @@ export class Channel implements Requester {
       this.deps.listener.status({ kind: "removed" });
       return;
     }
-    this.deliver(event.value);
+    this.deliver({ kind: "shared", event: event.value });
   }
 
   private reply(session: Session, frame: unknown): void {

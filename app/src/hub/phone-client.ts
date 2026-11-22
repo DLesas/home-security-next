@@ -27,6 +27,7 @@
  *   common, or a full one, answers (m2-design.md section 8: "keeps its keys until a new link").
  */
 import {
+  APP_PROTO_LATEST,
   type AppEvent,
   type AppEventV2,
   type AppOpBody,
@@ -37,7 +38,7 @@ import {
 } from "@hsn/protocol/app";
 import { createStore, type StoreApi } from "zustand/vanilla";
 import { Channel, type ChannelListener, type RequestOutcome } from "./channel";
-import type { CodeSource, HubClient, LocalState } from "./client";
+import type { CodeSource, HubClient, LocalState, Version2Channel } from "./client";
 import { storeListener } from "./client";
 import {
   browseFor,
@@ -134,12 +135,8 @@ export const NO_REACH: ReachState = {
   relayClosed: null,
 };
 
-export interface PhoneClient {
+export interface PhoneClient extends Version2Channel {
   readonly client: HubClient;
-  /** Sends the phone's operations on the already negotiated version 2 channel. */
-  readonly forward: Channel["forward"];
-  /** Receives events introduced in version 2, without changing the version 1 store. */
-  onNewEvent(listener: (event: AppEventV2) => void): () => void;
   readonly records: PhoneRecords;
   /** The vault's last fault, in full (`locked`, `denied`, `corrupt`, `full`, `failed`). */
   readonly vault: StoreApi<VaultStatus>;
@@ -548,9 +545,19 @@ export function startPhoneClient(deps: PhoneDeps): PhoneClient {
     local.setState({ link: { kind: "failed", from, failure } });
   }
 
+  const v2: Version2Channel = {
+    forward: (op, body) => channel.forward(op, body),
+    onNewEvent: (receive) => {
+      newEvents.add(receive);
+      return () => {
+        newEvents.delete(receive);
+      };
+    },
+  };
   const client: HubClient = {
     live,
     local,
+    ...(deps.proto[1] === APP_PROTO_LATEST ? { v2 } : {}),
     start: () => {
       void records.sweep().then(() => channel.start());
     },
@@ -585,13 +592,7 @@ export function startPhoneClient(deps: PhoneDeps): PhoneClient {
 
   return {
     client,
-    forward: (op, body) => channel.forward(op, body),
-    onNewEvent: (receive) => {
-      newEvents.add(receive);
-      return () => {
-        newEvents.delete(receive);
-      };
-    },
+    ...v2,
     records,
     vault: records.status,
     reach,

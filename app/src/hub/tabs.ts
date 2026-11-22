@@ -7,8 +7,22 @@
  * What travels between tabs is the live store's state (plain data, nothing secret) and the
  * requests and their outcomes. Never a key, a code or a secret.
  */
-import { APP_OPS, type AppEvent, type AppOpBody, type AppOpName } from "@hsn/protocol/app";
-import type { Channel, ChannelListener, RequestOutcome, Requester } from "./channel";
+import {
+  APP_OPS_V2,
+  type AppEvent,
+  type AppEventV2,
+  type AppOpBody,
+  type AppOpName,
+  type AppOpNameV2,
+} from "@hsn/protocol/app";
+import {
+  type AnyOutcome,
+  type Channel,
+  type ChannelListener,
+  legacyOutcome,
+  type RequestOutcome,
+  type Requester,
+} from "./channel";
 import type { LiveState, LiveStore } from "../state/live";
 
 /** The lock's name: one per origin, and so per hub. */
@@ -33,14 +47,14 @@ type TabMessage =
       readonly t: "req";
       readonly from: string;
       readonly rid: number;
-      readonly op: AppOpName;
+      readonly op: AppOpNameV2;
       readonly body: unknown;
     }
-  | { readonly t: "res"; readonly to: string; readonly rid: number; readonly outcome: unknown }
+  | { readonly t: "res"; readonly to: string; readonly rid: number; readonly outcome: AnyOutcome }
   | { readonly t: "leader"; readonly from: string }
   | { readonly t: "linked"; readonly from: string }
-  /** An event the store does not keep (a file's chunk), from the tab that holds the session. */
-  | { readonly t: "evt"; readonly from: string; readonly event: AppEvent };
+  /** An event the store does not keep, from the tab that holds the session. */
+  | { readonly t: "evt"; readonly from: string; readonly event: AppEventV2 };
 
 /** A message from another tab, its request's operation one of the channel's. */
 export function isTabMessage(value: unknown): value is TabMessage {
@@ -48,7 +62,7 @@ export function isTabMessage(value: unknown): value is TabMessage {
     return false;
   return (
     value.t !== "req" ||
-    ("op" in value && typeof value.op === "string" && Object.hasOwn(APP_OPS, value.op))
+    ("op" in value && typeof value.op === "string" && Object.hasOwn(APP_OPS_V2, value.op))
   );
 }
 
@@ -59,7 +73,7 @@ export class Tabs implements Requester {
   private nextRid = 1;
   private release: (() => void) | undefined;
   private unsubscribe: (() => void) | undefined;
-  private readonly waiting = new Map<number, (outcome: unknown) => void>();
+  private readonly waiting = new Map<number, (outcome: AnyOutcome) => void>();
 
   constructor(
     private readonly deps: {
@@ -70,6 +84,7 @@ export class Tabs implements Requester {
       readonly makeChannel: (listener: ChannelListener) => Channel;
       readonly listener: (store: LiveStore, forward: (event: AppEvent) => void) => ChannelListener;
       readonly onEvent: (event: AppEvent) => void;
+      readonly onNewEvent?: (event: AppEventV2) => void;
     },
   ) {}
 
@@ -90,12 +105,16 @@ export class Tabs implements Requester {
     this.leading = true;
     this.leader = this.deps.id;
     this.failWaiting();
-    this.channel = this.deps.makeChannel(
-      this.deps.listener(this.deps.store, (event) => {
+    this.channel = this.deps.makeChannel({
+      ...this.deps.listener(this.deps.store, (event) => {
         if (event.ev === "fileChunk" || event.ev === "fileFailed")
           this.post({ t: "evt", from: this.deps.id, event });
       }),
-    );
+      newEvent: (event) => {
+        this.deps.onNewEvent?.(event);
+        this.post({ t: "evt", from: this.deps.id, event });
+      },
+    });
     this.unsubscribe = this.deps.store.subscribe((state) => {
       this.post({ t: "state", from: this.deps.id, state });
     });
@@ -108,16 +127,20 @@ export class Tabs implements Requester {
     });
   }
 
+  /** Gives existing screens the same outcome in the owning and following tabs. */
   async request<N extends AppOpName>(op: N, body: AppOpBody<N>): Promise<RequestOutcome<N>> {
-    if (this.channel !== undefined) return this.channel.request(op, body);
-    if (this.leader === undefined) return { ok: false, local: "offline" };
+    return legacyOutcome<N>(await this.forward(op, body));
+  }
+
+  /** Sends the operation through the owner and returns the channel's original outcome. */
+  forward(op: AppOpNameV2, body: unknown): Promise<AnyOutcome> {
+    if (this.channel !== undefined) return this.channel.forward(op, body);
+    if (this.leader === undefined) return Promise.resolve({ ok: false, local: "offline" });
     const rid = this.nextRid++;
-    const outcome = await new Promise<unknown>((resolve) => {
+    return new Promise((resolve) => {
       this.waiting.set(rid, resolve);
       this.post({ t: "req", from: this.deps.id, rid, op, body });
     });
-    // Another tab's channel checked the reply against `op`'s schema before it answered.
-    return outcome as RequestOutcome<N>;
   }
 
   /** This tab goes: its session closes; the lock passes on when the page is gone. */
@@ -170,11 +193,11 @@ export class Tabs implements Requester {
         }
         return;
       case "evt":
-        if (
-          !this.leading &&
-          (message.event.ev === "fileChunk" || message.event.ev === "fileFailed")
-        )
-          this.deps.onEvent(message.event);
+        if (!this.leading) {
+          const { event } = message;
+          if (event.ev === "fileChunk" || event.ev === "fileFailed") this.deps.onEvent(event);
+          else this.deps.onNewEvent?.(event);
+        }
         return;
       case "res":
         if (message.to === this.deps.id) {

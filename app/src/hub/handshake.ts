@@ -40,13 +40,12 @@ import type { ClientKeys, KeyFault, StoredClient } from "../platform/client-key"
 import { makeClientKey, type PlatformSecret, staticKeyOf } from "../platform/keys";
 import { type ChannelPath, CLOSE, type Connect, Inbox, type Timers, type Wire } from "./wire";
 
-/** The channel versions this build speaks (section 8: the build is stamped with it). */
+/** The original channel's range, used when a caller does not supply its build's range. */
 export const PROTO_RANGE: readonly [number, number] = [APP_PROTO_VERSION, APP_PROTO_VERSION];
 
 /**
- * A range of channel versions a client offers, lowest first: the web build's is `PROTO_RANGE`; a
- * phone gives its own (m3-design.md section 3: version 2 only), so a handshake takes it as an
- * argument, `PROTO_RANGE` when none is given.
+ * A range of channel versions a client offers, lowest first. The web and phone builds give
+ * their range explicitly (m3-design.md section 3).
  */
 export type ProtoRange = readonly [number, number];
 
@@ -173,8 +172,9 @@ export async function linkBrowser(
   secret: LinkSecret,
   request: LinkRequest,
   timers: Timers,
+  proto: ProtoRange = PROTO_RANGE,
 ): Promise<Outcome<StoredClient, LinkFailure>> {
-  const linked = await linkClient(connect, secret, request, timers);
+  const linked = await linkClient(connect, secret, request, timers, proto);
   return linked.ok ? { ok: true, value: linked.value.record } : linked;
 }
 

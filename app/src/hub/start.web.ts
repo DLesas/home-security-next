@@ -8,7 +8,8 @@
  * (`src/entry.ts` imports this first), and kept here, in memory only, until the root layout links
  * with it.
  */
-import { createHubClient } from "./client";
+import { APP_PROTO_LATEST } from "@hsn/protocol/app";
+import { createHubClient, type HubClientDeps } from "./client";
 import { takeCodeFromAddress } from "./fragment";
 import { indexedDbRecordStore } from "../platform/keys.web";
 import type { ArrivedCode, StartedClient } from "./start-types";
@@ -43,9 +44,14 @@ export function onArrivedCode(): () => void {
   return () => undefined;
 }
 
+/** Builds the matching client for the hub serving this web build (m3-design.md section 3). */
+export function createWebHubClient(deps: Omit<HubClientDeps, "proto">) {
+  return createHubClient({ ...deps, proto: [APP_PROTO_LATEST, APP_PROTO_LATEST] });
+}
+
 export function startClient(): StartedClient {
   const locks = typeof navigator.locks === "object" ? navigator.locks : undefined;
-  const client = createHubClient({
+  const client = createWebHubClient({
     connect: webSocketConnect(channelOrigin(window.location)),
     records: indexedDbRecordStore(),
     timers: realTimers,
