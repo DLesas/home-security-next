@@ -52,6 +52,8 @@ export const APP_EVENTS_V2 = {
       /** The file's bytes: the header and the image. */
       of: z.int().min(0),
       reason: updateReason.optional(),
+      /** Present when a person may force an update (m3-updates §5, "A site so busy that a transmission is always waiting"). */
+      forceAvailable: z.literal(true).optional(),
     })
     .readonly(),
 } as const;

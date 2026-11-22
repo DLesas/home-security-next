@@ -33,6 +33,7 @@ export const APP_FILES = [
   "app-noise.json",
   "app-noise-failures.json",
   "app-backup.json",
+  "app-rollout-force.json",
 ];
 
 const IK = "Noise_IK_25519_ChaChaPoly_SHA256";
@@ -499,7 +500,26 @@ export function verifyAppVectors(vectorsDir, { mismatch, count, note }) {
   checkNoise(ctx, secrets, codes);
   checkNoiseFailures(ctx);
   checkBackup(ctx);
+  checkRolloutForce(ctx);
   return new Set(APP_FILES);
+}
+
+/** Checks the optional literal in both version 2 bodies, independently of the protocol schemas. */
+function checkRolloutForce(ctx) {
+  const file = "app-rollout-force.json";
+  for (const vector of loadApp(ctx, file)) {
+    for (const key of ["statusLine", "deviceUpdate"]) {
+      const body = vector?.[key];
+      if (body === null || typeof body !== "object" || Array.isArray(body)) {
+        ctx.mismatch(file, vector?.name, `${key} is not an object`);
+        continue;
+      }
+      const valid = !Object.hasOwn(body, "forceAvailable") || body.forceAvailable === true;
+      ctx.count(`app: ${key} forceAvailable cases`);
+      if (valid !== vector.valid)
+        ctx.mismatch(file, vector.name, `${key}: forceAvailable must be absent or true`);
+    }
+  }
 }
 
 function loadApp({ mismatch, dir }, name, sections = ["description", "vectors"]) {

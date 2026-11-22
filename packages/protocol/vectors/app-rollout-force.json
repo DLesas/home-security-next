@@ -1,0 +1,211 @@
+{
+  "description": "Version 2 forceAvailable in a rollout.status device line and deviceUpdate body (docs/m3-updates-design.md section 5). Each body is valid when the field is absent or exactly true.",
+  "vectors": [
+    {
+      "name": "absent",
+      "valid": true,
+      "statusLine": {
+        "device": 3,
+        "state": "planned",
+        "held": "gatewayBusy",
+        "method": "ownLink",
+        "bytes": 0,
+        "of": 4096,
+        "lastReason": "radioBusy"
+      },
+      "deviceUpdate": {
+        "device": 3,
+        "state": "planned",
+        "held": "gatewayBusy",
+        "method": "ownLink",
+        "bytes": 0,
+        "of": 4096,
+        "image": 1,
+        "reason": "radioBusy"
+      }
+    },
+    {
+      "name": "true",
+      "valid": true,
+      "statusLine": {
+        "device": 3,
+        "state": "planned",
+        "held": "gatewayBusy",
+        "method": "ownLink",
+        "bytes": 0,
+        "of": 4096,
+        "lastReason": "radioBusy",
+        "forceAvailable": true
+      },
+      "deviceUpdate": {
+        "device": 3,
+        "state": "planned",
+        "held": "gatewayBusy",
+        "method": "ownLink",
+        "bytes": 0,
+        "of": 4096,
+        "image": 1,
+        "reason": "radioBusy",
+        "forceAvailable": true
+      }
+    },
+    {
+      "name": "false",
+      "valid": false,
+      "statusLine": {
+        "device": 3,
+        "state": "planned",
+        "held": "gatewayBusy",
+        "method": "ownLink",
+        "bytes": 0,
+        "of": 4096,
+        "lastReason": "radioBusy",
+        "forceAvailable": false
+      },
+      "deviceUpdate": {
+        "device": 3,
+        "state": "planned",
+        "held": "gatewayBusy",
+        "method": "ownLink",
+        "bytes": 0,
+        "of": 4096,
+        "image": 1,
+        "reason": "radioBusy",
+        "forceAvailable": false
+      }
+    },
+    {
+      "name": "null",
+      "valid": false,
+      "statusLine": {
+        "device": 3,
+        "state": "planned",
+        "held": "gatewayBusy",
+        "method": "ownLink",
+        "bytes": 0,
+        "of": 4096,
+        "lastReason": "radioBusy",
+        "forceAvailable": null
+      },
+      "deviceUpdate": {
+        "device": 3,
+        "state": "planned",
+        "held": "gatewayBusy",
+        "method": "ownLink",
+        "bytes": 0,
+        "of": 4096,
+        "image": 1,
+        "reason": "radioBusy",
+        "forceAvailable": null
+      }
+    },
+    {
+      "name": "number",
+      "valid": false,
+      "statusLine": {
+        "device": 3,
+        "state": "planned",
+        "held": "gatewayBusy",
+        "method": "ownLink",
+        "bytes": 0,
+        "of": 4096,
+        "lastReason": "radioBusy",
+        "forceAvailable": 1
+      },
+      "deviceUpdate": {
+        "device": 3,
+        "state": "planned",
+        "held": "gatewayBusy",
+        "method": "ownLink",
+        "bytes": 0,
+        "of": 4096,
+        "image": 1,
+        "reason": "radioBusy",
+        "forceAvailable": 1
+      }
+    },
+    {
+      "name": "string",
+      "valid": false,
+      "statusLine": {
+        "device": 3,
+        "state": "planned",
+        "held": "gatewayBusy",
+        "method": "ownLink",
+        "bytes": 0,
+        "of": 4096,
+        "lastReason": "radioBusy",
+        "forceAvailable": "true"
+      },
+      "deviceUpdate": {
+        "device": 3,
+        "state": "planned",
+        "held": "gatewayBusy",
+        "method": "ownLink",
+        "bytes": 0,
+        "of": 4096,
+        "image": 1,
+        "reason": "radioBusy",
+        "forceAvailable": "true"
+      }
+    },
+    {
+      "name": "array",
+      "valid": false,
+      "statusLine": {
+        "device": 3,
+        "state": "planned",
+        "held": "gatewayBusy",
+        "method": "ownLink",
+        "bytes": 0,
+        "of": 4096,
+        "lastReason": "radioBusy",
+        "forceAvailable": [
+          true
+        ]
+      },
+      "deviceUpdate": {
+        "device": 3,
+        "state": "planned",
+        "held": "gatewayBusy",
+        "method": "ownLink",
+        "bytes": 0,
+        "of": 4096,
+        "image": 1,
+        "reason": "radioBusy",
+        "forceAvailable": [
+          true
+        ]
+      }
+    },
+    {
+      "name": "object",
+      "valid": false,
+      "statusLine": {
+        "device": 3,
+        "state": "planned",
+        "held": "gatewayBusy",
+        "method": "ownLink",
+        "bytes": 0,
+        "of": 4096,
+        "lastReason": "radioBusy",
+        "forceAvailable": {
+          "value": true
+        }
+      },
+      "deviceUpdate": {
+        "device": 3,
+        "state": "planned",
+        "held": "gatewayBusy",
+        "method": "ownLink",
+        "bytes": 0,
+        "of": 4096,
+        "image": 1,
+        "reason": "radioBusy",
+        "forceAvailable": {
+          "value": true
+        }
+      }
+    }
+  ]
+}

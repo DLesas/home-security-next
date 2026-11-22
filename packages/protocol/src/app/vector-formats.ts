@@ -119,6 +119,16 @@ export const schemaVector = z
   })
   .readonly();
 
+/** The same force availability value in a status line and an event body. */
+const rolloutForceVector = z
+  .strictObject({
+    name: z.string(),
+    valid: z.boolean(),
+    statusLine: z.unknown(),
+    deviceUpdate: z.unknown(),
+  })
+  .readonly();
+
 /** A backup file and its parts (`app-backup.json`). */
 export const backupVector = z
   .strictObject({
@@ -158,6 +168,7 @@ export const APP_VECTOR_FILES = {
   "app-typed-code.json": typedCodeVector,
   "app-link-secrets.json": linkSecretVector,
   "app-schemas.json": schemaVector,
+  "app-rollout-force.json": rolloutForceVector,
   "app-backup.json": backupVector,
   "app-release.json": releaseVector,
 } as const;

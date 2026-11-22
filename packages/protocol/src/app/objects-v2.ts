@@ -256,6 +256,8 @@ export const rolloutDeviceObject = z
     bytes: z.int().min(0),
     of: z.int().min(0),
     lastReason: updateReason.nullable(),
+    /** Present when a person may force an update (m3-updates §5, "A site so busy that a transmission is always waiting"). */
+    forceAvailable: z.literal(true).optional(),
   })
   .readonly();
 

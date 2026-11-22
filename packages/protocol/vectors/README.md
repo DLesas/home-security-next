@@ -210,6 +210,8 @@ The update service over Bluetooth (section 5): `serviceUuid`, `rxUuid` (the phon
 
 `app-*.json` are the app channel's vectors (docs/m2-design.md section 10), owned in step 1 by **A1**, in the formats `packages/protocol/src/app/vector-formats.ts` freezes. The device protocol's vectors above are unchanged by M2.
 
+`app-rollout-force.json` covers version 2's `forceAvailable` in a `rollout.status` device line and the `deviceUpdate` body. Each case supplies both objects and their expected validity. Generate it with `bun packages/protocol/src/app/vectors/app-vectors.ts`.
+
 ## The relay's vectors (M4)
 
 `relay-*.json` are the relay's vectors (docs/m4-design.md section 11), owned by **B1**, in the formats `packages/protocol/src/relay/vector-formats.ts` freezes, written by `bun packages/protocol/src/relay/vectors/relay-vectors.ts` and checked independently by `verify/verify-relay-vectors.mjs`. Each file's `description` gives every rule needed to implement from it, in the order a receiver checks:
