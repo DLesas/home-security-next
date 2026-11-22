@@ -190,6 +190,8 @@ export class HubEnd {
     addresses: readonly string[];
     appsPort: number;
     backupKeyEpoch: number | null;
+    /** `hub.info`'s `relay` (RD 3): the hub's relay URL; none when not given. */
+    relay?: string;
   } = { addresses: [], appsPort: 8444, backupKeyEpoch: null };
   reachable = true;
   /** While true, changes are made and committed, but their replies are not sent (a lost reply). */
@@ -288,7 +290,7 @@ export class HubEnd {
         proto: 2,
         addresses: this.v2.addresses,
         appsPort: this.v2.appsPort,
-        relay: null,
+        relay: this.v2.relay === undefined ? null : { url: this.v2.relay },
       },
       push: client.kind === "phone" ? { registered: false, valid: false } : null,
       backupKeyEpoch: client.kind === "phone" ? this.v2.backupKeyEpoch : null,
