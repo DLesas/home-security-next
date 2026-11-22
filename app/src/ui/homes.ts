@@ -22,6 +22,7 @@ import { createStore, type StoreApi } from "zustand/vanilla";
 import type { AnyOutcome, RequestFailure, RequestOutcome } from "../hub/channel";
 import type { Timers } from "../hub/wire";
 import type { Stored, StoredClient } from "../platform/client-key";
+import { hasPushRegistration } from "../platform/push-device";
 import type { Outcome } from "../platform/split";
 import type { PhoneRecords } from "../platform/vault";
 import type { LiveState } from "../state/live";
@@ -92,8 +93,7 @@ export interface Homes {
 }
 
 /** Whether removal must first unregister a saved (or pending) target for this home. */
-export const pushRegistrationOf = async (identity: string): Promise<boolean> =>
-  (await import("../platform/push-device")).hasPushRegistration(identity);
+export const pushRegistrationOf = hasPushRegistration;
 
 /** The first default name not taken: "Home", then "Home 2", "Home 3"… */
 export function nextHomeName(taken: readonly string[], nameFor: (n: number) => string): string {
