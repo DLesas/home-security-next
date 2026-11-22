@@ -20,7 +20,9 @@
  */
 import { DEPLOYMENT, defaultRelayUrl } from "@hsn/deployment";
 import * as Linking from "expo-linking";
-import { AppState } from "react-native";
+import { AppState, Platform } from "react-native";
+import { pushLifecycle } from "./push";
+import { pushStorage, pushTokens } from "../platform/push-device.native";
 import * as phoneKeys from "../platform/keys.native";
 import { secureItems } from "../platform/vault-items.native";
 import { hubNet } from "../../modules/hub-net";
@@ -74,6 +76,9 @@ export function onArrivedCode(listener: (code: ArrivedCode) => void): () => void
 export function startClient(): StartedClient {
   const phone = startPhoneClient({
     items: secureItems,
+    ...(Platform.OS === "android"
+      ? { push: pushLifecycle(pushStorage, pushTokens, realTimers) }
+      : {}),
     makeSocket,
     finder: hubNet().finder,
     timers: realTimers,

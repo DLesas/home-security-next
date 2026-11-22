@@ -91,12 +91,9 @@ export interface Homes {
   remove(identity: string): Promise<Outcome<undefined, RemoveFault>>;
 }
 
-/**
- * Whether this phone holds a push registration for the hub: never yet, since push registration
- * (`push.register`, m3-design.md section 6) is later work, which gives this its answer.
- */
-export const pushRegistrationOf: (identity: string) => Promise<boolean> = () =>
-  Promise.resolve(false);
+/** Whether removal must first unregister a saved (or pending) target for this home. */
+export const pushRegistrationOf = async (identity: string): Promise<boolean> =>
+  (await import("../platform/push-device")).hasPushRegistration(identity);
 
 /** The first default name not taken: "Home", then "Home 2", "Home 3"… */
 export function nextHomeName(taken: readonly string[], nameFor: (n: number) => string): string {

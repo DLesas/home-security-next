@@ -33,6 +33,7 @@ import {
   type AppOpBody,
   type AppOpName,
   hubInfoV2,
+  type SnapshotObjectV2,
   type LinkRequest,
   type RestoreOffer,
 } from "@hsn/protocol/app";
@@ -53,6 +54,7 @@ import {
 } from "./finder";
 import { type LinkFailure, type LinkSecret, linkClient, type ProtoRange } from "./handshake";
 import { fromBase64url } from "./files";
+import { type pushLifecycle, pushVault } from "./push";
 import { BackupKeyKeeper, restoreHub, type RestoreOutcome, snapshotEpoch } from "./restore";
 import type { ArrivedCode } from "./start-types";
 import {
@@ -92,6 +94,7 @@ export interface PhoneDeps {
   readonly keys: ClientKeys<Uint8Array>;
   /** The path through the relay; without it the phone reaches its hubs at home only. */
   readonly relay?: PhoneRelay;
+  readonly push?: ReturnType<typeof pushLifecycle>;
 }
 
 /** While on the relay, the phone tries home again this often † (m3-design.md section 6). */
@@ -187,7 +190,8 @@ function backupKeyOf(
 }
 
 export function startPhoneClient(deps: PhoneDeps): PhoneClient {
-  const records = phoneRecords(deps.items);
+  const push = deps.push;
+  const records = phoneRecords(push ? pushVault(deps.items, push) : deps.items);
   const chosen = chosenRecordStore(records);
   const socket = hubSocketConnect(deps.makeSocket, deps.timers);
   const live = createLiveStore();
@@ -356,6 +360,7 @@ export function startPhoneClient(deps: PhoneDeps): PhoneClient {
   const newEvents = new Set<(event: AppEventV2) => void>();
   const listener: ChannelListener = {
     status: (status) => {
+      push?.closed();
       store.status(status);
       if (status.kind === "open") {
         const path = lastPath ?? null;
@@ -391,11 +396,29 @@ export function startPhoneClient(deps: PhoneDeps): PhoneClient {
     },
     snapshot: (snapshot, hello) => {
       store.snapshot(snapshot, hello);
-      if (hello.proto >= 2) learnAddresses(snapshot.hub);
+      if (hello.proto >= 2) {
+        learnAddresses(snapshot.hub);
+        // The channel validated the v2 snapshot before delivering its v1-compatible view.
+        const v2 = snapshot as SnapshotObjectV2;
+        const version = home;
+        void push?.snapshot(
+          {
+            hub: v2.hub.identity,
+            client: hello.client.id,
+            register: (body) =>
+              version === home
+                ? channel.forward("push.register", body)
+                : Promise.resolve({ ok: false }),
+          },
+          v2.push,
+          v2.sensors,
+        );
+      }
       void keeper?.sessionStarted(snapshotEpoch(snapshot));
     },
     event: (event) => {
       store.event(event);
+      if (event.ev === "arming") void push?.arming(Object.values(live.getState().sensors));
       void keeper?.event(event.ev);
     },
     newEvent: (event) => {
@@ -439,6 +462,7 @@ export function startPhoneClient(deps: PhoneDeps): PhoneClient {
   };
   /** Ends the outgoing home's session and invalidates its outstanding work. */
   const leaveHome = () => {
+    push?.closed();
     home += 1;
     stopHomeAgain();
     tryingHome = false;
@@ -562,6 +586,7 @@ export function startPhoneClient(deps: PhoneDeps): PhoneClient {
       void records.sweep().then(() => channel.start());
     },
     stop: () => {
+      push?.closed();
       stopHomeAgain();
       channel.stop();
       reach.setState({ path: null });
