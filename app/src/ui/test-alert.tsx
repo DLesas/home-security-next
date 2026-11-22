@@ -1,20 +1,23 @@
 /** A test alert for a client the hub lets request its own push. */
 import { useMutation } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
+import type { Version2Channel } from "../hub/client";
 import { phoneRequest } from "../pairing/hub";
-import { useLive } from "./hub-context";
+import { useHub, useLive } from "./hub-context";
 import { Actions, Body, Button, Done, Heading, Notice, Section } from "./parts";
-import { type VersionTwoClient, VersionTwoFailure, useVersionTwo } from "./version-two";
+import { VersionTwoFailure } from "./version-two";
 
 /** Adds the test alert to Notifications when this client can receive one. */
 export function TestAlert() {
-  const channel = useVersionTwo();
-  const home = useLive((s) => s.session?.hub);
-  return channel?.testAlert === true ? <TestAlertSection key={home} channel={channel} /> : null;
+  const channel = useHub().v2;
+  const session = useLive((s) => s.session);
+  return channel !== undefined && session?.kind === "phone" ? (
+    <TestAlertSection key={session.hub} channel={channel} />
+  ) : null;
 }
 
 /** Sends one test and says whether the hub sent an alert. */
-function TestAlertSection({ channel }: { readonly channel: VersionTwoClient }) {
+function TestAlertSection({ channel }: { readonly channel: Version2Channel }) {
   const { t } = useTranslation();
   const test = useMutation({ mutationFn: () => phoneRequest(channel, "push.test", {}) });
   const result = test.data;

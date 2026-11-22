@@ -7,7 +7,7 @@ import { type HubOutcome, phoneRequest } from "../pairing/hub";
 import type { LiveState } from "../state/live";
 import { type Action, useHub, useLive } from "./hub-context";
 import { Actions, Body, Button, Done, Heading, Notice, NoticeText, Section } from "./parts";
-import { deniedSettings, VersionTwoFailure, useVersionTwo, useVersionTwoRead } from "./version-two";
+import { deniedSettings, VersionTwoFailure, useVersionTwoRead } from "./version-two";
 
 type FetchFailure = Extract<HubOutcome<"update.fetch">, { ok: false }>;
 interface Run {
@@ -60,8 +60,8 @@ export function useOfferedUpdate(
   staged: string | null | undefined,
   cancel: Action<"update.cancel">,
 ) {
-  const channel = useVersionTwo();
   const hub = useHub();
+  const channel = hub.v2;
   const session = useLive((s) => s.session);
   const status = useVersionTwoRead(channel, "update.offers", {});
   const [last, setLast] = useState<Download>();

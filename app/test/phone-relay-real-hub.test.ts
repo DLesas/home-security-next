@@ -9,7 +9,7 @@ import assert from "node:assert/strict";
 import { mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { parseConsoleFragment, SESSION_LIMITS } from "@hsn/protocol/app";
-import { createElement } from "react";
+import { createElement, Fragment } from "react";
 import { createStore } from "zustand/vanilla";
 import {
   HUB_TEST_ENTRY,
@@ -25,6 +25,7 @@ import { downloadFile, sendFile, uploadJob } from "../src/hub/files";
 import { type MakeSocket, NO_FINDER, readCode } from "../src/hub/finder";
 import { type PhoneClient, startPhoneClient } from "../src/hub/phone-client";
 import { PHONE_PROTO } from "../src/hub/restore";
+import { createWebHubClient } from "../src/hub/start.web";
 import { realTimers } from "../src/hub/wire";
 import { memoryRecordStore } from "../src/platform/client-key";
 import * as phoneKeys from "../src/platform/keys.native";
@@ -44,8 +45,8 @@ const { PhoneProvider } = await import("../src/ui/phone-parts");
 const { SiteScreen } = await import("../src/ui/site");
 const { standInPhoneParts } = await import("../src/ui/stand-ins");
 const { HubProvider } = await import("../src/ui/hub-context");
+const { StatusScreen } = await import("../src/ui/status");
 const { UpdatesScreen } = await import("../src/ui/updates");
-const { VersionTwoProvider } = await import("../src/ui/version-two");
 
 const home = homeAddress();
 const clients: HubClient[] = [];
@@ -86,8 +87,8 @@ async function until(check: () => boolean | Promise<boolean>, ms = 15_000): Prom
 }
 
 /** Opens the real hub's console, using the one-time local console token. */
-async function linkConsole(hub: RealHub): Promise<HubClient> {
-  const client = createHubClient({
+async function linkConsole(hub: RealHub, makeClient = createHubClient): Promise<HubClient> {
+  const client = makeClient({
     connect: connectFrom(hub.consoleOrigin),
     records: memoryRecordStore(),
     timers: realTimers,
@@ -325,6 +326,43 @@ test("real relay 4404 shows the hub is disconnected, and the phone opens when it
   await expectPath(phone, "relay");
 }, 45_000);
 
+/** Waits for a real hub reply and its React render, with a bounded assertion on the text. */
+async function visible(screen: ReturnType<typeof clientScreen>, words: string) {
+  const untilMs = performance.now() + 15_000;
+  while (!textOf(screen.html()).includes(words) && performance.now() < untilMs) {
+    await screenAct(() => Bun.sleep(25));
+  }
+  expect(textOf(screen.html())).toContain(words);
+}
+
+test("the real web client renders relay status and an offered release through HubClient.v2", async () => {
+  const browser = await linkConsole(hubA, createWebHubClient);
+  expect(await until(() => browser.live.getState().hub?.proto === 2)).toBe(true);
+  const world = await screenWorld({});
+  const screen = clientScreen();
+  mountedUpdate = screen;
+  await screen.render(
+    world.wrap(
+      createElement(HubProvider, {
+        client: browser,
+        children: createElement(
+          Fragment,
+          null,
+          createElement(StatusScreen),
+          createElement(UpdatesScreen),
+        ),
+      }),
+    ),
+  );
+  await visible(screen, "The relay is connected.");
+  await visible(screen, `Relay address: ${relay.url}`);
+  await visible(
+    screen,
+    `Version ${RELEASE_VERSION} is available (${release.size.toLocaleString("en")} bytes).`,
+  );
+  expect(screen.html()).toContain('aria-label="Download"');
+}, 45_000);
+
 test("the app reads the real relay status, downloads its offer and shows it ready to approve", async () => {
   away = true;
   const phone = startPhone(null);
@@ -346,26 +384,16 @@ test("the app reads the real relay status, downloads its offer and shows it read
     world.wrap(
       createElement(HubProvider, {
         client: phone.client,
-        children: createElement(VersionTwoProvider, {
-          client: { forward: phone.forward, testAlert: true },
-          children: createElement(UpdatesScreen),
-        }),
+        children: createElement(UpdatesScreen),
       }),
     ),
   );
-  /** Waits for a real hub reply and its React render, with a bounded assertion on the text. */
-  async function visible(words: string) {
-    const untilMs = performance.now() + 15_000;
-    while (!textOf(screen.html()).includes(words) && performance.now() < untilMs) {
-      await screenAct(() => Bun.sleep(25));
-    }
-    expect(textOf(screen.html())).toContain(words);
-  }
   await visible(
+    screen,
     `Version ${RELEASE_VERSION} is available (${release.size.toLocaleString("en")} bytes).`,
   );
   expect(await screen.press("Download")).toBe(true);
-  await visible(`Version ${RELEASE_VERSION} is ready.`);
+  await visible(screen, `Version ${RELEASE_VERSION} is ready.`);
   expect(screen.html()).toContain(`aria-label="Approve version ${RELEASE_VERSION}"`);
   const status = await phone.client.request("update.status", {});
   expect(status).toMatchObject({ ok: true, body: { staged: RELEASE_VERSION, approvedBy: null } });

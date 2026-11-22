@@ -12,7 +12,7 @@ import {
 } from "@hsn/protocol/app";
 import { createElement, Fragment } from "react";
 import type { AnyOutcome, RequestOutcome } from "../src/hub/channel";
-import type { HubClient } from "../src/hub/client";
+import type { HubClient, Version2Channel } from "../src/hub/client";
 import { applyEvent } from "../src/state/live";
 import { clientScreen, screenAct } from "./support/client-screen";
 import { screenWorld, textOf } from "./support/screens";
@@ -21,7 +21,6 @@ const { HubProvider } = await import("../src/ui/hub-context");
 const { StatusScreen } = await import("../src/ui/status");
 const { UpdatesScreen } = await import("../src/ui/updates");
 const { NotificationsScreen } = await import("../src/ui/notifications");
-const { VersionTwoProvider } = await import("../src/ui/version-two");
 
 const up: RelayStatusObject = {
   url: "wss://relay.example.com",
@@ -54,12 +53,12 @@ afterEach(async () => {
   view = undefined;
 });
 
-/** Mounts the production screens on a non-phone client with scripted replies. */
+/** Mounts the production screens on a client with scripted replies and a chosen kind. */
 async function mount(
   initial: Readonly<Partial<Record<AppOpNameV2, AnyOutcome>>> = {},
-  options: { readonly version?: 1 | 2; readonly testAlert?: boolean } = {},
+  options: { readonly version?: 1 | 2; readonly kind?: "phone" | "web" } = {},
 ) {
-  const session = { hub: "fixture", boot: 1, client: 7, person: 2, kind: "web" } as const;
+  const session = { hub: "fixture", boot: 1, client: 7, person: 2, kind: options.kind ?? "phone" };
   const world = await screenWorld({
     session,
     hub: {
@@ -85,8 +84,18 @@ async function mount(
   };
   const calls: { readonly op: AppOpNameV2; readonly body: unknown }[] = [];
   const listeners = new Set<(event: AppEvent) => void>();
+  const v2: Version2Channel = {
+    /** Serves the stand-in's version 2 requests. */
+    forward(op, body) {
+      calls.push({ op, body });
+      return Promise.resolve(replies[op] ?? { ok: false, local: "offline" });
+    },
+    /** These screens take their hub events through the live store and the shared event listener. */
+    onNewEvent: () => () => undefined,
+  };
   const client: HubClient = {
     ...world.client,
+    ...(options.version === 1 ? {} : { v2 }),
     /** Serves the existing update flow and keeps an exact request record. */
     async request<N extends AppOpName>(op: N, body: AppOpBody<N>): Promise<RequestOutcome<N>> {
       calls.push({ op, body });
@@ -102,33 +111,19 @@ async function mount(
       };
     },
   };
-  const channel =
-    options.version === 1
-      ? undefined
-      : {
-          testAlert: options.testAlert ?? true,
-          /** Serves v2 requests from the stand-in without any dependency on the phone wiring. */
-          forward(op: AppOpNameV2, body: unknown): Promise<AnyOutcome> {
-            calls.push({ op, body });
-            return Promise.resolve(replies[op] ?? { ok: false, local: "offline" });
-          },
-        };
   const screen = clientScreen();
   view = screen;
   await screen.render(
     world.wrap(
       createElement(HubProvider, {
         client,
-        children: createElement(VersionTwoProvider, {
-          client: channel,
-          children: createElement(
-            Fragment,
-            null,
-            createElement(StatusScreen),
-            createElement(UpdatesScreen),
-            createElement(NotificationsScreen),
-          ),
-        }),
+        children: createElement(
+          Fragment,
+          null,
+          createElement(StatusScreen),
+          createElement(UpdatesScreen),
+          createElement(NotificationsScreen),
+        ),
       }),
     ),
   );
@@ -486,7 +481,7 @@ test("read refusals hide relay settings and offers from a person without manage 
   expect(app.screen.html()).toContain('aria-label="Send a test alert"');
 });
 
-test("version 1 clients show none of the three sections and send none of their requests", async () => {
+test("a version 1 phone shows none of the three sections and sends none of their requests", async () => {
   const app = await mount({}, { version: 1 });
   expect(app.text()).not.toContain("Available hub updates");
   expect(app.screen.html()).not.toContain('aria-label="Relay"');
@@ -496,17 +491,17 @@ test("version 1 clients show none of the three sections and send none of their r
   expect(app.calls.map((call) => call.op)).not.toContain("push.test");
 });
 
-test("all three shared sections render for a non-phone stand-in with version 2", async () => {
+test("a version 2 browser shows relay and offers, and hides the test alert", async () => {
+  const app = await mount({}, { kind: "web" });
+  await app.visible("The relay is connected.");
+  await app.visible("Available hub updates");
+  expect(app.screen.html()).not.toContain('aria-label="Send a test alert"');
+  expect(app.sent("push.test")).toEqual([]);
+});
+
+test("a version 2 phone shows all three sections", async () => {
   const app = await mount();
   await app.visible("The relay is connected.");
   await app.visible("Available hub updates");
   expect(app.screen.html()).toContain('aria-label="Send a test alert"');
-  expect(app.client.live.getState().session?.kind).toBe("web");
-});
-
-test("a version 2 client without the test-alert capability has no test-alert button", async () => {
-  const app = await mount({}, { testAlert: false });
-  await app.visible("The relay is connected.");
-  await app.visible("Available hub updates");
-  expect(app.screen.html()).not.toContain('aria-label="Send a test alert"');
 });

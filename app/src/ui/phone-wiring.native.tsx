@@ -20,7 +20,6 @@ import { followHomes, type Homes, phoneHomes, pushRegistrationOf } from "./homes
 import type { PhoneParts } from "./phone-parts";
 import { reachFaultOf } from "./phone-words";
 import { standInPhoneParts } from "./stand-ins";
-import type { VersionTwoClient } from "./version-two";
 
 /** Keeps the phone's screen lock alive across route changes. */
 const lock = appLock({
@@ -40,12 +39,6 @@ const lock = appLock({
 });
 
 let homesOf: { readonly phone: PhoneClient; readonly homes: Homes } | undefined;
-
-/** The shared screens' version 2 channel, for the active phone client only. */
-export function versionTwoFor(hub: HubClient): VersionTwoClient | undefined {
-  const phone = phoneClient();
-  return phone?.client === hub ? { forward: phone.forward, testAlert: true } : undefined;
-}
 
 /** The homes of the phone client, made once and kept as the client changes them. */
 function homesFor(phone: PhoneClient): Homes {

@@ -2,27 +2,22 @@
 import { useMutation } from "@tanstack/react-query";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
+import type { Version2Channel } from "../hub/client";
 import { phoneRequest } from "../pairing/hub";
 import { formatTime } from "./format";
-import { useLive } from "./hub-context";
+import { useHub, useLive } from "./hub-context";
 import { Actions, Body, Button, Done, Field, Heading, Section } from "./parts";
-import {
-  deniedSettings,
-  type VersionTwoClient,
-  VersionTwoFailure,
-  useVersionTwo,
-  useVersionTwoRead,
-} from "./version-two";
+import { deniedSettings, VersionTwoFailure, useVersionTwoRead } from "./version-two";
 
 /** Shows relay settings only when the client can ask the hub for them. */
 export function RelaySettings() {
-  const channel = useVersionTwo();
+  const channel = useHub().v2;
   const home = useLive((s) => s.session?.hub);
   return channel === undefined ? null : <RelaySection key={home} channel={channel} />;
 }
 
 /** Shows the relay's status and lets a manager set its address or return to the default. */
-function RelaySection({ channel }: { readonly channel: VersionTwoClient }) {
+function RelaySection({ channel }: { readonly channel: Version2Channel }) {
   const { t, i18n } = useTranslation();
   const info = useLive((s) => s.hub);
   const status = useVersionTwoRead(channel, "relay.status", {});
