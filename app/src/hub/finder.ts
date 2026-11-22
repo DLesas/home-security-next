@@ -13,7 +13,7 @@
  * - **The order:** the address that last worked; the hub's addresses as it last named them (the
  *   code's `a=`, then `hub.info`'s `addresses`); then the hubs an mDNS browse finds, of this
  *   hub's identity (any hub, for a typed code), each address given 1.5 s †. The relay comes after
- *   (M5, `relay.ts`).
+ *   (`relay.ts`), for a session, a link and a restore.
  * - Nothing here logs. A code's secret stays in the `LinkSecret` the caller holds.
  */
 import {
@@ -148,7 +148,10 @@ export function typedAddress(
 
 // ----- Codes -----
 
-/** Where a code says the hub is at home (the QR code's `a=` and `p=`), and its relay (`r=`). */
+/**
+ * Where a code says the hub is at home (the QR code's `a=` and `p=`), and its relay (`r=`, on a
+ * link code and, should a hub write one, a restore code).
+ */
 export interface CodeReach {
   readonly addresses: readonly string[];
   readonly port: number;
@@ -220,7 +223,11 @@ export function readCode(text: string): Outcome<PhoneCode, CodeFault> {
         restore: {
           identity: qr.identity,
           secret: qr.secret,
-          reach: { addresses: homeAddresses(qr.addresses), port: qr.port },
+          reach: {
+            addresses: homeAddresses(qr.addresses),
+            port: qr.port,
+            ...(qr.relay === undefined ? {} : { relay: qr.relay }),
+          },
         },
       },
     };
