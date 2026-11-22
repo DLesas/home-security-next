@@ -90,6 +90,40 @@ class PushRulesTest {
     /** Positive sequences already shown are silent. */
     @Test fun duplicate() { check(display(countdown,false,true,null) == null) }
 
+    /** Runs the production schema on SQLite and feeds its actual repeat lookup into the display rule. */
+    @Test fun newestSequencesPerHub() {
+        val script = """
+            import { Database } from "bun:sqlite";
+            const sql = JSON.parse(await Bun.stdin.text());
+            const db = new Database(":memory:");
+            db.exec(sql.table);
+            const insert = db.query("INSERT OR IGNORE INTO shown VALUES (?, ?)");
+            for (let i = 1; i <= 600; i++) insert.run("upgraded", i);
+            db.query(sql.pruneExisting).run("upgraded");
+            db.exec(sql.trigger);
+            insert.run("neighbour", 1);
+            for (let i = 600; i >= 1; i--) insert.run("current", i);
+            const rows = db.query("SELECT seq FROM shown WHERE hub = ? ORDER BY seq");
+            for (const hub of ["current", "upgraded", "neighbour"]) {
+                console.log(rows.values(hub).flat().join(","));
+            }
+            console.log(db.query("SELECT 1 FROM shown WHERE hub = ? AND seq = ?").get("current", 550) !== null);
+        """.trimIndent()
+        val sqlite = ProcessBuilder("bun", "-e", script).redirectErrorStream(true).start()
+        sqlite.outputStream.bufferedWriter().use {
+            it.write(groovy.json.JsonOutput.toJson(mapOf(
+                "table" to ShownHistory.table, "pruneExisting" to ShownHistory.pruneExisting,
+                "trigger" to ShownHistory.trigger,
+            )))
+        }
+        val rows = sqlite.inputStream.bufferedReader().use { it.readLines() }
+        check(sqlite.waitFor() == 0) { rows.joinToString() }
+        val newest = (101..600).joinToString(",")
+        check(rows.take(3) == listOf(newest, newest, "1"))
+        val seen = rows.last().toBooleanStrict()
+        check(display(countdown.copy(hub = "current", seq = 550), false, seen, null) == null)
+    }
+
     /** The ordinary envelope becomes loud only after the alert is opened. */
     @Test fun criticalFlag() {
         check(display(countdown,false,false,null)?.critical == true)

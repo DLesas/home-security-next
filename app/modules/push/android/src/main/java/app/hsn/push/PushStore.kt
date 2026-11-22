@@ -14,7 +14,7 @@ import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
 /** Private, backup-excluded phone storage. Only the wrapping key lives in Android Keystore. */
-internal class PushStore private constructor(context: Context) : SQLiteOpenHelper(context, "push.db", null, 1) {
+internal class PushStore private constructor(context: Context) : SQLiteOpenHelper(context, "push.db", null, 2) {
     companion object {
         private var instance: PushStore? = null
         /** Gives the native bridge and messaging service one serialized database connection pool. */
@@ -26,10 +26,20 @@ internal class PushStore private constructor(context: Context) : SQLiteOpenHelpe
         db.execSQL("CREATE TABLE keys(hub TEXT PRIMARY KEY, active TEXT, pending TEXT, secret BLOB NOT NULL)")
         db.execSQL("CREATE INDEX active_key ON keys(active)")
         db.execSQL("CREATE INDEX pending_key ON keys(pending)")
-        db.execSQL("CREATE TABLE shown(hub TEXT, seq INTEGER, PRIMARY KEY(hub,seq)) WITHOUT ROWID")
+        db.execSQL(ShownHistory.table)
+        db.execSQL(ShownHistory.trigger)
         db.execSQL("CREATE TABLE names(hub TEXT PRIMARY KEY, name TEXT NOT NULL)")
     }
-    override fun onUpgrade(db: SQLiteDatabase, old: Int, new: Int) = Unit
+    /** Bounds existing histories before enabling the per-insert limit on upgraded phones. */
+    override fun onUpgrade(db: SQLiteDatabase, old: Int, new: Int) {
+        if (old < 2) {
+            val hubs = db.rawQuery("SELECT DISTINCT hub FROM shown", null).use { rows ->
+                buildList { while (rows.moveToNext()) add(rows.getString(0)) }
+            }
+            for (hub in hubs) db.execSQL(ShownHistory.pruneExisting, arrayOf(hub))
+            db.execSQL(ShownHistory.trigger)
+        }
+    }
 
     /** Runs one atomic state transition, including cancellation and display for delivered alerts. */
     fun <T> transaction(block: (SQLiteDatabase) -> T): T {
