@@ -24,7 +24,14 @@ import { platformOf } from "../update/release.ts";
 import { Staging, type StageInputs } from "../update/stage.ts";
 import { StagingJob } from "../update/stage-job.ts";
 import { RestoreJob } from "./restore-job.ts";
-import { readRestoreHeader, type RestoreInputs, RestorePieces, swapRestored } from "./restore.ts";
+import { OffLoopJob } from "../off-loop-job.ts";
+import {
+  readRestoreHeader,
+  readRestoreHeaderOffLoop,
+  type RestoreInputs,
+  RestorePieces,
+  swapRestored,
+} from "./restore.ts";
 import { ExportPieces } from "./export-pieces.ts";
 import { HistoryExport } from "./history-export.ts";
 import { BackupJob } from "./write-job.ts";
@@ -171,6 +178,15 @@ export function startJob(job: JobId, work: FileWork, deps: JobDeps): JobStart {
   // `stageFirmware`. Only a wiring without a relay client (a test's) reaches this: failed.
   if (work.kind === "fetchRelease")
     return ready({ kind: "failed", reason: "unreachable", message: "no relay client to fetch it" });
+  if (work.kind === "readRestore" && deps.onThread !== true) {
+    // The upload's head read off the loop (`safe/off-loop.ts`), its outcome on the loop's turn.
+    const path = deps.uploads.pathOf(work.upload);
+    if (path === undefined) return noUpload(work.upload);
+    return {
+      kind: "pieces",
+      pieces: new OffLoopJob(() => readRestoreHeaderOffLoop(path), deps.wake),
+    };
+  }
   if (work.kind !== "stageUpdate") return atOnce(work, deps);
   const path = deps.uploads.pathOf(work.upload);
   if (path === undefined) return noUpload(work.upload);

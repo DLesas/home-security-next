@@ -35,6 +35,7 @@ import type { FileOutcome } from "../../core/model/events.ts";
 import { BACKUP_STATE_DEFAULTS, Rekey } from "../../core/model/rows.ts";
 import type { HubRules } from "../../core/model/rules.ts";
 import { applyMigrations, readMigrations } from "../safe/migrate.ts";
+import { readHeadOffLoop } from "../safe/off-loop.ts";
 import { closeDatabase, openDatabase, sqlite } from "../safe/sqlite.ts";
 import {
   BACKUP_TABLES,
@@ -50,6 +51,7 @@ import {
 import {
   exists,
   type FileError,
+  fileError,
   copyDurably,
   readHead,
   remove,
@@ -80,9 +82,24 @@ function isHistoryFile(head: Uint8Array): boolean {
 /** `readRestore`: the header of the uploaded file. */
 export function readRestoreHeader(path: string): FileOutcome {
   const head = readHead(path, BACKUP_FORMAT.headerBytes);
-  if (head.isErr()) return { kind: "failed", ...head.error };
-  if (isHistoryFile(head.value)) return HISTORY_REFUSED;
-  const header = backupCodec.readHeader(head.value);
+  return head.isErr() ? { kind: "failed", ...head.error } : restoreHeaderOutcome(head.value);
+}
+
+/**
+ * `readRestore` off the hub's thread (D145, design P): the upload's head read through
+ * `node:fs/promises` (`safe/off-loop.ts`), the same outcome as `readRestoreHeader`'s.
+ */
+export async function readRestoreHeaderOffLoop(path: string): Promise<FileOutcome> {
+  const head = await readHeadOffLoop(path, BACKUP_FORMAT.headerBytes);
+  return head.isErr()
+    ? { kind: "failed", ...fileError(`read ${path}`)(head.error) }
+    : restoreHeaderOutcome(head.value);
+}
+
+/** What the upload's first bytes say: a backup's header, a history export, or not a backup. */
+function restoreHeaderOutcome(head: Uint8Array): FileOutcome {
+  if (isHistoryFile(head)) return HISTORY_REFUSED;
+  const header = backupCodec.readHeader(head);
   if (!header.ok)
     return { kind: "failed", reason: "badFile", message: `not a backup: ${header.error}` };
   return {

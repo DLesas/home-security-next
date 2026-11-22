@@ -628,9 +628,9 @@ describe("restore", () => {
     expect(readdirSync(newData).toSorted()).toEqual(before);
   });
 
-  test("the header read for the console's question", () => {
+  test("the header read for the console's question, off the loop", async () => {
     const { newData } = uploaded();
-    const read = runToEnd(
+    const read = await jobToEnd(
       jobId(1),
       { kind: "readRestore", upload: { conn: connId(9), job: 1 } },
       deps({ dataDir: newData }),

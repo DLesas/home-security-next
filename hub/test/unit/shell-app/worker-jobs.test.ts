@@ -2,7 +2,7 @@
  * The file jobs the hub runs off its thread, through the app side's file jobs (`AppSide.job`,
  * `app-wiring.ts`), as `main.ts` wires them for the loop: a firmware image's staging, a backup
  * and a restore on their workers (D145), and a firmware image's removal off the loop. Each job the
- * hub is given says it is waiting while its work runs, so the loop asks no turn for it, and its
+ * hub is given (a restore's header read, `readRestore`, too) says it is waiting while its work runs, so the loop asks no turn for it, and its
  * outcome asks for one turn through `wake` (the loop's `askTurn`). Without the wake the job never
  * says it waits, and the loop turns for it as for any job. (An update's staging is
  * `shell-update/app-staging.test.ts`'s.)
@@ -218,14 +218,19 @@ describe("the jobs off the hub's thread, through the app side's file jobs", () =
   });
 
   /** A backup of a hub, written by its own job, uploaded to this one as upload 2. */
-  async function restoreWork(root: string): Promise<(side: Side) => FileWork> {
+  async function restoreWork(
+    root: string,
+    kind: "applyRestore" | "readRestore" = "applyRestore",
+  ): Promise<(side: Side) => FileWork> {
     const { side } = await withWake(join(root, "old"), backup);
     const folderPath = join(side.data, "..", "backups");
     const [name] = readdirSync(folderPath).filter((n) => n.endsWith(".hsnb"));
     const bytes = new Uint8Array(readFileSync(join(folderPath, name ?? "")));
     return (target) => {
       upload(target.start, 2, bytes);
-      return { kind: "applyRestore", upload: { conn: CONN, job: 2 }, key: KEY };
+      return kind === "applyRestore"
+        ? { kind, upload: { conn: CONN, job: 2 }, key: KEY }
+        : { kind, upload: { conn: CONN, job: 2 } };
     };
   }
 
@@ -237,5 +242,16 @@ describe("the jobs off the hub's thread, through the app side's file jobs", () =
     const work = await restoreWork(root);
     expect((await withWake(join(root, "new"), work)).outcome).toEqual({ kind: "restoreReady" });
     expect(await withoutWake(join(root, "plain"), work)).toEqual({ kind: "restoreReady" });
+  });
+
+  test("a restore's header read (readRestore) off the loop: waits, wakes once; without a wake never says it waits", async () => {
+    const root = folder();
+    for (const sub of ["old", "new", "plain"]) mkdirSync(join(root, sub), { recursive: true });
+    const work = await restoreWork(root, "readRestore");
+    expect((await withWake(join(root, "new"), work)).outcome).toMatchObject({
+      kind: "restoreRead",
+      epoch: 1,
+    });
+    expect(await withoutWake(join(root, "plain"), work)).toMatchObject({ kind: "restoreRead" });
   });
 });
