@@ -46,7 +46,15 @@ import {
 } from "./codes.ts";
 import { decide, type Decision, openRollout, seenOf, type Where } from "./decide.ts";
 import { deliver, imageOfEntry, revokeDevice } from "./deliver.ts";
-import { change, forgetTold, inProgress, putEntry, setHeld, transition } from "./entries.ts";
+import {
+  change,
+  forgetTold,
+  inProgress,
+  publishForceAvailability,
+  putEntry,
+  setHeld,
+  transition,
+} from "./entries.ts";
 import type { Steps } from "./out.ts";
 import { firmwareDecision } from "./records.ts";
 import { advance, advanceDevice, factsOf, pause } from "./rollout.ts";
@@ -278,10 +286,10 @@ function onRefused(
     case UpdateReason.RadioBusy: {
       // The gateway keeps its part; offered again after an hour ‡, three times ‡, then a person.
       const holds = entry.busyHolds + 1;
+      putEntry(steps, { ...entry, busyHolds: holds, forced: false });
       change(steps, ctx, device, backToPlanned);
-      const after = steps.slice.updates.get(device);
-      if (after !== undefined) putEntry(steps, { ...after, busyHolds: holds, forced: false });
       setHeld(steps, ctx, device, UpdateHeld.GatewayBusy);
+      publishForceAvailability(steps, ctx, device);
       forgetTold(steps, device);
       if (holds < fw.gatewayBusyMaxHolds) {
         steps.timer(

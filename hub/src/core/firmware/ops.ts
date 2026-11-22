@@ -59,7 +59,15 @@ import {
   workingRole,
 } from "./decide.ts";
 import { deliver } from "./deliver.ts";
-import { eventBody, inProgress, published, putEntry, setHeld, transition } from "./entries.ts";
+import {
+  eventBody,
+  forceAvailability,
+  inProgress,
+  published,
+  putEntry,
+  setHeld,
+  transition,
+} from "./entries.ts";
 import type { Steps } from "./out.ts";
 import { actorText, firmwareDecision, writeUpdate } from "./records.ts";
 import { advance, cancel, factsOf, pause, putRollout, resumeStage } from "./rollout.ts";
@@ -107,7 +115,7 @@ export function rolloutObject(steps: Steps, rollout: Rollout): RolloutObject {
 }
 
 /** A planned device as `rollout.status` shows it. */
-function rolloutDevice(steps: Steps, entry: DeviceEntry): RolloutDeviceObject {
+function rolloutDevice(steps: Steps, ctx: Context, entry: DeviceEntry): RolloutDeviceObject {
   const body = eventBody(steps.slice, entry.row);
   return {
     device: entry.row.deviceId,
@@ -117,6 +125,7 @@ function rolloutDevice(steps: Steps, entry: DeviceEntry): RolloutDeviceObject {
     bytes: entry.row.bytes,
     of: body.of,
     lastReason: reasonName(entry.row.lastReason) ?? null,
+    ...forceAvailability(steps.slice, ctx, entry),
   };
 }
 
@@ -336,7 +345,7 @@ function rolloutStart(
       discard: false,
       deviceHeld: undefined,
     };
-    putEntry(steps, published(steps, entry));
+    putEntry(steps, published(steps, ctx, entry));
     steps.push(writeUpdate(fresh));
   }
   steps.pushResult(
@@ -463,14 +472,15 @@ function rolloutCancel(
   steps.answer(answerTo, rolloutObject(steps, ended));
 }
 
-function rolloutStatus(steps: Steps, answerTo: AnswerTo): void {
+/** Answers with the latest rollout and its device lines. */
+function rolloutStatus(steps: Steps, ctx: Context, answerTo: AnswerTo): void {
   const rollout = latestRollout(steps);
   const devices =
     rollout === undefined
       ? []
       : rollout.devices.flatMap((id) => {
           const entry = steps.slice.updates.get(id);
-          return entry?.row.rolloutId === rollout.row.id ? [rolloutDevice(steps, entry)] : [];
+          return entry?.row.rolloutId === rollout.row.id ? [rolloutDevice(steps, ctx, entry)] : [];
         });
   steps.answer(answerTo, {
     rollout: rollout === undefined ? null : rolloutObject(steps, rollout),
@@ -636,7 +646,7 @@ function bluetooth(
     bleNonce: nonce.value,
     bleExpiresMs: expiresAtMs,
   };
-  putEntry(steps, published(steps, { ...entry, row: changed, told: undefined }));
+  putEntry(steps, published(steps, ctx, { ...entry, row: changed, told: undefined }));
   steps.push(writeUpdate(changed));
   steps.pushResult(
     firmwareDecision(ctx, "firmware_session_opened", {
@@ -708,7 +718,7 @@ export function firmwareOp(
       rolloutCancel(steps, ctx, answerTo, actor, record, op.body.rollout);
       return;
     case "rollout.status":
-      rolloutStatus(steps, answerTo);
+      rolloutStatus(steps, ctx, answerTo);
       return;
     default:
       steps.refuse(answerTo, { code: "notBuilt", detail: { op: op.op } });

@@ -4,12 +4,14 @@
  * event (`deviceUpdateEvent`, for `app` to send) at each transition and at most once every
  * `progressEventEveryMs` ‡ of progress. The entry keeps the body last sent, for the bound.
  */
+import { Role } from "@hsn/protocol";
 import type { DecisionKind } from "../model/decisions.ts";
 import type { Context } from "../model/handler.ts";
 import type { DeviceId, Seq } from "../model/ids.ts";
 import { DeviceUpdateState, type DeviceUpdateRow, UpdateHeld } from "../model/rows.ts";
 import { monoAfterMs, msBetween } from "../model/time.ts";
 import { holdName, IMAGE_HEADER_BYTES, methodName, reasonName, stateName } from "./codes.ts";
+import { workingRole } from "./decide.ts";
 import type { Steps } from "./out.ts";
 import { firmwareDecision, writeUpdate } from "./records.ts";
 import type { DeviceEntry, DeviceUpdateEvent, FirmwareSlice } from "./state.ts";
@@ -41,6 +43,25 @@ export function eventBody(slice: FirmwareSlice, row: DeviceUpdateRow): DeviceUpd
   };
 }
 
+/** Exposes the manual override once an open rollout stops automatically retrying a busy gateway. */
+export function forceAvailability(
+  slice: FirmwareSlice,
+  ctx: Context,
+  entry: DeviceEntry,
+): Pick<DeviceUpdateEvent, "forceAvailable"> {
+  const { row } = entry;
+  if (
+    row.held !== UpdateHeld.GatewayBusy ||
+    entry.forced ||
+    entry.busyHolds < ctx.deps.rules.firmware.gatewayBusyMaxHolds ||
+    row.rolloutId === null ||
+    slice.rollouts.get(row.rolloutId)?.row.endedMs !== null ||
+    workingRole(ctx.view, row.deviceId) !== Role.Gateway
+  )
+    return {};
+  return { forceAvailable: true };
+}
+
 /** Replaces the device's entry in the slice. */
 export function putEntry(steps: Steps, entry: DeviceEntry): void {
   const updates = new Map(steps.slice.updates);
@@ -52,10 +73,22 @@ export function putEntry(steps: Steps, entry: DeviceEntry): void {
  * Sends the entry's `deviceUpdate` now (a `deviceUpdateEvent` for `app`), and returns the entry
  * with it as the body last sent. A row naming no rollout's image has no event to send.
  */
-export function published(steps: Steps, entry: DeviceEntry): DeviceEntry {
-  const body = eventBody(steps.slice, entry.row);
+export function published(steps: Steps, ctx: Context, entry: DeviceEntry): DeviceEntry {
+  const body = {
+    ...eventBody(steps.slice, entry.row),
+    ...forceAvailability(steps.slice, ctx, entry),
+  };
   if (body.image > 0) steps.push({ kind: "deviceUpdateEvent", body });
   return { ...entry, event: body };
+}
+
+/** Publishes a change in force availability even when the update row did not move. */
+export function publishForceAvailability(steps: Steps, ctx: Context, device: DeviceId): void {
+  const entry = steps.slice.updates.get(device);
+  if (entry === undefined) return;
+  if (entry.event?.forceAvailable === forceAvailability(steps.slice, ctx, entry).forceAvailable)
+    return;
+  putEntry(steps, { ...published(steps, ctx, entry), eventAt: ctx.now.mono });
 }
 
 /**
@@ -73,7 +106,10 @@ export function change(steps: Steps, ctx: Context, device: DeviceId, fields: Row
   if (transition) {
     // A transition is published at once, and the progress bound counts from it.
     const next = {
-      ...published(steps, { ...entry, row: { ...row, sinceMs: sinceOf(entry.row, row, ctx) } }),
+      ...published(steps, ctx, {
+        ...entry,
+        row: { ...row, sinceMs: sinceOf(entry.row, row, ctx) },
+      }),
       eventAt: ctx.now.mono,
     };
     putEntry(steps, next);
@@ -104,7 +140,7 @@ export function progress(steps: Steps, ctx: Context, device: DeviceId): void {
   const every = ctx.deps.rules.firmware.progressEventEveryMs;
   const key = { module: "firmware", kind: "progressEvent", device } as const;
   if (entry.eventAt === undefined || msBetween(entry.eventAt, ctx.now.mono) >= every) {
-    putEntry(steps, { ...published(steps, entry), eventAt: ctx.now.mono });
+    putEntry(steps, { ...published(steps, ctx, entry), eventAt: ctx.now.mono });
     steps.clear(key);
     return;
   }
@@ -115,7 +151,7 @@ export function progress(steps: Steps, ctx: Context, device: DeviceId): void {
 export function progressDue(steps: Steps, ctx: Context, device: DeviceId): void {
   const entry = steps.slice.updates.get(device);
   if (entry === undefined || entry.event?.bytes === entry.row.bytes) return;
-  putEntry(steps, { ...published(steps, entry), eventAt: ctx.now.mono });
+  putEntry(steps, { ...published(steps, ctx, entry), eventAt: ctx.now.mono });
 }
 
 /**
