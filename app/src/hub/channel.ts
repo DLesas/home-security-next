@@ -506,8 +506,25 @@ export class Channel implements Requester {
     this.send({ ...pending, seq, retriedTooLow: true });
   }
 
+  /**
+   * Ends the open session and opens another at once, by the `Connect`'s order: a phone on the
+   * relay whose home answers again (m3-design.md section 6). As after a drop, a change in flight
+   * goes again with its `seq` on the new session and a read in flight fails (`lost`); nothing
+   * waits first, since the hub was not lost.
+   */
+  reconnect(): void {
+    const session = this.session;
+    if (session === undefined || !this.drop(session)) return;
+    void this.connect();
+  }
+
   private ended(session: Session): void {
-    if (this.session !== session) return;
+    if (this.drop(session)) this.waitThenConnect("closed");
+  }
+
+  /** Closes `session` and settles what was in flight on it; true when the channel goes on. */
+  private drop(session: Session): boolean {
+    if (this.session !== session) return false;
     session.close(CLOSE.normal);
     this.session = undefined;
     this.cancelLiveness?.();
@@ -517,8 +534,7 @@ export class Channel implements Requester {
       else pending.resolve({ ok: false, local: this.removed ? "removed" : "lost" });
     }
     this.pending.clear();
-    if (this.removed || this.stopped) return;
-    this.waitThenConnect("closed");
+    return !this.removed && !this.stopped;
   }
 
   private waitThenConnect(failure: SessionFailure | "closed"): void {

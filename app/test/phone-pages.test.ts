@@ -15,7 +15,7 @@ import type { Permission, Scanner } from "../src/platform/scanner";
 import type { PhoneParts } from "../src/ui/phone-parts";
 import type { ScanState } from "../src/ui/scan";
 import type { VaultStatus } from "../src/platform/vault";
-import type { ReachState } from "../src/hub/phone-client";
+import { NO_REACH, type ReachState } from "../src/hub/phone-client";
 import { createStore } from "zustand/vanilla";
 import type {
   BluetoothSessionObject,
@@ -84,7 +84,7 @@ function phoneParts(overrides: Partial<PhoneParts> = {}): PhoneParts {
     holdsBackupKey: () => Promise.resolve(false),
     arrived: { claim: () => undefined, subscribe: () => () => undefined },
     vault: createStore<VaultStatus>()(() => ({ fault: null, identity: null })),
-    reach: createStore<ReachState>()(() => ({ localNetworkDenied: false, browse: null })),
+    reach: createStore<ReachState>()(() => NO_REACH),
     os: "ios",
     ...overrides,
   };
@@ -253,15 +253,15 @@ describe("linking this phone (m3-design.md section 3)", () => {
   });
 
   test("the phone client's reach in words: the system's refusal, or no hub found by the browse", () => {
-    expect(words.reachFaultOf({ localNetworkDenied: false, browse: null })).toBeUndefined();
-    expect(words.reachFaultOf({ localNetworkDenied: true, browse: null })).toBe(
+    expect(words.reachFaultOf(NO_REACH)).toBeUndefined();
+    expect(words.reachFaultOf({ ...NO_REACH, localNetworkDenied: true })).toBe(
       "localNetworkDenied",
     );
-    expect(words.reachFaultOf({ localNetworkDenied: false, browse: "localNetworkDenied" })).toBe(
+    expect(words.reachFaultOf({ ...NO_REACH, browse: "localNetworkDenied" })).toBe(
       "localNetworkDenied",
     );
     for (const browse of ["unsupported", "failed", "notBuilt"] as const)
-      expect(words.reachFaultOf({ localNetworkDenied: false, browse })).toBe("noHubFound");
+      expect(words.reachFaultOf({ ...NO_REACH, browse })).toBe("noHubFound");
   });
 
   test("every failure the link view can show has the phone's words, and no word says browser", () => {
@@ -483,7 +483,7 @@ describe("what is wrong on the phone itself (phone-notices.tsx)", () => {
     renderWith(
       onPhone(createElement(PhoneNotices), {
         vault: createStore<VaultStatus>()(() => ({ fault, identity: null })),
-        reach: createStore<ReachState>()(() => ({ localNetworkDenied: denied, browse: null })),
+        reach: createStore<ReachState>()(() => ({ ...NO_REACH, localNetworkDenied: denied })),
       }),
       {},
     );

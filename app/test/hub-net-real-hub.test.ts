@@ -145,7 +145,8 @@ describe("a typed code with no address, through hub-net's finder", () => {
     await phone.client.link(typed.value, "typed", { name: "Ty's phone", kind: "phone" });
     expect(phone.client.local.getState().link).toEqual({ kind: "linked", from: "typed" });
     expect(browse.starts.length).toBeGreaterThanOrEqual(1);
-    expect(phone.reach.getState()).toEqual({ localNetworkDenied: false, browse: null });
+    // The path and the relay's last close are the session's (relay-path tests), not the browse's.
+    expect(phone.reach.getState()).toMatchObject({ localNetworkDenied: false, browse: null });
     // The record the browse read, and the address the phone now keeps for this hub.
     const list = await phone.records.list();
     expect(list.ok && list.value).toEqual([identity]);

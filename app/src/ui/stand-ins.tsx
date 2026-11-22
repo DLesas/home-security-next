@@ -50,7 +50,12 @@ export function standInPhoneParts(hub: HubClient): PhoneParts {
     holdsBackupKey: () => Promise.resolve(false),
     arrived: { claim: claimArrivedCode, subscribe: onArrivedCode },
     vault: createStore<VaultStatus>()(() => ({ fault: null, identity: null })),
-    reach: createStore<ReachState>()(() => ({ localNetworkDenied: false, browse: null })),
+    reach: createStore<ReachState>()(() => ({
+      localNetworkDenied: false,
+      browse: null,
+      path: null,
+      relayClosed: null,
+    })),
     os: Platform.OS === "ios" ? "ios" : "android",
   };
 }
