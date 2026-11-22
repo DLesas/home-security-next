@@ -46,7 +46,6 @@ function checkFaultOf(error: LocalAuthenticationError): CheckFault {
     case "not_enrolled":
     case "passcode_not_set":
     case "not_available":
-    case "missing_usage_description":
       return "unavailable";
     default:
       return "failed";

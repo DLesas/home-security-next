@@ -9,7 +9,11 @@ export default function Screen() {
   const { t } = useTranslation();
   return (
     <Page title={t("screens.thisPhone.title")}>
-      <ThisPhoneScreen onLinkAnother={() => router.push("/link-home")} />
+      <ThisPhoneScreen
+        onLinkAnother={() => {
+          router.push("/link-home");
+        }}
+      />
     </Page>
   );
 }

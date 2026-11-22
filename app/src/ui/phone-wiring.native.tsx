@@ -30,7 +30,9 @@ const lock = appLock({
     listen: (changed) => {
       if (AppState.currentState === "background") changed("background");
       const subscription = AppState.addEventListener("change", changed);
-      return () => subscription.remove();
+      return () => {
+        subscription.remove();
+      };
     },
   },
   clock: { wall: () => Date.now(), steady: () => performance.now() },

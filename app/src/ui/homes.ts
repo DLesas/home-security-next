@@ -17,11 +17,11 @@
  *   home stays on this phone as it was. After it, the home chosen before stays chosen; if it was
  *   the one removed, the first home left is chosen, or none.
  */
-import { type AppOpBody, displayName } from "@hsn/protocol/app";
+import { type AppOpBody, displayName, LISTENER_PORTS } from "@hsn/protocol/app";
 import { createStore, type StoreApi } from "zustand/vanilla";
 import type { AnyOutcome, RequestFailure, RequestOutcome } from "../hub/channel";
 import type { Timers } from "../hub/wire";
-import type { Stored } from "../platform/client-key";
+import type { Stored, StoredClient } from "../platform/client-key";
 import type { Outcome } from "../platform/split";
 import type { PhoneRecords } from "../platform/vault";
 import type { LiveState } from "../state/live";
@@ -112,6 +112,17 @@ function sessionOpen(state: LiveState): boolean {
   return state.connection.kind === "open" && state.session !== null;
 }
 
+/** Keeps a name on legacy records that have no saved address yet. */
+function withName(record: StoredClient<Uint8Array>, homeName: string): StoredClient<Uint8Array> {
+  const reach = record.reach ?? {
+    addresses: [],
+    appsPort: LISTENER_PORTS.lan,
+    lastAddress: null,
+    relayUrl: null,
+  };
+  return { ...record, reach: { ...reach, homeName } };
+}
+
 const ok = { ok: true as const, value: undefined };
 
 /** Manages the phone’s list and sends removal only on the selected home’s session. */
@@ -143,16 +154,16 @@ export function phoneHomes(deps: HomesDeps): Homes {
     const homes: Home[] = [];
     for (const { identity, record } of records) {
       if (!record.ok || record.value === undefined) continue;
-      let name = record.value.reach?.homeName || nextHomeName(taken, deps.defaultName);
-      if (record.value.reach?.homeName === "") {
+      let name = record.value.reach?.homeName ?? "";
+      if (name === "") {
+        name = nextHomeName(taken, deps.defaultName);
         const named = await deps.records
           .hub(identity)
-          .update((r) =>
-            r.reach?.homeName === "" ? { ...r, reach: { ...r.reach, homeName: name } } : r,
-          );
+          .update((r) => (r.reach?.homeName ? r : withName(r, name)));
         if (!named.ok || read !== reads) return;
         if (named.value === undefined) continue;
-        name = named.value.reach?.homeName || name;
+        const savedName = named.value.reach?.homeName;
+        if (savedName) name = savedName;
       }
       homes.push({ identity, name });
       taken.push(name);
@@ -273,14 +284,7 @@ export function phoneHomes(deps: HomesDeps): Homes {
       // As every name the household types (`setup.tsx`'s `cleanName`): what the hub would take.
       const name = text.trim().normalize("NFC");
       if (!displayName.safeParse(name).success) return { ok: false, fault: "badName" };
-      // A record without its reach (none the phone writes) cannot hold a name.
-      const updated = await deps.records
-        .hub(identity)
-        .update((record) =>
-          record.reach === undefined
-            ? record
-            : { ...record, reach: { ...record.reach, homeName: name } },
-        );
+      const updated = await deps.records.hub(identity).update((record) => withName(record, name));
       if (!updated.ok || updated.value?.reach?.homeName !== name)
         return { ok: false, fault: "storage" };
       await refresh();

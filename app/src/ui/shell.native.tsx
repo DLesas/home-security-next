@@ -144,7 +144,7 @@ export function Shell() {
   useEffect(
     () =>
       hub.live.subscribe((state, before) => {
-        if (before.session !== null && state.session === null) void queries.resetQueries();
+        if (before.session !== null && state.session === null) queries.removeQueries();
       }),
     [hub, queries],
   );
@@ -172,7 +172,6 @@ function lockedFrame(page: ReactNode) {
 
 /** Shows the existing phone frame and routes while the app's screens are open. */
 function UnlockedShell({ parts }: { readonly parts: PhoneParts }) {
-  const hub = useHub();
   const connection = useLive((s) => s.connection);
   const link = useLocal((s) => s.link);
   const path = usePathname();

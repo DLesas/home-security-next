@@ -283,7 +283,9 @@ function LockSection({
         <PermissionAsk
           sentence={t("permissions.faceId")}
           allow={t("lock.allowFaceId")}
-          onAllow={() => setEnabled(true)}
+          onAllow={() => {
+            setEnabled(true);
+          }}
         />
       ) : (
         <Toggle
