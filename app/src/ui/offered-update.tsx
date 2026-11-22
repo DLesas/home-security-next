@@ -17,12 +17,7 @@ interface Run {
 type Download =
   | { readonly run: Run; readonly kind: "downloading" | "ready" | "replaced" | "cancelled" }
   | { readonly run: Run; readonly kind: "refused"; readonly outcome: FetchFailure }
-  | {
-      readonly run: Run;
-      readonly kind: "failed";
-      readonly reason: string;
-      readonly unwanted: boolean;
-    };
+  | { readonly run: Run; readonly kind: "failed"; readonly reason: string };
 
 const encoder = new TextEncoder();
 const fileRefusals: ReadonlyMap<string, string> = new Map([
@@ -48,11 +43,7 @@ function fetchedRefusal(detail: unknown) {
     typeof value.reason !== "string"
   )
     return undefined;
-  return {
-    version: value.version,
-    reason: value.reason,
-    unwanted: "message" in value && value.message === "the release fetch is no longer wanted",
-  };
+  return { version: value.version, reason: value.reason };
 }
 
 /** Keeps this screen's download with the session that requested it. */
@@ -81,12 +72,7 @@ export function useOfferedUpdate(
               pending?.kind === "downloading" &&
               pending.run.session === session &&
               pending.run.version === refusal.version
-                ? {
-                    run: pending.run,
-                    kind: "failed",
-                    reason: refusal.reason,
-                    unwanted: refusal.unwanted,
-                  }
+                ? { run: pending.run, kind: "failed", reason: refusal.reason }
                 : pending,
             );
           }),
@@ -97,7 +83,8 @@ export function useOfferedUpdate(
     download = { run: download.run, kind: "ready" };
     setLast(download);
   } else if (
-    (download?.kind === "downloading" || (download?.kind === "failed" && download.unwanted)) &&
+    download?.kind === "failed" &&
+    !fileRefusals.has(download.reason) &&
     offer != null &&
     offer.version.localeCompare(download.run.version, "en", { numeric: true }) > 0
   ) {

@@ -390,35 +390,54 @@ test("a later matching fetch refusal uses the hub's reason and ignores an unrela
   expect(app.text()).not.toContain("Downloading version 2.9.0.");
 });
 
-test.each([[false], [true]] as const)(
-  "a newer offer replaces the download, including when its refusal arrives first (%s)",
+/** Publishes the newer offer and waits for the screen to show it. */
+async function offerNewer(app: Awaited<ReturnType<typeof mount>>) {
+  app.replies["update.offers"] = answer({ offer: { ...release, version: "2.10.0" } });
+  await app.tell({ what: "updateOffered", detail: { version: "2.10.0", bytes: release.bytes } });
+  await app.visible("Version 2.10.0 is available");
+}
+
+/** Reports a fetch failure using the protocol's version and reason fields. */
+function refuseFetch(app: Awaited<ReturnType<typeof mount>>, reason: string) {
+  return app.tell({
+    what: "updateRefused",
+    detail: { reason: JSON.stringify({ version: release.version, reason }) },
+  });
+}
+
+test.each([["offer"], ["refusal"]] as const)(
+  "an unrecognized fetch refusal and a newer offer show replacement (%s first)",
   async (first) => {
     const app = await mount();
     await download(app);
     await app.visible("Downloading version 2.9.0.");
-    if (first)
-      await app.tell({
-        what: "updateRefused",
-        detail: {
-          reason: JSON.stringify({
-            version: "2.9.0",
-            reason: "io",
-            message: "the release fetch is no longer wanted",
-          }),
-        },
-      });
-    app.replies["update.offers"] = answer({ offer: { ...release, version: "2.10.0" } });
-    await app.tell({ what: "updateOffered", detail: { version: "2.10.0", bytes: release.bytes } });
+    if (first === "offer") {
+      await offerNewer(app);
+      expect(app.text()).toContain("Downloading version 2.9.0.");
+      await refuseFetch(app, "io");
+    } else {
+      await refuseFetch(app, "io");
+      await app.visible("Could not download version 2.9.0. The hub could not prepare the update.");
+      await offerNewer(app);
+    }
     await app.visible("A newer update replaced version 2.9.0.");
-    await app.visible("Version 2.10.0 is available");
     expect(app.text()).not.toContain("Downloading version 2.9.0.");
-    expect(
-      app.client.live
-        .getState()
-        .hubNotices.some((notice) => !(notice.what in { updateRefused: true })),
-    ).toBe(false);
+    expect(app.client.live.getState().hubNotices.map(({ what }) => what)).toEqual([
+      "updateRefused",
+    ]);
   },
 );
+
+test("a known file refusal stays visible when a newer release is offered", async () => {
+  const app = await mount();
+  await download(app);
+  await offerNewer(app);
+  await refuseFetch(app, "badSignature");
+  await app.visible(
+    "Could not download version 2.9.0. That release is not signed by a key this hub trusts.",
+  );
+  expect(app.text()).not.toContain("A newer update replaced version 2.9.0.");
+});
 
 test.each([[true], [false]] as const)(
   "cancelling reports the hub's answer only after it arrives (%s)",
