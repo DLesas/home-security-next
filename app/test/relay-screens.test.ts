@@ -1,6 +1,6 @@
 /** Shared relay, offered-update, and test-alert sections driven through their controls in Bun. */
 import "./support/render";
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, spyOn, test } from "bun:test";
 import {
   type AppEvent,
   type AppEventV2,
@@ -21,6 +21,7 @@ const { HubProvider } = await import("../src/ui/hub-context");
 const { StatusScreen } = await import("../src/ui/status");
 const { UpdatesScreen } = await import("../src/ui/updates");
 const { NotificationsScreen } = await import("../src/ui/notifications");
+const parts = await import("../src/ui/parts");
 
 const up: RelayStatusObject = {
   url: "wss://relay.example.com",
@@ -48,18 +49,31 @@ function answer<T>(body: T) {
 }
 
 let view: ReturnType<typeof clientScreen> | undefined;
+
+/** Lets TanStack's queued timer notifications render before assertions or DOM teardown. */
+function flushQueryNotifications() {
+  return screenAct(() => Bun.sleep(5));
+}
+
 afterEach(async () => {
-  await view?.close();
+  if (view === undefined) return;
+  await flushQueryNotifications();
+  await view.close();
   view = undefined;
 });
 
 /** Mounts the production screens on a client with scripted replies and a chosen kind. */
 async function mount(
   initial: Readonly<Partial<Record<AppOpNameV2, AnyOutcome>>> = {},
-  options: { readonly version?: 1 | 2; readonly kind?: "phone" | "web" } = {},
+  options: {
+    readonly version?: 1 | 2;
+    readonly kind?: "phone" | "web";
+    readonly connected?: boolean;
+  } = {},
 ) {
   const session = { hub: "fixture", boot: 1, client: 7, person: 2, kind: options.kind ?? "phone" };
   const world = await screenWorld({
+    connection: { kind: options.connected === false ? "connecting" : "open" },
     session,
     hub: {
       hub: "1.0.0",
@@ -439,6 +453,43 @@ test("a known file refusal stays visible when a newer release is offered", async
   expect(app.text()).not.toContain("A newer update replaced version 2.9.0.");
 });
 
+test("Download ignores a queued press during a download or a pending cancellation", async () => {
+  let pressDownload: (() => void) | undefined;
+  const Button = parts.Button;
+  const watchButton = spyOn(parts, "Button").mockImplementation((props) => {
+    if (props.label === "Download") pressDownload = props.onPress;
+    return createElement(Button, props);
+  });
+  await (async () => {
+    const app = await mount();
+    const pendingCancel = Promise.withResolvers<RequestOutcome<"update.cancel">>();
+    app.deferCancel(pendingCancel.promise);
+    await download(app);
+
+    /** Delivers a queued press directly, after checking the control is now disabled. */
+    async function pressAgain() {
+      expect(await app.screen.press("Download")).toBe(false);
+      await screenAct(pressDownload ?? expect.unreachable("Download registered a press handler"));
+      expect(app.sent("update.fetch")).toEqual([{ version: release.version }]);
+    }
+
+    await app.visible("Downloading version 2.9.0.");
+    await pressAgain();
+    expect(await app.screen.press("Cancel download")).toBe(true);
+    expect(app.sent("update.cancel")).toEqual([{}]);
+    // A terminal refusal ends the download while the cancellation reply is still pending.
+    await refuseFetch(app, "badFile");
+    await app.visible("Could not download version 2.9.0. That file is not a backup or release");
+    expect(app.text()).not.toContain("Downloading version 2.9.0.");
+    await pressAgain();
+    await screenAct(() => {
+      pendingCancel.resolve(answer({}));
+    });
+  })().finally(() => {
+    watchButton.mockRestore();
+  });
+});
+
 test.each([[true], [false]] as const)(
   "cancelling reports the hub's answer only after it arrives (%s)",
   async (accepted) => {
@@ -489,15 +540,52 @@ test.each([
   expect(app.text()).not.toContain(sent ? "No test alert was sent." : "The hub sent a test alert.");
 });
 
-test("read refusals hide relay settings and offers from a person without manage system", async () => {
-  const app = await mount({ "relay.status": denied, "update.offers": denied });
+test.each([
+  ["relay", "relay.status", "Relay", ["Save relay address", "Use the default relay"]],
+  ["offers", "update.offers", "Available hub updates", ["Download"]],
+] as const)(
+  "a manage-system refusal hides the %s heading and refusal text",
+  async (_, op, heading, controls) => {
+    const app = await mount({ [op]: denied });
+    await flushQueryNotifications();
+    expect(app.sent(op)).toEqual([{}]);
+    expect(app.screen.html()).not.toContain(`>${heading}</h2>`);
+    expect(app.screen.html()).not.toContain(`aria-label="${heading}"`);
+    expect(app.text()).not.toContain("This needs the permission to manage the system.");
+    for (const control of controls)
+      expect(app.screen.html()).not.toContain(`aria-label="${control}"`);
+    expect(app.screen.html()).toContain('aria-label="Send a test alert"');
+  },
+);
+
+test("relay status and update offers wait for an open connection, then each read once", async () => {
+  const app = await mount({}, { connected: false });
+  await flushQueryNotifications();
+  expect(app.sent("relay.status")).toEqual([]);
+  expect(app.sent("update.offers")).toEqual([]);
+  await screenAct(() => {
+    app.client.live.setState({ connection: { kind: "open" } });
+  });
+  await app.visible("The relay is connected.");
+  await app.visible("Version 2.9.0 is available");
   expect(app.sent("relay.status")).toEqual([{}]);
   expect(app.sent("update.offers")).toEqual([{}]);
-  expect(app.text()).not.toContain("Available hub updates");
-  expect(app.screen.html()).not.toContain('aria-label="Save relay address"');
-  expect(app.screen.html()).not.toContain('aria-label="Use the default relay"');
-  expect(app.screen.html()).not.toContain('aria-label="Download"');
-  expect(app.screen.html()).toContain('aria-label="Send a test alert"');
+});
+
+test("relay settings and update downloads show version 2 busy refusals in the shared words", async () => {
+  const app = await mount({
+    "relay.set": { ok: false, error: { code: "busy", detail: { because: "rollout" } } },
+    "update.fetch": { ok: false, error: { code: "busy", detail: { because: "keyChange" } } },
+  });
+  await app.visible("The relay is connected.");
+  expect(await app.screen.press("Use the default relay")).toBe(true);
+  expect(app.sent("relay.set")).toEqual([{ url: null }]);
+  await app.visible("A device update rollout is already under way. Check under Updates.");
+  await download(app);
+  await app.visible(
+    "The device has not checked in since the hub was restored. Wait until it does.",
+  );
+  expect(app.text()).not.toContain("The hub cannot save changes at the moment.");
 });
 
 test("a version 1 phone shows none of the three sections and sends none of their requests", async () => {
