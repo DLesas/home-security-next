@@ -12,12 +12,18 @@
  * be made to wait so (a close, a removal) are measured on the hosted runners instead.
  */
 import { afterAll, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { open } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { syncFolderOffLoop } from "../../../src/shell/safe/firmware-io.ts";
-import { readHeadOffLoop, writeAllOffLoop } from "../../../src/shell/safe/off-loop.ts";
+import {
+  closeOffLoop,
+  openNewOffLoop,
+  readHeadOffLoop,
+  removeOffLoop,
+  writeAllOffLoop,
+} from "../../../src/shell/safe/off-loop.ts";
 
 const POSIX = process.platform !== "win32";
 const root = mkdtempSync(join(tmpdir(), "hsn-off-loop-"));
@@ -109,5 +115,27 @@ describe.skipIf(!POSIX)("the file calls off the hub's thread leave the loop runn
         );
       }),
     );
+  });
+});
+
+describe("what the calls promise, on every system", () => {
+  test("an open of a new file refuses a file that is already there, and leaves it as it was", async () => {
+    const path = join(root, "there");
+    writeFileSync(path, "kept");
+    expect((await openNewOffLoop(path)).isErr()).toBe(true);
+    expect(readFileSync(path, "utf8")).toBe("kept");
+    const fresh = join(root, "fresh");
+    const opened = await openNewOffLoop(fresh);
+    expect(opened.isOk()).toBe(true);
+    if (opened.isOk()) expect((await closeOffLoop(opened.value)).isOk()).toBe(true);
+    expect(existsSync(fresh)).toBe(true);
+  });
+
+  test("a removal of a path that is not there succeeds, as a removal already made", async () => {
+    expect((await removeOffLoop(join(root, "never-made"))).isOk()).toBe(true);
+    const made = join(root, "made");
+    writeFileSync(made, "x");
+    expect((await removeOffLoop(made)).isOk()).toBe(true);
+    expect(existsSync(made)).toBe(false);
   });
 });

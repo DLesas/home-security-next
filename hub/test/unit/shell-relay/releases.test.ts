@@ -589,6 +589,51 @@ describe("fetching", () => {
     gate.resolve(undefined);
   });
 
+  test("a write that resolves with every piece already in: it wakes the loop itself, or the fetch would stall", async () => {
+    const gate = Promise.withResolvers<undefined>();
+    class HeldStore extends UploadStore {
+      override beginFetch(ref: Parameters<UploadStore["beginFetch"]>[0]) {
+        return super.beginFetch(ref).map((file) => ({
+          ...file,
+          append: async (bytes: Uint8Array) => {
+            await gate.promise;
+            return file.append(bytes);
+          },
+        }));
+      }
+    }
+    const relay = new ScriptedRelay();
+    const client = makeClient({
+      key: staticKeyOf(74),
+      connect: relay.connect,
+      uploads: new HeldStore(mkdtempSync(join(root, "held-"))),
+    });
+    client.client.perform({ kind: "relayConnect", url: "ws://127.0.0.1:1" });
+    await until(() => client.client.state.kind === "up", "up");
+    // At most four pieces, so all are asked for at once and none is left to come later.
+    const whole = hubBytes.slice(0, Math.min(hubBytes.length, 4 * 262_144));
+    const started = client.client.fetch(
+      jobId(6),
+      hubWork({ bytes: whole.length, sha256: new Uint8Array(sha(whole)) }),
+    );
+    const link = relay.last;
+    if (started.kind !== "pieces" || link === undefined) return expect.unreachable("no fetch");
+    const gets = link.sent("release.get");
+    expect(gets).toHaveLength(Math.ceil(whole.length / 262_144));
+    gets.forEach((get, i) => {
+      sendPiece(link, get.id, whole.slice(i * 262_144, (i + 1) * 262_144));
+    });
+    // The first piece taken, its write held: the job waits, so the loop asks no turn for it.
+    expect(started.pieces.next()).toEqual({ done: false });
+    expect(started.pieces.waiting?.()).toBe(true);
+    await settle(2);
+    const wakes = client.wakes.count;
+    // Every piece is in and none is asked for: nothing but the write's own end can wake the loop.
+    gate.resolve(undefined);
+    await until(() => client.wakes.count > wakes, "a wake once the write resolved");
+    expect(started.pieces.waiting?.()).toBe(false);
+  });
+
   test("cut half-way and resumed: asked again from the first byte it did not hold", async () => {
     const s = await service();
     const run = startRelayRun({ releases: s.answers });

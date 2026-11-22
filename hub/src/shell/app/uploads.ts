@@ -92,16 +92,19 @@ export interface FinishedUpload {
 }
 
 /** An upload's open file: a descriptor at once (the lockstep hub's), a handle off the loop. */
-type UploadFile = number | FileHandle;
+export type UploadFile = number | FileHandle;
 
 /** A file call the upload's logic asks for; a driver makes it, at once or off the loop. */
-type FileCall =
+export type FileCall =
   | { readonly kind: "open"; readonly path: string }
   | { readonly kind: "write"; readonly file: UploadFile; readonly bytes: Uint8Array }
   | { readonly kind: "close"; readonly file: UploadFile };
 
 /** What a file call came to: the file opened (or nothing more), or the thrown value. */
-type CallResult = Result<UploadFile | undefined, unknown>;
+export type CallResult = Result<UploadFile | undefined, unknown>;
+
+/** A driver of file calls off the loop: `offLoopFileCall`, or a test's stand-in for it. */
+export type OffLoopCalls = (call: FileCall) => Promise<CallResult>;
 
 /** The upload's logic for one chunk: it yields its file calls and returns the chunk's answer. */
 type ChunkLogic = Generator<FileCall, ChunkOutcome, CallResult>;
@@ -161,7 +164,7 @@ function callNow(call: FileCall): CallResult {
 }
 
 /** A file call made off the hub's thread (`safe/off-loop.ts`). */
-async function callOffLoop(call: FileCall): Promise<CallResult> {
+export async function offLoopFileCall(call: FileCall): Promise<CallResult> {
   switch (call.kind) {
     case "open":
       return openNewOffLoop(call.path);
@@ -190,9 +193,12 @@ function runNow<T>(logic: Generator<FileCall, T, CallResult>): T {
   return step.value;
 }
 
-async function runOffLoop<T>(logic: Generator<FileCall, T, CallResult>): Promise<T> {
+async function runOffLoop<T>(
+  logic: Generator<FileCall, T, CallResult>,
+  call: OffLoopCalls,
+): Promise<T> {
   let step = logic.next();
-  while (step.done !== true) step = logic.next(await callOffLoop(step.value));
+  while (step.done !== true) step = logic.next(await call(step.value));
   return step.value;
 }
 
@@ -201,6 +207,8 @@ export class UploadStore {
   readonly #limits: UploadLimits;
   /** The lockstep hub's: every file call at once, on this thread. */
   readonly #onThread: boolean;
+  /** How its file calls are made off the loop: `offLoopFileCall`, or a test's stand-in. */
+  readonly #calls: OffLoopCalls;
   /** Every upload, by connection, then job. */
   readonly #uploads = new Map<ConnId, Map<number, Upload>>();
   #nextFile = 1;
@@ -208,11 +216,12 @@ export class UploadStore {
   constructor(
     dataDir: string,
     limits: UploadLimits = FILE_CHUNKS,
-    options: { readonly onThread?: boolean } = {},
+    options: { readonly onThread?: boolean; readonly calls?: OffLoopCalls } = {},
   ) {
     this.#folder = join(dataDir, UPLOADS_FOLDER);
     this.#limits = limits;
     this.#onThread = options.onThread === true;
+    this.#calls = options.calls ?? offLoopFileCall;
   }
 
   /** At every start: the folder exists and holds nothing (section 6). */
@@ -230,7 +239,7 @@ export class UploadStore {
 
   /** Takes one chunk of `conn`'s upload `chunk.job`, its file calls off the loop; its answer. */
   chunk(conn: ConnId, chunk: FileChunk): Promise<ChunkOutcome> {
-    return runOffLoop(this.#chunkLogic(conn, chunk));
+    return runOffLoop(this.#chunkLogic(conn, chunk), this.#calls);
   }
 
   /** `chunk`, every file call at once on this thread: the lockstep hub's (`onThread`). */
@@ -437,7 +446,7 @@ export class UploadStore {
 
   /** A logic run by this store's driver: off the loop, or at once for the lockstep hub. */
   #run<T>(logic: Generator<FileCall, T, CallResult>): Promise<T> {
-    return this.#onThread ? Promise.resolve(runNow(logic)) : runOffLoop(logic);
+    return this.#onThread ? Promise.resolve(runNow(logic)) : runOffLoop(logic, this.#calls);
   }
 
   #start(job: number): Upload {

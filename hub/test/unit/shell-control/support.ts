@@ -84,6 +84,7 @@ export async function openServer(
         noteOutput(JSON.stringify(rejection));
       }),
     ...(options.longestTurnMs === undefined ? {} : { longestTurnMs: options.longestTurnMs }),
+    ...(options.uploads === undefined ? {} : { uploads: options.uploads }),
   });
   expect(opened.isOk() ? "opened" : opened.error.message).toBe("opened");
   const server = opened._unsafeUnwrap();

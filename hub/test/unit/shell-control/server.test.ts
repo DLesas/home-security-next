@@ -11,6 +11,7 @@ import { chmodSync, existsSync, mkdirSync, statSync, writeFileSync } from "node:
 import { err } from "neverthrow";
 import type { AuditRecord } from "../../../src/core/model/audit.ts";
 import { deviceId, seq } from "../../../src/core/model/ids.ts";
+import { UploadStore } from "../../../src/shell/app/uploads.ts";
 import { LineReader, MAX_REQUEST_LINE_BYTES } from "../../../src/shell/control/lines.ts";
 import { recordJson } from "../../../src/shell/control/records.ts";
 import {
@@ -249,6 +250,26 @@ describe("requests and replies", () => {
     s.respond(first.request, { ok: false, error: { code: "failed", message: "x" } });
     await client.until(() => recorded.events.length === 2);
     expect(recorded.events).toHaveLength(2);
+  });
+
+  test("a line sent right behind a chunk is taken once the chunk is answered", async () => {
+    const data = folder();
+    const uploads = new UploadStore(data.folder, { maxChunkBytes: 10, maxUploadBytes: 40 });
+    expect(uploads.clearAll().isOk()).toBe(true);
+    const { recorded, where } = await server({ uploads });
+    const client = new RawClient(where.socket);
+    const chunk = {
+      id: 1,
+      actor: "dimitri",
+      command: { kind: "fileChunk", job: 1, n: 0, data: Buffer.from("abc").toString("base64url") },
+    };
+    // Both in one write: the status waits while the chunk's file calls are off the loop.
+    client.write(`${JSON.stringify(chunk)}\n${JSON.stringify({ ...STATUS, id: 2 })}\n`);
+    await client.until(() => client.lines.length === 1);
+    expect(client.json()).toEqual([{ id: 1, reply: { ok: true, result: { kind: "fileChunk" } } }]);
+    // The chunk answered: the waiting line is taken without anything more from the client.
+    expect(await client.until(() => recorded.events.length === 1)).toBe(true);
+    expect(recorded.events[0]).toMatchObject({ kind: "command", command: { kind: "status" } });
   });
 
   test("a status reply gets the writer's last commit and staged items, and the loop's longest turn", async () => {
