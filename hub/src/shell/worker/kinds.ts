@@ -4,6 +4,7 @@
  * share, so a kind added here and not served by the entry, or served with other data, does not
  * compile. Data only: a worker's `workerData` is copied across, never shared but `control`.
  */
+import type { RestoreInputs } from "../backup/restore.ts";
 import type { BackupRead, BackupWork } from "../backup/write.ts";
 import type { SigningKeys } from "../firmware/sign.ts";
 import type { FirmwareStageInputs } from "../firmware/stage.ts";
@@ -42,8 +43,18 @@ export interface WriteBackupData {
   readonly dataDir: string | undefined;
 }
 
+/**
+ * A restore's candidate database built from the uploaded backup (`backup/restore.ts`,
+ * `RestorePieces`): the upload, the phone's key, the data folder it is built in, the migrations
+ * and the rules. Nothing of `hub.db`: the build needs none of it.
+ */
+export interface ApplyRestoreData {
+  readonly kind: "applyRestore";
+  readonly inputs: RestoreInputs;
+}
+
 /** Every kind's data. */
-export type JobKindData = StageUpdateData | StageFirmwareData | WriteBackupData;
+export type JobKindData = StageUpdateData | StageFirmwareData | WriteBackupData | ApplyRestoreData;
 
 export type JobKind = JobKindData["kind"];
 

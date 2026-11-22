@@ -131,7 +131,8 @@ function upload(start: AppStart, conn: ConnId, job: number, bytes: Uint8Array): 
 }
 
 /** A job run as the loop runs it, a piece a turn, then `ended` as the loop calls it. */
-function run(side: AppSide, job: JobId, work: FileWork): FileOutcome {
+/** A job through the app side to its end, the thread let go between pieces (a restore's worker). */
+async function run(side: AppSide, job: JobId, work: FileWork): Promise<FileOutcome> {
   const started = side.job(job, work);
   let outcome: FileOutcome;
   if (started.kind === "ready") outcome = started.outcome;
@@ -142,6 +143,7 @@ function run(side: AppSide, job: JobId, work: FileWork): FileOutcome {
         outcome = piece.outcome;
         break;
       }
+      await new Promise((resolve) => setImmediate(resolve));
     }
   } else outcome = { kind: "failed", reason: "io", message: "a switch" };
   side.ended(job, work, outcome);
@@ -156,22 +158,22 @@ describe("a restore's upload and a wrong key (section 9)", () => {
     upload(start, CONSOLE, 5, file);
     const ref = { conn: CONSOLE, job: 5 };
 
-    expect(run(side, jobId(10), { kind: "readRestore", upload: ref })).toMatchObject({
+    expect(await run(side, jobId(10), { kind: "readRestore", upload: ref })).toMatchObject({
       kind: "restoreRead",
       epoch: 1,
     });
     expect(start.uploads.finished(ref)).toBeDefined();
 
-    const wrong = run(side, jobId(11), { kind: "applyRestore", upload: ref, key: WRONG_KEY });
+    const wrong = await run(side, jobId(11), { kind: "applyRestore", upload: ref, key: WRONG_KEY });
     expect(wrong).toMatchObject({ kind: "failed", reason: "wrongKey" });
     expect(start.uploads.finished(ref)).toBeDefined();
     // And again: a second wrong try keeps it too.
     expect(
-      run(side, jobId(12), { kind: "applyRestore", upload: ref, key: WRONG_KEY }),
+      await run(side, jobId(12), { kind: "applyRestore", upload: ref, key: WRONG_KEY }),
     ).toMatchObject({ kind: "failed", reason: "wrongKey" });
     expect(start.uploads.finished(ref)).toBeDefined();
 
-    expect(run(side, jobId(13), { kind: "applyRestore", upload: ref, key: KEY })).toEqual({
+    expect(await run(side, jobId(13), { kind: "applyRestore", upload: ref, key: KEY })).toEqual({
       kind: "restoreReady",
     });
     expect(start.uploads.finished(ref)).toBeUndefined();
@@ -193,7 +195,9 @@ describe("a restore's upload and a wrong key (section 9)", () => {
     const { side, start } = await newHub(root);
     upload(start, CONSOLE, 7, file);
     const ref = { conn: CONSOLE, job: 7 };
-    expect(run(side, jobId(20), { kind: "applyRestore", upload: ref, key: KEY })).toMatchObject({
+    expect(
+      await run(side, jobId(20), { kind: "applyRestore", upload: ref, key: KEY }),
+    ).toMatchObject({
       kind: "failed",
     });
     expect(start.uploads.finished(ref)).toBeDefined();
@@ -204,7 +208,7 @@ describe("a restore's upload and a wrong key (section 9)", () => {
     const { side, start } = await newHub(root);
     upload(start, CONSOLE, 8, new Uint8Array(100).fill(2));
     const notBackup = { conn: CONSOLE, job: 8 };
-    expect(run(side, jobId(30), { kind: "readRestore", upload: notBackup })).toMatchObject({
+    expect(await run(side, jobId(30), { kind: "readRestore", upload: notBackup })).toMatchObject({
       kind: "failed",
       reason: "badFile",
     });

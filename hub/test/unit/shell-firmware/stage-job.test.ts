@@ -384,7 +384,7 @@ describe("firmware staging on its worker", () => {
     expect(reads).toBe(1);
   });
 
-  test("nothing a worker loads can open hub.db: the one entry's whole graph has no bun:sqlite", async () => {
+  test("the worker's one entry loads none of the hub's store: `hub.db` is opened and committed to only there", async () => {
     const built = await Bun.build({
       entrypoints: [join(HUB, "src", "shell", "worker", "entry.ts")],
       target: "bun",
@@ -393,8 +393,10 @@ describe("firmware staging on its worker", () => {
     expect(built.success).toBe(true);
     const inputs = Object.keys(built.metafile?.inputs ?? {});
     expect(inputs.some((path) => path.endsWith("firmware/stage-serve.ts"))).toBe(true);
-    expect(inputs.some((path) => path.includes("shell/storage/"))).toBe(false);
-    expect(await built.outputs[0]?.text()).not.toContain("bun:sqlite");
+    // `storage/store.ts` opens `hub.db` (`openStore`), `storage/writer.ts` commits to it. A
+    // restore's worker uses SQLite, on its own candidate file only (`restore-job.test.ts`).
+    for (const store of ["shell/storage/store.ts", "shell/storage/writer.ts"])
+      expect(inputs.filter((path) => path.endsWith(store))).toEqual([]);
   });
 
   test("stagings beside each other (no gate): each in its own temporary file, both staged", async () => {

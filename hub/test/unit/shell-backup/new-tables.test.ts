@@ -152,7 +152,8 @@ function restored(bytes: Uint8Array, job = 1): { readonly db: Database; readonly
   const done = runToEnd(
     jobId(2),
     { kind: "applyRestore", upload: { conn: connId(9), job }, key: KEY },
-    deps(store.db, data),
+    // On the thread: this test is of what a restore holds; its worker's is `restore-job.test.ts`.
+    { ...deps(store.db, data), onThread: true },
   );
   expect(done).toEqual({ kind: "ready", outcome: { kind: "restoreReady" } });
   store.writer.stop().match(

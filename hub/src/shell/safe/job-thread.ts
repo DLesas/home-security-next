@@ -107,13 +107,20 @@ export function startJobThread<D extends JobKindData>(
   // The outcome's message has come before the thread's exit in every staging measured (5,760, on
   // Windows from source and compiled, Linux and macOS), but Bun does not document the order. If
   // an exit ever came first, the job would end failed `io` ("it stopped first") although the
-  // worker had ended, and what it had already put in place would stay with no record of it. For
-  // an update's staging that is a version in `staged/`, which never runs: the launcher starts a
-  // staged version only by the hub's `switch.json` (`launcher/src/launcher.ts`, `#switch`),
-  // which the core writes only for the version it recorded staged (`core/upkeep/update.ts`,
-  // `switchIfClear`), and the next staging's removal of every version but the current one takes
-  // it (`stage.ts`, `#prepareRemoval`), as does the launcher's pruning. The cost is one staging
-  // to retry.
+  // worker had ended, and what it had already put in place would stay with no record of it,
+  // unless the kind's leftovers name it. Each kind's job says what that is for it and why it is
+  // harmless, or how it is made so:
+  // - an update's staging (`update/stage-job.ts`): a version in `staged/`, which never runs: the
+  //   launcher starts a staged version only by the hub's `switch.json` (`launcher/src/launcher.ts`,
+  //   `#switch`), which the core writes only for the version it recorded staged
+  //   (`core/upkeep/update.ts`, `switchIfClear`), and the next staging's removal of every version
+  //   but the current one takes it (`stage.ts`, `#prepareRemoval`), as does the launcher's
+  //   pruning. The cost is one staging to retry;
+  // - a firmware image's (`firmware/stage-job.ts`): its `<sha256>.bin`, unindexed until the next
+  //   start's check deletes it;
+  // - a backup (`backup/write-job.ts`): a whole backup file with no record, a good backup;
+  // - a restore (`backup/restore-job.ts`): `hub.db.restore`, which the next start would put in
+  //   place, so it is among the restore's leftovers and removed.
   worker.once("exit", (code) => {
     tell(() => {
       events.failed(`it stopped first (exit code ${code})`);

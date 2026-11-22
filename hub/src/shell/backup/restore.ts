@@ -147,6 +147,26 @@ export function openingFailure(chunksOpened: number, error: string): FileOutcome
 
 type RestorePhase = "open" | "decrypt" | "build" | "rows" | "mark" | "migrate" | "place";
 
+/** The restored database being built, `hub.db.restore.new`, a scratch file until it is renamed. */
+export function restoreBuilding(dataDir: string): string {
+  return `${join(dataDir, RESTORE_FILE)}.new`;
+}
+
+/**
+ * Every file an `applyRestore` makes in `dataDir`: its scratch files, and `hub.db.restore` once
+ * renamed, which the next start puts in place (`retryWaitingRestore`).
+ */
+export function restoreFiles(dataDir: string): readonly string[] {
+  const building = restoreBuilding(dataDir);
+  return [
+    building,
+    `${building}-wal`,
+    `${building}-shm`,
+    `${building}.plain`,
+    join(dataDir, RESTORE_FILE),
+  ];
+}
+
 /**
  * `applyRestore` in pieces between the loop's turns (section 3, "The loop's time"):
  *
@@ -194,7 +214,7 @@ export class RestorePieces {
   }
 
   #building(): string {
-    return `${join(this.#inputs.dataDir, RESTORE_FILE)}.new`;
+    return restoreBuilding(this.#inputs.dataDir);
   }
 
   /** The opened file's plaintext, scratch until the rows are copied out of it. */

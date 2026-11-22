@@ -23,7 +23,8 @@ import { PUBLISHER_KEYS } from "../update/publisher-keys.ts";
 import { platformOf } from "../update/release.ts";
 import { Staging, type StageInputs } from "../update/stage.ts";
 import { StagingJob } from "../update/stage-job.ts";
-import { readRestoreHeader, RestorePieces, swapRestored } from "./restore.ts";
+import { RestoreJob } from "./restore-job.ts";
+import { readRestoreHeader, type RestoreInputs, RestorePieces, swapRestored } from "./restore.ts";
 import { ExportPieces } from "./export-pieces.ts";
 import { HistoryExport } from "./history-export.ts";
 import { BackupJob } from "./write-job.ts";
@@ -99,11 +100,11 @@ export function roomOf(
 }
 
 /**
- * A job that runs in pieces between the loop's turns (an export, a restore): `next` does one
- * bounded piece and gives the outcome once the job has ended; `abort` ends it now (a stop),
- * leaving nothing behind. Staging an update or a firmware image, and writing a backup, run on a
- * worker thread instead (`shell/worker/job.ts`): their `next` only reads whether the worker's
- * outcome has come, and `waiting` is true until it has.
+ * A job that runs in pieces between the loop's turns (an export): `next` does one bounded piece
+ * and gives the outcome once the job has ended; `abort` ends it now (a stop), leaving nothing
+ * behind. Staging an update or a firmware image, writing a backup and building a restore's
+ * database run on a worker thread instead (`shell/worker/job.ts`): their `next` only reads
+ * whether the worker's outcome has come, and `waiting` is true until it has.
  */
 export interface Pieces {
   next(): FileOutcome | undefined;
@@ -120,8 +121,8 @@ export type JobStart = JobDone | { readonly kind: "pieces"; readonly pieces: Pie
  * a backup, an export and applying a restore are returned as
  * pieces, the loop running one piece after each turn's inputs and effects and asking for another
  * turn while any remains, so inputs are never starved; every other job is done at once. Staging
- * an update or a firmware image and writing a backup are done on a worker thread, their pieces
- * only telling the loop when they have ended.
+ * an update or a firmware image, writing a backup and building a restore's database are done on a
+ * worker thread, their pieces only telling the loop when they have ended.
  */
 export function startJob(job: JobId, work: FileWork, deps: JobDeps): JobStart {
   if (work.kind === "export")
@@ -148,15 +149,19 @@ export function startJob(job: JobId, work: FileWork, deps: JobDeps): JobStart {
   if (work.kind === "applyRestore") {
     const upload = deps.uploads.pathOf(work.upload);
     if (upload === undefined) return noUpload(work.upload);
+    const inputs: RestoreInputs = {
+      dataDir: deps.dataDir,
+      uploadPath: upload,
+      key: work.key,
+      migrationsFolder: deps.migrationsFolder,
+      rules: deps.rules,
+    };
     return {
       kind: "pieces",
-      pieces: new RestorePieces({
-        dataDir: deps.dataDir,
-        uploadPath: upload,
-        key: work.key,
-        migrationsFolder: deps.migrationsFolder,
-        rules: deps.rules,
-      }),
+      pieces:
+        deps.onThread === true
+          ? new RestorePieces(inputs)
+          : new RestoreJob(inputs, deps.wake === undefined ? {} : { wake: deps.wake }),
     };
   }
   // The firmware store's file work (U9, m3-updates-design section 4): `shell/firmware/jobs.ts`.

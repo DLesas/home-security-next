@@ -641,11 +641,11 @@ describe("restore", () => {
     });
   });
 
-  test("a wrong key: wrongKey, and the running hub exactly as it was", () => {
+  test("a wrong key: wrongKey, and the running hub exactly as it was", async () => {
     const { newData } = uploaded();
     const files = readdirSync(newData).toSorted();
     const db = readFileSync(join(newData, "hub.db"));
-    const done = runToEnd(
+    const done = await jobToEnd(
       jobId(2),
       { kind: "applyRestore", upload: { conn: connId(9), job: 1 }, key: PHONE_KEY },
       deps({ dataDir: newData }),
@@ -655,9 +655,9 @@ describe("restore", () => {
     expect(readFileSync(join(newData, "hub.db"))).toEqual(db);
   });
 
-  test("prepared beside hub.db: clients as the file has them with seq + 2³², counters + 2²⁴, no token, the phone's key, the mark", () => {
+  test("prepared beside hub.db: clients as the file has them with seq + 2³², counters + 2²⁴, no token, the phone's key, the mark", async () => {
     const { newData, newStore } = uploaded();
-    const done = runToEnd(
+    const done = await jobToEnd(
       jobId(2),
       { kind: "applyRestore", upload: { conn: connId(9), job: 1 }, key: KEY },
       deps({ dataDir: newData }),

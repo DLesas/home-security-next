@@ -1,12 +1,15 @@
 /**
- * A hub's database for the backup worker's tests (`write-job.test.ts`, `backup-timing-child.ts`):
- * its app key, its backup state, and `people` people whose names are 1 KB each, so the
- * configuration a backup copies is about `people` KB (a home's is about 180 KB ‡).
+ * A hub's database for the backup and restore workers' tests (`write-job.test.ts`,
+ * `restore-job.test.ts` and their timing children): its app key, its backup state, and `people`
+ * people whose names are 1 KB each, so the configuration a backup copies is about `people` KB (a
+ * home's is about 180 KB ‡); and a backup of it.
  */
 import { join } from "node:path";
+import { ok } from "neverthrow";
 import { BACKUP_STATE_DEFAULTS } from "../../../src/core/model/rows.ts";
 import { DEFAULT_RULES } from "../../../src/core/model/rules.ts";
 import { mono } from "../../../src/core/model/time.ts";
+import { BackupPieces } from "../../../src/shell/backup/write.ts";
 import { openStore, type OpenedStore } from "../../../src/shell/storage/store.ts";
 
 export const WALL = Date.UTC(2026, 10, 21, 3, 0, 0);
@@ -64,4 +67,19 @@ export function backupHub(
       ]);
   })();
   return store;
+}
+
+/** A backup of `store` written into `folder` on this thread (`BackupPieces`): the file's path, or "" if none. */
+export function backupFileOf(store: OpenedStore, dataDir: string, folder: string): string {
+  const pieces = new BackupPieces(
+    store.db,
+    { folder, keep: 20, key: KEY, epoch: 1 },
+    { nowMs: () => WALL, salt: () => ok(new Uint8Array(8).fill(9)) },
+    dataDir,
+  );
+  for (;;) {
+    const outcome = pieces.next();
+    if (outcome !== undefined)
+      return outcome.kind === "backupWritten" ? join(folder, outcome.name) : "";
+  }
 }

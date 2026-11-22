@@ -5,6 +5,7 @@
  * each kind's module is small, so a worker loading them all costs its start little.
  */
 import { parentPort, workerData } from "node:worker_threads";
+import { serveRestore } from "../backup/restore-serve.ts";
 import { serveBackup } from "../backup/write-serve.ts";
 import { serveFirmwareStaging } from "../firmware/stage-serve.ts";
 import { serveStaging } from "../update/stage-serve.ts";
@@ -23,6 +24,7 @@ const SERVERS: { readonly [K in JobKind]: (port: Port, data: WorkerData<KindData
   stageUpdate: serveStaging,
   stageFirmware: serveFirmwareStaging,
   writeBackup: serveBackup,
+  applyRestore: serveRestore,
 };
 
 function served(kind: unknown): kind is JobKind {
@@ -34,6 +36,7 @@ const FIELDS: { readonly [K in JobKind]: readonly Exclude<keyof KindData<K>, "ki
   stageUpdate: ["inputs"],
   stageFirmware: ["inputs", "signingKeys"],
   writeBackup: ["read", "work"],
+  applyRestore: ["inputs"],
 };
 
 /** Whether `data` is what a job's worker is started with: a kind served, its data, the word. */
