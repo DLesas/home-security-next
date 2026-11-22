@@ -127,6 +127,8 @@ export interface PhoneRecords extends HubRecords<Uint8Array> {
   /** The hub the session is for; null when none is (not linked, or just removed). */
   chosen(): Promise<Stored<string | null>>;
   choose(identity: string | null): Promise<Stored<undefined>>;
+  /** Reads a home's alert choice, or saves it when an answer is supplied. Undefined means gone. */
+  alertChoice(identity: string, enabled?: boolean): Promise<Stored<boolean | undefined>>;
   /**
    * Deletes what a removal left behind when it was cut short (a kill between its commit and its
    * deletions): run once at start.
@@ -184,6 +186,11 @@ export function itemsOf(
     record: `hub.${identity}.record`,
     backup: `hub.${identity}.backup`,
   };
+}
+
+/** Names the opt-out item for a validated home identity. */
+function alertsOffItem(identity: string) {
+  return `hub.${identity}.alerts-off`;
 }
 
 export const HUBS_ITEM = "hubs";
@@ -435,7 +442,7 @@ export function phoneRecords(items: SecureItems, hooks?: PhoneRecordHooks): Phon
     if (names === undefined) return ok(undefined);
     const removing = await hooks?.removing(identity);
     if (removing && !removing.ok) return removing;
-    for (const name of [names.key, names.backup, names.record]) {
+    for (const name of [names.key, names.backup, names.record, alertsOffItem(identity)]) {
       const deleted = await items.delete(name);
       if (!deleted.ok) return deleted;
     }
@@ -615,6 +622,20 @@ export function phoneRecords(items: SecureItems, hooks?: PhoneRecordHooks): Phon
     add,
     remove,
     hub,
+    /** Stores only the opt-out, alongside the home's other vault items. */
+    alertChoice: (identity, enabled) =>
+      inQueue(identity)<Stored<boolean | undefined>>(async () => {
+        const list = await readList();
+        if (!list.ok) return failed(list.fault, null);
+        if (!list.value.hubs.includes(identity)) return ok(undefined);
+        const name = alertsOffItem(identity);
+        if (enabled === undefined) {
+          const read = await items.get(name);
+          return read.ok ? ok(read.value === null) : failed(read.fault, identity);
+        }
+        const wrote = await (enabled ? items.delete(name) : items.set(name, "1"));
+        return wrote.ok ? ok(enabled) : failed(wrote.fault, identity);
+      }),
     list: () =>
       listQueue(async () => {
         const list = await readList();

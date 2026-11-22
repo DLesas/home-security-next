@@ -62,7 +62,14 @@ import {
   type ProtoRange,
 } from "./handshake";
 import { fromBase64url } from "./files";
-import { type PushSession, type pushLifecycle, pushRecordHooks } from "./push";
+import {
+  type PhoneAlerts,
+  type PushSession,
+  type pushLifecycle,
+  pushRecordHooks,
+  unavailablePush,
+} from "./push";
+import { alertPermission } from "../platform/alert-permission";
 import { BackupKeyKeeper, restoreHub, type RestoreOutcome, snapshotEpoch } from "./restore";
 import type { ArrivedCode } from "./start-types";
 import {
@@ -153,7 +160,7 @@ export const NO_REACH: ReachState = {
 };
 
 export interface PhoneClient extends Version2Channel {
-  readonly client: HubClient;
+  readonly client: HubClient & { readonly phoneAlerts?: PhoneAlerts };
   readonly records: PhoneRecords;
   /** The vault's last fault, in full (`locked`, `denied`, `corrupt`, `full`, `failed`). */
   readonly vault: StoreApi<VaultStatus>;
@@ -204,11 +211,19 @@ function backupKeyOf(
 }
 
 export function startPhoneClient(deps: PhoneDeps): PhoneClient {
-  const push = deps.push;
+  const push = deps.push ?? (alertPermission && unavailablePush(deps.timers));
   const hooks = push && pushRecordHooks(() => records, push);
   const records: PhoneRecords = phoneRecords(deps.items, hooks);
   void hooks?.changed();
   const chosen = chosenRecordStore(records);
+
+  /** Binds an alert choice to one home's vault items, independent of the open session. */
+  function alertChoice(identity: string): NonNullable<PushSession["alertChoice"]> {
+    return async (enabled) => {
+      const result = await records.alertChoice(identity, enabled);
+      return result.ok ? result : { ok: false, fault: "storage" };
+    };
+  }
   const socket = hubSocketConnect(deps.makeSocket, deps.timers);
   const live = createLiveStore();
   const local = createStore<LocalState>()(() => ({ link: { kind: "idle" } }));
@@ -421,9 +436,14 @@ export function startPhoneClient(deps: PhoneDeps): PhoneClient {
           {
             hub: v2.hub.identity,
             client: hello.client.id,
+            alertChoice: alertChoice(v2.hub.identity),
             register: (body) =>
               version === home
                 ? channel.forward("push.register", body)
+                : Promise.resolve({ ok: false }),
+            unregister: () =>
+              version === home
+                ? channel.forward("push.unregister", {})
                 : Promise.resolve({ ok: false }),
           },
           v2.push,
@@ -607,6 +627,7 @@ export function startPhoneClient(deps: PhoneDeps): PhoneClient {
       homes.push({
         hub,
         client,
+        alertChoice: alertChoice(hub),
         register: async (body) => ({
           ok: (
             await phoneFirst(
@@ -624,10 +645,11 @@ export function startPhoneClient(deps: PhoneDeps): PhoneClient {
     return homes;
   }
 
-  const client: HubClient = {
+  const client: PhoneClient["client"] = {
     live,
     local,
     ...(deps.proto[1] === APP_PROTO_LATEST ? { v2 } : {}),
+    ...(push ? { phoneAlerts: push.alerts } : {}),
     start: () => {
       void records.sweep().then(() => {
         void push?.start(unselectedPushHomes);

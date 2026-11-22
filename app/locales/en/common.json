@@ -721,6 +721,24 @@
     "browserTitle_phone": "Notices on this phone",
     "closedTab_phone": "While the app is open, an urgent notification shows over every screen and the phone vibrates.",
     "browserNone_phone": "With the app closed, this phone is not told yet.",
+    "phoneAlerts": {
+      "title": "Alerts on this phone",
+      "status": {
+        "ready": "Alerts from this home reach this phone.",
+        "permission": "This phone has not allowed notifications.",
+        "off": "Alerts from this home are turned off on this phone.",
+        "retry": "This phone could not set up alerts from this home yet and will try again.",
+        "unavailable": "This build of the app cannot receive alerts while it is closed."
+      },
+      "explain": "Your phone will ask to allow notifications so alerts can reach you when the app is closed.",
+      "allow": "Allow notifications",
+      "denied": "You will miss alerts while the app is closed, and you can still see them when the app is open.",
+      "switch": "Alerts from this home on this phone",
+      "unreachable": "Could not reach this home to change alerts. Try again when it is reachable.",
+      "saveFailed": "Could not save the alert choice on this phone. Try again.",
+      "loud": "Alarms and countdowns can sound through Do Not Disturb if you allow them in your phone's settings.",
+      "notificationSettings": "Open notification settings"
+    },
     "test": {
       "title": "Test alert",
       "send": "Send a test alert",
