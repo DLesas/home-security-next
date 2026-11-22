@@ -166,7 +166,7 @@ test("registers a real target, then home removal unregisters it before deleting 
   expect((await homes.rename(id, "Cottage")).ok).toBe(true);
   expect(fake.names()[id]).toBe("Cottage");
   // A failed push-key erasure keeps all vault items until the normal removal sweep retries it.
-  const removeKey = fake.storage.remove;
+  const removeKey = fake.storage.remove.bind(fake.storage);
   fake.storage.remove = () => Promise.resolve({ ok: false, fault: "storage" });
   expect((await homes.remove(id)).ok).toBe(false);
   expect(fake.keys.has(id)).toBe(true);

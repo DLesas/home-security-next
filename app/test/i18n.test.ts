@@ -42,14 +42,10 @@ describe("translation (HB27, D58)", () => {
 });
 
 /** Lists all leaf keys so every locale covers both the app and closed-app notifications. */
-function leaves(node: Record<string, unknown>, prefix = ""): string[] {
-  return Object.entries(node)
-    .flatMap(([key, value]) => {
-      const path = prefix + key;
-      return typeof value === "object" && value !== null
-        ? leaves(value as Record<string, unknown>, path + ".")
-        : [path];
-    })
+function leaves(node: unknown, prefix = ""): string[] {
+  if (typeof node !== "object" || node === null) return [prefix];
+  return Object.entries(node as Record<string, unknown>)
+    .flatMap(([key, value]) => leaves(value, prefix ? prefix + "." + key : key))
     .sort();
 }
 
