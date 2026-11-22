@@ -36,7 +36,6 @@ import {
   RESTORE_FILE,
   type RestoreInputs,
   RestorePieces,
-  restoreFiles,
   swapRestored,
 } from "../../../src/shell/backup/restore.ts";
 import { type JobThreadEvents, startJobThread } from "../../../src/shell/safe/job-thread.ts";
@@ -464,8 +463,15 @@ describe("a worker that fails", () => {
       const message = outcome.kind === "failed" ? outcome.message : "";
       expect(message).toStartWith("the restore worker ended without an outcome: ");
       expect(message).toContain(why);
-      // `hub.db.restore` too: the next start would otherwise put it in place.
-      for (const path of restoreFiles(at.dataDir)) expect(existsSync(path)).toBe(false);
+      // `hub.db.restore` too: the next start would otherwise put it in place. By their own names.
+      for (const name of [
+        "hub.db.restore",
+        "hub.db.restore.new",
+        "hub.db.restore.new-wal",
+        "hub.db.restore.new-shm",
+        "hub.db.restore.new.plain",
+      ])
+        expect(existsSync(join(at.dataDir, name)), name).toBe(false);
       nothingLeft(at);
     },
   );
