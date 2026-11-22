@@ -137,6 +137,46 @@ function decoded(bytes: Uint8Array) {
 
 const L = linkId(1);
 
+describe("an indexed image whose file is gone while the hub runs", () => {
+  // The file put back whatever happens here: the other tests serve it.
+  afterEach(() => {
+    writeFileSync(join(storeFolder(dataDir), file), image);
+  });
+
+  // A removal off the loop racing a staging of the same image (`remove-job.ts`) can leave the
+  // index naming an image whose file is gone until the next start's check. What a device then
+  // gets, and what repairs it short of a restart: shown here, not yet fixed (reported).
+  test("Gone notAvailable and the core told nothing; added again, the same grant still Gone; only a new grant serves it", () => {
+    const { server, sent, events } = bench();
+    const path = join(storeFolder(dataDir), file);
+    rmSync(path);
+    // The header is the grant's own; the payload's first Get finds no file.
+    server.grant(L, { imageId, header, file });
+    expect(server.take(L, get(128, 1000))).toBe(true);
+    expect(decoded(sent.at(-1)?.bytes ?? new Uint8Array())).toMatchObject({
+      kind: TransferKind.Gone,
+      reason: GoneReason.NotAvailable,
+    });
+    // Nothing for the core: no inputRejected, no progress. The rollout goes on as if served.
+    expect(events).toEqual([]);
+    // The image added again: its staging puts the same bytes back under the same name.
+    writeFileSync(path, image);
+    expect(server.take(L, get(128, 1000))).toBe(true);
+    expect(decoded(sent.at(-1)?.bytes ?? new Uint8Array())).toMatchObject({
+      kind: TransferKind.Gone,
+      reason: GoneReason.NotAvailable,
+    });
+    // A new grant (the device's Update query on a new link, or a restart's) opens it again.
+    server.grant(L, { imageId, header, file });
+    expect(server.take(L, get(128, 1000))).toBe(true);
+    expect(decoded(sent.at(-1)?.bytes ?? new Uint8Array())).toMatchObject({
+      kind: TransferKind.Data,
+      offset: 128,
+    });
+    server.forget(L);
+  });
+});
+
 describe("the answers on one link", () => {
   test("a Get for the header, one inside the image, one across both: the bytes asked, their CRC", () => {
     const { server, sent } = bench();
