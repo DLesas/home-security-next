@@ -372,6 +372,9 @@ describe("whole-file work cut off by a power cut (section 9)", () => {
       switchBlockedBy: () => undefined,
       nowMs: () => Date.UTC(2026, 10, 14),
       salt: () => ok(new Uint8Array(8).fill(1)),
+      // The backup's pieces on this thread, so a cut falls between two of them: the same pieces
+      // the hub's worker runs (`write-job.ts`).
+      onThread: true,
     };
     const key = new Uint8Array(32).fill(5);
     const work = (folder: string) => ({ kind: "backup" as const, folder, keep: 20, key, epoch: 1 });

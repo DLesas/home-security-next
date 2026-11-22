@@ -1,6 +1,6 @@
 /**
- * Staging an update, and a firmware image, in a compiled executable: the probes
- * (`staging-probe.ts`, `firmware-probe.ts`) compiled exactly as the hub's program is,
+ * Staging an update and a firmware image, and writing a backup, in a compiled executable: the
+ * probes (`staging-probe.ts`, `firmware-probe.ts`, `backup-probe.ts`) compiled exactly as the hub's program is,
  * `build-program.ts`'s flags and its embedded workers (`hubWorkers`), for the computer the test
  * runs on, each stage through the one worker entry. That the worker is
  * embedded and found in the executable (Bun finds it by its source path below the compile root)
@@ -39,6 +39,7 @@ const SEED = new Uint8Array(32).fill(7);
 const root = mkdtempSync(join(tmpdir(), "hsn-compiled-staging-"));
 let probe = "";
 let firmwareProbe = "";
+let backupProbe = "";
 
 // Compiling takes seconds, and a whole suite running beside it more.
 setDefaultTimeout(120_000);
@@ -48,9 +49,11 @@ beforeAll(() => {
   const exe = process.platform === "win32" ? ".exe" : "";
   probe = join(root, `probe${exe}`);
   firmwareProbe = join(root, `firmware-probe${exe}`);
+  backupProbe = join(root, `backup-probe${exe}`);
   for (const [source, out] of [
     ["staging-probe.ts", probe],
     ["firmware-probe.ts", firmwareProbe],
+    ["backup-probe.ts", backupProbe],
   ] as const) {
     const failed = compileExecutable(target, join(import.meta.dir, source), out, REPO, {
       root: HUB,
@@ -102,8 +105,8 @@ function release(spoil = false): {
 }
 
 /** Runs a compiled probe (the update's, unless told): what it printed. */
-async function staged(upload: string, prefix: string, which = probe) {
-  const run = Bun.spawn([which, upload, prefix], { stdout: "pipe", stderr: "pipe" });
+async function staged(upload: string, prefix: string, which = probe, ...more: string[]) {
+  const run = Bun.spawn([which, upload, prefix, ...more], { stdout: "pipe", stderr: "pipe" });
   const [out, err, code] = await Promise.all([
     new Response(run.stdout).text(),
     new Response(run.stderr).text(),
@@ -177,6 +180,23 @@ describe.skipIf(target === undefined)(
       const { outcome } = await staged(path, dataDir, firmwareProbe);
       expect(outcome).toMatchObject({ kind: "failed", reason: "badFile" });
       expect(existsSync(storeFolder(dataDir)) ? readdirSync(storeFolder(dataDir)) : []).toEqual([]);
+    });
+  },
+);
+
+describe.skipIf(target === undefined)(
+  "a backup in the compiled program, through its embedded worker",
+  () => {
+    test("written, sealed and placed from inside the executable; nothing else in the folder", async () => {
+      const dataDir = join(root, "backup-data");
+      const folder = join(root, "backup-folder");
+      mkdirSync(folder, { recursive: true });
+      const { main, outcome } = await staged(dataDir, folder, backupProbe, join(HUB, "drizzle"));
+      expect(main).toMatch(/(?:^|[\\/])(?:~BUN|\$bunfs)[\\/]/u);
+      expect(outcome).toMatchObject({ kind: "backupWritten" });
+      const names = readdirSync(folder);
+      expect(names).toHaveLength(1);
+      expect(names[0]).toMatch(/^hsn-[a-z2-7]{26}-20261121T030000000Z\.hsnb$/u);
     });
   },
 );

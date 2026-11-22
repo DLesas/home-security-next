@@ -5,6 +5,7 @@
  * each kind's module is small, so a worker loading them all costs its start little.
  */
 import { parentPort, workerData } from "node:worker_threads";
+import { serveBackup } from "../backup/write-serve.ts";
 import { serveFirmwareStaging } from "../firmware/stage-serve.ts";
 import { serveStaging } from "../update/stage-serve.ts";
 import type { JobKind, JobKindData, KindData, WorkerData } from "./kinds.ts";
@@ -21,17 +22,29 @@ interface Port {
 const SERVERS: { readonly [K in JobKind]: (port: Port, data: WorkerData<KindData<K>>) => void } = {
   stageUpdate: serveStaging,
   stageFirmware: serveFirmwareStaging,
+  writeBackup: serveBackup,
 };
 
 function served(kind: unknown): kind is JobKind {
   return typeof kind === "string" && Object.hasOwn(SERVERS, kind);
 }
 
+/** Each kind's own data, beside `kind` and `control`: what the entry checks is there. */
+const FIELDS: { readonly [K in JobKind]: readonly Exclude<keyof KindData<K>, "kind">[] } = {
+  stageUpdate: ["inputs"],
+  stageFirmware: ["inputs", "signingKeys"],
+  writeBackup: ["read", "work"],
+};
+
 /** Whether `data` is what a job's worker is started with: a kind served, its data, the word. */
 function isWorkerData(data: unknown): data is WorkerData<JobKindData> {
   if (typeof data !== "object" || data === null) return false;
   if (!("kind" in data) || !served(data.kind)) return false;
-  if (!("inputs" in data) || typeof data.inputs !== "object" || data.inputs === null) return false;
+  const fields: readonly string[] = FIELDS[data.kind];
+  for (const field of fields) {
+    const value: unknown = Reflect.get(data, field);
+    if (typeof value !== "object" || value === null) return false;
+  }
   if (!("control" in data)) return false;
   const control = data.control;
   return (

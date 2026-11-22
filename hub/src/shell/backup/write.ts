@@ -115,16 +115,104 @@ export interface BackupWork {
 type BackupPhase = "start" | "seal" | "sync" | "place" | "prune";
 
 /**
+ * What a backup needs of the hub's database and clock, read on the loop (the backup's worker
+ * never opens `hub.db`): the header and the configuration serialised, or why they could not be.
+ * Data only, so a worker can be given it.
+ */
+export type BackupRead =
+  { readonly header: BackupHeader; readonly plain: Uint8Array } | { readonly failed: FileError };
+
+/** The header and the configuration copied and serialised in memory (small: about 200 KB ‡). */
+export function readBackup(db: Database, epoch: number, deps: WriteDeps): BackupRead {
+  const read = Result.fromThrowable((): BackupRead => {
+    const facts = headerFacts(db);
+    if (facts.isErr()) return { failed: facts.error };
+    const database = backupDatabase(db);
+    if (database.isErr()) return { failed: { reason: "io", message: database.error.message } };
+    const salt = deps.salt();
+    if (salt.isErr()) return { failed: { reason: "io", message: salt.error } };
+    return {
+      header: {
+        format: BACKUP_FORMAT.format,
+        flags: 0,
+        identity: facts.value.identity,
+        epoch,
+        madeMs: deps.nowMs(),
+        schema: facts.value.schema,
+        salt: salt.value,
+        lastChangeMs: facts.value.lastChangeMs,
+      },
+      plain: database.value,
+    };
+  }, fileError("write the backup"))();
+  return read.isOk() ? read.value : { failed: read.error };
+}
+
+/** The temporary file a backup of `read` is written to in `folder`; none for a failed read. */
+export function backupTemporary(folder: string, read: BackupRead): string | undefined {
+  return "failed" in read
+    ? undefined
+    : join(folder, `.${backupName(read.header.identity, read.header.madeMs)}.tmp`);
+}
+
+/**
  * A backup into the folder in pieces between the loop's turns (section 3, "The loop's time"):
- * the configuration copied and serialised in memory (small: about 200 KB ‡), then sealed
- * `SEAL_PIECE_BYTES` ‡ a piece into a temporary file in the folder, synced, renamed, the folder
- * synced, and this hub's files of older epochs and beyond the newest `keep` removed, one a piece.
- * A failure at any piece, or `abort`, removes the temporary file; nothing readable reaches a disk.
+ * the configuration read and serialised (`readBackup`), then sealed `SEAL_PIECE_BYTES` ‡ a piece
+ * into a temporary file in the folder, synced, renamed, the folder synced, and this hub's files of
+ * older epochs and beyond the newest `keep` removed, one a piece. A failure at any piece, or
+ * `abort`, removes the temporary file; nothing readable reaches a disk. On the thread, for the
+ * tests and a caller that cannot wait; the hub runs `BackupFile` on a worker (`write-job.ts`).
  */
 export class BackupPieces {
   readonly #db: Database;
   readonly #work: BackupWork;
   readonly #deps: WriteDeps;
+  readonly #dataDir: string | undefined;
+  #file: BackupFile | undefined;
+  #ended: FileOutcome | undefined;
+
+  constructor(db: Database, work: BackupWork, deps: WriteDeps, dataDir?: string) {
+    this.#db = db;
+    this.#work = work;
+    this.#deps = deps;
+    this.#dataDir = dataDir;
+  }
+
+  get phase(): BackupPhase {
+    return this.#file?.phase ?? "start";
+  }
+
+  /** The sealed bytes each `seal` piece wrote and synced, for the tests' bound on a piece's work. */
+  get sealedPieces(): readonly number[] {
+    return this.#file?.sealedPieces ?? [];
+  }
+
+  next(): FileOutcome | undefined {
+    if (this.#ended !== undefined) return this.#ended;
+    this.#file ??= new BackupFile(
+      readBackup(this.#db, this.#work.epoch, this.#deps),
+      this.#work,
+      this.#dataDir,
+    );
+    return this.#file.next();
+  }
+
+  abort(message: string): FileOutcome {
+    if (this.#file !== undefined) return this.#file.abort(message);
+    this.#ended ??= { kind: "failed", reason: "io", message };
+    return this.#ended;
+  }
+}
+
+/**
+ * A backup's file work, from what the loop read (`readBackup`): the folder checked, the
+ * configuration sealed into a temporary file a piece at a time, synced, renamed, the folder
+ * synced, and the folder pruned. It never touches `hub.db`, so the backup's worker runs it
+ * (`write-serve.ts`); `BackupPieces` runs it on the thread.
+ */
+export class BackupFile {
+  readonly #read: BackupRead;
+  readonly #work: BackupWork;
   readonly #dataDir: string | undefined;
   #phase: BackupPhase = "start";
   #stream: SealStream | undefined;
@@ -136,10 +224,9 @@ export class BackupPieces {
   #pruning: string[] = [];
   #ended: FileOutcome | undefined;
 
-  constructor(db: Database, work: BackupWork, deps: WriteDeps, dataDir?: string) {
-    this.#db = db;
+  constructor(read: BackupRead, work: BackupWork, dataDir: string | undefined) {
+    this.#read = read;
     this.#work = work;
-    this.#deps = deps;
     this.#dataDir = dataDir;
   }
 
@@ -208,29 +295,14 @@ export class BackupPieces {
   #start(): FileOutcome | undefined {
     const reachable = listFolder(this.#work.folder);
     if (reachable.isErr()) return { kind: "failed", ...reachable.error };
-    const facts = headerFacts(this.#db);
-    if (facts.isErr()) return { kind: "failed", ...facts.error };
-    const database = backupDatabase(this.#db);
-    if (database.isErr()) return { kind: "failed", reason: "io", message: database.error.message };
-    const salt = this.#deps.salt();
-    if (salt.isErr()) return { kind: "failed", reason: "io", message: salt.error };
-    const madeMs = this.#deps.nowMs();
-    const header: BackupHeader = {
-      format: BACKUP_FORMAT.format,
-      flags: 0,
-      identity: facts.value.identity,
-      epoch: this.#work.epoch,
-      madeMs,
-      schema: facts.value.schema,
-      salt: salt.value,
-      lastChangeMs: facts.value.lastChangeMs,
-    };
-    const stream = SealStream.start(this.#work.key, header, database.value);
+    const read = this.#read;
+    if ("failed" in read) return { kind: "failed", ...read.failed };
+    const stream = SealStream.start(this.#work.key, read.header, read.plain);
     if (typeof stream === "string")
       return { kind: "failed", reason: "io", message: `the backup could not be sealed: ${stream}` };
     this.#stream = stream;
-    this.#identity = facts.value.identity;
-    this.#name = backupName(facts.value.identity, madeMs);
+    this.#identity = read.header.identity;
+    this.#name = backupName(read.header.identity, read.header.madeMs);
     this.#fd = openSync(this.#temporary(), "wx", 0o600);
     this.#phase = "seal";
     return undefined;

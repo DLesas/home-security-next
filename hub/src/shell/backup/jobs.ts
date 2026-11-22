@@ -26,6 +26,7 @@ import { StagingJob } from "../update/stage-job.ts";
 import { readRestoreHeader, RestorePieces, swapRestored } from "./restore.ts";
 import { ExportPieces } from "./export-pieces.ts";
 import { HistoryExport } from "./history-export.ts";
+import { BackupJob } from "./write-job.ts";
 import { BackupPieces, type ExportSink, type WriteDeps } from "./write.ts";
 
 /** Where the uploads are: the shell's upload store (owner A2), by `UploadRef`. */
@@ -66,7 +67,8 @@ export interface JobDeps extends WriteDeps {
   /**
    * Every job's pieces on the hub's own thread, a piece a turn, as before D145: the lockstep hub's
    * (`lockstep/files.ts`), whose runs are the simulated clock's, never the machine's, as a
-   * worker's outcome would be. The same classes the workers run.
+   * worker's outcome would be; and a test's that needs a job's file at once (`runToEnd`). The
+   * same classes the workers run.
    */
   readonly onThread?: boolean;
 }
@@ -97,10 +99,11 @@ export function roomOf(
 }
 
 /**
- * A job that runs in pieces between the loop's turns (a backup, an export, a restore): `next` does
- * one bounded piece and gives the outcome once the job has ended; `abort` ends it now (a stop),
- * leaving nothing behind. Staging an update runs on a worker thread instead (`StagingJob`): its
- * `next` only reads whether the worker's outcome has come, and `waiting` is true until it has.
+ * A job that runs in pieces between the loop's turns (an export, a restore): `next` does one
+ * bounded piece and gives the outcome once the job has ended; `abort` ends it now (a stop),
+ * leaving nothing behind. Staging an update or a firmware image, and writing a backup, run on a
+ * worker thread instead (`shell/worker/job.ts`): their `next` only reads whether the worker's
+ * outcome has come, and `waiting` is true until it has.
  */
 export interface Pieces {
   next(): FileOutcome | undefined;
@@ -117,7 +120,8 @@ export type JobStart = JobDone | { readonly kind: "pieces"; readonly pieces: Pie
  * a backup, an export and applying a restore are returned as
  * pieces, the loop running one piece after each turn's inputs and effects and asking for another
  * turn while any remains, so inputs are never starved; every other job is done at once. Staging
- * an update is done on a worker thread, its pieces only telling the loop when it has ended.
+ * an update or a firmware image and writing a backup are done on a worker thread, their pieces
+ * only telling the loop when they have ended.
  */
 export function startJob(job: JobId, work: FileWork, deps: JobDeps): JobStart {
   if (work.kind === "export")
@@ -128,7 +132,19 @@ export function startJob(job: JobId, work: FileWork, deps: JobDeps): JobStart {
         : new ExportPieces(deps.db, job, work, deps.exports, deps),
     };
   if (work.kind === "backup")
-    return { kind: "pieces", pieces: new BackupPieces(deps.db, work, deps, deps.dataDir) };
+    return {
+      kind: "pieces",
+      pieces:
+        deps.onThread === true
+          ? new BackupPieces(deps.db, work, deps, deps.dataDir)
+          : new BackupJob(
+              deps.db,
+              work,
+              deps,
+              deps.dataDir,
+              deps.wake === undefined ? {} : { wake: deps.wake },
+            ),
+    };
   if (work.kind === "applyRestore") {
     const upload = deps.uploads.pathOf(work.upload);
     if (upload === undefined) return noUpload(work.upload);
@@ -220,19 +236,28 @@ function atOnce(work: AtOnce, deps: JobDeps): JobDone {
 /**
  * A job started and, if in pieces, run to its end, a piece after another: what the tests use
  * to see a job's outcome. The hub never does this: its loop takes `startJob`'s pieces one a turn.
- * Only for the jobs that run on the loop: a staging's outcome comes from its worker, so that one
- * needs `jobToEnd`.
+ * Only for the jobs that run on the loop: a job on a worker (one that can say it is `waiting`)
+ * gets its outcome only between the thread's turns, so it needs `jobToEnd`, and here is failed at
+ * once rather than waited for forever.
  */
 export function runToEnd(job: JobId, work: FileWork, deps: JobDeps): JobDone {
   const started = startJob(job, work, deps);
   if (started.kind !== "pieces") return started;
+  if (started.pieces.waiting !== undefined) {
+    started.pieces.abort("a job on a worker: run it with jobToEnd");
+    return ready({
+      kind: "failed",
+      reason: "io",
+      message: "a job on a worker: run it with jobToEnd",
+    });
+  }
   for (;;) {
     const outcome = started.pieces.next();
     if (outcome !== undefined) return ready(outcome);
   }
 }
 
-/** `runToEnd` for any job, a staging's worker included: the thread lets events in between pieces. */
+/** `runToEnd` for any job, one on a worker included: the thread lets events in between pieces. */
 export async function jobToEnd(job: JobId, work: FileWork, deps: JobDeps): Promise<JobDone> {
   const started = startJob(job, work, deps);
   if (started.kind !== "pieces") return started;

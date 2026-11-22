@@ -46,7 +46,7 @@ import { mono, type Now } from "../../../src/core/model/time.ts";
 import type { Clock } from "../../../src/ports/clock.ts";
 import { BACKUP_TABLES, NEVER_TABLES } from "../../../src/shell/backup/contents.ts";
 import { ExportPieces } from "../../../src/shell/backup/export-pieces.ts";
-import { runToEnd } from "../../../src/shell/backup/jobs.ts";
+import { jobToEnd, runToEnd } from "../../../src/shell/backup/jobs.ts";
 import {
   BEFORE_RESTORE_FILE,
   RESTORE_FILE,
@@ -226,8 +226,9 @@ function deps(over: Partial<Parameters<typeof runToEnd>[2]> = {}): Parameters<ty
   };
 }
 
-function backup(epoch = 1, keep = 20): ReturnType<typeof runToEnd> {
-  return runToEnd(jobId(1), { kind: "backup", folder, keep, key: KEY, epoch }, deps());
+/** A backup through the hub's own job, its file work on its worker. */
+function backup(epoch = 1, keep = 20): ReturnType<typeof jobToEnd> {
+  return jobToEnd(jobId(1), { kind: "backup", folder, keep, key: KEY, epoch }, deps());
 }
 
 function contains(hay: Uint8Array, needle: Uint8Array): boolean {
@@ -248,8 +249,8 @@ function tables(db: Database): string[] {
 }
 
 describe("a backup into the folder", () => {
-  test("named for this hub and time; the configuration and keys, no token, no reply, no history", () => {
-    const done = backup();
+  test("named for this hub and time; the configuration and keys, no token, no reply, no history", async () => {
+    const done = await backup();
     expect(done).toMatchObject({ kind: "ready", outcome: { kind: "backupWritten" } });
     const identity = formatIdentity(appIdentityBytes(sha256, APP_PUBLIC));
     const names = readdirSync(folder);
@@ -273,8 +274,8 @@ describe("a backup into the folder", () => {
     expect(db.query("SELECT device_id FROM device_state WHERE device_id = 0").all()).toEqual([]);
   });
 
-  test("encrypted before a byte reaches disk: no name, no device key, no backup key in the folder", () => {
-    backup();
+  test("encrypted before a byte reaches disk: no name, no device key, no backup key in the folder", async () => {
+    await backup();
     for (const name of readdirSync(folder)) {
       const bytes = new Uint8Array(readFileSync(join(folder, name)));
       expect(contains(bytes, new TextEncoder().encode(NAME))).toBe(false);
@@ -284,16 +285,16 @@ describe("a backup into the folder", () => {
     expect(readdirSync(folder).filter((n) => n.endsWith(".tmp"))).toEqual([]);
   });
 
-  test("the newest `keep` kept, and this hub's files of an older epoch deleted", () => {
+  test("the newest `keep` kept, and this hub's files of an older epoch deleted", async () => {
     for (let i = 0; i < 4; i++) {
       clock.wall = WALL + i * 60_000;
-      backup(1, 3);
+      await backup(1, 3);
     }
     expect(readdirSync(folder)).toHaveLength(3);
     expect(readdirSync(folder).toSorted()[0]).toContain("T030100000Z");
     writeFileSync(join(folder, "someone-else.txt"), "kept");
     clock.wall = WALL + 10 * 60_000;
-    backup(2, 3);
+    await backup(2, 3);
     const left = readdirSync(folder).toSorted();
     expect(left).toEqual([
       "hsn-" + formatIdentity(appIdentityBytes(sha256, APP_PUBLIC)) + "-20261114T031000000Z.hsnb",
@@ -301,8 +302,8 @@ describe("a backup into the folder", () => {
     ]);
   });
 
-  test("an unreachable folder is `unreachable`, and nothing is written", () => {
-    const done = runToEnd(
+  test("an unreachable folder is `unreachable`, and nothing is written", async () => {
+    const done = await jobToEnd(
       jobId(1),
       { kind: "backup", folder: join(root, "unplugged"), keep: 20, key: KEY, epoch: 1 },
       deps(),
@@ -316,7 +317,7 @@ describe("a backup into the folder", () => {
 });
 
 describe("an export", () => {
-  test("without history: the configuration backup a scheduled one writes, in chunks of at most 48 KB with the hash of the whole; nothing on disk", () => {
+  test("without history: the configuration backup a scheduled one writes, in chunks of at most 48 KB with the hash of the whole; nothing on disk", async () => {
     const chunks: ExportChunk[] = [];
     const before = readdirSync(data).toSorted();
     const done = runToEnd(
@@ -347,7 +348,7 @@ describe("an export", () => {
     const header = backupCodec.readHeader(whole);
     // Every flag zero (bit 0, history, retired): exactly a scheduled backup's file.
     expect(header.ok && header.value.flags).toBe(0);
-    const scheduled = backup();
+    const scheduled = await backup();
     expect(scheduled).toMatchObject({ kind: "ready", outcome: { kind: "backupWritten" } });
     const name = readdirSync(folder)[0] ?? "";
     expect(tables(openFile(whole))).toEqual(
@@ -468,7 +469,12 @@ describe("restore", () => {
     readonly newStore: OpenedStore;
     readonly newData: string;
   } {
-    backup(3);
+    // On the thread, at once: the backup is this restore's input (its worker: `write-job.test.ts`).
+    runToEnd(
+      jobId(1),
+      { kind: "backup", folder, keep: 20, key: KEY, epoch: 3 },
+      deps({ onThread: true }),
+    );
     const file = join(folder, readdirSync(folder)[0] ?? "");
     const upload = join(root, "upload.hsnb");
     writeFileSync(upload, readFileSync(file));

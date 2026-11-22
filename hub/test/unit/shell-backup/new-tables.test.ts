@@ -128,7 +128,8 @@ function backupOf(db: Database, dataDir: string): Uint8Array {
   const done = runToEnd(
     jobId(1),
     { kind: "backup", folder: backups, keep: 20, key: KEY, epoch: 1 },
-    deps(db, dataDir),
+    // On the thread: this test is of what a backup holds; the worker's is `write-job.test.ts`.
+    { ...deps(db, dataDir), onThread: true },
   );
   expect(done).toMatchObject({ kind: "ready", outcome: { kind: "backupWritten" } });
   const name = readdirSync(backups).find((n) => n.endsWith(".hsnb")) ?? "";

@@ -60,6 +60,8 @@ function backupFile(root: string): Uint8Array {
       switchBlockedBy: () => undefined,
       nowMs: () => Date.UTC(2026, 10, 18),
       salt: () => ok(new Uint8Array(8).fill(9)),
+      // On the thread: the backup is this test's input; its worker's is `write-job.test.ts`.
+      onThread: true,
     },
   );
   expect(done).toMatchObject({ kind: "ready", outcome: { kind: "backupWritten" } });

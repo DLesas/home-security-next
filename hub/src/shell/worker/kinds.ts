@@ -4,6 +4,7 @@
  * share, so a kind added here and not served by the entry, or served with other data, does not
  * compile. Data only: a worker's `workerData` is copied across, never shared but `control`.
  */
+import type { BackupRead, BackupWork } from "../backup/write.ts";
 import type { SigningKeys } from "../firmware/sign.ts";
 import type { FirmwareStageInputs } from "../firmware/stage.ts";
 import type { StageInputs } from "../update/stage.ts";
@@ -29,8 +30,20 @@ export interface StageFirmwareData {
   readonly signingKeys: KeysRead;
 }
 
+/**
+ * A backup's file work (`backup/write.ts`, `BackupFile`): what the loop read of `hub.db` for it
+ * (`readBackup`), the work (its folder, how many to keep, the key, the epoch) and the data folder,
+ * whose disk the folder's is told against.
+ */
+export interface WriteBackupData {
+  readonly kind: "writeBackup";
+  readonly read: BackupRead;
+  readonly work: BackupWork;
+  readonly dataDir: string | undefined;
+}
+
 /** Every kind's data. */
-export type JobKindData = StageUpdateData | StageFirmwareData;
+export type JobKindData = StageUpdateData | StageFirmwareData | WriteBackupData;
 
 export type JobKind = JobKindData["kind"];
 

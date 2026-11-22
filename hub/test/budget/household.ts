@@ -107,6 +107,9 @@ export function homePorts(): Required<Pick<HomeSpec, "calendar" | "files">> & {
           switchBlockedBy: () => undefined,
           nowMs: () => home.clock.now().wall,
           salt: () => ok(new Uint8Array(8).fill(job)),
+          // On the hub's thread, a piece a turn: this world's time is simulated, as the lockstep
+          // hub's is, and a worker's outcome would come on the machine's.
+          onThread: true,
         });
         if (started.kind !== "pieces") return started;
         const pieces = started.pieces;

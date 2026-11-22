@@ -925,6 +925,8 @@ export class RekeyHub {
         switchBlockedBy: () => undefined,
         nowMs: () => this.clock.now().wall,
         salt: () => ok(new Uint8Array(8).fill(9)),
+        // On the thread, at once: the same file work the hub's worker does.
+        onThread: true,
       },
     );
     if (done.kind !== "ready" || done.outcome.kind !== "backupWritten") {
