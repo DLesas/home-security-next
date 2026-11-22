@@ -5,7 +5,10 @@ import {
   type AppEvent,
   type AppEventBodyV2,
   type AppEventV2,
+  type AppOpBody,
+  type AppOpName,
   type AppOpNameV2,
+  type AppOpReply,
   type AppOpReplyV2,
   type DeviceObject,
   type RolloutDeviceObject,
@@ -14,7 +17,7 @@ import {
   UPDATE_REASONS,
 } from "@hsn/protocol/app";
 import { createElement } from "react";
-import type { AnyOutcome } from "../src/hub/channel";
+import type { AnyOutcome, RequestOutcome } from "../src/hub/channel";
 import type { HubClient, Version2Channel } from "../src/hub/client";
 import type { Timers } from "../src/hub/wire";
 import { rolloutView } from "../src/state/rollout";
@@ -154,10 +157,14 @@ async function standIn(
     v2 = true,
     images = [],
     offers = [],
+    hubUpdate,
+    hubOffer = { offer: null },
   }: {
     readonly v2?: boolean;
     readonly images?: Images;
     readonly offers?: Offers;
+    readonly hubUpdate?: AppOpReply<"update.status">;
+    readonly hubOffer?: AppOpReplyV2<"update.offers">;
   } = {},
 ) {
   const world = await screenWorld({
@@ -183,6 +190,7 @@ async function standIn(
       if (op === "rollout.status") return current;
       if (op === "firmware.list") return reply({ images: catalogue, devices: [] });
       if (op === "firmware.offers") return reply({ offers });
+      if (op === "update.offers") return reply(hubOffer);
       return action?.() ?? reply({ job: 9 });
     },
     onNewEvent: (listener) => {
@@ -192,7 +200,15 @@ async function standIn(
       };
     },
   };
-  const client: HubClient = { ...world.client, ...(v2 ? { v2: channel } : {}) };
+  const client: HubClient = {
+    ...world.client,
+    ...(v2 ? { v2: channel } : {}),
+    /** Answers the existing hub-update request when the fixture stages a hub release. */
+    request: <Op extends AppOpName>(op: Op, body: AppOpBody<Op>) =>
+      op === "update.status" && hubUpdate !== undefined
+        ? Promise.resolve(reply(hubUpdate) as RequestOutcome<Op>)
+        : world.client.request(op, body),
+  };
   return {
     calls,
     world,
@@ -283,6 +299,45 @@ test("a version 2 stand-in web client renders no rollout on the existing Updates
   expect(view.words()).not.toContain("Waiting for approval");
   expect(view.calls[0]).toEqual({ op: "rollout.status", body: {} });
   expect(view.html()).not.toContain('aria-label="Pause the rollout"');
+});
+
+test("Updates shows the rollout, staged approval, offered hub update and upload once each", async () => {
+  const view = await mount(status("pilots"), {
+    fullScreen: true,
+    hubUpdate: {
+      staged: "2.8.0",
+      approvedBy: null,
+      switching: false,
+      lastResult: "none",
+      lastResultMs: null,
+    },
+    hubOffer: { offer: { version: "2.9.0", bytes: 12_345, platform: "darwin-arm64" } },
+  });
+  const deadline = performance.now() + 450;
+  while (
+    (!view.words().includes("Version 2.8.0 is ready.") ||
+      !view.words().includes("Version 2.9.0 is available")) &&
+    performance.now() < deadline
+  ) {
+    await screenAct(() => Bun.sleep(5));
+  }
+  for (const label of [
+    "Device update rollout",
+    "Updates",
+    "Available hub updates",
+    "Install from a file",
+  ]) {
+    expect(view.html().split(`aria-label="${label}"`)).toHaveLength(2);
+  }
+  expect(view.html().split('aria-label="Approve version 2.8.0"')).toHaveLength(2);
+  for (const words of [
+    "The first devices are updating.",
+    "Version 2.8.0 is ready.",
+    "Version 2.9.0 is available (12,345 bytes).",
+    "From the hub computer: a release file.",
+  ]) {
+    expect(view.words().split(words)).toHaveLength(2);
+  }
 });
 
 test.each(STAGES)(
