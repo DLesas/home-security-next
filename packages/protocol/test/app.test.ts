@@ -477,6 +477,7 @@ describe("vector formats (section 10)", () => {
         "app-noise-failures.json",
         "app-noise.json",
         "app-release.json",
+        "app-rollout-force.json",
         "app-schemas.json",
         "app-typed-code.json",
       ].toSorted(),
