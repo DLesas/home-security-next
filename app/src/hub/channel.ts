@@ -24,7 +24,6 @@
  * answer would be no, and shows each refusal as the hub gave it.
  */
 import {
-  APP_EVENTS,
   APP_EVENTS_V2,
   APP_OPS,
   APP_OPS_V2,
@@ -105,9 +104,9 @@ export type ChannelStatus =
   | { readonly kind: "removed" };
 
 /**
- * What the channel tells the store. On a version 2 session the
+ * What the channel tells the store. On a version 2 session (a phone's, m3-design.md section 3) the
  * snapshot and the events of version 1's names carry version 2's bodies, each version 1's with
- * fields added. An event only version 2 names, including `hub`'s new `what`s, goes to `newEvent`.
+ * fields added (but `hub`'s two new `what`s); an event only version 2 names goes to `newEvent`.
  */
 export interface ChannelListener {
   status(status: ChannelStatus): void;
@@ -119,8 +118,6 @@ export interface ChannelListener {
 type LiveEvent =
   | { readonly kind: "shared"; readonly event: AppEvent }
   | { readonly kind: "new"; readonly event: AppEventV2 };
-
-const LEGACY_HUB_WHATS: ReadonlySet<string> = new Set(APP_EVENTS.hub.unwrap().shape.what.options);
 
 /** A request's maker, as the screens see it: the channel, or another tab's (`tabs.ts`). */
 export interface Requester {
@@ -482,10 +479,7 @@ export class Channel implements Requester {
         session.close(CLOSE.protocol);
         return;
       }
-      if (
-        !isVersion1Event(later.ev) ||
-        (later.ev === "hub" && !LEGACY_HUB_WHATS.has(later.body.what))
-      ) {
+      if (!isVersion1Event(later.ev)) {
         this.deliver({ kind: "new", event: later });
         return;
       }

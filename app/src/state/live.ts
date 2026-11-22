@@ -7,6 +7,7 @@
  */
 import type {
   AppEvent,
+  AppEventV2,
   ClientKindValue,
   DeviceObject,
   GroupObject,
@@ -199,9 +200,15 @@ export function applySnapshot(
 }
 
 export type HubWhat = Extract<AppEvent, { ev: "hub" }>["body"]["what"];
+type HubWireEvent = Extract<AppEventV2, { ev: "hub" }>;
+type LiveEvent = AppEvent | HubWireEvent;
 
 /** A `hub` event: told as a notice; a failing database kept until it recovers; status reads again. */
-function hubEvent(state: LiveState, what: HubWhat, rev: number): LiveState {
+function hubEvent(state: LiveState, what: HubWireEvent["body"]["what"], rev: number): LiveState {
+  if (what === "relay" || what === "updateOffered") {
+    // The settings sections read the full replies. These events have no shell-wide notice.
+    return { ...state, stale: { ...state.stale, hub: state.stale.hub + 1 } };
+  }
   return {
     ...state,
     hubNotices: [{ what, rev }, ...state.hubNotices.filter((n) => n.what !== what)].slice(0, 5),
@@ -272,12 +279,12 @@ function withHealth(
 }
 
 /** One event, already past the snapshot's `rev` (the channel drops the others). */
-export function applyEvent(state: LiveState, event: AppEvent, nowMs: number): LiveState {
+export function applyEvent(state: LiveState, event: LiveEvent, nowMs: number): LiveState {
   const next = applyBody(state, event, nowMs);
   return next === state ? state : { ...next, rev: event.rev };
 }
 
-function applyBody(state: LiveState, event: AppEvent, nowMs: number): LiveState {
+function applyBody(state: LiveState, event: LiveEvent, nowMs: number): LiveState {
   switch (event.ev) {
     case "arming": {
       let next: LiveState = { ...state, mode: event.body.mode };
