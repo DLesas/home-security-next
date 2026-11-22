@@ -3,11 +3,13 @@
  * and the automatic stop; the channel and rate, which are fixed once a device is paired (then a
  * site move changes them, device by device, which the screen follows by its `site` events); the
  * Wi-Fi details (only on the hub computer); retention, shown. *Manage system* for every change,
- * which the hub checks.
+ * which the hub checks. On a phone, first, which path its session takes (m3-design.md section 6).
  */
 import { RETENTION_DAYS, type SnapshotObject } from "@hsn/protocol/app";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
+import { type StoreApi, useStore } from "zustand";
+import type { ReachState } from "../hub/phone-client";
 import { useAction, useLive } from "./hub-context";
 import { numberOrKeep } from "./device-detail";
 import {
@@ -22,6 +24,7 @@ import {
   Heading,
   Section,
 } from "./parts";
+import { usePhone } from "./phone-parts";
 import { WifiStep } from "./setup";
 
 const CHANNELS = [0, 1, 2] as const;
@@ -264,12 +267,45 @@ function Retention({ site }: { readonly site: SnapshotObject["site"] }) {
   );
 }
 
+const PATH_KEYS = {
+  home: "site.path.home",
+  relay: "site.path.relay",
+  notConnected: "site.path.notConnected",
+  busy: "site.path.busy",
+} as const;
+
+/**
+ * The phone's path, under This home and never on Home (m3-design.md section 6): at home or
+ * through the relay while a session is open; else what the relay's last close said, if anything.
+ */
+export function pathSaid(reach: ReachState): keyof typeof PATH_KEYS | null {
+  return reach.path ?? reach.relayClosed;
+}
+
+function PathInUse() {
+  const phone = usePhone();
+  return phone === undefined ? null : <PathLine reach={phone.reach} />;
+}
+
+function PathLine({ reach }: { readonly reach: StoreApi<ReachState> }) {
+  const { t } = useTranslation();
+  const said = useStore(reach, pathSaid);
+  return said === null ? null : <Body testID="site-path">{t(PATH_KEYS[said])}</Body>;
+}
+
 export function SiteScreen() {
   const { t } = useTranslation();
   const site = useLive((s) => s.site);
-  if (site === null) return <Body muted>{t("connection.connecting")}</Body>;
+  if (site === null)
+    return (
+      <>
+        <PathInUse />
+        <Body muted>{t("connection.connecting")}</Body>
+      </>
+    );
   return (
     <>
+      <PathInUse />
       <Timings site={site} />
       <Radio site={site} />
       <SiteMove />
