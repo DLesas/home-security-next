@@ -18,7 +18,7 @@ interface Destination {
   readonly pages: readonly (readonly [href: string, label: string])[];
   /**
    * Pages that belong here but are not listed: the phone's "Restore a hub" (m3-design.md section 4),
-   * and "This phone" (section 6).
+   * "This phone" and its "Link another home" (section 6).
    */
   readonly unlisted?: readonly string[];
 }
@@ -56,7 +56,7 @@ export const DESTINATIONS: readonly Destination[] = [
       ["/status", "nav.status"],
       ["/setup", "nav.setup"],
     ],
-    unlisted: ["/restore", "/this-phone"],
+    unlisted: ["/restore", "/this-phone", "/link-home"],
   },
 ];
 

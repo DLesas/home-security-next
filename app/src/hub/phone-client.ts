@@ -65,8 +65,8 @@ import {
   relayUrlFor,
 } from "./relay";
 import type { Connect, Timers } from "./wire";
-import { createLiveStore } from "../state/live";
-import type { ClientKeys, RecordStore, StoredClient } from "../platform/client-key";
+import { createLiveStore, EMPTY_LIVE } from "../state/live";
+import type { ClientKeys, RecordStore, Stored, StoredClient } from "../platform/client-key";
 import type { FinderFault, HubFinder } from "../platform/finder";
 import type { PlatformSecret } from "../platform/keys";
 import type { HeldBackupKey, HubReach } from "../platform/records";
@@ -153,6 +153,11 @@ export interface PhoneClient {
   resume(): void;
   /** The backup-key keeper of the session open now, if any. */
   keeper(): BackupKeyKeeper | undefined;
+  /**
+   * Another linked hub's session in place of this one's (M5's homes), or none (null): the open
+   * session closes, nothing it awaits or shows goes on to the next, and the next opens.
+   */
+  choose(identity: string | null): Promise<Stored<undefined>>;
 }
 
 /**
@@ -192,6 +197,7 @@ export function startPhoneClient(deps: PhoneDeps): PhoneClient {
   const local = createStore<LocalState>()(() => ({ link: { kind: "idle" } }));
   const reach = createStore<ReachState>()(() => NO_REACH);
   const taps = new Set<(event: AppEvent) => void>();
+  let home = 0;
   let current: { readonly identity: string; readonly reach: HubReach } | undefined;
   let keeper: BackupKeyKeeper | undefined;
   let asked:
@@ -200,17 +206,27 @@ export function startPhoneClient(deps: PhoneDeps): PhoneClient {
 
   /** Changes a hub's reach in its record, and in `current` when it is the chosen hub's. */
   async function updateReach(identity: string, change: (reach: HubReach) => HubReach) {
+    const version = home;
     const updated = await records.hub(identity).update((record) => ({
       ...record,
       reach: change(record.reach ?? emptyReach()),
     }));
-    if (updated.ok && updated.value !== undefined && current?.identity === identity)
+    if (
+      version === home &&
+      updated.ok &&
+      updated.value !== undefined &&
+      current?.identity === identity
+    )
       remember(updated.value);
   }
 
+  /** Clears the local network refusal after any home address answers. */
+  const answeredAtHome = () => {
+    reach.setState({ localNetworkDenied: false });
+  };
   const reaching = {
     answered: (address: string, port: number) => {
-      reach.setState({ localNetworkDenied: false });
+      answeredAtHome();
       const hub = current;
       if (hub === undefined) return;
       if (hub.reach.lastAddress === address && hub.reach.appsPort === port) return;
@@ -224,14 +240,19 @@ export function startPhoneClient(deps: PhoneDeps): PhoneClient {
   /** Remembers the chosen hub's record as the channel reads it, for the session's `Connect`. */
   const remembering: RecordStore<Uint8Array> = {
     read: async () => {
+      const version = home;
       const read = await chosen.read();
-      if (read.ok) remember(read.value);
+      if (version === home && read.ok) remember(read.value);
       return read;
     },
     write: (record) => chosen.write(record),
     update: async (change) => {
-      const updated = await chosen.update(change);
-      if (updated.ok) remember(updated.value);
+      // Bind an in-flight sequence write to the record whose session requested it.
+      const identity = current?.identity;
+      if (identity === undefined) return { ok: true, value: undefined };
+      const version = home;
+      const updated = await records.hub(identity).update(change);
+      if (version === home && updated.ok) remember(updated.value);
       return updated;
     },
     clear: () => chosen.clear(),
@@ -245,40 +266,47 @@ export function startPhoneClient(deps: PhoneDeps): PhoneClient {
 
   // ----- The relay -----
 
-  const relays =
-    deps.relay === undefined
-      ? undefined
-      : relayConnect(deps.relay.make, deps.timers, deps.relay.build, {
-          // Each close says what it says: a later one that is not the relay's word clears it.
-          closed: (code) => {
-            reach.setState({ relayClosed: relayClosedOf(code) ?? null });
-          },
-        });
-
   /** The relay's `Connect` to a hub, or undefined when the phone has no away path to it. */
   function relayFor(
     identity: string | null | undefined,
     named: string | null | undefined,
   ): Connect | undefined {
-    if (relays === undefined || deps.relay === undefined || identity === null) return undefined;
-    if (identity === undefined) return undefined;
+    if (deps.relay === undefined || identity == null) return undefined;
     const relayUrl = relayUrlFor(named, deps.relay.defaultUrl);
     if (relayUrl === undefined) return undefined;
+    const version = home;
+    const relays = relayConnect(deps.relay.make, deps.timers, deps.relay.build, {
+      closed: (code) => {
+        if (version === home) reach.setState({ relayClosed: relayClosedOf(code) ?? null });
+      },
+    });
     const made = relays({ relayUrl, identity });
     return made.ok ? made.value : undefined;
   }
 
-  /** The chosen hub at home, in section 2's order. */
-  const home = storedHubConnect(socket, deps.finder, () => current, reaching);
   /** The path the channel's last socket took, told as it opens. */
   let lastPath: PathInUse | undefined;
-  const sessionConnect = homeThenRelay(
-    home,
-    () => relayFor(current?.identity, current?.reach.relayUrl),
-    (path) => {
-      lastPath = path;
-    },
-  );
+
+  /** Tries home first and the relay last, using the same hub for the entire attempt. */
+  const sessionConnect: Connect = (path, handlers) => {
+    const hub = current;
+    const version = home;
+    const atHome = storedHubConnect(socket, deps.finder, () => hub, {
+      answered: (address, port) => {
+        if (version === home) reaching.answered(address, port);
+      },
+      localNetworkDenied: () => {
+        if (version === home) reaching.localNetworkDenied();
+      },
+    });
+    return homeThenRelay(
+      atHome,
+      () => (version === home ? relayFor(hub?.identity, hub?.reach.relayUrl) : undefined),
+      (used) => {
+        if (version === home) lastPath = used;
+      },
+    )(path, handlers);
+  };
 
   // ----- Coming home again -----
 
@@ -302,11 +330,15 @@ export function startPhoneClient(deps: PhoneDeps): PhoneClient {
   /** Tries home while the relay is live, then either moves to home or schedules another try. */
   async function tryHome(): Promise<void> {
     if (tryingHome || reach.getState().path !== "relay") return;
+    const version = home;
+    const hub = current;
     tryingHome = true;
     stopHomeAgain();
     let answered: { address: string; port: number } | undefined;
-    const homeProbe = storedHubConnect(socket, deps.finder, () => current, {
-      localNetworkDenied: reaching.localNetworkDenied,
+    const homeProbe = storedHubConnect(socket, deps.finder, () => hub, {
+      localNetworkDenied: () => {
+        if (version === home) reaching.localNetworkDenied();
+      },
       answered: (address, port) => {
         answered = { address, port };
       },
@@ -315,6 +347,7 @@ export function startPhoneClient(deps: PhoneDeps): PhoneClient {
       lastPath = "home";
       if (answered !== undefined) reaching.answered(answered.address, answered.port);
     });
+    if (version !== home) return;
     tryingHome = false;
     if (reach.getState().path === "relay") homeAgainLater();
   }
@@ -338,6 +371,7 @@ export function startPhoneClient(deps: PhoneDeps): PhoneClient {
       }
       if (status.kind === "open") {
         const hub = current;
+        const version = home;
         keeper =
           hub === undefined
             ? undefined
@@ -345,7 +379,10 @@ export function startPhoneClient(deps: PhoneDeps): PhoneClient {
                 records.backupKeys,
                 hub.identity,
                 status.hello.proto,
-                (op, body) => channel.forward(op, body),
+                (op, body) =>
+                  version === home
+                    ? channel.forward(op, body)
+                    : Promise.resolve({ ok: false, local: "offline" }),
               );
       } else keeper = undefined;
       if (status.kind === "removed") {
@@ -403,6 +440,18 @@ export function startPhoneClient(deps: PhoneDeps): PhoneClient {
     channel.stop();
     void channel.start();
   };
+  /** Ends the outgoing home's session and invalidates its outstanding work. */
+  const leaveHome = () => {
+    home += 1;
+    stopHomeAgain();
+    tryingHome = false;
+    lastPath = undefined;
+    channel.forget();
+    current = undefined;
+    keeper = undefined;
+    reach.setState(NO_REACH);
+    live.setState(EMPTY_LIVE, true);
+  };
 
   /** Tries the code's addresses before browsing for the same hub, and uses the relay last. */
   async function* linkWays(secret: LinkSecret): AsyncGenerator<HubTarget | Connect> {
@@ -443,7 +492,7 @@ export function startPhoneClient(deps: PhoneDeps): PhoneClient {
           : targetsConnect(socket, [way], {
               answered: (address) => {
                 answered = address;
-                reach.setState({ localNetworkDenied: false });
+                answeredAtHome();
               },
               localNetworkDenied: reaching.localNetworkDenied,
             });
@@ -492,7 +541,8 @@ export function startPhoneClient(deps: PhoneDeps): PhoneClient {
         return;
       }
       local.setState({ link: { kind: "linked", from } });
-      restart();
+      leaveHome();
+      void channel.start();
       return;
     }
     local.setState({ link: { kind: "failed", from, failure } });
@@ -546,6 +596,12 @@ export function startPhoneClient(deps: PhoneDeps): PhoneClient {
     vault: records.status,
     reach,
     keeper: () => keeper,
+    choose: async (identity) => {
+      leaveHome();
+      const chose = await records.choose(identity);
+      void channel.start();
+      return chose;
+    },
     resume: () => {
       const kind = live.getState().connection.kind;
       if (kind === "noStorage" || kind === "waiting") restart();
@@ -560,9 +616,7 @@ export function startPhoneClient(deps: PhoneDeps): PhoneClient {
           reach: { ...emptyReach(), addresses: code.reach.addresses, appsPort: code.reach.port },
         }),
         {
-          answered: () => {
-            reach.setState({ localNetworkDenied: false });
-          },
+          answered: answeredAtHome,
           localNetworkDenied: reaching.localNetworkDenied,
         },
       );
@@ -590,7 +644,8 @@ export function startPhoneClient(deps: PhoneDeps): PhoneClient {
           },
         }));
         await records.choose(identity);
-        restart();
+        leaveHome();
+        void channel.start();
       }
       return outcome;
     },

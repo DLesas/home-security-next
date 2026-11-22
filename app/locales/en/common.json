@@ -1356,5 +1356,24 @@
   },
   "thisPhone": {
     "phoneOnly": "Homes and the app lock are set on each phone, in the phone app."
+  },
+  "homes": {
+    "title": "Homes",
+    "first": "Home",
+    "numbered": "Home {{n}}",
+    "inUse": "In use",
+    "choose": "Switch to {{name}}",
+    "rename": "Rename {{name}}",
+    "nameLabel": "Name on this phone",
+    "nameHint": "Only this phone uses this name. The hub and other devices do not see it.",
+    "link": "Link another home",
+    "remove": "Remove this home from this phone",
+    "removeQuestion": "Remove {{name}} from this phone? This phone will no longer see or change anything there until it is linked again.",
+    "yesRemove": "Remove {{name}}",
+    "removed": "{{name}} was removed from this phone.",
+    "notReached": "This phone could not reach {{name}}, so it is still on this phone. Try again when the phone can reach it.",
+    "pushRefused": "{{name}} did not stop its notifications to this phone, so it is still on this phone. Try again.",
+    "storage": "This phone could not change what it keeps, so nothing changed. Try again.",
+    "change": "Change"
   }
 }

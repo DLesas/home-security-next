@@ -34,6 +34,8 @@ import { renderWith, screenWorld, textOf } from "./support/screens";
 import { clientScreen, screenAct } from "./support/client-screen";
 import { ManualClock } from "../../tools/ble-bench/src/clock";
 
+import { NO_HOMES } from "../src/ui/homes";
+
 const { PhoneProvider } = await import("../src/ui/phone-parts");
 const { Doors } = await import("../src/ui/arming");
 const scan = await import("../src/ui/scan");
@@ -86,6 +88,7 @@ function phoneParts(overrides: Partial<PhoneParts> = {}): PhoneParts {
     vault: createStore<VaultStatus>()(() => ({ fault: null, identity: null })),
     reach: createStore<ReachState>()(() => NO_REACH),
     os: "ios",
+    homes: NO_HOMES,
     ...overrides,
   };
 }

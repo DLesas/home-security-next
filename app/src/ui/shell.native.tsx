@@ -15,8 +15,12 @@
  * - **The keyboard** (rule 5): the scroll view keeps to the space above the keyboard, and the
  *   field being typed in is scrolled into it with room for its form's action (`keyboard.ts`).
  * - **Linking** (m3-design.md section 3): the phone's link pages in place of the routes while the
- *   phone is not linked, with the phone's parts (`phone-parts.tsx`).
+ *   phone is not linked, with the phone's parts (`phone-parts.tsx`). After "Link another home",
+ *   back to This phone (`afterLinking`).
+ * - **Homes** (section 6): when another home is chosen, every read the screens made of the last
+ *   one is dropped, so nothing of one home is shown as the other's.
  */
+import { useQueryClient } from "@tanstack/react-query";
 import { router, Slot, usePathname } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { type ComponentRef, type ReactNode, useCallback, useEffect, useMemo, useRef } from "react";
@@ -40,6 +44,8 @@ import { REVEAL_BELOW, revealOffset } from "./keyboard";
 import { phonePartsFor } from "./stand-ins";
 import { livePhoneParts } from "./phone-wiring.native";
 import { BAND, statusBarStyle, type Top, topOf } from "./top";
+import { useStore } from "zustand";
+import { afterLinking } from "./this-phone";
 
 /** What meets the top on the screen at `home` (`top.ts`). */
 function useTop(home: boolean): Top {
@@ -136,9 +142,25 @@ export function Shell() {
   const path = usePathname();
   const home = path === "/";
   const top = useTop(home);
-  const gate = needsLinkGate(connection, link);
+  const removing = useStore(parts.homes.store, (s) => s.removing);
+  const gate =
+    path !== "/link-home" &&
+    !(path === "/this-phone" && removing !== null) &&
+    needsLinkGate(connection, link);
   const running = useAlarmRunning();
+  const queries = useQueryClient();
+  const linkBefore = useRef(link.kind);
   useBackRule(path, !gate);
+  useEffect(() => {
+    return hub.live.subscribe((state, before) => {
+      if (before.session !== null && state.session === null) void queries.resetQueries();
+    });
+  }, [hub, queries]);
+  useEffect(() => {
+    const to = afterLinking(linkBefore.current, link.kind, path);
+    linkBefore.current = link.kind;
+    if (to !== null) router.replace(to);
+  }, [link.kind, path]);
   useEffect(() => {
     if (!gate && path !== "/device/add" && hasPairingCode()) router.replace("/device/add");
   }, [gate, path]);

@@ -3,13 +3,40 @@
  * `phoneClient`): linking through the hub client, whose reach the client keeps; restore's messages
  * (`restore`); the backup keys the vault holds; the vault's and the local network's state. The
  * camera is supplied by the native Expo adapter.
+ *
+ * M5: the homes (`homes.ts`) over the phone client's records and its switch.
  */
 import type { HubClient } from "../hub/client";
+import type { PhoneClient } from "../hub/phone-client";
+import { realTimers } from "../hub/wire";
+import { i18n } from "../i18n";
 import { cameraScanner } from "../platform/scanner";
 import { phoneClient } from "../hub/start.native";
+import { followHomes, type Homes, phoneHomes, pushRegistrationOf } from "./homes";
 import type { PhoneParts } from "./phone-parts";
 import { reachFaultOf } from "./phone-words";
 import { standInPhoneParts } from "./stand-ins";
+
+let homesOf: { readonly phone: PhoneClient; readonly homes: Homes } | undefined;
+
+/** The homes of the phone client, made once and kept as the client changes them. */
+function homesFor(phone: PhoneClient): Homes {
+  if (homesOf?.phone === phone) return homesOf.homes;
+  const hub = phone.client;
+  const homes = phoneHomes({
+    records: phone.records,
+    choose: (identity) => phone.choose(identity),
+    live: hub.live,
+    request: (op, body) => hub.request(op, body),
+    unregister: () => phone.forward("push.unregister", {}),
+    pushRegistered: pushRegistrationOf,
+    timers: realTimers,
+    defaultName: (n) => (n === 1 ? i18n.t("homes.first") : i18n.t("homes.numbered", { n })),
+  });
+  followHomes(homes, hub.live);
+  homesOf = { phone, homes };
+  return homes;
+}
 
 /** The phone client's parts, or undefined before it has started. */
 export function livePhoneParts(hub: HubClient): PhoneParts | undefined {
@@ -51,5 +78,6 @@ export function livePhoneParts(hub: HubClient): PhoneParts | undefined {
     },
     vault: phone.vault,
     reach: phone.reach,
+    homes: homesFor(phone),
   };
 }

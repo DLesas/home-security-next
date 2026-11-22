@@ -16,6 +16,7 @@
  *   `onArrivedCode`).
  * - `vault` and `reach`: the secure store's last fault and the local network's refusal, which
  *   `phone-notices.tsx` says over every screen.
+ * - `homes`: the homes on this phone, their names here, the chosen one (`homes.ts`, M5).
  *
  * The phone's shell builds them from P2's phone client (`phone-wiring.native.ts`); where a piece is
  * not built yet, `stand-ins.tsx`'s, which say so.
@@ -31,6 +32,7 @@ import type { ArrivedCode } from "../hub/start-types";
 import type { LocalNetwork } from "../platform/local-network-types";
 import type { VaultStatus } from "../platform/vault";
 import type { Scanner } from "../platform/scanner";
+import type { Homes } from "./homes";
 
 /** Why linking reached no hub, beyond the link view's `unreachable` (section 3). */
 export type ReachFault = "localNetworkDenied" | "noHubFound";
@@ -79,6 +81,7 @@ export interface PhoneParts {
   readonly reach: StoreApi<ReachState>;
   /** "ios" or "android": names the phone when it links ("iPhone", "Android phone"). */
   readonly os: "ios" | "android";
+  readonly homes: Homes;
 }
 
 const PhoneContext = createContext<PhoneParts | undefined>(undefined);

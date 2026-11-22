@@ -210,6 +210,9 @@ export class Channel implements Requester {
   private early: AppEvent[] = [];
   private lastHeard = 0;
   private stopped = false;
+  private run = 0;
+  private home = 0;
+  private readonly opening = new Set<Wire>();
   private removed = false;
   private cancelTimer: (() => void) | undefined;
   private cancelLiveness: (() => void) | undefined;
@@ -231,8 +234,10 @@ export class Channel implements Requester {
   /** Loads this browser's record and connects, or says it is not linked. */
   async start(): Promise<void> {
     this.stopped = false;
+    const run = this.run;
     this.deps.listener.status({ kind: "loading" });
     const read = await this.deps.store.read();
+    if (run !== this.run) return;
     if (!read.ok) {
       this.deps.listener.status({ kind: "noStorage" });
       return;
@@ -248,10 +253,28 @@ export class Channel implements Requester {
 
   stop(): void {
     this.stopped = true;
+    this.run += 1;
+    for (const wire of this.opening) wire.close(CLOSE.normal);
+    this.opening.clear();
     this.cancelTimer?.();
     this.cancelLiveness?.();
     this.session?.close(CLOSE.normal);
     this.session = undefined;
+  }
+
+  /**
+   * Another hub's session follows (a phone's homes, M5): what this one still awaits ends here, so
+   * no change with this hub's `seq` is ever sent to the next.
+   */
+  forget(): void {
+    this.stop();
+    this.home += 1;
+    this.attempt = 0;
+    this.refusals = undefined;
+    const waiting = [...this.pending.values(), ...this.retry.splice(0).map((r) => r.pending)];
+    this.pending.clear();
+    for (const p of waiting)
+      p.resolve({ ok: false, local: p.seq === undefined ? "lost" : "unconfirmed" });
   }
 
   async request<N extends AppOpName>(op: N, body: AppOpBody<N>): Promise<RequestOutcome<N>> {
@@ -282,7 +305,9 @@ export class Channel implements Requester {
     // Version 2's table holds version 1's rows with the same `change` (test/channel-v2.test.ts).
     if (APP_OPS_V2[op].change) {
       // Written before it is sent (section 8): a crash in between skips a number, never reuses one.
+      const home = this.home;
       seq = await reserveSeq(this.deps.store);
+      if (home !== this.home) return { ok: false, local: "lost" };
       if (seq === undefined) return { ok: false, local: "storage" };
       if (!this.isOpen()) return { ok: false, local: "offline" };
     }
@@ -291,13 +316,9 @@ export class Channel implements Requester {
     });
   }
 
-  /** Read through methods: the session and the stop can change while a request awaits. */
+  /** The open session can change while a request awaits. */
   private isOpen(): boolean {
     return this.session?.isOpen === true;
-  }
-
-  private isStopped(): boolean {
-    return this.stopped;
   }
 
   private send(pending: Pending): void {
@@ -323,8 +344,9 @@ export class Channel implements Requester {
     const record = this.record;
     if (record === undefined || this.stopped || this.removed) return;
     this.deps.listener.status({ kind: "connecting", attempt: this.attempt });
+    const run = this.run;
     const opened = await this.handshake(this.deps.connect, record);
-    if (this.isStopped()) {
+    if (run !== this.run) {
       if (opened.ok) opened.value.wire.close(CLOSE.normal);
       return;
     }
@@ -335,16 +357,30 @@ export class Channel implements Requester {
     this.adopt(opened.value);
   }
 
-  /** Opens an authenticated session on the specified path. */
-  private handshake(connect: Connect, record: StoredClient) {
-    return openSession(
-      connect,
+  /** Opens an authenticated session, closing its wire if this channel run ends meanwhile. */
+  private async handshake(connect: Connect, record: StoredClient) {
+    const run = this.run;
+    let opening: Wire | undefined;
+    const opened = await openSession(
+      async (path, handlers) => {
+        if (run !== this.run) return undefined;
+        const wire = await connect(path, handlers);
+        if (run !== this.run) {
+          wire?.close(CLOSE.normal);
+          return undefined;
+        }
+        opening = wire;
+        if (wire !== undefined) this.opening.add(wire);
+        return wire;
+      },
       record,
       this.deps.app,
       this.deps.timers,
       this.deps.proto,
       this.deps.keys,
     );
+    if (opening !== undefined) this.opening.delete(opening);
+    return opened;
   }
 
   /** Starts receiving on the authenticated wire and replays changes awaiting a reply. */
@@ -503,8 +539,13 @@ export class Channel implements Requester {
 
   /** `seqTooLow`: the change was not made; again, once, above the hub's last. */
   private async resendAbove(pending: Pending, last: number): Promise<void> {
+    const home = this.home;
     const raised = await raiseSeq(this.deps.store, last);
-    const seq = raised ? await reserveSeq(this.deps.store) : undefined;
+    const seq = home === this.home && raised ? await reserveSeq(this.deps.store) : undefined;
+    if (home !== this.home) {
+      pending.resolve({ ok: false, local: "unconfirmed" });
+      return;
+    }
     if (seq === undefined) {
       pending.resolve({ ok: false, local: "storage" });
       return;
