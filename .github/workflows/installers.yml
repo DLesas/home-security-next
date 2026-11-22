@@ -584,7 +584,8 @@ jobs:
     name: Windows x64 .msi
     if: ${{ github.event_name == 'push' || inputs.systems == 'windows' || inputs.systems == 'all' }}
     runs-on: windows-latest
-    timeout-minutes: 45
+    # The 15 bounded steps total 120 minutes, with 30 more for setup and builds.
+    timeout-minutes: 150
     env:
       # WiX Toolset 5, which build-msi.ps1 needs and the runner image does not carry (it carries
       # at most WiX 3, whose `candle`/`light` cannot build hsn-hub.wix.xml). Each package is
@@ -804,6 +805,7 @@ jobs:
           Write-Output "Built the upgrade from $env:VERSION to $newer"
 
       - name: Install with msiexec
+        timeout-minutes: 8
         if: ${{ !cancelled() && env.HSN_STOPPED == '' }}
         shell: pwsh
         run: |
@@ -834,6 +836,7 @@ jobs:
           exit 0
 
       - name: A8's hosted check, owners
+        timeout-minutes: 8
         if: ${{ !cancelled() && env.HSN_STOPPED == '' }}
         shell: pwsh
         run: |
@@ -846,6 +849,7 @@ jobs:
           exit 0
 
       - name: The service
+        timeout-minutes: 8
         if: ${{ !cancelled() && env.HSN_STOPPED == '' }}
         shell: pwsh
         run: |
@@ -890,6 +894,7 @@ jobs:
           exit 0
 
       - name: The installed Windows serial watcher
+        timeout-minutes: 8
         if: ${{ !cancelled() && env.HSN_STOPPED == '' }}
         shell: pwsh
         run: |
@@ -914,6 +919,7 @@ jobs:
           }
 
       - name: hsn status, and the console
+        timeout-minutes: 8
         if: ${{ !cancelled() && env.HSN_STOPPED == '' }}
         shell: pwsh
         run: |
@@ -943,9 +949,11 @@ jobs:
           exit 0
 
       - name: Staging an update in the installed hub (its worker)
+        timeout-minutes: 8
         if: ${{ !cancelled() && env.HSN_STOPPED == '' }}
         shell: pwsh
         run: |
+          $diagWatch = Start-Process pwsh -NoNewWindow -PassThru -ArgumentList @("-NoProfile", "-File", "`"$env:GITHUB_WORKSPACE\.github\workflows\installer-watchdog.ps1`"", "-Seconds", "240", "-Parent", "$PID", "-Step", "`"Staging an update in the installed hub (its worker)`"")
           . .github/workflows/installer-checks.ps1
           Write-Heading "Staging an update: the staging worker in the installed program"
           $data = Join-Path $env:ProgramData "HSN Hub"
@@ -962,6 +970,7 @@ jobs:
           exit 0
 
       - name: The installed hub from an ordinary local account
+        timeout-minutes: 8
         if: ${{ !cancelled() && env.HSN_STOPPED == '' }}
         shell: pwsh
         run: |
@@ -1054,9 +1063,11 @@ jobs:
           exit 0
 
       - name: Upgrade the running hub and check the two versions
+        timeout-minutes: 8
         if: ${{ !cancelled() && env.HSN_STOPPED == '' }}
         shell: pwsh
         run: |
+          $diagWatch = Start-Process pwsh -NoNewWindow -PassThru -ArgumentList @("-NoProfile", "-File", "`"$env:GITHUB_WORKSPACE\.github\workflows\installer-watchdog.ps1`"", "-Seconds", "240", "-Parent", "$PID", "-Step", "`"Upgrade the running hub and check the two versions`"")
           . .github/workflows/installer-checks.ps1
           Write-Heading "Upgrade $env:VERSION to $env:UPGRADE_VERSION"
           $package = Join-Path $env:ProgramFiles "HSN Hub"
@@ -1176,6 +1187,7 @@ jobs:
           exit 0
 
       - name: The hub's trees
+        timeout-minutes: 8
         if: ${{ !cancelled() && env.HSN_STOPPED == '' }}
         shell: pwsh
         run: |
@@ -1221,9 +1233,11 @@ jobs:
           exit 0
 
       - name: A killed hub is restarted
+        timeout-minutes: 8
         if: ${{ !cancelled() && env.HSN_STOPPED == '' }}
         shell: pwsh
         run: |
+          $diagWatch = Start-Process pwsh -NoNewWindow -PassThru -ArgumentList @("-NoProfile", "-File", "`"$env:GITHUB_WORKSPACE\.github\workflows\installer-watchdog.ps1`"", "-Seconds", "240", "-Parent", "$PID", "-Step", "`"A killed hub is restarted`"")
           . .github/workflows/installer-checks.ps1
           Write-Heading "Restart after a crash"
           $data = Join-Path $env:ProgramData "HSN Hub"
@@ -1246,6 +1260,7 @@ jobs:
           exit 0
 
       - name: Logs
+        timeout-minutes: 8
         if: always()
         shell: pwsh
         run: |
@@ -1265,9 +1280,11 @@ jobs:
           exit 0
 
       - name: Uninstall (msiexec /x)
+        timeout-minutes: 8
         if: ${{ !cancelled() && env.HSN_STOPPED == '' }}
         shell: pwsh
         run: |
+          $diagWatch = Start-Process pwsh -NoNewWindow -PassThru -ArgumentList @("-NoProfile", "-File", "`"$env:GITHUB_WORKSPACE\.github\workflows\installer-watchdog.ps1`"", "-Seconds", "240", "-Parent", "$PID", "-Step", "`"Uninstall (msiexec /x)`"")
           . .github/workflows/installer-checks.ps1
           Write-Heading "Uninstall: msiexec /x keeps both hub trees"
           if (-not $env:MSI) { Write-Fail "msiexec /x … /qn" "no package was built"; exit 0 }
@@ -1298,9 +1315,11 @@ jobs:
           exit 0
 
       - name: Remove with data (REMOVEDATA=1)
+        timeout-minutes: 8
         if: ${{ !cancelled() && env.HSN_STOPPED == '' }}
         shell: pwsh
         run: |
+          $diagWatch = Start-Process pwsh -NoNewWindow -PassThru -ArgumentList @("-NoProfile", "-File", "`"$env:GITHUB_WORKSPACE\.github\workflows\installer-watchdog.ps1`"", "-Seconds", "240", "-Parent", "$PID", "-Step", "`"Remove with data (REMOVEDATA=1)`"")
           . .github/workflows/installer-checks.ps1
           Write-Heading "Removal with data: installed again, then msiexec /x … REMOVEDATA=1 (what the Start menu's entry runs after its confirmation)"
           if (-not $env:MSI) { Write-Fail "msiexec /x … REMOVEDATA=1" "no package was built"; exit 0 }
@@ -1326,7 +1345,9 @@ jobs:
           # A probe expected to fail leaves its exit code behind: the checks above are the result.
           exit 0
 
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      - name: Upload installer logs
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        timeout-minutes: 8
         if: always()
         with:
           name: installer-windows-x64-logs
@@ -1334,6 +1355,7 @@ jobs:
           if-no-files-found: warn
 
       - name: Result
+        timeout-minutes: 8
         if: always()
         shell: pwsh
         run: |
