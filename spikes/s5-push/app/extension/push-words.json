@@ -1,0 +1,12 @@
+{
+  "placeholder": "Open the app to see this alert.",
+  "unknown": "Something happened at home. Open the app to see it.",
+  "hub_unreachable.title": "Home hub cannot be reached",
+  "hub_unreachable.text": "No contact since about a few minutes ago. Alerts from home will not reach this phone until it is back. It may be the home's internet or the hub itself.",
+  "hub_back.title": "Home hub is back",
+  "hub_back.text": "In contact again. Alerts reach this phone as usual. Anything that happened meanwhile follows, marked late.",
+  "disarm": "Disarm",
+  "armAway": "Arm away",
+  "disarmed": "Disarmed.",
+  "notReached": "Could not reach the hub. Open the app to disarm."
+}

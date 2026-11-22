@@ -1,0 +1,10 @@
+{
+  "platforms": ["apple", "android"],
+  "apple": {
+    "modules": ["HsnPushModule"],
+    "appDelegateSubscribers": ["HsnPushAppDelegateSubscriber"]
+  },
+  "android": {
+    "modules": ["expo.modules.hsnpush.HsnPushModule"]
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "name": "s5-push-spike",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Spike S5, part 1 (docs/spikes/S5-push-part-1.md): a throwaway development build with the push pieces. Not part of the workspace.",
+  "main": "index.js",
+  "dependencies": {
+    "expo": "58.0.25",
+    "expo-crypto": "58.0.8",
+    "expo-notifications": "58.1.9",
+    "expo-task-manager": "58.0.14",
+    "react": "19.3.0",
+    "react-native": "0.88.1"
+  }
+}

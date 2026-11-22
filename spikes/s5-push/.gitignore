@@ -1,0 +1,9 @@
+node_modules/
+Pods/
+DerivedData/
+build/
+.gradle/
+.expo/
+/app/ios/
+/app/android/
+/results/
