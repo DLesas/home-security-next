@@ -336,3 +336,132 @@ test("token refresh visits unselected homes one at a time while the selected hom
   expect(calls.at(-1)).toBe("third");
   lifecycle.stop();
 });
+
+test("a token sweep preserves an overdue home key until its own snapshot", async () => {
+  const { session, fake, sent } = setup();
+  const timers = manualTimers();
+  const lifecycle = pushLifecycle(fake.storage, fake.tokens, timers);
+  fake.token(fcm);
+  await lifecycle.snapshot(session, valid, []);
+  const original = fake.keys.get(session.hub)?.active;
+  assert(original);
+  lifecycle.closed();
+  timers.advance(KEY_LIFETIME_MS + 1);
+  await lifecycle.start(() => Promise.resolve([session]));
+  fake.token({ ...fcm, token: "renewed" });
+  await settle(1);
+  const renewed = fake.keys.get(session.hub)?.active;
+  assert(renewed);
+  expect(renewed.body.token).toBe("renewed");
+  expect(renewed.body.key === original.body.key).toBe(true);
+  expect(renewed.body.keyId === original.body.keyId).toBe(true);
+  expect(renewed.madeMs).toBe(original.madeMs);
+  await lifecycle.snapshot(session, valid, []);
+  const rotated = fake.keys.get(session.hub)?.active;
+  assert(rotated);
+  expect(rotated.body.key !== original.body.key).toBe(true);
+  expect(rotated.body.keyId !== original.body.keyId).toBe(true);
+  expect(sent.count).toBe(3);
+  lifecycle.stop();
+});
+
+test("switching homes cancels a registration queued on the old session", async () => {
+  const fake = fakePush(),
+    lifecycle = pushLifecycle(fake.storage, fake.tokens, manualTimers());
+  const queued = Promise.withResolvers<void>(),
+    release = Promise.withResolvers<void>();
+  const sent: string[] = [];
+  const session = (hub: string): PushSession => ({
+    hub,
+    client: 1,
+    register: () => {
+      sent.push(hub);
+      return Promise.resolve({ ok: true });
+    },
+  });
+  fake.token(fcm);
+  await lifecycle.snapshot(session("next"), valid, []);
+  sent.length = 0;
+  const write = fake.storage.writeKeys.bind(fake.storage);
+  fake.storage.writeKeys = async (hub, record) => {
+    if (hub === "old") {
+      queued.resolve();
+      await release.promise;
+    }
+    return write(hub, record);
+  };
+  const old = lifecycle.snapshot(session("old"), valid, []);
+  await queued.promise;
+  lifecycle.closed();
+  await lifecycle.snapshot(session("next"), valid, []);
+  release.resolve();
+  await old;
+  expect(sent).toEqual([]);
+  expect(fake.keys.get("old")?.active).toBeNull();
+  lifecycle.stop();
+});
+
+test.each(["environment", "platform"] as const)(
+  "a changed %s registers the same token string again",
+  async (field) => {
+    const { registration, session, fake, sent } = setup();
+    const initial = { ...fcm, token: "ab".repeat(32) };
+    const changed =
+      field === "environment"
+        ? { ...initial, environment: "development" as const }
+        : { ...initial, platform: "apns" as const };
+    fake.token(initial);
+    await registration.reconcile(session, valid);
+    fake.token(changed);
+    await registration.reconcile(session, valid);
+    expect(sent.count).toBe(2);
+    expect(fake.keys.get(session.hub)?.active?.body[field]).toBe(changed[field]);
+    await registration.reconcile(session, valid);
+    expect(sent.count).toBe(2);
+  },
+);
+
+test("a home selected during a token sweep registers only on the open channel", async () => {
+  const fake = fakePush(),
+    lifecycle = pushLifecycle(fake.storage, fake.tokens, manualTimers());
+  const paused = Promise.withResolvers<void>(),
+    advance = Promise.withResolvers<void>(),
+    calls: string[] = [];
+  const replacement = { ...fcm, token: "replacement" };
+  let applied = false;
+  const open: PushSession = {
+    hub: "moving",
+    client: 1,
+    register: (body) => {
+      applied = body.token === replacement.token;
+      if (applied) calls.push("open");
+      // The hub applies the registration, but its acknowledgement is lost.
+      return Promise.resolve({ ok: !applied });
+    },
+  };
+  const oneOff = {
+    ...open,
+    register: () => {
+      calls.push("one-off");
+      return Promise.resolve({ ok: true });
+    },
+  };
+  const slow: PushSession = {
+    hub: "first",
+    client: 1,
+    register: async () => {
+      paused.resolve();
+      await advance.promise;
+      return { ok: true };
+    },
+  };
+  await lifecycle.start(() => Promise.resolve([slow, oneOff]));
+  fake.token(replacement);
+  await paused.promise;
+  await lifecycle.snapshot(open, valid, []);
+  expect(applied).toBe(true);
+  advance.resolve();
+  await settle(1);
+  expect(calls).toEqual(["open"]);
+  lifecycle.stop();
+});

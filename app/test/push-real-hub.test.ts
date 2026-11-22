@@ -441,3 +441,25 @@ test("a queued token sweep cannot register a replacement link", async () => {
   phone.client.stop();
   push.stop();
 });
+
+test("a sweep excludes the chosen home before its first snapshot", async () => {
+  const { hub, deps, timers } = scriptedPhone();
+  const fake = fakePush(),
+    push = pushLifecycle(fake.storage, fake.tokens, timers);
+  const enumerated = Promise.withResolvers<string[]>();
+  const phone = startPhoneClient({
+    ...deps,
+    push: {
+      ...push,
+      start: async (list) => {
+        enumerated.resolve((await list()).map((home) => home.hub));
+      },
+    },
+  });
+  await addScriptedLink(hub, phone.records);
+  assert((await phone.records.choose(hub.identity)).ok);
+  phone.client.start();
+  expect(await enumerated.promise).toEqual([]);
+  phone.client.stop();
+  push.stop();
+});
