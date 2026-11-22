@@ -8,6 +8,7 @@ import { useTranslation } from "react-i18next";
 import { formatTime } from "./format";
 import { useRead } from "./hub-context";
 import { Body, Copyable, Failure, Heading, Section } from "./parts";
+import { RelaySettings } from "./relay-settings";
 
 export function StatusScreen() {
   const { t, i18n } = useTranslation();
@@ -60,6 +61,7 @@ export function StatusScreen() {
           </>
         )}
       </Section>
+      <RelaySettings />
     </>
   );
 }

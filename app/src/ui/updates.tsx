@@ -2,7 +2,7 @@
  * Updates (m2-design.md section 9; D54, D84, HB23): what is staged and approved; a release file
  * sent from the hub computer (its signature, version and platform checked by the hub); approval by
  * *manage system*; the switch waits until no countdown, alarm, site move, provisioning or restore
- * runs, which the hub says when it answers. Updates through the relay are M4's.
+ * runs, which the hub says when it answers. Offered downloads stage here just like uploads.
  */
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -10,6 +10,7 @@ import { sendFile, uploadJob } from "../hub/files";
 import { FileInput } from "./file-input";
 import { formatTime } from "./format";
 import { useAction, useHub, useLive, useRead } from "./hub-context";
+import { OfferedUpdate, useOfferedUpdate } from "./offered-update";
 import {
   Actions,
   Body,
@@ -43,6 +44,13 @@ export function UpdatesScreen() {
     Parameters<typeof Failure>[0]["outcome"] | undefined
   >();
   const data = status.data?.ok === true ? status.data.body : undefined;
+  const offered = useOfferedUpdate(data?.staged, cancel);
+  const staged = data?.staged ?? null;
+  /** Refreshes the staged release after this screen cancels an update. */
+  const cancelUpdate = async () => {
+    if ((await offered.cancelUpdate()).ok) void status.refetch();
+  };
+  /** Sends a picked release through the existing upload and staging path. */
   const onFile = async (file: { readonly bytes: Uint8Array }) => {
     const job = uploadJob();
     const sent = await sendFile(hub, job, file.bytes, (s, total) => {
@@ -77,37 +85,40 @@ export function UpdatesScreen() {
                 ? t(LAST_KEYS[data.lastResult])
                 : `${t(LAST_KEYS[data.lastResult])} ${t("updates.lastAt", { time: formatTime(t, i18n.language, info, data.lastResultMs) })}`}
             </Body>
-            {data.staged === null ? null : (
-              <Actions>
-                <ConfirmButton
-                  label={t("updates.approve", { version: data.staged })}
-                  question={t("updates.approveQuestion", { version: data.staged })}
-                  yes={t("updates.yesApprove")}
-                  no={t("editing.no")}
-                  busy={approve.busy}
-                  onConfirm={() => void approve.run({})}
-                />
-                <Button
-                  kind="quiet"
-                  label={t("updates.cancel")}
-                  busy={cancel.busy}
-                  onPress={() => void cancel.run({})}
-                />
-              </Actions>
-            )}
           </>
         )}
+        {staged !== null || offered.downloading ? (
+          <Actions>
+            {staged === null ? null : (
+              <ConfirmButton
+                label={t("updates.approve", { version: staged })}
+                question={t("updates.approveQuestion", { version: staged })}
+                yes={t("updates.yesApprove")}
+                no={t("editing.no")}
+                busy={approve.busy}
+                onConfirm={() => void approve.run({})}
+              />
+            )}
+            <Button
+              kind="quiet"
+              label={t(staged === null ? "updates.offer.cancel" : "updates.cancel")}
+              busy={cancel.busy}
+              onPress={() => void cancelUpdate()}
+            />
+          </Actions>
+        ) : null}
         {approve.outcome === undefined ? null : approve.outcome.ok ? (
           <Done text={t("updates.willSwitch", { when: approve.outcome.body.switchWhen })} />
         ) : (
           <Failure outcome={approve.outcome} />
         )}
-        {cancel.outcome === undefined ? null : cancel.outcome.ok ? (
+        {offered.cancelledDownload || cancel.outcome === undefined ? null : cancel.outcome.ok ? (
           <Done text={t("updates.cancelled")} />
         ) : (
           <Failure outcome={cancel.outcome} />
         )}
       </Section>
+      <OfferedUpdate update={offered} />
       <Section label={t("updates.uploadTitle")}>
         <Heading level={2}>{t("updates.uploadTitle")}</Heading>
         <Body>{t("updates.uploadIntro")}</Body>

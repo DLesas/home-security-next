@@ -720,7 +720,13 @@
     "categoriesIntro_phone": "Turn off what you do not want told on this phone. Alarms, countdowns, tampering and the other urgent notices are always told.",
     "browserTitle_phone": "Notices on this phone",
     "closedTab_phone": "While the app is open, an urgent notification shows over every screen and the phone vibrates.",
-    "browserNone_phone": "With the app closed, this phone is not told yet."
+    "browserNone_phone": "With the app closed, this phone is not told yet.",
+    "test": {
+      "title": "Test alert",
+      "send": "Send a test alert",
+      "sent": "The hub sent a test alert.",
+      "notSent": "No test alert was sent."
+    }
   },
   "people": {
     "userManagement": "User management",
@@ -964,7 +970,24 @@
     "uploadIntro": "From the hub computer: a release file. The hub checks its signature and version.",
     "file": "Release file",
     "uploaded": "Version {{version}} is ready to approve.",
-    "lastAt": "({{time}})"
+    "lastAt": "({{time}})",
+    "offer": {
+      "title": "Available hub updates",
+      "none": "No hub update is available to download.",
+      "release_one": "Version {{version}} is available ({{size}} byte).",
+      "release_other": "Version {{version}} is available ({{size}} bytes).",
+      "download": "Download",
+      "downloading": "Downloading version {{version}}.",
+      "downloaded": "Version {{version}} downloaded.",
+      "cancel": "Cancel download",
+      "cancelled": "Download cancelled.",
+      "replaced": "A newer update replaced version {{version}}.",
+      "notOffered": "This version is no longer available. Check the latest offer.",
+      "failed": "Could not download version {{version}}. {{reason}}",
+      "tooLarge": "The update is too large for the hub to download.",
+      "unreachable": "The relay could not send the update. Try again when it is connected.",
+      "unknown": "The hub could not prepare the update. Try again."
+    }
   },
   "status": {
     "hubTitle": "The hub",
@@ -983,6 +1006,41 @@
     "size": "Stored history and settings: {{megabytes}} MB.",
     "shortened": "History was shortened to keep the database within its size.",
     "missing": "Records from {{time}} may be missing after a restart."
+  },
+  "relay": {
+    "title": "Relay",
+    "none": "No relay chosen.",
+    "default": "Using the default relay setting.",
+    "custom": "Using a custom relay address.",
+    "address": "Relay address: {{url}}",
+    "state": {
+      "up": "The relay is connected.",
+      "down": "The relay is disconnected.",
+      "off": "The relay is off."
+    },
+    "since": "Since {{time}}.",
+    "sinceBoot": "Since the hub started.",
+    "lastError": "Last error: {{error}}",
+    "error": {
+      "dns": "The relay address could not be found.",
+      "connect": "The hub could not connect to the relay.",
+      "tls": "The hub could not verify the relay's secure connection.",
+      "handshake": "The relay did not complete its connection to the hub.",
+      "version": "The hub and relay use incompatible versions.",
+      "replaced": "The relay connected to another hub using this hub's identity.",
+      "limited": "The relay is busy. The hub will try again.",
+      "noPong": "The relay stopped responding.",
+      "closed": "The relay closed the connection.",
+      "stopping": "The hub was stopping.",
+      "unknown": "The relay connection failed."
+    },
+    "customAddress": "Custom relay address",
+    "save": "Save relay address",
+    "useDefault": "Use the default relay",
+    "saved": "Relay setting saved.",
+    "empty": "Enter a relay address.",
+    "format": "The hub did not accept that relay address. Enter a WebSocket address without a path or sign-in details.",
+    "notLocal": "An insecure relay address must be on this computer or the home network."
   },
   "hubNotice": {
     "updateStaged": "An update is ready: someone who manages the system can approve it on the Updates screen.",

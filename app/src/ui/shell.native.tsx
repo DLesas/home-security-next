@@ -42,12 +42,13 @@ import { PhoneLinkGate } from "./phone-link";
 import { PhoneProvider } from "./phone-parts";
 import { REVEAL_BELOW, revealOffset } from "./keyboard";
 import { phonePartsFor } from "./stand-ins";
-import { livePhoneParts } from "./phone-wiring.native";
+import { livePhoneParts, versionTwoFor } from "./phone-wiring.native";
 import { BAND, statusBarStyle, type Top, topOf } from "./top";
 import { useStore } from "zustand";
 import { LockGate } from "./lock-page";
 import type { PhoneParts } from "./phone-parts";
 import { afterLinking } from "./this-phone";
+import { VersionTwoProvider } from "./version-two";
 
 /** What meets the top on the screen at `home` (`top.ts`). */
 function useTop(home: boolean): Top {
@@ -140,6 +141,7 @@ function KeyboardFrame({
 export function Shell() {
   const hub = useHub();
   const parts = useMemo(() => phonePartsFor(hub, livePhoneParts), [hub]);
+  const versionTwo = useMemo(() => versionTwoFor(hub), [hub]);
   const queries = useQueryClient();
   useEffect(
     () =>
@@ -149,11 +151,13 @@ export function Shell() {
     [hub, queries],
   );
   return (
-    <PhoneProvider parts={parts}>
-      <LockGate lock={parts.lock} os={parts.os} frame={lockedFrame}>
-        <UnlockedShell parts={parts} />
-      </LockGate>
-    </PhoneProvider>
+    <VersionTwoProvider client={versionTwo}>
+      <PhoneProvider parts={parts}>
+        <LockGate lock={parts.lock} os={parts.os} frame={lockedFrame}>
+          <UnlockedShell parts={parts} />
+        </LockGate>
+      </PhoneProvider>
+    </VersionTwoProvider>
   );
 }
 
