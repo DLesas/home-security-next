@@ -20,6 +20,23 @@ import { memorySecureItems } from "../src/platform/vault";
 import { phoneHomes } from "../src/ui/homes";
 import { connectFrom, startRealHub, stopAllHubs } from "./support/real-hub";
 
+// Bun accepts headers and TLS options on the client WebSocket, which the DOM declaration omits.
+declare const WebSocket: new (
+  url: string,
+  options: {
+    headers: { Origin: string };
+    tls: { rejectUnauthorized: boolean };
+  },
+) => SocketLike;
+
+/** Connects to the local real hub with its test certificate and the phone origin. */
+function localSocket(address: string, origin: string): SocketLike {
+  return new WebSocket(address, {
+    headers: { Origin: origin },
+    tls: { rejectUnauthorized: false },
+  });
+}
+
 afterAll(stopAllHubs);
 
 /** Waits only for a linked client's first authenticated snapshot. */
@@ -92,11 +109,7 @@ test("registers a real target, then home removal unregisters it before deleting 
     app: "0.1.0",
     proto: PHONE_PROTO,
     finder: NO_FINDER,
-    makeSocket: (address, origin) =>
-      new WebSocket(address, {
-        headers: { Origin: origin },
-        tls: { rejectUnauthorized: false },
-      } as unknown as string[]) as unknown as SocketLike,
+    makeSocket: localSocket,
   };
   const phone = startPhoneClient(deps);
   phone.client.start();
@@ -193,10 +206,7 @@ test("a changed device token updates both real homes without switching the open 
       makeSocket: (address, origin) => {
         const port = Number(new URL(address).port);
         attempts.set(port, (attempts.get(port) ?? 0) + 1);
-        return new WebSocket(address, {
-          headers: { Origin: origin },
-          tls: { rejectUnauthorized: false },
-        } as unknown as string[]) as unknown as SocketLike;
+        return localSocket(address, origin);
       },
     });
     phone.client.start();

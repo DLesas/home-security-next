@@ -794,7 +794,7 @@ async function phoneFirst(
     | { op: "push.register"; body: AppOpBodyV2<"push.register"> },
   expectedClient?: number,
 ): Promise<Outcome<void, "unreachable" | "storage" | "refused">> {
-  const store = records.hub(identity);
+  const store = platformStore(records.hub(identity));
   const read = await store.read();
   if (!read.ok || !read.value) return { ok: false, fault: "storage" };
   if (expectedClient !== undefined && read.value.hub.client !== expectedClient)
@@ -829,7 +829,7 @@ async function phoneFirst(
   };
   const opened = await openSession(
     beforeDeadline,
-    record as unknown as StoredClient,
+    record,
     deps.app,
     deps.timers,
     deps.proto,
