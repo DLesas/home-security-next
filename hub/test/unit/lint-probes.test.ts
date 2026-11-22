@@ -6,8 +6,9 @@
  * `// Expect: clean`, a file the rules must allow. The probes' folders mirror hub/'s, so each
  * one sits under the globs of the layer it tests.
  */
-import { beforeAll, describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { join, relative } from "node:path";
 import { ESLint } from "eslint";
 import { z } from "zod";
@@ -45,6 +46,13 @@ describe("lint probes", () => {
     const eslint = new ESLint({ cwd: REPO, ignore: false });
     for (const result of await eslint.lintFiles(probeFiles)) results.set(result.filePath, result);
   }, LINT_TIMEOUT_MS);
+
+  afterAll(() => {
+    // Resolve the public parser API from the same installation the lint configuration uses.
+    const fromLint = createRequire(import.meta.resolve("typescript-eslint"));
+    const parser = fromLint("@typescript-eslint/parser") as { clearCaches(): void };
+    parser.clearCaches();
+  });
 
   test("there is a probe for each restriction, and each says what it expects", () => {
     expect(probeFiles.length).toBeGreaterThan(80);

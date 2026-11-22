@@ -61,6 +61,8 @@ const homes: Home[] = [];
 afterAll(() => {
   for (const d of days) d.home.close();
   for (const home of homes) home.close();
+  days.length = 0;
+  homes.length = 0;
 });
 
 function must(result: { isErr(): boolean; error?: { message: string } }): void {

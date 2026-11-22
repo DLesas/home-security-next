@@ -30,6 +30,7 @@ function must(result: { isErr(): boolean; error?: { message: string } }): void {
 const homes: Home[] = [];
 afterAll(() => {
   for (const home of homes) home.close();
+  homes.length = 0;
 });
 
 async function home(spec: HomeSpec): Promise<Home> {

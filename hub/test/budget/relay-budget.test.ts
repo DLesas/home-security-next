@@ -104,6 +104,7 @@ interface RelayDay {
 const homes: Home[] = [];
 afterAll(() => {
   for (const home of homes) home.close();
+  homes.length = 0;
 });
 
 function must(result: { isErr(): boolean; error?: { message: string } }): void {
