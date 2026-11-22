@@ -1,4 +1,6 @@
 /** A real hub's v2 snapshot proves what the linked phone registered and subsequently removed. */
+import { Database } from "bun:sqlite";
+import { join } from "node:path";
 import { afterAll, expect, test } from "bun:test";
 import assert from "node:assert/strict";
 import { parseConsoleFragment, snapshotObjectV2 } from "@hsn/protocol/app";
@@ -26,19 +28,8 @@ async function ready(read: () => boolean) {
   while (!read() && Date.now() < end) await Bun.sleep(50);
   assert(read(), "session ready");
 }
-test("registers a real target, then home removal unregisters it before deleting its key", async () => {
-  const hub = await startRealHub((dir) => {
-    const snapshot = siteSnapshot();
-    const sensor = snapshot.devices.find((d) => d.id === S1);
-    const config = snapshot.sensorConfig.find((c) => c.deviceId === S1);
-    assert(sensor && config, "fixture sensor");
-    assert(
-      seedPairingSite(dir, [
-        { table: "devices", op: "upsert", row: sensor },
-        { table: "sensor_config", op: "upsert", row: config },
-      ]),
-    );
-  });
+/** Obtains one real invitation without putting its secret in failure output. */
+async function invitation(hub: Awaited<ReturnType<typeof startRealHub>>) {
   const owner = createHubClient({
     connect: connectFrom(hub.consoleOrigin),
     records: memoryRecordStore(),
@@ -59,8 +50,36 @@ test("registers a real target, then home removal unregisters it before deleting 
     form: "qr",
   });
   assert(invite.ok && invite.body.qr, "created invite");
+  owner.stop();
   const code = readCode(invite.body.qr);
   assert(code.ok && code.value.kind === "link", "phone invitation");
+  return code.value.secret;
+}
+
+/** Reads only whether this hub persisted the expected non-secret device address. */
+function holdsToken(hub: Awaited<ReturnType<typeof startRealHub>>, token: string): boolean {
+  const db = new Database(join(hub.dataDir, "hub.db"), { readonly: true });
+  const row = db
+    .query("SELECT 1 FROM push_targets WHERE token=? AND invalid_ms IS NULL")
+    .get(token);
+  db.close(true);
+  return row !== null;
+}
+
+test("registers a real target, then home removal unregisters it before deleting its key", async () => {
+  const hub = await startRealHub((dir) => {
+    const snapshot = siteSnapshot();
+    const sensor = snapshot.devices.find((d) => d.id === S1);
+    const config = snapshot.sensorConfig.find((c) => c.deviceId === S1);
+    assert(sensor && config, "fixture sensor");
+    assert(
+      seedPairingSite(dir, [
+        { table: "devices", op: "upsert", row: sensor },
+        { table: "sensor_config", op: "upsert", row: config },
+      ]),
+    );
+  });
+  const invite = await invitation(hub);
   const fake = fakePush();
 
   const push = pushLifecycle(fake.storage, fake.tokens, realTimers);
@@ -80,7 +99,7 @@ test("registers a real target, then home removal unregisters it before deleting 
   };
   const phone = startPhoneClient(deps);
   phone.client.start();
-  await phone.client.link(code.value.secret, "qr", { name: "Phone", kind: "phone" });
+  await phone.client.link(invite, "qr", { name: "Phone", kind: "phone" });
   await ready(() => phone.client.live.getState().session !== null);
   /** Reads the persisted target through a fresh authenticated snapshot. */
   async function snapshot() {
@@ -138,5 +157,77 @@ test("registers a real target, then home removal unregisters it before deleting 
   expect(fake.armed.has(id)).toBe(false);
   push.stop();
   phone.client.stop();
-  owner.stop();
+}, 60000);
+
+test("a changed device token updates both real homes without switching the open session, and retries unreachable debt on restart", async () => {
+  const a = await startRealHub();
+  const b = await startRealHub();
+  const fake = fakePush();
+  const items = memorySecureItems();
+  const token = (value: string) => {
+    fake.token({ platform: "fcm", environment: "production", token: value });
+  };
+  token("first-token");
+  /** Starts a new process-equivalent phone client over the same persisted vault and target records. */
+  function boot() {
+    const attempts = new Map<number, number>();
+    const lifecycle = pushLifecycle(fake.storage, fake.tokens, realTimers);
+    const phone = startPhoneClient({
+      items,
+      push: lifecycle,
+      keys,
+      timers: realTimers,
+      app: "0.1.0",
+      proto: PHONE_PROTO,
+      finder: NO_FINDER,
+      makeSocket: (address, origin) => {
+        const port = Number(new URL(address).port);
+        attempts.set(port, (attempts.get(port) ?? 0) + 1);
+        return new WebSocket(address, {
+          headers: { Origin: origin },
+          tls: { rejectUnauthorized: false },
+        } as unknown as string[]) as unknown as SocketLike;
+      },
+    });
+    phone.client.start();
+    return {
+      attempts,
+      phone,
+      stop: () => {
+        lifecycle.stop();
+        phone.client.stop();
+      },
+    };
+  }
+  let app = boot();
+  await app.phone.client.link(await invitation(a), "qr", { name: "Phone", kind: "phone" });
+  await ready(() => holdsToken(a, "first-token"));
+  const idA = app.phone.client.live.getState().hub?.identity;
+  assert(idA, "first home");
+  await app.phone.client.link(await invitation(b), "qr", { name: "Phone", kind: "phone" });
+  await ready(() => holdsToken(b, "first-token"));
+  const live = app.phone.client.live;
+  const homeB = live.getState().hub?.identity;
+  const originalSession = live.getState().session;
+  assert(homeB && originalSession && homeB !== idA, "other home selected");
+  token("second-token");
+  await ready(() => holdsToken(a, "second-token") && holdsToken(b, "second-token"));
+  expect(live.getState().session === originalSession).toBe(true);
+  expect(await app.phone.records.chosen()).toEqual({ ok: true, value: homeB });
+  const beforeRefusal = app.attempts.get(a.lanPort) ?? 0;
+  await a.stop();
+  token("third-token");
+  await ready(
+    () => fake.keys.get(idA)?.pending?.body.token === "third-token" && holdsToken(b, "third-token"),
+  );
+  await ready(() => (app.attempts.get(a.lanPort) ?? 0) > beforeRefusal);
+  expect(holdsToken(a, "second-token")).toBe(true);
+  expect(live.getState().session === originalSession).toBe(true);
+  app.stop();
+  await a.start();
+  app = boot();
+  await ready(() => holdsToken(a, "third-token") && fake.keys.get(idA)?.pending === null);
+  expect(app.attempts.get(a.lanPort)).toBeGreaterThan(0);
+  expect(await app.phone.records.chosen()).toEqual({ ok: true, value: homeB });
+  app.stop();
 }, 60000);

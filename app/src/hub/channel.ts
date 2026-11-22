@@ -646,10 +646,15 @@ export class Channel implements Requester {
 }
 
 /** Proves possession of the transport key, then accepts only the authenticated reply to first. */
-export async function finishFirstDisarm(opened: OpenedSession, deadline: number, timers: Timers) {
+export async function finishFirstRequest(
+  opened: OpenedSession,
+  deadline: number,
+  timers: Timers,
+  op: "disarm" | "push.register",
+) {
   const session = new Session(opened.hello, opened.transport, opened.wire);
   const sent = session.send({ t: "req", id: 2, op: "pong", body: {} });
-  let disarmed = false;
+  let accepted = false;
   while (sent && timers.now() < deadline) {
     const next = await opened.inbox.next(Math.max(1, deadline - timers.now()));
     if (next.kind !== "message") break;
@@ -657,9 +662,9 @@ export async function finishFirstDisarm(opened: OpenedSession, deadline: number,
     if (!json) break;
     const reply = appReplyV2.safeParse(json.value);
     if (!reply.success || reply.data.id !== 1) continue;
-    disarmed = reply.data.ok && APP_OPS_V2.disarm.reply.safeParse(reply.data.body).success;
+    accepted = reply.data.ok && APP_OPS_V2[op].reply.safeParse(reply.data.body).success;
     break;
   }
   session.close(CLOSE.normal);
-  return disarmed;
+  return accepted;
 }

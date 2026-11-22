@@ -31,14 +31,16 @@ import {
   type AppEvent,
   type AppEventV2,
   type AppOpBody,
+  type AppOpBodyV2,
   type AppOpName,
   hubInfoV2,
   type SnapshotObjectV2,
   type LinkRequest,
   type RestoreOffer,
 } from "@hsn/protocol/app";
+import { ok as pushed, err as refused, type Result } from "neverthrow";
 import { createStore, type StoreApi } from "zustand/vanilla";
-import { finishFirstDisarm, Channel, type ChannelListener, type RequestOutcome } from "./channel";
+import { finishFirstRequest, Channel, type ChannelListener, type RequestOutcome } from "./channel";
 import type { CodeSource, HubClient, LocalState, Version2Channel } from "./client";
 import { storeListener } from "./client";
 import {
@@ -60,7 +62,7 @@ import {
   type ProtoRange,
 } from "./handshake";
 import { fromBase64url } from "./files";
-import { type pushLifecycle, pushVault } from "./push";
+import { type PushSession, type pushLifecycle, pushVault } from "./push";
 import { BackupKeyKeeper, restoreHub, type RestoreOutcome, snapshotEpoch } from "./restore";
 import type { ArrivedCode } from "./start-types";
 import {
@@ -590,15 +592,48 @@ export function startPhoneClient(deps: PhoneDeps): PhoneClient {
       };
     },
   };
+  /** A token change repairs unselected homes without choosing them or replacing the UI channel. */
+  async function unselectedPushHomes(): Promise<readonly PushSession[]> {
+    const [list, selected] = await Promise.all([records.list(), records.chosen()]);
+    if (!list.ok || !selected.ok) return [];
+    const homes: PushSession[] = [];
+    for (const hub of list.value) {
+      if (hub === selected.value) continue;
+      const record = await records.hub(hub).read();
+      if (!record.ok || !record.value) continue;
+      const client = record.value.hub.client;
+      homes.push({
+        hub,
+        client,
+        register: async (body) => ({
+          ok: (
+            await phoneFirst(
+              hub,
+              deps.timers.now() + 28_000,
+              records,
+              deps,
+              { op: "push.register", body },
+              client,
+            )
+          ).isOk(),
+        }),
+      });
+    }
+    return homes;
+  }
+
   const client: HubClient = {
     live,
     local,
     ...(deps.proto[1] === APP_PROTO_LATEST ? { v2 } : {}),
     start: () => {
-      void records.sweep().then(() => channel.start());
+      void records.sweep().then(() => {
+        void push?.start(unselectedPushHomes);
+        return channel.start();
+      });
     },
     stop: () => {
-      push?.closed();
+      push?.pause();
       stopHomeAgain();
       channel.stop();
       reach.setState({ path: null });
@@ -746,19 +781,26 @@ export function arrivals(source: LinkSource): {
   };
 }
 
-/** Sends one lock-screen action to its own home, sharing the vault's sequence queue with the UI. */
-export async function disarmFromNotification(
+/** One authenticated change outside the UI channel, with its seq reserved in the shared vault. */
+async function phoneFirst(
   identity: string,
   deadline: number,
   records: PhoneRecords,
   deps: PhoneDeps,
-): Promise<boolean> {
+  request:
+    | { op: "disarm"; body: AppOpBodyV2<"disarm"> }
+    | { op: "push.register"; body: AppOpBodyV2<"push.register"> },
+  expectedClient?: number,
+): Promise<Result<void, "unreachable" | "storage" | "refused">> {
   const store = records.hub(identity);
   const read = await store.read();
-  if (!read.ok || !read.value || deps.timers.now() >= deadline) return false;
+  if (!read.ok || !read.value) return refused("storage");
+  if (expectedClient !== undefined && read.value.hub.client !== expectedClient)
+    return refused("refused");
+  if (deps.timers.now() >= deadline) return refused("unreachable");
   const record = read.value;
   const seq = await reserveSeq(store);
-  if (seq === undefined) return false;
+  if (seq === undefined) return refused("storage");
   const reach = record.reach ?? emptyReach();
   const local = storedHubConnect(
     hubSocketConnect(deps.makeSocket, deps.timers),
@@ -790,8 +832,22 @@ export async function disarmFromNotification(
     deps.timers,
     deps.proto,
     platformKeys(deps.keys),
-    { t: "req", id: 1, seq, op: "disarm", body: { target: "mine" } },
+    { t: "req", id: 1, seq, ...request },
   );
-  if (!opened.ok) return false;
-  return finishFirstDisarm(opened.value, deadline, deps.timers);
+  if (!opened.ok) return refused("unreachable");
+  return (await finishFirstRequest(opened.value, deadline, deps.timers, request.op))
+    ? pushed(undefined)
+    : refused("refused");
+}
+
+/** Disarms the permitted sensors of the tapped notification's home without changing the chosen home. */
+export async function disarmFromNotification(
+  identity: string,
+  deadline: number,
+  records: PhoneRecords,
+  deps: PhoneDeps,
+): Promise<boolean> {
+  return (
+    await phoneFirst(identity, deadline, records, deps, { op: "disarm", body: { target: "mine" } })
+  ).isOk();
 }

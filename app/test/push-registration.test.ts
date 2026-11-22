@@ -1,3 +1,6 @@
+import assert from "node:assert/strict";
+import publicVectors from "../../packages/protocol/vectors/relay-push.json";
+import { pushOpener, parsePushKey, formatPushKeyId } from "@hsn/protocol/relay";
 import { manualTimers, settle } from "./support/timers";
 import { expect, test } from "bun:test";
 import { pushRegisterBody } from "@hsn/protocol/app";
@@ -223,5 +226,113 @@ test("a transient registration failure retries the staged key on the same open s
   await settle(1);
   expect(sent.count).toBe(2);
   expect(fake.keys.get(session.hub)?.active?.body.key === staged?.body.key).toBe(true);
+  lifecycle.stop();
+});
+
+test("an old published alert opens throughout rotation until the new registration is accepted", async () => {
+  const vector = publicVectors.seal[0];
+  assert(vector, "published countdown");
+  const h = vector.h;
+  const fake = fakePush();
+  fake.token(fcm);
+  const hub = vector.content.hub;
+  const body = {
+    ...fcm,
+    keyId: vector.keyId,
+    key: Buffer.from(vector.key, "hex").toString("base64url"),
+  };
+  fake.keys.set(hub, { active: { client: 2, madeMs: 0, body }, pending: null });
+  const reg = pushRegistration(fake.storage, fake.tokens, () => KEY_LIFETIME_MS);
+  /** Reads both generations as the service does, then authenticates the published envelope. */
+  function opensOldAlert() {
+    const saved = fake.keys.get(hub);
+    return pushOpener.open(h, (id) => {
+      const match = [saved?.active, saved?.pending].find(
+        (r) => r?.body.keyId === formatPushKeyId(id),
+      );
+      return match ? parsePushKey(match.body.key) : undefined;
+    }).ok;
+  }
+  const ack = Promise.withResolvers<{ ok: boolean }>();
+  const sent = Promise.withResolvers<undefined>();
+  const pending = reg.reconcile(
+    {
+      hub,
+      client: 2,
+      register: () => {
+        sent.resolve(undefined);
+        return ack.promise;
+      },
+    },
+    valid,
+  );
+  await sent.promise;
+  expect(opensOldAlert()).toBe(true);
+  ack.resolve({ ok: true });
+  expect((await pending).isOk()).toBe(true);
+  expect(opensOldAlert()).toBe(false);
+});
+
+test("an unselected home keeps its overdue key on a token change and rotates only on its own session", async () => {
+  const { registration, session, fake, clock, sent } = setup();
+  fake.token(fcm);
+  await registration.reconcile(session, valid);
+  const original = fake.keys.get(session.hub)?.active;
+  clock.ms += KEY_LIFETIME_MS + 1;
+  await registration.reconcile(session, undefined, fcm, false);
+  expect(sent.count).toBe(1);
+  const changed = { ...fcm, token: "replaced" };
+  await registration.reconcile(session, undefined, changed, false);
+  expect(sent.count).toBe(2);
+  expect(fake.keys.get(session.hub)?.active?.body.key === original?.body.key).toBe(true);
+  await registration.reconcile(session, valid, changed);
+  expect(sent.count).toBe(3);
+  expect(fake.keys.get(session.hub)?.active?.body.key !== original?.body.key).toBe(true);
+});
+
+test("removing a home while its hub reply is outstanding erases the key and a late reply cannot restore it", async () => {
+  const { registration, session, fake } = setup();
+  fake.token(fcm);
+  const ack = Promise.withResolvers<{ ok: boolean }>();
+  const sent = Promise.withResolvers<undefined>();
+  const pending = registration.reconcile(
+    {
+      ...session,
+      register: () => {
+        sent.resolve(undefined);
+        return ack.promise;
+      },
+    },
+    null,
+  );
+  await sent.promise;
+  await registration.remove(session.hub);
+  expect(fake.keys.has(session.hub)).toBe(false);
+  ack.resolve({ ok: true });
+  await pending;
+  expect(fake.keys.has(session.hub)).toBe(false);
+});
+
+test("token refresh visits unselected homes one at a time while the selected home registers", async () => {
+  const fake = fakePush();
+  const lifecycle = pushLifecycle(fake.storage, fake.tokens, manualTimers());
+  const gate = Promise.withResolvers<{ ok: boolean }>();
+  const calls: string[] = [];
+  const home = (hub: string): PushSession => ({
+    hub,
+    client: 1,
+    register: () => {
+      calls.push(hub);
+      return hub === "second" ? gate.promise : Promise.resolve({ ok: true });
+    },
+  });
+  await lifecycle.start(() => Promise.resolve([home("second"), home("third")]));
+  await lifecycle.snapshot(home("selected"), null, []);
+  fake.token(fcm);
+  await settle(1);
+  expect(calls.toSorted()).toEqual(["second", "selected"]);
+  gate.resolve({ ok: true });
+  await settle(1);
+  expect(calls.at(-1)).toBe("third");
   lifecycle.stop();
 });
