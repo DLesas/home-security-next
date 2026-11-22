@@ -53,7 +53,7 @@ function applyDevice(status: Status, event: AppEventBodyV2<"deviceUpdate">): Sta
   if (status.rollout?.image !== event.image) return status;
   const index = status.devices.findIndex((line) => line.device === event.device);
   if (index === -1) return status;
-  const { device, state, held, method, bytes, of, reason } = event;
+  const { device, state, held, method, bytes, of, reason, forceAvailable } = event;
   return {
     ...status,
     devices: status.devices.with(index, {
@@ -64,6 +64,7 @@ function applyDevice(status: Status, event: AppEventBodyV2<"deviceUpdate">): Sta
       bytes,
       of,
       lastReason: reason ?? null,
+      ...(forceAvailable === undefined ? {} : { forceAvailable }),
     }),
   };
 }

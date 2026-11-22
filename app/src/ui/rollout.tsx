@@ -67,7 +67,7 @@ function RolloutPanel({ client }: { readonly client: Version2Channel }) {
       {rollout === null ? (
         <Body>{t("rollout.none")}</Body>
       ) : (
-        <RolloutStatus rollout={rollout} lines={status.devices} />
+        <RolloutStatus rollout={rollout} lines={status.devices} busy={busy} run={run} />
       )}
       {active ? (
         <RolloutActions key={rollout.id} rollout={rollout} busy={busy} run={run} />
@@ -92,9 +92,13 @@ function RolloutPanel({ client }: { readonly client: Version2Channel }) {
 function RolloutStatus({
   rollout,
   lines,
+  busy,
+  run,
 }: {
   readonly rollout: RolloutObject;
   readonly lines: Status["devices"];
+  readonly busy: boolean;
+  readonly run: Run;
 }) {
   const { t, i18n } = useTranslation();
   const devices = useLive((s) => s.devices);
@@ -125,11 +129,13 @@ function RolloutStatus({
         <List label={t("rollout.devices")}>
           {lines.map((line) => (
             <RolloutLine
-              key={line.device}
+              key={`${rollout.id}/${line.device}`}
               line={line}
-              version={rollout.version}
+              rollout={rollout}
               name={deviceName(t, { devices }, line.device)}
               sensor={devices[line.device]?.role === "sensor"}
+              busy={busy}
+              run={run}
             />
           ))}
         </List>
@@ -141,27 +147,51 @@ function RolloutStatus({
 /** Names a device and gives its update state, progress, hold and refusal as applicable. */
 function RolloutLine({
   line,
-  version,
+  rollout,
   name,
   sensor,
+  busy,
+  run,
 }: {
   readonly line: RolloutDeviceObject;
-  readonly version: string;
+  readonly rollout: RolloutObject;
   readonly name: string;
   readonly sensor: boolean;
+  readonly busy: boolean;
+  readonly run: Run;
 }) {
   const { t } = useTranslation();
-  const held = line.held === null ? undefined : t(`rollout.held.${line.held}`);
+  const held = line.forceAvailable
+    ? t("rollout.forceExplanation")
+    : line.held === null
+      ? undefined
+      : t(`rollout.held.${line.held}`);
   const primaryHold = line.state === "planned" || line.state === "offered";
   const percent = line.of === 0 ? 0 : Math.min(100, Math.floor((line.bytes / line.of) * 100));
   const main =
-    (primaryHold ? held : undefined) ?? t(`rollout.device.${line.state}`, { percent, version });
+    (primaryHold ? held : undefined) ??
+    t(`rollout.device.${line.state}`, { percent, version: rollout.version });
   return (
     <ListRow name={name} state={main}>
       {line.state === "fetching" && sensor ? <Body>{t("rollout.watching")}</Body> : null}
       {held !== undefined && !primaryHold ? <Body>{held}</Body> : null}
       {line.lastReason !== null && (line.state === "refused" || line.state === "rolledBack") ? (
         <Body>{t(`rollout.reason.${line.lastReason}`)}</Body>
+      ) : null}
+      {line.forceAvailable ? (
+        <ConfirmButton
+          label={t("rollout.force")}
+          question={t("rollout.forceQuestion")}
+          yes={t("rollout.confirmForce")}
+          no={t("rollout.declineForce")}
+          busy={busy}
+          onConfirm={() => {
+            run({
+              op: "rollout.resume",
+              body: { rollout: rollout.id, device: line.device, force: true },
+            });
+          }}
+        />
       ) : null}
     </ListRow>
   );

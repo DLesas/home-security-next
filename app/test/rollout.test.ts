@@ -50,10 +50,12 @@ const FRONT: DeviceObject = {
   lastSeenMs: null,
   heardBy: null,
 };
+const GATEWAY = { ...FRONT, id: 7, role: "gateway", name: "Gateway" } satisfies DeviceObject;
 const DEVICES = {
   4: FRONT,
   5: { ...FRONT, id: 5, name: "Back door" },
   6: { ...FRONT, id: 6, name: "Side door" },
+  [GATEWAY.id]: GATEWAY,
 };
 const HUB = snapshotOf({ rev: 1, version: "1.0.0", boot: 1, identity: "fake" }).hub;
 const SOAK = Date.UTC(2040, 5, 12, 10, 5);
@@ -491,10 +493,7 @@ const HOLDS = [
   ["waitingTurn", "Waiting for its turn."],
   ["needsPhone", "It needs a phone. Open its page in the phone app when you are near it."],
   ["countdownAlarmOrSiteMove", "Wait for the countdown, alarm or radio settings change to finish."],
-  [
-    "gatewayBusy",
-    "This gateway is too busy to update without delaying replies. Update it at a quiet time, or with fewer sensors on it.",
-  ],
+  ["gatewayBusy", "The gateway is busy. The hub will try again."],
   ["keyChange", "It has not been heard since the hub was restored. Wait until it is."],
 ] as const;
 
@@ -507,6 +506,93 @@ test.each(HOLDS)("the %s hold has its own words in status and live", async (held
   view.status(data);
   await view.device({ state: "planned", held });
   expect(view.words()).toContain(`Front door ${words}`);
+});
+
+const FORCE_LABEL = "Update now anyway";
+const FORCE_EXPLANATION =
+  "This gateway is too busy to update without delaying replies. Update it at a quiet time, or with fewer sensors on it.";
+const BUSY_GATEWAY = line("planned", GATEWAY.id, {
+  held: "gatewayBusy",
+  method: "ownLink",
+  lastReason: "radioBusy",
+});
+
+/** Shows a single busy gateway, optionally eligible for a forced update. */
+function busyGateway(forceAvailable?: true): Status {
+  return status("pilots", { devices: [GATEWAY.id], pilots: [GATEWAY.id] }, [
+    { ...BUSY_GATEWAY, ...(forceAvailable === undefined ? {} : { forceAvailable }) },
+  ]);
+}
+
+test("a gateway held without force availability shows the retry message alone", async () => {
+  const view = await mount(busyGateway());
+  expect(view.words()).toContain("Gateway The gateway is busy. The hub will try again.");
+  expect(view.words()).not.toContain(FORCE_EXPLANATION);
+  expect(view.html()).not.toContain(`aria-label="${FORCE_LABEL}"`);
+});
+
+test("force availability shows the explanation and declining the confirmation sends nothing", async () => {
+  const view = await mount(busyGateway(true));
+  expect(view.words()).toContain(`Gateway ${FORCE_EXPLANATION}`);
+  const before = [...view.calls];
+  expect(await view.press(FORCE_LABEL)).toBe(true);
+  expect(view.words()).toContain(
+    "Update now even though replies from sensors on this gateway may be late while it updates?",
+  );
+  expect(view.calls).toEqual(before);
+  expect(await view.press("Not now")).toBe(true);
+  expect(view.html()).toContain(`aria-label="${FORCE_LABEL}"`);
+  expect(view.calls).toEqual(before);
+});
+
+test.each([
+  ["success", reply(busyGateway().rollout), "Rollout resumed."],
+  [
+    "hub refusal",
+    { ok: false, error: { code: "invalid", detail: { field: "force", reason: "range" } } },
+    "Only a gateway can be updated this way.",
+  ],
+  [
+    "unreachable hub",
+    { ok: false, local: "offline" },
+    "Not connected to the hub, so nothing was sent.",
+  ],
+] as const)(
+  "confirming Update now anyway sends exactly the force request and shows %s",
+  async (outcome, result, words) => {
+    const view = await mount(busyGateway(true));
+    view.action(() => result);
+    expect(await view.press(FORCE_LABEL)).toBe(true);
+    expect(view.calls.filter(({ op }) => op === "rollout.resume")).toEqual([]);
+    expect(await view.press("Yes, update now")).toBe(true);
+    expect(view.calls.filter(({ op }) => op === "rollout.resume")).toEqual([
+      { op: "rollout.resume", body: { rollout: ID, device: GATEWAY.id, force: true } },
+    ]);
+    expect(view.words()).toContain(words);
+    if (outcome !== "success") expect(view.words()).not.toContain("Rollout resumed.");
+  },
+);
+
+test("deviceUpdate adds and removes the force button without rereading status", async () => {
+  const view = await mount(busyGateway());
+  const patch = {
+    device: GATEWAY.id,
+    state: "planned",
+    held: "gatewayBusy",
+    method: "ownLink",
+    bytes: 0,
+    reason: "radioBusy",
+  } as const;
+  expect(view.html()).not.toContain(`aria-label="${FORCE_LABEL}"`);
+  await view.device({ ...patch, forceAvailable: true });
+  expect(view.html()).toContain(`aria-label="${FORCE_LABEL}"`);
+  expect(view.words()).toContain(FORCE_EXPLANATION);
+  await view.device(patch);
+  expect(view.html()).not.toContain(`aria-label="${FORCE_LABEL}"`);
+  expect(view.words()).not.toContain(FORCE_EXPLANATION);
+  expect(view.calls.filter(({ op }) => op === "rollout.status")).toEqual([
+    { op: "rollout.status", body: {} },
+  ]);
 });
 
 test("live bytes repaint just the right row and an armed sensor still downloads", async () => {

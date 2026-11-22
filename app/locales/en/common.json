@@ -1003,6 +1003,11 @@
     "declineStart": "Not now",
     "pause": "Pause the rollout",
     "resume": "Resume the rollout",
+    "force": "Update now anyway",
+    "forceExplanation": "This gateway is too busy to update without delaying replies. Update it at a quiet time, or with fewer sensors on it.",
+    "forceQuestion": "Update now even though replies from sensors on this gateway may be late while it updates?",
+    "confirmForce": "Yes, update now",
+    "declineForce": "Not now",
     "cancel": "Cancel the rollout",
     "cancelQuestion": "Cancel the rollout? Devices already installing or checking the new version will finish.",
     "confirmCancel": "Yes, cancel the rollout",
@@ -1040,7 +1045,7 @@
       "waitingTurn": "Waiting for its turn.",
       "needsPhone": "It needs a phone. Open its page in the phone app when you are near it.",
       "countdownAlarmOrSiteMove": "Wait for the countdown, alarm or radio settings change to finish.",
-      "gatewayBusy": "This gateway is too busy to update without delaying replies. Update it at a quiet time, or with fewer sensors on it.",
+      "gatewayBusy": "The gateway is busy. The hub will try again.",
       "keyChange": "It has not been heard since the hub was restored. Wait until it is."
     },
     "reason": {
