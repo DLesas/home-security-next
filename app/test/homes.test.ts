@@ -7,7 +7,7 @@
  * another home". Against two real hubs: `homes-real-hub.test.ts`.
  */
 import { testRouter } from "./support/render";
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 import { createElement } from "react";
 import assert from "node:assert/strict";
 import { nodeSha256 } from "@hsn/protocol";
@@ -26,17 +26,18 @@ import {
   pushRegistrationOf,
   REMOVAL_REACH_MS,
 } from "../src/ui/homes";
-import { clientScreen } from "./support/client-screen";
+import { clientScreen, screenAct } from "./support/client-screen";
 import { screenWorld, textOf } from "./support/screens";
 import { manualTimers } from "./support/timers";
 
+const { BackHandler } = await import("react-native");
 const { PhoneProvider } = await import("../src/ui/phone-parts");
 const { standInPhoneParts } = await import("../src/ui/stand-ins");
 const { ThisPhoneScreen, afterLinking, removeFaultKey } = await import("../src/ui/this-phone");
-const { default: ThisPhone } = await import("../src/app/this-phone");
-const { default: LinkHome } = await import("../src/app/link-home");
+const { default: Settings } = await import("../src/app/settings");
 const { StateField } = await import("../src/ui/state-field");
-const { backTarget, placeOf } = await import("../src/ui/navigation");
+const { backTarget, LINK_HOME, phoneSettingsPath, placeOf, THIS_PHONE } =
+  await import("../src/ui/navigation");
 
 /** Generates a hub identity and key for the in-memory records. */
 function hubOf(seed: number): { identity: string; staticKey: Uint8Array } {
@@ -430,7 +431,7 @@ describe("the pages", () => {
     const text = textOf(html);
     expect(text.indexOf("Grandma's Change")).toBeGreaterThanOrEqual(0);
     expect(text.indexOf("Grandma's")).toBeLessThan(text.indexOf("Disarmed"));
-    expect(html).toContain('href="/this-phone"');
+    expect(html).toContain(`href="${THIS_PHONE}"`);
     const sentence = /data-testid="current-mode"[^>]*>([^<]*)</u.exec(html)?.[1];
     expect(sentence).toBe("Disarmed");
     await screen.close();
@@ -457,24 +458,47 @@ describe("the pages", () => {
 
   test("Link another home opens the same flow used to link the first phone", async () => {
     const phone = await phoneWith(1);
-    const screen = await shown(phone.homes, createElement(ThisPhone));
-    expect(await screen.press("Link another home")).toBe(true);
-    expect(testRouter.push).toHaveBeenLastCalledWith("/link-home");
+    testRouter.params = { phone: "homes" };
+    const screen = await shown(phone.homes, createElement(Settings));
+    const opened = await screen.press("Link another home");
     await screen.close();
-    const linking = await shown(phone.homes, createElement(LinkHome));
+    testRouter.params = { phone: "link" };
+    let back: Parameters<typeof BackHandler.addEventListener>[1] | undefined;
+    const backEvent = { type: "hardwareBackPress", timeStamp: 0 };
+    const subscription = spyOn(BackHandler, "addEventListener").mockImplementation((_, handler) => {
+      back = handler;
+      return { remove: () => undefined };
+    });
+    const linking = await shown(phone.homes, createElement(Settings));
+    testRouter.params = {};
+    expect(opened).toBe(true);
+    expect(testRouter.push).toHaveBeenLastCalledWith(LINK_HOME);
     expect(textOf(linking.html())).toContain("Link this phone");
     expect(textOf(linking.html())).toContain("Scan the code");
-    expect(textOf(linking.html())).toContain("Type the code");
+    expect(await linking.press("Type the code")).toBe(true);
+    await screenAct(() => {
+      expect(back?.(backEvent)).toBe(true);
+    });
+    expect(testRouter.replace).not.toHaveBeenCalled();
+    await screenAct(() => {
+      expect(back?.(backEvent)).toBe(true);
+    });
+    expect(testRouter.replace).toHaveBeenLastCalledWith("/settings");
     await linking.close();
+    subscription.mockRestore();
   });
 
   test("This phone and Link another home belong to Settings; once linked, back to This phone", () => {
-    expect(placeOf("/this-phone").destination.index).toBe("/settings");
-    expect(backTarget("/this-phone")).toBe("/settings");
-    expect(backTarget("/link-home")).toBe("/settings");
-    expect(afterLinking("linking", "linked", "/link-home")).toBe("/this-phone");
-    expect(afterLinking("linked", "linked", "/link-home")).toBeNull();
-    expect(afterLinking("linking", "failed", "/link-home")).toBeNull();
+    expect(phoneSettingsPath("/settings", "homes")).toBe(THIS_PHONE);
+    expect(phoneSettingsPath("/settings", "link")).toBe(LINK_HOME);
+    expect(phoneSettingsPath("/settings", "unknown")).toBe("/settings");
+    expect(phoneSettingsPath("/", "homes")).toBe("/");
+    expect(placeOf(THIS_PHONE).destination.index).toBe("/settings");
+    expect(backTarget(THIS_PHONE)).toBe("/settings");
+    expect(backTarget(LINK_HOME)).toBe("/settings");
+    expect(afterLinking("linking", "linked", LINK_HOME)).toBe(THIS_PHONE);
+    expect(afterLinking("linked", "linked", LINK_HOME)).toBeNull();
+    expect(afterLinking("linking", "failed", LINK_HOME)).toBeNull();
     expect(afterLinking("linking", "linked", "/")).toBeNull();
   });
 });

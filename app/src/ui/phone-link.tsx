@@ -74,28 +74,42 @@ export function stepBack(step: LinkStep): LinkStep | null {
   return step.kind === "start" ? null : { kind: "start" };
 }
 
-function useBackThroughSteps(step: LinkStep, setStep: (step: LinkStep) => void): void {
+/** Lets steps handle Back first, then hands it to the caller's page. */
+function useBackThroughSteps(
+  step: LinkStep,
+  setStep: (step: LinkStep) => void,
+  backFromStart: (() => void) | undefined,
+): void {
   useEffect(() => {
     const handler = BackHandler.addEventListener("hardwareBackPress", () => {
       const back = stepBack(step);
-      if (back === null) return false;
+      if (back === null) {
+        if (backFromStart === undefined) return false;
+        backFromStart();
+        return true;
+      }
       setStep(back);
       return true;
     });
     return () => {
       handler.remove();
     };
-  }, [step, setStep]);
+  }, [step, setStep, backFromStart]);
 }
 
-export function PhoneLinkGate({ initial }: { readonly initial?: LinkStep }) {
+interface LinkGateOptions {
+  readonly initial?: LinkStep;
+  readonly backFromStart?: () => void;
+}
+
+/** Reuses the phone linking flow with the caller's optional exit from its first step. */
+export function PhoneLinkGate(options: LinkGateOptions) {
   const phone = usePhone();
-  return phone === undefined ? null : (
-    <Gate phone={phone} {...(initial === undefined ? {} : { initial })} />
-  );
+  return phone === undefined ? null : <Gate phone={phone} {...options} />;
 }
 
-function Gate({ phone, initial }: { readonly phone: PhoneParts; readonly initial?: LinkStep }) {
+/** Runs the link flow with the phone's own permission, camera and hub interfaces. */
+function Gate({ phone, initial, backFromStart }: LinkGateOptions & { readonly phone: PhoneParts }) {
   const { t } = useTranslation();
   const hub = useHub();
   const connection = useLive((s) => s.connection);
@@ -105,7 +119,7 @@ function Gate({ phone, initial }: { readonly phone: PhoneParts; readonly initial
     const arrived = phone.arrived.claim();
     return arrived === undefined ? { kind: "start" } : stepForArrival(arrived);
   });
-  useBackThroughSteps(step, setStep);
+  useBackThroughSteps(step, setStep, backFromStart);
   useEffect(
     () =>
       phone.arrived.subscribe((arrived) => {

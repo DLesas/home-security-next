@@ -5,7 +5,7 @@
  *   to another (its session in place of the chosen one's); renaming, on this phone only;
  *   "Remove this home from this phone", asked twice, with what it did or why it did not in words
  *   (`homes.ts` holds the rules). "Link another home" starts the phone's link pages
- *   (`phone-link.tsx`, at `/link-home`); once linked, the phone comes back here (`afterLinking`).
+ *   (`phone-link.tsx`); once linked, the phone comes back here (`afterLinking`).
  *
  * A browser has neither: the page says where they are.
  */
@@ -14,6 +14,7 @@ import { useTranslation } from "react-i18next";
 import { useStore } from "zustand";
 import type { LinkView } from "../hub/client";
 import { type AppLock, lockOffered, type SetFault } from "./app-lock";
+import { LINK_HOME, THIS_PHONE } from "./navigation";
 import { PermissionAsk, PermissionRefused } from "./permission";
 import { type Home, type Homes, type RemoveFault, type RenameFault } from "./homes";
 import {
@@ -41,7 +42,7 @@ export function afterLinking(
   now: LinkView["kind"],
   path: string,
 ): string | null {
-  return path === "/link-home" && before !== "linked" && now === "linked" ? "/this-phone" : null;
+  return path === LINK_HOME && before !== "linked" && now === "linked" ? THIS_PHONE : null;
 }
 
 /** The words for a removal that did not happen; `client`'s are the hub's refusal (`Failure`). */

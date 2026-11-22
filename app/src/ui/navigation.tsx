@@ -11,6 +11,20 @@ import { useTranslation } from "react-i18next";
 import { RING_PALE, TextLink } from "./parts";
 import { TEXT_SCALE_MAX } from "./text";
 
+export const THIS_PHONE = "/settings?phone=homes";
+export const LINK_HOME = "/settings?phone=link";
+
+/** Resolves the two phone-only views of Settings for the page and its navigation frame. */
+export function phoneSettingsPath(
+  path: string,
+  view: string | readonly string[] | undefined,
+): string {
+  if (path !== "/settings") return path;
+  if (view === "homes") return THIS_PHONE;
+  if (view === "link") return LINK_HOME;
+  return path;
+}
+
 interface Destination {
   readonly label: string;
   /** Where the destination leads, when it is an index of its pages rather than its first page. */
@@ -56,7 +70,7 @@ export const DESTINATIONS: readonly Destination[] = [
       ["/status", "nav.status"],
       ["/setup", "nav.setup"],
     ],
-    unlisted: ["/restore", "/this-phone", "/link-home"],
+    unlisted: ["/restore", THIS_PHONE, LINK_HOME],
   },
 ];
 
@@ -190,9 +204,10 @@ export function BottomBar() {
 }
 
 /** The pages of the destination the person is in, when it has more than one. */
-export function Pages() {
+export function Pages({ path }: { readonly path?: string } = {}) {
   const { t } = useTranslation();
-  const { destination, page } = placeOf(usePathname());
+  const pathname = usePathname();
+  const { destination, page } = placeOf(path ?? pathname);
   if (destination.index !== undefined) {
     return page === destination.index ? null : (
       <View role="navigation" aria-label={t("nav.within", { destination: t(destination.label) })}>

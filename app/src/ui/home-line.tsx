@@ -9,6 +9,7 @@ import { useTranslation } from "react-i18next";
 import { useStore } from "zustand";
 import { type Look, LOOK } from "./banners";
 import type { Homes } from "./homes";
+import { THIS_PHONE } from "./navigation";
 import { TextLink } from "./parts";
 import { usePhone } from "./phone-parts";
 import { Text } from "./text";
@@ -36,7 +37,7 @@ function Line({ homes, look }: { readonly homes: Homes; readonly look: Look }) {
   return (
     <View testID="home-line" className="flex-row flex-wrap items-center gap-x-4">
       <Text className={`shrink font-strong text-body ${LOOK[look].text}`}>{name}</Text>
-      <TextLink href="/this-phone" label={t("homes.change")} onDark={look !== "day"} />
+      <TextLink href={THIS_PHONE} label={t("homes.change")} onDark={look !== "day"} />
     </View>
   );
 }

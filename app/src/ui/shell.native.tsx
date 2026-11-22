@@ -21,7 +21,7 @@
  *   one is dropped, so nothing of one home is shown as the other's.
  */
 import { useQueryClient } from "@tanstack/react-query";
-import { router, Slot, usePathname } from "expo-router";
+import { router, Slot, useGlobalSearchParams, usePathname } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { type ComponentRef, type ReactNode, useCallback, useEffect, useMemo, useRef } from "react";
 import {
@@ -36,7 +36,14 @@ import { hasPairingCode } from "../pairing/code-arrival";
 import { AlarmBanner, ShellNotices, useAlarmRunning } from "./banners";
 import { useHub, useLive, useLocal } from "./hub-context";
 import { needsLinkGate } from "./link-gate";
-import { BottomBar, Pages, backTarget } from "./navigation";
+import {
+  backTarget,
+  BottomBar,
+  LINK_HOME,
+  Pages,
+  phoneSettingsPath,
+  THIS_PHONE,
+} from "./navigation";
 import { Column } from "./parts";
 import { PhoneLinkGate } from "./phone-link";
 import { PhoneProvider } from "./phone-parts";
@@ -174,17 +181,17 @@ function lockedFrame(page: ReactNode) {
 function UnlockedShell({ parts }: { readonly parts: PhoneParts }) {
   const connection = useLive((s) => s.connection);
   const link = useLocal((s) => s.link);
-  const path = usePathname();
+  const path = phoneSettingsPath(usePathname(), useGlobalSearchParams().phone);
   const home = path === "/";
   const top = useTop(home);
   const removing = useStore(parts.homes.store, (s) => s.removing);
   const gate =
-    path !== "/link-home" &&
-    !(path === "/this-phone" && removing !== null) &&
+    path !== LINK_HOME &&
+    !(path === THIS_PHONE && removing !== null) &&
     needsLinkGate(connection, link);
   const running = useAlarmRunning();
   const linkBefore = useRef(link.kind);
-  useBackRule(path, !gate);
+  useBackRule(path, !gate && path !== LINK_HOME);
   useEffect(() => {
     const to = afterLinking(linkBefore.current, link.kind, path);
     linkBefore.current = link.kind;
@@ -212,7 +219,7 @@ function UnlockedShell({ parts }: { readonly parts: PhoneParts }) {
               <>
                 <AlarmBanner />
                 <ShellNotices />
-                <Pages />
+                <Pages path={path} />
               </>
             )}
             <Slot />
