@@ -10,6 +10,7 @@
 import "./support/render";
 import { describe, expect, test } from "bun:test";
 import { createElement } from "react";
+import assert from "node:assert/strict";
 import { formatLinkQr } from "@hsn/protocol/app";
 import { PHONE_CLOSE, PHONE_CLOSE_FROM_HUB } from "@hsn/protocol/relay";
 import { createStore } from "zustand/vanilla";
@@ -35,6 +36,7 @@ import type { Connect, Wire } from "../src/hub/wire";
 import * as phoneKeys from "../src/platform/keys.native";
 import { memorySecureItems } from "../src/platform/vault";
 import type { PhoneParts } from "../src/ui/phone-parts";
+import type { HubFinder } from "../src/platform/finder";
 import { HubEnd } from "./support/hub-end";
 import { phoneSockets } from "./support/phone-sockets";
 import { relaySockets, type RelayBehaviour } from "./support/relay-sockets";
@@ -47,11 +49,27 @@ const site = await import("../src/ui/site");
 const HomeRoute = (await import("../src/app/index")).default;
 
 const HOME = "192.168.1.20";
+const DISCOVERED_HOME = "192.168.1.21";
 const RELAY = "wss://relay.example.test";
 const KEY = (n: number) => new Uint8Array(32).fill(n);
 const b64 = (bytes: Uint8Array) => Buffer.from(bytes).toString("base64url");
 const DEV = { development: true };
 const RELEASE = { development: false };
+
+/** Fails with an assertion if a promise under the manual clock stops settling. */
+async function finish<T>(pending: Promise<T>): Promise<T> {
+  let cancel: (() => void) | undefined;
+  const deadline = new Promise<undefined>((resolve) => {
+    const timeout = setTimeout(resolve, 2000);
+    cancel = () => {
+      clearTimeout(timeout);
+    };
+  });
+  const result = await Promise.race([pending.then((value) => ({ value })), deadline]);
+  cancel?.();
+  assert(result !== undefined, "The operation settled with the manual clock advanced.");
+  return result.value;
+}
 
 // ----- relay.ts's rules -----
 
@@ -207,11 +225,11 @@ describe("the relay's Connect", () => {
       RELEASE,
       { closed: (code) => closes.push(code) },
     )({ relayUrl: `${RELAY}/base/`, identity: IDENTITY });
-    if (!made.ok) throw new Error("refused");
+    assert(made.ok, "The relay URL is accepted.");
     const { got, handlers: h } = handlers();
     const pending = made.value("link", h);
     fake.open();
-    const wire = await pending;
+    const wire = await finish(pending);
     expect(urls).toEqual([`${RELAY}/base/v1/phone/${IDENTITY}/link`]);
     expect(fake.socket.binaryType).toBe("arraybuffer");
     wire?.send(Uint8Array.of(1, 2, 3));
@@ -240,9 +258,9 @@ describe("the relay's Connect", () => {
       manualTimers(),
       RELEASE,
     )({ relayUrl: RELAY, identity: IDENTITY });
-    if (!connect.ok) throw new Error("refused");
+    assert(connect.ok, "The relay URL is accepted.");
     for (const path of ["session", "link", "restore"] as const)
-      await connect.value(path, handlers().handlers);
+      expect(await finish(connect.value(path, handlers().handlers))).toBeDefined();
     expect(urls).toEqual(
       ["session", "link", "restore"].map((p) => `${RELAY}/v1/phone/${IDENTITY}/${p}`),
     );
@@ -254,21 +272,19 @@ describe("the relay's Connect", () => {
     const made = relayConnect(() => fake.socket, manualTimers(), RELEASE, {
       closed: (code) => closes.push(code),
     })({ relayUrl: RELAY, identity: IDENTITY });
-    if (!made.ok) throw new Error("refused");
+    assert(made.ok, "The relay URL is accepted.");
     const pending = made.value("session", handlers().handlers);
     fake.socket.onclose?.({ code: 1006 });
-    expect(await pending).toBeUndefined();
+    expect(await finish(pending)).toBeUndefined();
     expect(closes).toEqual([1006]);
 
     const throws = relayConnect(
-      () => {
-        throw new Error("no");
-      },
+      () => new WebSocket("not a URL") as unknown as SocketLike,
       manualTimers(),
       RELEASE,
     )({ relayUrl: RELAY, identity: IDENTITY });
-    if (!throws.ok) throw new Error("refused");
-    expect(await throws.value("session", handlers().handlers)).toBeUndefined();
+    assert(throws.ok, "The relay URL is accepted.");
+    expect(await finish(throws.value("session", handlers().handlers))).toBeUndefined();
 
     const urls: string[] = [];
     const bad = relayConnect(
@@ -279,8 +295,8 @@ describe("the relay's Connect", () => {
       manualTimers(),
       RELEASE,
     )({ relayUrl: RELAY, identity: "NOT-AN-IDENTITY" });
-    if (!bad.ok) throw new Error("refused");
-    expect(await bad.value("session", handlers().handlers)).toBeUndefined();
+    assert(bad.ok, "The relay URL is accepted.");
+    expect(await finish(bad.value("session", handlers().handlers))).toBeUndefined();
     expect(urls).toEqual([]);
   });
 
@@ -296,7 +312,7 @@ describe("the relay's Connect", () => {
       relayUrl: RELAY,
       identity: IDENTITY,
     });
-    if (!made.ok) throw new Error("refused");
+    assert(made.ok, "The relay URL is accepted.");
     let result: Wire | undefined | "pending" = "pending";
     void made.value("session", handlers().handlers).then((wire) => {
       result = wire;
@@ -361,6 +377,7 @@ interface Setup {
   readonly relay?: RelayBehaviour;
   readonly hubRelay?: string;
   readonly noRelay?: boolean;
+  readonly finder?: HubFinder;
 }
 
 function world(setup: Setup = {}) {
@@ -381,7 +398,7 @@ function world(setup: Setup = {}) {
   const phone = startPhoneClient({
     items: memorySecureItems(),
     makeSocket: sockets.make,
-    finder: NO_FINDER,
+    finder: setup.finder ?? NO_FINDER,
     timers,
     app: "0.1.0",
     proto: PHONE_PROTO,
@@ -448,7 +465,7 @@ function qrFor(
       ...(relay === undefined ? {} : { relay }),
     }),
   );
-  if (!read.ok || read.value.kind !== "link") throw new Error("qr");
+  assert(read.ok && read.value.kind === "link", "Read the link code.");
   return read.value.secret;
 }
 
@@ -457,9 +474,9 @@ type World = ReturnType<typeof world>;
 async function linkAtHome(w: World, relay?: string): Promise<void> {
   w.client.start();
   await settle();
-  await w.client.link(qrFor(w.hub, relay), "qr", { name: "Ana's phone", kind: "phone" });
+  await finish(w.client.link(qrFor(w.hub, relay), "qr", { name: "Ana's phone", kind: "phone" }));
   await settle(60);
-  if (w.client.live.getState().connection.kind !== "open") throw new Error("not open at home");
+  expect(w.client.live.getState().connection.kind).toBe("open");
 }
 
 /**
@@ -477,7 +494,7 @@ async function goAway(w: World): Promise<void> {
 const relayPaths = (w: World) => w.relay.opened.map((s) => s.url);
 const record = async (w: World) => {
   const read = await w.phone.records.hub(w.hub.identity).read();
-  if (!read.ok || read.value === undefined) throw new Error("record");
+  assert(read.ok && read.value !== undefined, "The phone kept its record.");
   return read.value;
 };
 
@@ -494,7 +511,7 @@ describe("a session away from home", () => {
     expect(w.phone.reach.getState()).toEqual({ ...NO_REACH, path: "relay" });
     // The same session as at home: changes go on, numbered after the last.
     const before = (await record(w)).lastSeq;
-    const made = await w.client.request("site.set", { countdown: 20 });
+    const made = await finish(w.client.request("site.set", { countdown: 20 }));
     expect(made.ok).toBe(true);
     expect((await record(w)).lastSeq).toBe(before + 1);
   });
@@ -600,7 +617,7 @@ describe("coming home again (every 60 s †, and when the app comes to the front
     const w = world({ hubRelay: RELAY });
     await linkAtHome(w);
     await goAway(w);
-    if (w.phone.reach.getState().path !== "relay") throw new Error("not on the relay");
+    expect(w.phone.reach.getState().path).toBe("relay");
     return w;
   }
   const homeTries = (w: World) => w.sockets.opened.filter((s) => s.url.endsWith("/app")).length;
@@ -609,14 +626,18 @@ describe("coming home again (every 60 s †, and when the app comes to the front
     expect(HOME_AGAIN_MS).toBe(60_000);
     const w = await onRelay();
     const tries = homeTries(w);
-    await w.pass(HOME_AGAIN_MS - 1, 1000);
+    await w.pass(59_000, 1000);
+    expect(homeTries(w)).toBe(tries);
+    await w.pass(999);
     expect(homeTries(w)).toBe(tries);
     await w.pass(1);
+    expect(homeTries(w)).toBe(tries + 1);
+    await w.pass(1000);
     expect(homeTries(w)).toBe(tries + 1);
     // Still away (the address refuses at once): the session stays on the relay, and home is
     // tried again a minute after the miss.
     expect(w.phone.reach.getState().path).toBe("relay");
-    await w.pass(HOME_AGAIN_MS - 1, 1000);
+    await w.pass(58_999, 1000);
     expect(homeTries(w)).toBe(tries + 1);
     await w.pass(1);
     expect(homeTries(w)).toBe(tries + 2);
@@ -627,13 +648,25 @@ describe("coming home again (every 60 s †, and when the app comes to the front
     const relaySocket = w.relay.opened.at(-1);
     w.comeHome();
     const before = (await record(w)).lastSeq;
+    w.hub.dropReplies = true;
+    const result: { outcome?: Awaited<ReturnType<typeof w.client.request<"site.set">>> } = {};
+    void w.client.request("site.set", { countdown: 25 }).then((outcome) => {
+      result.outcome = outcome;
+    });
+    await settle(40);
+    expect(w.hub.seen.filter((r) => r.op === "site.set").map((r) => r.seq)).toEqual([before + 1]);
+    expect(result.outcome).toBeUndefined();
+    w.hub.dropReplies = false;
     await w.pass(HOME_AGAIN_MS, 1000);
     await w.pass(3000);
     expect(w.phone.reach.getState()).toEqual({ ...NO_REACH, path: "home" });
     expect(relaySocket?.phoneClosed).toBe(1000);
     expect(w.client.live.getState().connection.kind).toBe("open");
-    const made = await w.client.request("site.set", { countdown: 25 });
-    expect(made.ok).toBe(true);
+    expect(result.outcome).toMatchObject({ ok: true, repeat: true });
+    expect(w.hub.seen.filter((r) => r.op === "site.set").map((r) => r.seq)).toEqual([
+      before + 1,
+      before + 1,
+    ]);
     expect((await record(w)).lastSeq).toBe(before + 1);
     // At home nothing more is tried.
     const tries = homeTries(w);
@@ -641,6 +674,25 @@ describe("coming home again (every 60 s †, and when the app comes to the front
     expect(homeTries(w)).toBe(tries);
     expect(w.relay.opened.length).toBe(1);
   }, 30_000);
+
+  test("a home socket belonging to another hub leaves the authenticated relay session in use", async () => {
+    const w = await onRelay();
+    const wrongHub = new HubEnd(KEY(8));
+    w.homes.set(HOME, wrongHub);
+    w.phone.resume();
+    await settle(80);
+    expect(wrongHub.paths).toEqual(["session"]);
+    expect(w.phone.reach.getState().path).toBe("relay");
+    expect(w.relay.opened).toHaveLength(1);
+    expect(w.relay.opened[0]?.phoneClosed).toBeUndefined();
+    const changed = await finish(w.client.request("site.set", { countdown: 28 }));
+    expect(changed.ok).toBe(true);
+
+    w.comeHome();
+    w.phone.resume();
+    await settle(80);
+    expect(w.phone.reach.getState().path).toBe("home");
+  });
 
   test("the app comes to the front: home is tried at once, and the session moves when it answers", async () => {
     const w = await onRelay();
@@ -680,7 +732,7 @@ describe("linking and restoring away from home", () => {
     w.leave();
     w.client.start();
     await settle();
-    await w.client.link(qrFor(w.hub, RELAY), "qr", { name: "Ana's phone", kind: "phone" });
+    await finish(w.client.link(qrFor(w.hub, RELAY), "qr", { name: "Ana's phone", kind: "phone" }));
     await w.pass(3000);
     expect(w.client.local.getState().link).toEqual({ kind: "linked", from: "qr" });
     expect(relayPaths(w)).toEqual([
@@ -701,14 +753,14 @@ describe("linking and restoring away from home", () => {
   test("no r=: the deployment's default; none: unreachable, and no relay socket", async () => {
     const w = world({ defaultUrl: RELAY });
     w.leave();
-    await w.client.link(qrFor(w.hub), "qr", { name: "Ana's phone", kind: "phone" });
+    await finish(w.client.link(qrFor(w.hub), "qr", { name: "Ana's phone", kind: "phone" }));
     expect(w.client.local.getState().link).toEqual({ kind: "linked", from: "qr" });
     expect(relayPaths(w)[0]).toBe(`${RELAY}/v1/phone/${w.hub.identity}/link`);
     const none = world({ defaultUrl: null });
     none.leave();
     const pending = none.client.link(qrFor(none.hub), "qr", { name: "Ana's phone", kind: "phone" });
     await none.pass(3000);
-    await pending;
+    await finish(pending);
     expect(none.client.local.getState().link).toEqual({
       kind: "failed",
       from: "qr",
@@ -719,9 +771,41 @@ describe("linking and restoring away from home", () => {
 
   test("home answers a link: the relay is never tried", async () => {
     const w = world({ defaultUrl: RELAY });
-    await w.client.link(qrFor(w.hub, RELAY), "qr", { name: "Ana's phone", kind: "phone" });
+    await finish(w.client.link(qrFor(w.hub, RELAY), "qr", { name: "Ana's phone", kind: "phone" }));
     expect(w.client.local.getState().link).toEqual({ kind: "linked", from: "qr" });
     expect(relayPaths(w).filter((u) => u.endsWith("/link"))).toEqual([]);
+  });
+
+  test("after stale QR addresses, a matching mDNS hub is tried before the relay", async () => {
+    const browses: number[] = [];
+    const w = world({
+      finder: {
+        browse: (ms) => {
+          browses.push(ms);
+          return Promise.resolve({
+            ok: true,
+            value: [
+              {
+                identity: new HubEnd(KEY(8)).identity,
+                addresses: ["192.168.1.22"],
+                appsPort: 8444,
+              },
+              { identity: IDENTITY, addresses: [HOME, DISCOVERED_HOME], appsPort: 8444 },
+            ],
+          });
+        },
+      },
+    });
+    w.leave();
+    w.homes.set(DISCOVERED_HOME, w.hub);
+    await finish(w.client.link(qrFor(w.hub, RELAY), "qr", { name: "Phone", kind: "phone" }));
+    expect(w.client.local.getState().link).toEqual({ kind: "linked", from: "qr" });
+    expect(w.sockets.opened.filter((s) => s.url.endsWith("/link")).map((s) => s.url)).toEqual([
+      `wss://${HOME}:8444/app/link`,
+      `wss://${DISCOVERED_HOME}:8444/app/link`,
+    ]);
+    expect(browses).toEqual([2000]);
+    expect(relayPaths(w)).toEqual([]);
   });
 
   test("a relay that says 4404 to a link: unreachable, not refused", async () => {
@@ -732,7 +816,7 @@ describe("linking and restoring away from home", () => {
       kind: "phone",
     });
     await w.pass(3000);
-    await pending;
+    await finish(pending);
     expect(w.client.local.getState().link).toEqual({
       kind: "failed",
       from: "qr",
@@ -746,10 +830,10 @@ describe("linking and restoring away from home", () => {
     w.leave();
     const code = w.hub.typedCode("newPerson", null, "Ty");
     const typed = readTypedCode(code, `${HOME}:8444`);
-    if (!typed.ok) throw new Error(typed.fault);
+    assert(typed.ok, "Read the typed code.");
     const pending = w.client.link(typed.value, "typed", { name: "Ty's phone", kind: "phone" });
     await w.pass(3000);
-    await pending;
+    await finish(pending);
     expect(w.client.local.getState().link).toMatchObject({
       kind: "failed",
       failure: "unreachable",
@@ -772,16 +856,30 @@ describe("linking and restoring away from home", () => {
           "restore",
         ),
       );
-      if (!read.ok || read.value.kind !== "restore") throw new Error("restore code");
+      assert(read.ok && read.value.kind === "restore", "Read the restore code.");
       return read.value.restore;
     };
     expect(restoreCode(RELAY).reach.relay).toBe(RELAY);
     expect(restoreCode().reach.relay).toBeUndefined();
-    const w = world({ defaultUrl: "wss://default.test", relay: { kind: "close", code: 4404 } });
+    const w = world({
+      defaultUrl: "wss://default.test",
+      relay: { kind: "close", code: 4404 },
+      finder: {
+        browse: () =>
+          Promise.resolve({
+            ok: true,
+            value: [{ identity: IDENTITY, addresses: [HOME, DISCOVERED_HOME], appsPort: 8444 }],
+          }),
+      },
+    });
     w.leave();
     const pending = w.phone.restore(restoreCode());
     await w.pass(3000);
-    expect(await pending).toEqual({ ok: false, fault: "unreachable" });
+    expect(await finish(pending)).toEqual({ ok: false, fault: "unreachable" });
+    expect(w.sockets.opened.map((s) => s.url)).toEqual([
+      `wss://${HOME}:8444/app/restore`,
+      `wss://${DISCOVERED_HOME}:8444/app/restore`,
+    ]);
     expect(relayPaths(w)).toEqual([`wss://default.test/v1/phone/${IDENTITY}/restore`]);
     expect(w.phone.reach.getState().relayClosed).toBe("notConnected");
     const named = world({ defaultUrl: "wss://default.test", relay: { kind: "close", code: 1008 } });
@@ -789,8 +887,23 @@ describe("linking and restoring away from home", () => {
     const refused = named.phone.restore(restoreCode(RELAY));
     await named.pass(3000);
     // The hub's own close before message 2: refused, as at home.
-    expect(await refused).toEqual({ ok: false, fault: "refused" });
+    expect(await finish(refused)).toEqual({ ok: false, fault: "refused" });
     expect(relayPaths(named)).toEqual([`${RELAY}/v1/phone/${IDENTITY}/restore`]);
+
+    const none = world({ defaultUrl: null });
+    none.leave();
+    const unreachable = none.phone.restore(restoreCode());
+    await none.pass(3000);
+    expect(await finish(unreachable)).toEqual({ ok: false, fault: "unreachable" });
+    expect(relayPaths(none)).toEqual([]);
+
+    const local = world({ defaultUrl: RELAY });
+    const atHome = local.phone.restore(restoreCode());
+    await local.pass(3000);
+    // This scripted hub closes restore before message 2. Its socket still answers at home.
+    expect(await finish(atHome)).toEqual({ ok: false, fault: "refused" });
+    expect(local.hub.paths).toEqual(["restore"]);
+    expect(relayPaths(local)).toEqual([]);
   });
 });
 
@@ -838,6 +951,7 @@ describe("which path is in use, under This home (one line), never on Home", () =
       for (const withSite of [true, false]) {
         const text = await siteOnPhone(reach, withSite);
         expect(text.startsWith(said)).toBe(true);
+        expect(text.split(said)).toHaveLength(2);
         for (const other of Object.values(WORDS).filter((w) => w !== said))
           expect(text).not.toContain(other);
       }

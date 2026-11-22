@@ -5,5 +5,10 @@
     "jsx": "react-jsx",
     "resolveJsonModule": true
   },
-  "include": [".", "../nativewind-env.d.ts", "../src/css.d.ts"]
+  "include": [
+    ".",
+    "../nativewind-env.d.ts",
+    "../src/css.d.ts",
+    "../../relay/src/shell/storage/sql.d.ts"
+  ]
 }
