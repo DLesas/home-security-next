@@ -209,7 +209,12 @@ describe("choosing a home", () => {
     expect(phone.homes.store.getState().chosen).toBe(A);
     await phone.homes.choose(A);
     expect(phone.log).toEqual([]);
+    const refresh = spyOn(phone.deps.records, "list").mockImplementation(() => {
+      expect(phone.homes.store.getState().chosen).toBe(B);
+      return phone.records.list();
+    });
     await phone.homes.choose(B);
+    expect(refresh).toHaveBeenCalledTimes(1);
     expect(phone.log).toEqual([`choose ${B}`]);
     expect(phone.homes.store.getState().chosen).toBe(B);
     const chosen = await phone.records.chosen();
