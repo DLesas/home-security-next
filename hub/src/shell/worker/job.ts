@@ -30,10 +30,10 @@
  *   `QUEUE_WAIT_MS` ‡, then fails `io`. Jobs of other gates, or of none, run beside it, as the
  *   loop runs one piece of every open job a turn.
  */
-import { rm } from "node:fs/promises";
-import { ResultAsync, type Result } from "neverthrow";
+import type { Result } from "neverthrow";
 import type { FileOutcome } from "../../core/model/events.ts";
 import { type JobThreadEvents, startJobThread } from "../safe/job-thread.ts";
+import { removeOffLoop } from "../safe/off-loop.ts";
 import { JOB_CANCEL, JOB_STOP, jobControl } from "./control.ts";
 import type { JobKindData, WorkerData } from "./kinds.ts";
 
@@ -110,15 +110,9 @@ function failed(message: string): FileOutcome {
 }
 
 /** Removes `paths`, off the loop; whatever happens, it settles. */
-export function removed(paths: readonly string[]): Promise<void> {
-  return ResultAsync.combine(
-    paths.map((path) =>
-      ResultAsync.fromPromise(rm(path, { recursive: true, force: true }), () => undefined),
-    ),
-  ).match(
-    () => undefined,
-    () => undefined,
-  );
+export async function removed(paths: readonly string[]): Promise<void> {
+  // Each settles with a result: a path that could not be removed is the kind's next job's.
+  await Promise.all(paths.map((path) => removeOffLoop(path)));
 }
 
 /** One file job on its worker thread, as the loop's job in pieces. */
