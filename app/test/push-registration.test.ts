@@ -449,12 +449,17 @@ test("a home selected during a token sweep registers only on the open channel", 
   const slow: PushSession = {
     hub: "first",
     client: 1,
-    register: async () => {
-      paused.resolve();
-      await advance.promise;
+    register: async (body) => {
+      if (body.token === replacement.token) {
+        paused.resolve();
+        await advance.promise;
+      }
       return { ok: true };
     },
   };
+  fake.token(fcm);
+  await lifecycle.snapshot(open, valid, []);
+  lifecycle.closed();
   await lifecycle.start(() => Promise.resolve([slow, oneOff]));
   fake.token(replacement);
   await paused.promise;
