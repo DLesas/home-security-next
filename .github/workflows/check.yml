@@ -133,7 +133,17 @@ jobs:
               code=${PIPESTATUS[0]}
               if [ "$name" = test ]; then export TEMP="$was_temp" TMP="$was_tmp"; fi
             else
-              bash -c "$stage" > "$log" 2>&1 < /dev/null
+              if [ "$RUNNER_OS" = Linux ] && [ "$name" = test ]; then
+                # Run 44986386116 saw 2 loop-limit failures on disk and none on /dev/shm.
+                (
+                  TMPDIR=$(mktemp -d /dev/shm/hsn-tmp-XXXXXX) || exit $?
+                  export TMPDIR
+                  printf 'Linux test TMPDIR=%s\n' "$TMPDIR"
+                  exec bash -c "$stage"
+                ) > "$log" 2>&1 < /dev/null
+              else
+                bash -c "$stage" > "$log" 2>&1 < /dev/null
+              fi
               code=$?
               cat "$log"
             fi
