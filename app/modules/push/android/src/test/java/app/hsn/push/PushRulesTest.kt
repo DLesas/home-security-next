@@ -22,7 +22,12 @@ private object Corpus {
   private fun rows(group: String) = (vectors[group] as List<*>).map { it as Fields }
 
   /** Opens through the same Kotlin code as the Android service, substituting a JVM JSON reader. */
-  fun open(v: Fields, hub: String, validate: (Fields) -> Unit = {}): Alert? {
+  fun open(
+    v: Fields,
+    hub: String,
+    knownCategories: Set<String> = categories,
+    validate: (Fields) -> Unit = {},
+  ): Alert? {
     return Envelope.open(
       v["h"] as String,
       { id ->
@@ -31,7 +36,7 @@ private object Corpus {
           Target(hub, (v["key"] as String).chunked(2).map { it.toInt(16).toByte() }.toByteArray())
       },
       { text -> (json.parseText(text) as? Fields)?.also(validate) },
-      categories,
+      knownCategories,
     )
   }
 
@@ -105,6 +110,30 @@ class PushRulesTest {
     check(open(mapOf("active" to old, "pending" to new)) == countdown)
     check(open(mapOf("active" to new, "pending" to null)) == null)
     check(open(mapOf("active" to null, "pending" to old)) == countdown)
+  }
+
+  /** An authentic envelope still belongs to the home named by the local key record. */
+  @Test
+  fun refusesAnotherHome() {
+    val vector = Corpus.good.first()
+    val otherHub = "a".repeat(26)
+    check(otherHub != countdown.hub)
+    check(Corpus.open(vector, otherHub) == null)
+  }
+
+  /** A valid wire envelope cannot select a category this receiver does not recognize. */
+  @Test
+  fun refusesUnknownCategory() {
+    val vector = Corpus.good.first()
+    val known = Corpus.categories - countdown.category
+    check(Corpus.open(vector, countdown.hub, known) == null)
+  }
+
+  /** The stored outage kind suppresses a consecutive outage even if the armed state changes. */
+  @Test
+  fun dropsConsecutiveUnreachable() {
+    check(display(unreachable, true, false, "hub_unreachable") == null)
+    check(display(unreachable, true, false, "hub_back") != null)
   }
 
   /** Positive sequences already shown are silent. */
