@@ -8,7 +8,6 @@ import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import org.json.JSONObject
 import java.security.KeyStore
-import java.util.Base64
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
@@ -80,16 +79,13 @@ internal class PushStore private constructor(context: Context) : SQLiteOpenHelpe
     fun lookup(id: String): Target? = readableDatabase.rawQuery("SELECT hub,secret FROM keys WHERE active=? OR pending=?",arrayOf(id,id)).use {
         if (!it.moveToFirst() || it.count != 1) return null
         val hub = it.getString(0)
-        val obj = decode(hub,it.getBlob(1))
-        for (field in listOf("pending","active")) {
-            val body = obj.optJSONObject(field)?.getJSONObject("body") ?: continue
-            if (body.getString("keyId") == id) return Target(hub,Base64.getUrlDecoder().decode(body.getString("key")))
-        }
-        null
+        val keys = fields(decode(hub,it.getBlob(1)).toString()) ?: return null
+        targetFor(hub, keys, id)
     }
     /** Remembers foreground state without replacing receiver-owned history or sequence fields. */
     fun arm(hub: String, armed: Boolean) = transaction { db ->
-        db.execSQL("INSERT INTO home(hub,armed) VALUES(?,?) ON CONFLICT(hub) DO UPDATE SET armed=excluded.armed",arrayOf<Any>(hub,if(armed) 1 else 0))
+        db.execSQL("INSERT OR IGNORE INTO home(hub) VALUES(?)",arrayOf(hub))
+        db.execSQL("UPDATE home SET armed=? WHERE hub=?",arrayOf<Any>(if(armed) 1 else 0,hub))
     }
     /** Applies the phone's authoritative home names atomically. */
     fun homes(names: Map<String,String>) = transaction { db ->

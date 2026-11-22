@@ -14,6 +14,16 @@ internal data class Alert(
     val names: Fields, val detail: Fields, val action: String?,
 )
 
+/** Accepts the confirmed key and its staged replacement until the hub acknowledges the switch. */
+internal fun targetFor(hub: String, generations: Fields, id: String): Target? {
+    for (name in listOf("pending", "active")) {
+        val record = generations[name] as? Fields ?: continue
+        val body = record["body"] as? Fields ?: continue
+        if (body["keyId"] == id) return Target(hub, Base64.getUrlDecoder().decode(body["key"] as String))
+    }
+    return null
+}
+
 /** Authenticates before decoding. The routing id and decrypted hub must identify the same record. */
 internal object Envelope {
     private val form = Regex("1\\.([0-9a-f]{16})\\.([A-Za-z0-9_-]{1744})")

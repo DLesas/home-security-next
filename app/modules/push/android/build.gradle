@@ -17,7 +17,8 @@ dependencies {
   compileOnly('host.exp.exponent:expo.modules.notifications:58.1.9') {
     attributes { attribute(Usage.USAGE_ATTRIBUTE, objects.named(Usage, Usage.JAVA_RUNTIME)) }
   }
-  testCompileOnly localGroovy()
+  testImplementation localGroovy()
+  testImplementation 'junit:junit:4.13.2'
 }
 
 // Run the pure JVM rules against fresh output from the protocol's published generator.
@@ -27,14 +28,14 @@ def generate = tasks.register('generatePushVectors', Exec) {
   workingDir projectDir.parentFile
   commandLine 'bun', 'vectors.ts', vectors.get().asFile.absolutePath
 }
-def rules = tasks.register('pushJvmTest', JavaExec) {
-  dependsOn generate, 'compileDebugUnitTestKotlin'
-  mainClass = 'app.hsn.push.PushRulesTestKt'
-  classpath files(providers.provider {
-    [tasks.named('compileDebugKotlin').get().destinationDirectory.get().asFile,
-     tasks.named('compileDebugUnitTestKotlin').get().destinationDirectory.get().asFile]
-  }), files(fileTree(new File(gradle.gradleHomeDir, 'lib')) { include 'kotlin-stdlib-*.jar', 'groovy-*.jar' })
-  args vectors.get().asFile.absolutePath, file('../../../locales/en/common.json').absolutePath,
-       file('../locales/en/push.json').absolutePath
+tasks.withType(Test).configureEach {
+  dependsOn generate
+  inputs.file(vectors)
+  inputs.files(file('../../../locales/en/common.json'), file('../locales/en/push.json'))
+  systemProperty 'push.vectors', vectors.get().asFile.absolutePath
+  systemProperty 'push.common', file('../../../locales/en/common.json').absolutePath
+  systemProperty 'push.words', file('../locales/en/push.json').absolutePath
+  // The repository lints all JavaScript, including Gradle's generated HTML viewer. Keep the XML.
+  reports.html.required = false
 }
-tasks.matching { it.name == 'testDebugUnitTest' }.configureEach { dependsOn rules }
+tasks.register('pushJvmTest') { dependsOn 'testDebugUnitTest' }

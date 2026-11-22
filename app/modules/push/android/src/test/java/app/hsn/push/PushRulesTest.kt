@@ -1,60 +1,127 @@
 package app.hsn.push
 
 import groovy.json.JsonSlurper
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.junit.runners.Parameterized
 import java.io.File
 
-/** Converts public vector bytes silently so a failed assertion cannot print key material. */
-private fun hex(s: String) = s.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
+/** The fresh public corpus. Only test names and indexes reach the JUnit reporter. */
+private object Corpus {
+    private val json = JsonSlurper()
+    private val vectors = load("push.vectors")
+    val good = rows("seal")
+    val bad = rows("open")
+    val categories = good.map { (((it["content"] as Fields)["n"] as Fields)["category"] as String) }.toSet()
 
-/** JVM test entry invoked by Gradle without an emulator, Firebase, JUnit or another dependency. */
-fun main(args: Array<String>) {
-    val json = JsonSlurper()
-    val vectors = json.parse(File(args[0])) as Map<*,*>
-    val good = vectors["seal"] as List<*>
-    val bad = vectors["open"] as List<*>
-    val categories = good.map { (((it as Fields)["content"] as Fields)["n"] as Fields)["category"] as String }.toSet()
-    val alerts = good.map { row ->
-        val v = row as Fields
-        val content = v["content"] as Fields
-        val n = content["n"] as Fields
-        val a = Envelope.open(v["h"] as String, { id -> if(id == v["keyId"]) Target(content["hub"] as String,hex(v["key"] as String)) else null },
-            { (json.parseText(it) as? Fields).also { opened -> check(opened == content) } }, categories)
-        check(a != null && a.hub == content["hub"] && a.seq == (n["seq"] as Number).toLong() && a.kind == n["kind"] &&
-            a.time == (n["atMs"] as Number).toLong() && a.category == n["category"] && a.device == (n["device"] as? Number)?.toLong() &&
-            a.critical == n["critical"] && a.armed == content["armed"] && a.delayed == content["delayed"] &&
-            a.names == content["names"] && a.action == (content["actions"] as List<*>).singleOrNull() &&
-            a.detail == (content["detail"] ?: emptyMap<String,Any>())) { "good vector: ${v["name"]}" }
-        a
+    /** Reads one generated vector file or app dictionary supplied by the Gradle task. */
+    fun load(property: String) = json.parse(File(System.getProperty(property))) as Fields
+
+    /** Reads rows by corpus name, keeping public keys out of assertion messages. */
+    private fun rows(group: String) = (vectors[group] as List<*>).map { it as Fields }
+
+    /** Opens through the same Kotlin code as the Android service, substituting a JVM JSON reader. */
+    fun open(v: Fields, hub: String, validate: (Fields) -> Unit = {}): Alert? {
+        return Envelope.open(v["h"] as String, { id ->
+            if (id != v["keyId"]) null else Target(hub,
+                (v["key"] as String).chunked(2).map { it.toInt(16).toByte() }.toByteArray())
+        }, { text -> (json.parseText(text) as? Fields)?.also(validate) }, categories)
     }
-    for (row in bad) {
-        val v = row as Fields
-        check(Envelope.open(v["h"] as String, { id -> if(id == v["keyId"]) Target(alerts.first().hub,hex(v["key"] as String)) else null },
-            {json.parseText(it) as? Fields},categories) == null) { "refusal: ${v["name"]}" }
+
+    /** Supplies an authenticated alert for display-rule tests. */
+    fun goodAt(index: Int): Alert {
+        val row = good[index]
+        val content = row["content"] as Fields
+        return checkNotNull(open(row, content["hub"] as String) { check(it == content) })
     }
-    val countdown = alerts.first()
-    val alarm = alerts[1]
-    val unreachable = alerts.first { it.kind=="hub_unreachable" }
-    val back = alerts.first { it.kind=="hub_back" }
-    check(display(countdown,false,true,null)==null)
-    check(display(countdown,false,false,null)?.critical==true)
-    check(display(countdown.copy(critical=false),true,false,null)?.critical==false)
-    check(display(unreachable.copy(critical=true),false,false,null)?.critical==false)
-    check(display(unreachable,true,false,null)?.critical==true)
-    check(display(back,true,true,"hub_unreachable")?.critical==false)
-    check(display(back,false,true,"hub_back")==null)
-    check(display(unreachable,false,true,"hub_back")!=null)
-    val tag = display(countdown,false,false,null)!!.tag
-    check(display(alarm,false,false,null)?.cancel==tag)
-    check(display(alarm.copy(device=999),false,false,null)?.cancel!=tag)
-    check(display(alarm.copy(hub="other"),false,false,null)?.cancel!=tag)
-    check(display(countdown,false,false,null)?.cancel==null)
-    val words = AlertWords(json.parse(File(args[1])) as Fields,json.parse(File(args[2])) as Fields) { it.toString() }
-    check(words.text(countdown,null,0) == ("Countdown" to "${countdown.names["device"]} opened at ${countdown.time}."))
-    val late = words.text(alarm.copy(detail=mapOf("endedAtMs" to 42)), "Cottage", 70).second
-    check(late.startsWith("Cottage. ") && late.endsWith("Delayed: happened at 42."))
-    check(!words.text(countdown.copy(delayed=false),null,0).second.contains("Delayed"))
-    check(words.text(unreachable,null,180010).second.contains("since about 10."))
-    check(words.text(back,null,0).first == "Home hub is back")
-    check(words.text(alarm.copy(kind="new_kind"),null,0).second.startsWith("Something happened at home."))
-    println("Passed ${good.size} opening vectors, ${bad.size} refusals and 18 notification rules.")
+}
+
+/** Every published accept/refuse vector has its own test and a non-secret display name. */
+@RunWith(Parameterized::class)
+class EnvelopeTest(private val good: Boolean, private val index: Int, private val name: String) {
+    companion object {
+        /** Enumerates case identities without giving JUnit the raw fixture records. */
+        @JvmStatic @Parameterized.Parameters(name="{2}")
+        fun cases(): List<Array<Any>> =
+            Corpus.good.mapIndexed { index, row -> arrayOf<Any>(true, index, row["name"] as String) } +
+            Corpus.bad.mapIndexed { index, row -> arrayOf<Any>(false, index, row["name"] as String) }
+    }
+
+    /** Validates the complete plaintext and every field subsequently used by the service. */
+    @Test fun publishedResult() {
+        if (!good) {
+            val hub = (Corpus.good.first()["content"] as Fields)["hub"] as String
+            check(Corpus.open(Corpus.bad[index],hub) == null) { name }
+            return
+        }
+        val a = Corpus.goodAt(index)
+        val c = Corpus.good[index]["content"] as Fields
+        val n = c["n"] as Fields
+        check(a.seq == (n["seq"] as Number).toLong() && a.time == (n["atMs"] as Number).toLong())
+        check(a.kind == n["kind"] && a.category == n["category"] && a.device == (n["device"] as? Number)?.toLong())
+        check(a.critical == n["critical"] && a.armed == c["armed"] && a.delayed == c["delayed"])
+        check(a.names == c["names"] && a.action == (c["actions"] as List<*>).singleOrNull())
+        check(a.detail == (c["detail"] ?: emptyMap<String,Any>()))
+    }
+}
+
+/** Device-independent policy tests using the app's dictionaries and opened protocol vectors. */
+class PushRulesTest {
+    private val countdown = Corpus.goodAt(0)
+    private val alarm = Corpus.goodAt(1)
+    private val unreachable = Corpus.goodAt(5)
+    private val back = Corpus.goodAt(6)
+    private val words = AlertWords(Corpus.load("push.common"), Corpus.load("push.words")) { it.toString() }
+
+    /** The service itself can still open a previously sealed alert while a new key is staged. */
+    @Test fun keyOverlap() {
+        val v = Corpus.good.first()
+        val key = (v["key"] as String).chunked(2).map { it.toInt(16).toByte() }.toByteArray()
+        val encoded = java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(key)
+        val old = mapOf("body" to mapOf("keyId" to v["keyId"], "key" to encoded))
+        val new = mapOf("body" to mapOf("keyId" to "0000000000000000", "key" to encoded))
+        fun open(gens: Fields) = Envelope.open(v["h"] as String, { targetFor(countdown.hub,gens,it) },
+            { JsonSlurper().parseText(it) as? Fields },Corpus.categories)
+        check(open(mapOf("active" to old,"pending" to new)) == countdown)
+        check(open(mapOf("active" to new,"pending" to null)) == null)
+        check(open(mapOf("active" to null,"pending" to old)) == countdown)
+    }
+
+    /** Positive sequences already shown are silent. */
+    @Test fun duplicate() { check(display(countdown,false,true,null) == null) }
+
+    /** The ordinary envelope becomes loud only after the alert is opened. */
+    @Test fun criticalFlag() {
+        check(display(countdown,false,false,null)?.critical == true)
+        check(display(countdown.copy(critical=false),true,false,null)?.critical == false)
+    }
+
+    /** Reachability uses this phone's previous state, with separate consecutive outages allowed. */
+    @Test fun relayAlerts() {
+        check(display(unreachable.copy(critical=true),false,false,null)?.critical == false)
+        check(display(unreachable,true,false,null)?.critical == true)
+        check(display(back,true,true,"hub_unreachable")?.critical == false)
+        check(display(back,false,true,"hub_back") == null)
+        check(display(unreachable,false,true,"hub_back") != null)
+    }
+
+    /** Only the countdown from this alarm's device and home is cancelled. */
+    @Test fun replacement() {
+        val tag = checkNotNull(display(countdown,false,false,null)).tag
+        check(display(alarm,false,false,null)?.cancel == tag)
+        check(display(alarm.copy(device=999),false,false,null)?.cancel != tag)
+        check(display(alarm.copy(hub="other"),false,false,null)?.cancel != tag)
+        check(display(countdown,false,false,null)?.cancel == null)
+    }
+
+    /** A delayed alert includes its actual event time, after the home-specific body. */
+    @Test fun wording() {
+        check(words.text(countdown,null,0) == ("Countdown" to "${countdown.names["device"]} opened at ${countdown.time}."))
+        val late = words.text(alarm.copy(detail=mapOf("endedAtMs" to 42)), "Cottage", 70).second
+        check(late.startsWith("Cottage. ") && late.endsWith("Delayed: happened at 42."))
+        check(!words.text(countdown.copy(delayed=false),null,0).second.contains("Delayed"))
+        check(words.text(unreachable,null,180010).second.contains("since about 10."))
+        check(words.text(back,null,0).first == "Home hub is back")
+        check(words.text(alarm.copy(kind="new_kind"),null,0).second.startsWith("Something happened at home."))
+    }
 }
