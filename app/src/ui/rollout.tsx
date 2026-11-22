@@ -45,7 +45,15 @@ function RolloutPanel({ client }: { readonly client: Version2Channel }) {
   const devices = useLive((s) => s.devices);
   useEffect(() => model.watch(), [model]);
   const { status, images, offers, pending, outcome, readFailure } = view;
-  if (status === undefined) return null;
+  const readNotice =
+    readFailure === undefined ? null : (
+      <Notice kind="warning">
+        <NoticeText kind="warning">
+          {rolloutFailureWords(t, i18n.language, { devices }, readFailure)}
+        </NoticeText>
+      </Notice>
+    );
+  if (status === undefined) return readNotice;
   const rollout = status.rollout;
   const active = rollout !== null && rollout.stage !== "done" && rollout.stage !== "cancelled";
   const busy = pending !== undefined;
@@ -75,13 +83,7 @@ function RolloutPanel({ client }: { readonly client: Version2Channel }) {
           </NoticeText>
         </Notice>
       )}
-      {readFailure === undefined ? null : (
-        <Notice kind="warning">
-          <NoticeText kind="warning">
-            {rolloutFailureWords(t, i18n.language, { devices }, readFailure)}
-          </NoticeText>
-        </Notice>
-      )}
+      {readNotice}
     </Section>
   );
 }

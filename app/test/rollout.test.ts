@@ -16,6 +16,7 @@ import {
 import { createElement } from "react";
 import type { AnyOutcome } from "../src/hub/channel";
 import type { HubClient, Version2Channel } from "../src/hub/client";
+import type { Timers } from "../src/hub/wire";
 import { rolloutView } from "../src/state/rollout";
 import { clientScreen, screenAct } from "./support/client-screen";
 import { screenWorld, textOf } from "./support/screens";
@@ -139,24 +140,24 @@ function record(kind: string, detail: string | null = null): Extract<AppEvent, {
 }
 
 let screen: ReturnType<typeof clientScreen> | undefined;
+const stopModels: (() => void)[] = [];
 afterEach(async () => {
   await screen?.close();
   screen = undefined;
+  for (const stop of stopModels.splice(0)) stop();
 });
 
-/** Mounts Updates with a stand-in hub client and exposes its event feeds. */
-async function mount(
+/** Creates a stand-in hub client with adjustable replies and event feeds. */
+async function standIn(
   initial: Status | AnyOutcome,
   {
     v2 = true,
     images = [],
     offers = [],
-    fullScreen = false,
   }: {
     readonly v2?: boolean;
     readonly images?: Images;
     readonly offers?: Offers;
-    readonly fullScreen?: boolean;
   } = {},
 ) {
   const world = await screenWorld({
@@ -167,7 +168,7 @@ async function mount(
   const legacy = new Set<(event: AppEvent) => void>();
   const later = new Set<(event: AppEventV2) => void>();
   const calls: { op: AppOpNameV2; body: unknown }[] = [];
-  let current = "ok" in initial ? initial : reply(initial);
+  let current: AnyOutcome | Promise<AnyOutcome> = "ok" in initial ? initial : reply(initial);
   let catalogue = images;
   let action: (() => AnyOutcome | Promise<AnyOutcome>) | undefined;
   world.client.onEvent = (listener) => {
@@ -192,21 +193,13 @@ async function mount(
     },
   };
   const client: HubClient = { ...world.client, ...(v2 ? { v2: channel } : {}) };
-  const shown = clientScreen();
-  screen = shown;
-  await shown.render(
-    world.wrap(createElement(fullScreen ? UpdatesScreen : RolloutSection), client),
-  );
-  // The unrelated hub-update query notifies through a timer; flush it before removing the DOM.
-  if (fullScreen) await screenAct(() => Bun.sleep(10));
   return {
     calls,
     world,
-    press: shown.press,
-    words: () => textOf(shown.html()),
-    html: shown.html,
-    status: (next: Status | AnyOutcome) => {
-      current = "ok" in next ? next : reply(next);
+    client,
+    later,
+    status: (next: Status | AnyOutcome | Promise<AnyOutcome>) => {
+      current = next instanceof Promise || "ok" in next ? next : reply(next);
     },
     images: (next: Images) => {
       catalogue = next;
@@ -218,9 +211,12 @@ async function mount(
       screenAct(() => {
         for (const listener of legacy) listener(event);
       }),
-    device: (patch: Partial<AppEventBodyV2<"deviceUpdate">> = {}) =>
+    device: (
+      patch: Partial<AppEventBodyV2<"deviceUpdate">> = {},
+      listeners: Iterable<(event: AppEventV2) => void> = later,
+    ) =>
       screenAct(() => {
-        for (const listener of later)
+        for (const listener of listeners)
           listener({
             t: "evt",
             ev: "deviceUpdate",
@@ -238,6 +234,38 @@ async function mount(
           });
       }),
   };
+}
+
+/** Renders the rollout, optionally within the rest of Updates. */
+async function show(hub: Awaited<ReturnType<typeof standIn>>, fullScreen = false) {
+  const shown = clientScreen();
+  screen = shown;
+  await shown.render(
+    hub.world.wrap(createElement(fullScreen ? UpdatesScreen : RolloutSection), hub.client),
+  );
+  // The unrelated hub-update query notifies through a timer; flush it before removing the DOM.
+  if (fullScreen) await screenAct(() => Bun.sleep(10));
+  return { ...hub, press: shown.press, words: () => textOf(shown.html()), html: shown.html };
+}
+
+/** Mounts a new stand-in and its screen. */
+async function mount(
+  initial: Parameters<typeof standIn>[0],
+  {
+    fullScreen,
+    ...options
+  }: NonNullable<Parameters<typeof standIn>[1]> & { readonly fullScreen?: boolean } = {},
+) {
+  return show(await standIn(initial, options), fullScreen);
+}
+
+/** Keeps a model subscribed independently of a React mount. */
+async function watchModel(hub: Awaited<ReturnType<typeof standIn>>, clock?: Timers) {
+  const channel = hub.client.v2 ?? expect.unreachable("test needs a version 2 channel");
+  const model = rolloutView(hub.client, channel, clock);
+  stopModels.push(model.watch());
+  await screenAct(() => undefined);
+  return model;
 }
 
 const STAGES = [
@@ -684,4 +712,159 @@ test("a manager learns of a pause during soak even if the pilot's history is hid
     reason: "pilotFailed",
   });
   stop();
+});
+
+test("an unauthorized status reply hides an open rollout and cancels its soak timer", async () => {
+  const hub = await standIn(status("soak", { soakUntilMs: SOAK }));
+  const clock = manualTimers(SOAK - 100);
+  const model = await watchModel(hub, clock);
+  const screen = await show(hub);
+  expect(screen.words()).toContain("Checking how the first devices run.");
+  expect(model.store.getState().status?.rollout?.stage).toBe("soak");
+  expect(clock.asked).toEqual([100]);
+
+  // Reconnect without a people event to learn the hub's permission directly from status.
+  hub.status({ ok: false, error: UNAUTHORIZED });
+  await screenAct(() => {
+    hub.client.live.setState({ connection: { kind: "connecting" } });
+    hub.client.live.setState({ connection: { kind: "open" } });
+  });
+  const requests = hub.calls.length;
+  await screenAct(() => {
+    clock.advance(100);
+  });
+  expect({
+    sectionVisible: screen.words().includes("Device update rollout"),
+    status: model.store.getState().status,
+    callsAfterDeadline: hub.calls.slice(requests),
+  }).toEqual({ sectionVisible: false, status: undefined, callsAfterDeadline: [] });
+});
+
+test("a status reply already in flight cannot restore a rollout after permissions change", async () => {
+  const view = await mount(status("pilots"));
+  const stale = Promise.withResolvers<AnyOutcome>();
+  const checked = Promise.withResolvers<AnyOutcome>();
+  expect(view.words()).toContain("The first devices are updating.");
+  view.status(stale.promise);
+  const requests = view.calls.length;
+  await view.event(record("rollout_paused"));
+  expect(view.calls.slice(requests)).toEqual([{ op: "rollout.status", body: {} }]);
+
+  view.status(checked.promise);
+  await view.event({ t: "evt", ev: "people", rev: 10, body: { userManagement: true } });
+  expect(view.words()).not.toContain("Device update rollout");
+  await screenAct(() => {
+    stale.resolve(reply(status("paused")));
+  });
+  // Keep the new permission check pending so an old reply cannot flash before it.
+  expect(view.words()).not.toContain("Device update rollout");
+  await screenAct(() => {
+    checked.resolve({ ok: false, error: UNAUTHORIZED });
+  });
+  expect(view.words()).not.toContain("Device update rollout");
+});
+
+test("a second command sends nothing while the first command is in flight", async () => {
+  const hub = await standIn(status("pilots"));
+  const model = await watchModel(hub);
+  const pending = Promise.withResolvers<AnyOutcome>();
+  let commands = 0;
+  hub.action(() => (++commands === 1 ? pending.promise : reply(status("cancelled").rollout)));
+  const requests = hub.calls.length;
+  const first = model.run({ op: "rollout.pause", body: { rollout: ID } });
+  expect(model.store.getState().pending).toBe("rollout.pause");
+  await model.run({ op: "rollout.cancel", body: { rollout: ID } });
+  expect(hub.calls.slice(requests)).toEqual([{ op: "rollout.pause", body: { rollout: ID } }]);
+  pending.resolve(reply(status("paused").rollout));
+  await first;
+  expect(model.store.getState().outcome).toEqual({ op: "rollout.pause", failure: undefined });
+});
+
+test("malformed status and command replies show failures without a rollout or command success", async () => {
+  const view = await mount(status("pilots"));
+  const failure = "The hub's answer could not be read.";
+  expect(view.words()).toContain("The first devices are updating.");
+  // Strict schemas reject the extra field even though the rest is renderable.
+  view.action(() => reply({ ...status("paused").rollout, unexpected: true }));
+  await pressAction(view, "rollout.pause", "Pause the rollout");
+  const commandFailure = view.words().includes(failure);
+  const commandSuccess = view.words().includes("Rollout paused.");
+
+  view.status(reply({ ...status("done"), unexpected: true }));
+  await view.event(record("rollout_done"));
+  expect({
+    commandFailure,
+    commandSuccess,
+    readFailure: view.words().includes(failure),
+    rolloutVisible: view.words().includes("Device update rollout"),
+  }).toEqual({
+    commandFailure: true,
+    commandSuccess: false,
+    readFailure: true,
+    rolloutVisible: false,
+  });
+});
+
+test("after a home switch, the old rollout ignores events and late replies and sends no command", async () => {
+  const hub = await standIn(status("pilots"));
+  const previous = await watchModel(hub);
+  const original = previous.store.getState();
+  const oldListeners = [...hub.later];
+  const stale = Promise.withResolvers<AnyOutcome>();
+  hub.status(stale.promise);
+  await hub.event(record("rollout_paused"));
+  expect(hub.calls.filter(({ op }) => op === "rollout.status")).toHaveLength(2);
+
+  // Keep the old subscription mounted to exercise the session guard as well as React's unmount.
+  const session = hub.client.live.getState().session ?? expect.unreachable();
+  hub.client.live.setState({ session: { ...session, hub: "second-home" } });
+  hub.status(status("rest", { version: "3.0.0" }));
+  const another = await show(hub);
+  expect(another.words()).toContain("Firmware 3.0.0 Updating the remaining devices.");
+  const shown = another.words();
+  const calls = hub.calls.length;
+
+  await hub.device({ state: "refused", reason: "flash" }, oldListeners);
+  await screenAct(() => {
+    stale.resolve(reply(status("paused")));
+  });
+  await previous.run({ op: "rollout.pause", body: { rollout: ID } });
+  expect(hub.calls.slice(calls)).toEqual([]);
+  expect(previous.store.getState()).toBe(original);
+  expect(another.words()).toBe(shown);
+});
+
+test("an overdue soak retries after five seconds and then at most once a minute", async () => {
+  const hub = await standIn(status("soak", { soakUntilMs: SOAK }));
+  const clock = manualTimers(SOAK - 100);
+  const model = await watchModel(hub, clock);
+  /** Counts real status requests dispatched by the controlled-clock model. */
+  const reads = () => hub.calls.filter(({ op }) => op === "rollout.status").length;
+  expect(reads()).toBe(1);
+  await screenAct(() => {
+    clock.advance(100);
+  });
+  expect(reads()).toBe(2);
+  await screenAct(() => {
+    clock.advance(4999);
+  });
+  expect(reads()).toBe(2);
+  await screenAct(() => {
+    clock.advance(1);
+  });
+  expect(reads()).toBe(3);
+  await screenAct(() => {
+    clock.advance(59_999);
+  });
+  expect(reads()).toBe(3);
+  hub.status(status("rest"));
+  await screenAct(() => {
+    clock.advance(1);
+  });
+  expect(reads()).toBe(4);
+  expect(model.store.getState().status?.rollout?.stage).toBe("rest");
+  await screenAct(() => {
+    clock.advance(120_000);
+  });
+  expect(reads()).toBe(4);
 });

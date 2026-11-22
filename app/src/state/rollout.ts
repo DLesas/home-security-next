@@ -94,6 +94,7 @@ export function rolloutView(
   let catalogueQueued = false;
   let reading = false;
   let cancelTimer: (() => void) | undefined;
+  let retriedSoak: { readonly id: number; readonly until: number } | undefined;
   let session: LiveState["session"] = null;
 
   /** The same home and linked client, including across reconnects and hub restarts. */
@@ -108,12 +109,25 @@ export function rolloutView(
   function watchSoak(status: Status) {
     cancelTimer?.();
     const { rollout } = status;
-    if (rollout?.stage !== "soak" || rollout.soakUntilMs === null) return;
-    const left = rollout.soakUntilMs - timers.now();
+    if (rollout?.stage !== "soak" || rollout.soakUntilMs === null) {
+      retriedSoak = undefined;
+      return;
+    }
+    const soak = { id: rollout.id, until: rollout.soakUntilMs };
+    const left = soak.until - timers.now();
+    if (left <= 0) {
+      const retried = retriedSoak?.id === soak.id && retriedSoak.until === soak.until;
+      cancelTimer = timers.after(retried ? 60_000 : 5000, () => {
+        retriedSoak = soak;
+        refresh();
+      });
+      return;
+    }
+    retriedSoak = undefined;
     const { devices } = hub.live.getState();
     const hiddenPilot = rollout.pilots.some((id) => !Object.hasOwn(devices, id));
     const maxDelay = hiddenPilot ? 60_000 : 60 * 60 * 1000;
-    cancelTimer = timers.after(left > 0 ? Math.min(left, maxDelay) : 5000, refresh);
+    cancelTimer = timers.after(Math.min(left, maxDelay), refresh);
   }
 
   /** Leaves a newer event visible while the follow-up read catches up. */
@@ -144,6 +158,10 @@ export function rolloutView(
         if ("error" in failure && failure.error.code === "unauthorized") {
           cancelTimer?.();
           store.setState({}, true);
+        } else if ("local" in failure && failure.local === "badReply") {
+          cancelTimer?.();
+          catalogueQueued = true;
+          store.setState({ readFailure: failure }, true);
         } else if (store.getState().status !== undefined) {
           store.setState({ readFailure: failure });
         }
