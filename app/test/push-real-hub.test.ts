@@ -83,8 +83,9 @@ test("registers a real target, then home removal unregisters it before deleting 
   const fake = fakePush();
 
   const push = pushLifecycle(fake.storage, fake.tokens, realTimers);
+  const items = memorySecureItems();
   const deps: PhoneDeps = {
-    items: memorySecureItems(),
+    items,
     push,
     keys,
     timers: realTimers,
@@ -151,7 +152,16 @@ test("registers a real target, then home removal unregisters it before deleting 
   await homes.refresh();
   expect((await homes.rename(id, "Cottage")).ok).toBe(true);
   expect(fake.names()[id]).toBe("Cottage");
-  expect((await homes.remove(id)).ok).toBe(true);
+  // A failed push-key erasure keeps all vault items until the normal removal sweep retries it.
+  const removeKey = fake.storage.remove;
+  fake.storage.remove = () => Promise.resolve({ ok: false, fault: "storage" });
+  expect((await homes.remove(id)).ok).toBe(false);
+  expect(fake.keys.has(id)).toBe(true);
+  expect(fake.names()[id]).toBeUndefined();
+  expect(items.writes.some((write) => write.startsWith("-"))).toBe(false);
+  fake.storage.remove = removeKey;
+  expect((await phone.records.sweep()).ok).toBe(true);
+  expect(items.writes.some((write) => write.startsWith("-"))).toBe(true);
   expect(unregistered).toBe(1);
   expect(fake.keys.has(id)).toBe(false);
   expect(fake.armed.has(id)).toBe(false);

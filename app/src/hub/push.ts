@@ -2,8 +2,7 @@
 import type { SnapshotObjectV2 } from "@hsn/protocol/app";
 import { PUSH_H } from "@hsn/protocol/relay";
 import type { Timers } from "./wire";
-import { HUBS_ITEM, phoneRecords, type SecureItems } from "../platform/vault";
-import { decodeJson } from "./codec";
+import type { PhoneRecords, PhoneRecordHooks } from "../platform/vault";
 import type { Outcome } from "../platform/split";
 import type {
   DeviceToken,
@@ -145,46 +144,38 @@ export function pushRegistration(store: PushStorage, tokens: TokenSource, now = 
   };
 }
 
-/** Mirrors local home names and joins push-key erasure to the vault's retryable deletion. */
-export function pushVault(items: SecureItems, push: ReturnType<typeof pushLifecycle>): SecureItems {
-  const records = phoneRecords(items);
-  let names: Readonly<Record<string, string>> = {};
+/** Mirrors home names from typed records and joins notification-key erasure to vault removal. */
+export function pushRecordHooks(
+  records: () => PhoneRecords,
+  push: ReturnType<typeof pushLifecycle>,
+): PhoneRecordHooks {
+  let mirrored: Record<string, string> | undefined;
   let serial = Promise.resolve();
-  /** Reads the authoritative linked list after a link, rename or removal, including older installs. */
-  function refresh(): Promise<void> {
-    serial = serial.then(async () => {
-      const hubs = await records.list();
-      if (!hubs.ok) return;
-      const next: Record<string, string> = {};
-      for (const hub of hubs.value) {
-        const record = await records.hub(hub).read();
-        if (!record.ok || !record.value) return;
-        next[hub] = record.value.reach?.homeName ?? "";
-      }
-      if ((await push.homes(next)).ok) names = next;
-    });
-    return serial;
-  }
-  void refresh();
   return {
-    ...items,
-    set: async (name, value) => {
-      const written = await items.set(name, value);
-      if (!written.ok) return written;
-      if (name === HUBS_ITEM) await refresh();
-      else if (name.endsWith(".record")) {
-        const hub = name.split(".")[1];
-        const record = decodeJson(new TextEncoder().encode(value))?.value as
-          { reach?: { homeName?: string } } | undefined;
-        if (hub && names[hub] !== (record?.reach?.homeName ?? "")) await refresh();
-      }
-      return written;
+    changed() {
+      serial = serial.then(async () => {
+        const homes = records();
+        const hubs = await homes.list();
+        if (!hubs.ok) return;
+        const names: Record<string, string> = {};
+        for (const hub of hubs.value) {
+          const read = await homes.hub(hub).read();
+          if (!read.ok || !read.value) return;
+          names[hub] = read.value.reach?.homeName ?? "";
+        }
+        if (
+          mirrored &&
+          Object.keys(mirrored).length === hubs.value.length &&
+          hubs.value.every((hub) => mirrored?.[hub] === names[hub])
+        )
+          return;
+        if ((await push.homes(names)).ok) mirrored = names;
+      });
+      return serial;
     },
-    delete: async (name) => {
-      const match = /^hub\.([a-z2-7]{26})\.key$/u.exec(name);
-      if (match?.[1] !== undefined && !(await push.registration.remove(match[1])).ok)
-        return { ok: false, fault: "failed" };
-      return items.delete(name);
+    async removing(identity) {
+      const removed = await push.registration.remove(identity);
+      return removed.ok ? removed : { ok: false, fault: "failed" };
     },
   };
 }

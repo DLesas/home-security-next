@@ -62,7 +62,7 @@ import {
   type ProtoRange,
 } from "./handshake";
 import { fromBase64url } from "./files";
-import { type PushSession, type pushLifecycle, pushVault } from "./push";
+import { type PushSession, type pushLifecycle, pushRecordHooks } from "./push";
 import { BackupKeyKeeper, restoreHub, type RestoreOutcome, snapshotEpoch } from "./restore";
 import type { ArrivedCode } from "./start-types";
 import {
@@ -205,7 +205,9 @@ function backupKeyOf(
 
 export function startPhoneClient(deps: PhoneDeps): PhoneClient {
   const push = deps.push;
-  const records = phoneRecords(push ? pushVault(deps.items, push) : deps.items);
+  const hooks = push && pushRecordHooks(() => records, push);
+  const records: PhoneRecords = phoneRecords(deps.items, hooks);
+  void hooks?.changed();
   const chosen = chosenRecordStore(records);
   const socket = hubSocketConnect(deps.makeSocket, deps.timers);
   const live = createLiveStore();

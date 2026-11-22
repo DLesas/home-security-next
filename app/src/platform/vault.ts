@@ -351,8 +351,14 @@ function queue(): <T>(task: () => Promise<T>) => Promise<T> {
   };
 }
 
+/** Optional operations tied to the lifetime of a linked home's records. */
+export interface PhoneRecordHooks {
+  removing(identity: string): Promise<Outcome<void, VaultFault>>;
+  changed(): Promise<void>;
+}
+
 /** The phone's records over its secure store. */
-export function phoneRecords(items: SecureItems): PhoneRecords {
+export function phoneRecords(items: SecureItems, hooks?: PhoneRecordHooks): PhoneRecords {
   const status = createStore<VaultStatus>()(() => ({ fault: null, identity: null }));
   const listQueue = queue();
   const hubQueues = new Map<string, <T>(task: () => Promise<T>) => Promise<T>>();
@@ -427,6 +433,8 @@ export function phoneRecords(items: SecureItems): PhoneRecords {
   async function deleteItems(identity: string): Promise<Outcome<undefined, VaultFault>> {
     const names = itemsOf(identity);
     if (names === undefined) return ok(undefined);
+    const removing = await hooks?.removing(identity);
+    if (removing && !removing.ok) return removing;
     for (const name of [names.key, names.backup, names.record]) {
       const deleted = await items.delete(name);
       if (!deleted.ok) return deleted;
@@ -509,6 +517,8 @@ export function phoneRecords(items: SecureItems): PhoneRecords {
         writeBackups({ keys: withBackupKey(before.keys, backupKey), confirmed: backupKey.epoch }),
       );
     });
+    // Run observers outside the write queues so they can read the committed records.
+    await hooks?.changed();
     if (!linked.ok) return failed(linked.fault, identity);
     const listed = await listQueue(async () => {
       const list = await readList();
@@ -523,6 +533,7 @@ export function phoneRecords(items: SecureItems): PhoneRecords {
       });
     });
     if (!listed.ok) return failed(listed.fault, null);
+    await hooks?.changed();
     cleared(identity, "write");
     return ok(record);
   }
@@ -539,6 +550,7 @@ export function phoneRecords(items: SecureItems): PhoneRecords {
       });
     });
     if (!committed.ok) return failed(committed.fault, null);
+    await hooks?.changed();
     const deleted = await inQueue(identity)(() => deleteItems(identity));
     if (!deleted.ok) return failed(deleted.fault, identity);
     const done = await listQueue(async () => {
@@ -547,6 +559,7 @@ export function phoneRecords(items: SecureItems): PhoneRecords {
       return writeList({ ...list.value, gone: list.value.gone.filter((g) => g !== identity) });
     });
     if (!done.ok) return failed(done.fault, null);
+    await hooks?.changed();
     cleared(identity, "write");
     return ok(undefined);
   }
@@ -564,21 +577,26 @@ export function phoneRecords(items: SecureItems): PhoneRecords {
         record.hub.identity === identity
           ? add(record, null)
           : Promise.resolve(failed("failed", identity)),
-      update: (change) =>
-        inQueue(identity)(async () => {
-          const read = await readHub(identity);
-          if (!read.ok) return failed(read.fault, identity);
-          if (read.value === undefined) return ok(undefined);
-          const next = change(read.value);
-          if (next.hub.identity !== identity || !validRecord(next))
-            return failed("failed", identity);
-          const keyChanged =
-            toBase64url(next.key.privateKey) !== toBase64url(read.value.key.privateKey);
-          const wrote = await writeHub(next, keyChanged);
-          if (!wrote.ok) return failed(wrote.fault, identity);
-          cleared(identity, "write");
-          return ok(next);
-        }),
+      update: async (change) => {
+        const result = await inQueue(identity)<Stored<StoredClient<Uint8Array> | undefined>>(
+          async () => {
+            const read = await readHub(identity);
+            if (!read.ok) return failed(read.fault, identity);
+            if (read.value === undefined) return ok(undefined);
+            const next = change(read.value);
+            if (next.hub.identity !== identity || !validRecord(next))
+              return failed("failed", identity);
+            const keyChanged =
+              toBase64url(next.key.privateKey) !== toBase64url(read.value.key.privateKey);
+            const wrote = await writeHub(next, keyChanged);
+            if (!wrote.ok) return failed(wrote.fault, identity);
+            cleared(identity, "write");
+            return ok(next);
+          },
+        );
+        if (result.ok && result.value) await hooks?.changed();
+        return result;
+      },
       clear: () => remove(identity),
     };
   }
@@ -603,14 +621,17 @@ export function phoneRecords(items: SecureItems): PhoneRecords {
         cleared(null, "read");
         return ok(list.value.chosen);
       }),
-    choose: (identity) =>
-      listQueue(async () => {
+    choose: async (identity) => {
+      const result = await listQueue<Stored<undefined>>(async () => {
         const list = await readList();
         if (!list.ok) return failed(list.fault, null);
         if (identity !== null && !list.value.hubs.includes(identity)) return failed("failed", null);
         const wrote = await writeList({ ...list.value, chosen: identity });
         return wrote.ok ? ok(undefined) : failed(wrote.fault, null);
-      }),
+      });
+      if (result.ok) await hooks?.changed();
+      return result;
+    },
     sweep: async () => {
       const list = await listQueue(readList);
       if (!list.ok) return failed(list.fault, null);
