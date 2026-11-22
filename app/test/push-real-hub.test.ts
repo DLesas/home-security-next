@@ -6,7 +6,12 @@ import assert from "node:assert/strict";
 import { parseConsoleFragment, snapshotObjectV2 } from "@hsn/protocol/app";
 import { createHubClient } from "../src/hub/client";
 import { NO_FINDER, readCode, type SocketLike } from "../src/hub/finder";
-import { disarmFromNotification, type PhoneDeps, startPhoneClient } from "../src/hub/phone-client";
+import {
+  disarmFromNotification,
+  phoneFirst,
+  type PhoneDeps,
+  startPhoneClient,
+} from "../src/hub/phone-client";
 import { pushLifecycle } from "../src/hub/push";
 import { PHONE_PROTO } from "../src/hub/restore";
 import { realTimers } from "../src/hub/wire";
@@ -17,6 +22,10 @@ import { seedPairingSite } from "./support/pairing-site";
 import { hasStoredTarget } from "../src/platform/push-types";
 import { fakePush } from "../src/platform/push-device.fake";
 import { memorySecureItems } from "../src/platform/vault";
+import { manualTimers } from "./support/timers";
+import { HubEnd } from "./support/hub-end";
+import { phoneSockets } from "./support/phone-sockets";
+import type { PhoneRecords } from "../src/platform/vault";
 import { phoneHomes } from "../src/ui/homes";
 import { connectFrom, startRealHub, stopAllHubs } from "./support/real-hub";
 
@@ -251,3 +260,184 @@ test("a changed device token updates both real homes without switching the open 
   expect(await app.phone.records.chosen()).toEqual({ ok: true, value: homeB });
   app.stop();
 }, 60000);
+
+test("notification Disarm returns false when the real hub refuses its sequence", async () => {
+  const hub = await startRealHub();
+  const deps: PhoneDeps = {
+    items: memorySecureItems(),
+    keys,
+    timers: realTimers,
+    app: "0.1.0",
+    proto: PHONE_PROTO,
+    finder: NO_FINDER,
+    makeSocket: localSocket,
+  };
+  const phone = startPhoneClient(deps);
+  phone.client.start();
+  await phone.client.link(await invitation(hub), "qr", { name: "Phone", kind: "phone" });
+  await ready(() => phone.client.live.getState().session !== null);
+  const id = phone.client.live.getState().hub?.identity;
+  assert(id, "linked home");
+  const store = phone.records.hub(id);
+  // Leave an unused sequence below a committed change, as after a stale phone record is restored.
+  assert((await store.update((record) => ({ ...record, lastSeq: 100 }))).ok);
+  assert((await phone.forward("push.unregister", {})).ok);
+  assert((await store.update((record) => ({ ...record, lastSeq: 49 }))).ok);
+  expect(await disarmFromNotification(id, Date.now() + 5000, phone.records, deps)).toBe(false);
+  phone.client.stop();
+}, 60000);
+
+/** Creates a distinct authorized phone link to the scripted responder, without selecting its home. */
+async function addScriptedLink(hub: HubEnd, records: PhoneRecords) {
+  const pair = await keys.makeClientKey();
+  assert(pair.ok, "phone key created");
+  const client = hub.addClient(pair.value.publicKey, "phone", 1);
+  const saved = await records.add(
+    {
+      key: pair.value,
+      hub: {
+        identity: hub.identity,
+        staticKey: hub.staticKey.publicKey,
+        client: client.id,
+        person: client.person,
+      },
+      lastSeq: 0,
+      reach: {
+        addresses: ["127.0.0.1"],
+        appsPort: 8444,
+        lastAddress: "127.0.0.1",
+        relayUrl: null,
+        homeName: "",
+      },
+    },
+    null,
+  );
+  assert(saved.ok, "stored link");
+  return client;
+}
+
+/** Gives the phone a version-two responder and a clock controlled by the test. */
+function scriptedPhone() {
+  const hub = new HubEnd();
+  hub.speaks = PHONE_PROTO;
+  const timers = manualTimers();
+  const deps: PhoneDeps = {
+    items: memorySecureItems(),
+    keys,
+    timers,
+    app: "0.1.0",
+    proto: PHONE_PROTO,
+    finder: NO_FINDER,
+    makeSocket: phoneSockets(new Map([["127.0.0.1", hub]])).make,
+  };
+  return { hub, deps, timers };
+}
+
+test.each([
+  { name: "rejects an invalid Disarm reply body", body: { disarmed: [] }, accepted: false },
+  {
+    name: "waits for id 1 after the companion pong reply",
+    body: { disarmed: [], heldBack: [], alarmEnded: false },
+    accepted: true,
+  },
+])("notification Disarm $name", async ({ body, accepted }) => {
+  const { hub, deps, timers } = scriptedPhone();
+  const { records } = startPhoneClient(deps);
+  await addScriptedLink(hub, records);
+  hub.handle("pong", () => {
+    // Its real encrypted pong reply is queued first, then the scripted first-request reply.
+    setTimeout(() => hub.emitFrame({ t: "res", id: 1, ok: true, body }), 0);
+    return { ok: true, body: {} };
+  });
+  const answer = await disarmFromNotification(hub.identity, timers.now() + 5000, records, deps);
+  expect(hub.seen.map(({ id, op }) => [id, op])).toEqual([[2, "pong"]]);
+  expect(answer).toBe(accepted);
+});
+
+test("a connection opened after the deadline is closed without sending a message", async () => {
+  const { hub, deps, timers } = scriptedPhone();
+  const { records } = startPhoneClient(deps);
+  await addScriptedLink(hub, records);
+  const opening = Promise.withResolvers<void>();
+  let sent = 0,
+    closed = 0;
+  const socket: SocketLike = {
+    binaryType: "arraybuffer",
+    readyState: 1,
+    onopen: null,
+    onmessage: null,
+    onerror: null,
+    onclose: null,
+    send: () => {
+      sent++;
+      socket.onclose?.({ code: 1000 });
+    },
+    close: () => {
+      closed++;
+      socket.onclose?.({ code: 1000 });
+    },
+  };
+  const answer = phoneFirst(
+    hub.identity,
+    timers.now() + 5,
+    records,
+    {
+      ...deps,
+      makeSocket: () => {
+        opening.resolve();
+        return socket;
+      },
+    },
+    { op: "disarm", body: { target: "mine" } },
+  );
+  await opening.promise;
+  timers.advance(6);
+  socket.onopen?.({});
+  expect(await answer).toEqual({ ok: false, fault: "unreachable" });
+  expect({ sent, closed }).toEqual({ sent: 0, closed: 1 });
+});
+
+test("a queued token sweep cannot register a replacement link", async () => {
+  const { hub, deps, timers } = scriptedPhone();
+  const fake = fakePush();
+  fake.token({ platform: "fcm", environment: "production", token: "local" });
+  const push = pushLifecycle(fake.storage, fake.tokens, timers);
+  const listed = Promise.withResolvers<void>(),
+    resume = Promise.withResolvers<void>(),
+    swept = Promise.withResolvers<void>();
+  const phone = startPhoneClient({
+    ...deps,
+    push: {
+      ...push,
+      start: async (list) => {
+        await push.start(async () => {
+          const homes = await list();
+          listed.resolve();
+          await resume.promise;
+          return homes;
+        });
+        swept.resolve();
+      },
+    },
+  });
+  const old = await addScriptedLink(hub, phone.records);
+  phone.client.start();
+  await listed.promise;
+  assert((await phone.records.remove(hub.identity)).ok);
+  hub.remove(old.id);
+  const replacement = await addScriptedLink(hub, phone.records);
+  expect(replacement.id).not.toBe(old.id);
+  hub.handle("pong", () => {
+    hub.emitFrame({ t: "res", id: 1, ok: true, body: { registered: true } });
+    return { ok: true, body: {} };
+  });
+  resume.resolve();
+  await swept.promise;
+  const saved = await phone.records.hub(hub.identity).read();
+  assert(saved.ok && saved.value);
+  expect(saved.value.lastSeq).toBe(0);
+  expect(hub.connections).toBe(0);
+  expect(fake.keys.get(hub.identity)?.active ?? null).toBeNull();
+  phone.client.stop();
+  push.stop();
+});

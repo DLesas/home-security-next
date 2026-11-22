@@ -784,7 +784,7 @@ export function arrivals(source: LinkSource): {
 }
 
 /** One authenticated change outside the UI channel, with its seq reserved in the shared vault. */
-async function phoneFirst(
+export async function phoneFirst(
   identity: string,
   deadline: number,
   records: PhoneRecords,
