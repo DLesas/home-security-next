@@ -8,16 +8,16 @@
 
 namespace hsn::esp {
 
-// The SX1262's command set and registers, as this driver uses them. Values marked (P) were read
-// from the SX1261/2 datasheet Rev 2.2 by docs/hardware-notes.md section 3, which names the section;
-// values marked ‡ are from memory of the same datasheet and Semtech's sx126x driver, and are to be
-// checked against the datasheet before the first board run (docs/spikes/M1b-platform-layer.md).
+// The SX1262's command set and registers, as this driver uses them. Every value marked (P) is from
+// the SX1261/2 datasheet Rev 2.2, at the section named beside it: some were read for
+// docs/hardware-notes.md section 3, and the rest, first written from memory of the datasheet and
+// Semtech's sx126x driver, were checked against it on 2026-11-27 and all matched.
 namespace sx1262 {
 
 namespace op {
 constexpr std::uint8_t set_sleep = 0x84;                   // (P) 13.1.1
-constexpr std::uint8_t set_standby = 0x80;                 // ‡
-constexpr std::uint8_t set_tx = 0x83;                      // ‡
+constexpr std::uint8_t set_standby = 0x80;                 // (P) 13.1.2
+constexpr std::uint8_t set_tx = 0x83;                      // (P) 13.1.4
 constexpr std::uint8_t set_rx = 0x82;                      // (P) 13.1.5
 constexpr std::uint8_t stop_timer_on_preamble = 0x9F;      // (P) 13.1.6
 constexpr std::uint8_t set_cad = 0xC5;                     // (P) 13.1.8
@@ -27,25 +27,25 @@ constexpr std::uint8_t set_dio3_as_tcxo_ctrl = 0x97;       // (P) 13.3.6
 constexpr std::uint8_t set_dio2_as_rf_switch_ctrl = 0x9D;  // (P) 13.3.5
 constexpr std::uint8_t get_rssi_inst = 0x15;               // (P) 13.5.4
 constexpr std::uint8_t get_packet_status = 0x14;           // (P) 13.5.3
-constexpr std::uint8_t set_packet_type = 0x8A;             // ‡
-constexpr std::uint8_t set_rf_frequency = 0x86;            // ‡
-constexpr std::uint8_t set_modulation_params = 0x8B;       // ‡
-constexpr std::uint8_t set_packet_params = 0x8C;           // ‡
-constexpr std::uint8_t set_dio_irq_params = 0x08;          // ‡
-constexpr std::uint8_t get_irq_status = 0x12;              // ‡
-constexpr std::uint8_t clear_irq_status = 0x02;            // ‡
-constexpr std::uint8_t get_rx_buffer_status = 0x13;        // ‡
-constexpr std::uint8_t set_buffer_base_address = 0x8F;     // ‡
-constexpr std::uint8_t write_buffer = 0x0E;                // ‡
-constexpr std::uint8_t read_buffer = 0x1E;                 // ‡
-constexpr std::uint8_t write_register = 0x0D;              // ‡
-constexpr std::uint8_t read_register = 0x1D;               // ‡
-constexpr std::uint8_t calibrate = 0x89;                   // ‡
-constexpr std::uint8_t calibrate_image = 0x98;             // ‡ (its arguments are (P), below)
-constexpr std::uint8_t set_regulator_mode = 0x96;          // ‡
-constexpr std::uint8_t set_pa_config = 0x95;               // ‡
-constexpr std::uint8_t set_tx_params = 0x8E;               // ‡
-constexpr std::uint8_t clear_device_errors = 0x07;         // ‡
+constexpr std::uint8_t set_packet_type = 0x8A;             // (P) 13.4.2
+constexpr std::uint8_t set_rf_frequency = 0x86;            // (P) 13.4.1
+constexpr std::uint8_t set_modulation_params = 0x8B;       // (P) 13.4.5.2
+constexpr std::uint8_t set_packet_params = 0x8C;           // (P) 13.4.6.2
+constexpr std::uint8_t set_dio_irq_params = 0x08;          // (P) 13.3.1
+constexpr std::uint8_t get_irq_status = 0x12;              // (P) 13.3.3
+constexpr std::uint8_t clear_irq_status = 0x02;            // (P) 13.3.4
+constexpr std::uint8_t get_rx_buffer_status = 0x13;        // (P) 13.5.2
+constexpr std::uint8_t set_buffer_base_address = 0x8F;     // (P) 13.4.8
+constexpr std::uint8_t write_buffer = 0x0E;                // (P) 13.2.3
+constexpr std::uint8_t read_buffer = 0x1E;                 // (P) 13.2.4
+constexpr std::uint8_t write_register = 0x0D;              // (P) 13.2.1
+constexpr std::uint8_t read_register = 0x1D;               // (P) 13.2.2
+constexpr std::uint8_t calibrate = 0x89;                   // (P) 13.1.12
+constexpr std::uint8_t calibrate_image = 0x98;             // (P) 13.1.13
+constexpr std::uint8_t set_regulator_mode = 0x96;          // (P) 13.1.11
+constexpr std::uint8_t set_pa_config = 0x95;               // (P) 13.1.14
+constexpr std::uint8_t set_tx_params = 0x8E;               // (P) 13.4.4
+constexpr std::uint8_t clear_device_errors = 0x07;         // (P) 13.6.2
 }  // namespace op
 
 namespace reg {
@@ -74,23 +74,23 @@ constexpr std::uint16_t used =
     tx_done | rx_done | header_valid | header_error | crc_error | cad_done | cad_detected | timeout;
 }  // namespace irq
 
-constexpr std::uint8_t kStandbyRc = 0x00;       // ‡
-constexpr std::uint8_t kPacketTypeLora = 0x01;  // ‡
-constexpr std::uint8_t kBandwidth125k = 0x04;   // ‡
-constexpr std::uint8_t kCodingRate45 = 0x01;    // ‡
+constexpr std::uint8_t kStandbyRc = 0x00;       // (P) 13.1.2
+constexpr std::uint8_t kPacketTypeLora = 0x01;  // (P) 13.4.2
+constexpr std::uint8_t kBandwidth125k = 0x04;   // (P) 13.4.5.2
+constexpr std::uint8_t kCodingRate45 = 0x01;    // (P) 13.4.5.2
 constexpr std::uint8_t kHeaderExplicit = 0x00;  // (P) Table 13-67
 constexpr std::uint8_t kCrcOn = 0x01;           // (P) Table 13-69
 constexpr std::uint8_t kIqNormal = 0x00;        // (P) Table 13-70
 constexpr std::uint8_t kSleepWarm = 0x04;       // (P) 13.1.1: bit 2 chooses a warm start
 constexpr std::uint8_t kSleepCold = 0x00;
-constexpr std::uint8_t kCalibrateAll = 0x7F;  // ‡
+constexpr std::uint8_t kCalibrateAll = 0x7F;  // (P) 13.1.12
 constexpr std::uint8_t kImage863Low = 0xD7;   // (P) Table 9-2: 863–870 MHz
 constexpr std::uint8_t kImage863High = 0xDB;
-constexpr std::uint8_t kRegulatorDcdc = 0x01;      // ‡
-constexpr std::uint8_t kRegulatorLdo = 0x00;       // ‡
-constexpr std::uint8_t kDeviceSx1262 = 0x00;       // ‡ SetPaConfig's deviceSel
-constexpr std::uint8_t kPaLut = 0x01;              // ‡
-constexpr std::uint8_t kRamp200us = 0x04;          // ‡
+constexpr std::uint8_t kRegulatorDcdc = 0x01;      // (P) 13.1.11
+constexpr std::uint8_t kRegulatorLdo = 0x00;       // (P) 13.1.11
+constexpr std::uint8_t kDeviceSx1262 = 0x00;       // (P) 13.1.14: SetPaConfig's deviceSel
+constexpr std::uint8_t kPaLut = 0x01;              // (P) 13.1.14
+constexpr std::uint8_t kRamp200us = 0x04;          // (P) 13.4.4
 constexpr std::uint32_t kRxContinuous = 0xFFFFFF;  // (P) 13.1.5
 /** Preamble symbols (protocol section 2). */
 constexpr std::uint16_t kPreambleSymbols = 8;
@@ -115,7 +115,7 @@ constexpr std::uint8_t cad_symbol_code(std::uint8_t symbols) {
   }
 }
 
-/** SetRfFrequency's argument: frequency × 2^25 / 32 MHz (the crystal) ‡. */
+/** SetRfFrequency's argument: frequency × 2^25 / 32 MHz (the crystal) (P, 13.4.1). */
 constexpr std::uint32_t frequency_steps(std::uint32_t hz) {
   return static_cast<std::uint32_t>((static_cast<std::uint64_t>(hz) << 25) / 32000000u);
 }

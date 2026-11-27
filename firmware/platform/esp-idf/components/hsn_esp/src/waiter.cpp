@@ -16,6 +16,15 @@ constexpr const char* kTag = "hsn.waiter";
 constexpr std::uint32_t kRestartGraceMs = 200;
 /** Closing the WebSocket and stopping Wi-Fi before a deep sleep ‡. */
 constexpr std::uint32_t kShutDownMs = 500;
+/**
+ * The least time between two level checks that service the radio (check_radio_level). A DIO1 stuck
+ * high with no flag set then costs one GetIrqStatus and ClearIrqStatus (a few tens of microseconds
+ * on the 2 MHz bus) and one wake of the main task every 10 ms, about 1 % of the time at most; the
+ * queue and the inputs are served between, and the Runner's slice (2 s) is met. The bound holds
+ * back only a check within 10 ms of the last one, which a real event rarely needs: HeaderValid and
+ * RxDone of one packet are its payload's airtime apart, about 30 ms at SF7 for the shortest packet.
+ */
+constexpr device::Duration kRadioLevelRetry = device::milliseconds(10);
 
 void on_alarm(void* queue) {
   Message message;
@@ -212,6 +221,31 @@ void EspWaiter::service_radio(device::Instant at) {
   for (std::size_t i = 0; i < made; ++i) {
     static_cast<void>(push(device::Event::from_radio(at, events[i])));
   }
+}
+
+bool EspWaiter::radio_level_high() const {
+  return radio_.operation_under_way() && gpio_get_level(dio1()) != 0;
+}
+
+bool EspWaiter::check_radio_level() {
+  // DIO1 is the OR of every flag routed to it and falls only when all are cleared (P, 13.3.4).
+  // service() clears the flags it read, so one raised between its GetIrqStatus and ClearIrqStatus
+  // (RxDone while a late HeaderValid is handled) leaves DIO1 high: no new edge, no interrupt. A
+  // rise whose message the full queue dropped looks the same. A message still queued or a deferred
+  // rise will service the radio with the interrupt's time, so the check leaves those alone. The
+  // level is read before the queue: a rise after the read posts its message and is taken next.
+  if (!radio_level_high() || radio_deferred_ || !queue_.empty()) {
+    return false;
+  }
+  // The event is stamped when the level is found, later than the moment it happened: only the
+  // edge interrupt's time is exact.
+  const device::Instant found = clock_.now();
+  if (found < radio_level_due_) {
+    return false;
+  }
+  radio_level_due_ = found + kRadioLevelRetry;
+  service_radio(found);
+  return true;
 }
 
 void EspWaiter::absorb(const Message& message) {
@@ -474,6 +508,11 @@ device::WaitResult EspWaiter::wait(const device::WaitRequest& request) {
       describe(result.event);
       return result;
     }
+    // Nothing to return: before blocking, a DIO1 already high is serviced; what it made is popped
+    // on the next turn.
+    if (check_radio_level()) {
+      continue;
+    }
     const auto platform_due = setup_due();
     const bool occupied = bluetooth_.active() || !platform_due.is_never();
     const auto until = occupied ? device::earliest(request.until, feed_due) : request.until;
@@ -486,10 +525,17 @@ device::WaitResult EspWaiter::wait(const device::WaitRequest& request) {
       deep_sleep(request);
       continue;
     }
-    const device::Instant deadline =
+    device::Instant deadline =
         device::earliest(device::earliest(until, platform_due),
                          device::earliest(inputs_.next_deadline(), indicators_.next_step()));
-    if (request.depth == device::SleepDepth::light && light_sleep_allowed()) {
+    // DIO1 still high after the check (held back by kRadioLevelRetry, or a message or a deferred
+    // rise to come): awake, with the next check in the deadline. A light sleep's level wake would
+    // end it at once and its own check would service the radio without the bound.
+    const bool level_high = radio_level_high();
+    if (level_high && radio_level_due_ > now) {
+      deadline = device::earliest(deadline, radio_level_due_);
+    }
+    if (request.depth == device::SleepDepth::light && light_sleep_allowed() && !level_high) {
       light_sleep(deadline);
     } else {
       block_until(deadline);

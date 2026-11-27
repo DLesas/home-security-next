@@ -50,6 +50,9 @@ public:
   /** Takes the oldest message, waiting at most `wait_ms` (0: none, UINT32_MAX: for ever). */
   bool take(Message& out, std::uint32_t wait_ms);
 
+  /** True when no message is waiting. From a task. */
+  bool empty() const;
+
   /** Messages dropped because the queue was full, since start. */
   std::uint32_t dropped() const {
     return dropped_;

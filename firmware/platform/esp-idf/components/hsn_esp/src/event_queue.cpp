@@ -41,4 +41,8 @@ bool EventQueue::take(Message& out, std::uint32_t wait_ms) {
   return xQueueReceive(static_cast<QueueHandle_t>(queue_), &out, ticks) == pdTRUE;
 }
 
+bool EventQueue::empty() const {
+  return uxQueueMessagesWaiting(static_cast<QueueHandle_t>(queue_)) == 0;
+}
+
 }  // namespace hsn::esp

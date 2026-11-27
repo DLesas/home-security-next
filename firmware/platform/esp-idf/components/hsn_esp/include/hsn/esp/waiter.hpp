@@ -32,7 +32,9 @@ constexpr std::uint16_t queue_overflow = 0x4002;
  * loop and never by the core. It returns one event, or nothing when `until` comes.
  *
  * - Awake (siren, gateway, a sensor on USB power): blocks on the event queue with an esp_timer
- *   alarm at the deadline, so a deadline is met to the timer, not to a tick.
+ *   alarm at the deadline, so a deadline is met to the timer, not to a tick. Before it blocks, a
+ *   DIO1 already high during an operation, with nothing queued or deferred to service it, is
+ *   serviced (check_radio_level), at most once in 10 ms; while it stays high the wait is awake.
  * - Light sleep (a sensor on its cell): esp_light_sleep_start with the timer at the deadline and a
  *   level wake on DIO1 (high) and on each input (the level it does not have). Not taken while
  *   external power is present (the USB serial port stops in light sleep), while the network link
@@ -103,6 +105,13 @@ private:
   void absorb(const Message& message);
   void drain();
   void service_radio(device::Instant at);
+  /** True while an operation is under way and DIO1 reads high. */
+  bool radio_level_high() const;
+  /**
+   * The level check: services the radio when DIO1 is high and nothing queued or deferred will. True
+   * when it did.
+   */
+  bool check_radio_level();
   void settle_inputs(device::Instant now);
   void release_delivered();
   void log_losses(device::Instant now);
@@ -142,6 +151,8 @@ private:
   /** A DIO1 rise not yet serviced, kept while an earlier radio event waits to be returned. */
   bool radio_deferred_ = false;
   device::Instant radio_deferred_at_;
+  /** The earliest the next level check may service the radio (kRadioLevelRetry after the last). */
+  device::Instant radio_level_due_;
   std::uint32_t usb_dropped_ = 0;
   std::uint32_t network_dropped_ = 0;
   std::uint32_t bluetooth_dropped_ = 0;

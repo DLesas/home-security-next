@@ -19,7 +19,14 @@ constexpr const char* kTag = "hsn.sx1262";
 constexpr spi_host_device_t kHost = SPI2_HOST;
 /** SX1262 command chunks, unchanged with DMA enabled for the panel. */
 constexpr std::size_t kChunk = 64;
-/** BUSY after an ordinary command: well under a millisecond ‡; 10 ms marks a fault. */
+/**
+ * BUSY after a command; 10 ms marks a fault. Most commands free it in well under a millisecond, but
+ * with the TCXO driven from DIO3 the chip waits the programmed start delay (kBoard.tcxo_start_us,
+ * 5 ms on this board) every time it leaves STDBY_RC for TX, RX or a channel check (P, 13.3.6, the
+ * note at its end), with 126 µs or 83 µs on top (P, Table 8-2): BUSY stays high about 5.1 ms after
+ * SetTx, SetRx and SetCAD. The 10 ms bound therefore leaves no room for a TCXO start time near
+ * 10 ms. To be measured on the bench before it changes.
+ */
 constexpr std::int64_t kBusyUs = 10000;
 /** BUSY after a reset or a cold wake: 3.5 ms (P, Table 8-2), with room. */
 constexpr std::int64_t kStartUs = 20000;
